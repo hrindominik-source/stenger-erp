@@ -1,0 +1,31 @@
+Predmet: Aktualizácia evidencie tovaru - žiadosť o zoznam artiklov
+
+Dobrý deň,
+
+v rámci zlepšenia našej internej evidencie by sme radi zosúladili názvy a číslovanie
+tovaru, ktorý nám dodávate, s vaším systémom - aby sme pri objednávaní aj preberaní
+tovaru používali presne rovnaké označenia ako vy na vašich dodacích listoch.
+
+Prosíme vás preto o export/zoznam všetkých položiek, ktoré nám aktuálne dodávate,
+v tabuľkovej forme (Excel alebo CSV), s týmito údajmi pre každú položku:
+
+1. Vaše článkové číslo / kód položky (ak máte aj EAN/čiarový kód, uveďte prosím aj ten)
+2. Presný názov položky tak, ako je uvedený na vašich dodacích listoch
+3. Merná jednotka (kg, ks, l a pod.)
+4. Baliaca štruktúra:
+   - koľko kusov/kg je v jednom vreci, kartóne alebo inom základnom balení
+   - koľko týchto balení je na jednej palete
+   - hmotnosť/hrubá hmotnosť plnej palety (ak viete uviesť)
+
+Ak niektoré položky balíte/expedujete rôznymi spôsobmi (napr. rôzne veľkosti vriec pre
+ten istý tovar), uveďte ich prosím ako samostatné riadky.
+
+Uprednostňujeme tabuľkový export priamo z vášho systému pred ručne písaným zoznamom -
+predídeme tak preklepom pri prepisovaní.
+
+Vopred ďakujeme za spoluprácu a v prípade otázok nás, prosím, neváhajte kontaktovať.
+
+S pozdravom,
+[Vaše meno]
+[Stenger Czech]
+[kontakt / telefón / e-mail]
