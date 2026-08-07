@@ -5,7 +5,8 @@ import {
   Clipboard, CheckCircle2, Building2, Users, Loader2, AlertCircle,
   ClipboardList, ArrowLeft, Download, Layers, FileSignature, Printer, Package,
   LogOut, PackageCheck, PackageX, Euro, Factory, Boxes, PackagePlus, Camera,
-  LayoutDashboard, Warehouse, MinusCircle, FlaskConical, ClipboardCheck, UserCheck, Menu, Mail, Calendar, FileSpreadsheet
+  LayoutDashboard, Warehouse, MinusCircle, FlaskConical, ClipboardCheck, UserCheck, Menu, Mail, Calendar, FileSpreadsheet,
+  Recycle, Calculator, Image, Construction, BookOpen
 } from "lucide-react";
 import { supabase } from "./supabaseClient.js";
 import { useAuth } from "./lib/auth.js";
@@ -453,10 +454,12 @@ export default function MiniERP() {
       </Suspense>
     );
   }
-  return <OfficeApp userFullName={profile?.full_name || ""} onSignOut={signOut} />;
+  return <OfficeApp userFullName={profile?.full_name || ""} userEmail={session?.user?.email || ""} onSignOut={signOut} />;
 }
 
-function OfficeApp({ userFullName, onSignOut }) {
+const CENOTVORBA_ALLOWED_EMAILS = ["dh@stenger.eu"];
+
+function OfficeApp({ userFullName, userEmail, onSignOut }) {
   const [view, setView] = useState("dashboard"); // dashboard | register | carriers | customers | company | ...
   const [orders, setOrders] = useState([]);
   const [carriers, setCarriers] = useState([]);
@@ -1113,7 +1116,7 @@ function OfficeApp({ userFullName, onSignOut }) {
   return (
     <div className="min-h-screen bg-slate-50 text-slate-900" style={{ fontFamily: "system-ui, -apple-system, Segoe UI, sans-serif" }}>
       <PrintStyles />
-      <Header view={view} setView={setView} company={company} userFullName={userFullName} onSignOut={onSignOut} />
+      <Header view={view} setView={setView} company={company} userFullName={userFullName} userEmail={userEmail} onSignOut={onSignOut} />
       {toast && (
         <div className="fixed top-4 right-4 z-[60] bg-emerald-600 text-white text-sm font-medium px-4 py-2.5 rounded-md shadow-lg flex items-center gap-2">
           <CheckCircle2 size={16} /> {toast}
@@ -1197,6 +1200,19 @@ function OfficeApp({ userFullName, onSignOut }) {
         {view === "suppliers" && (
           <SuppliersView suppliers={suppliers} onSave={persistSuppliers} onEdit={(s) => setEditingSupplier(s)} />
         )}
+        {view === "ekokom" && <PlaceholderView title="EKO-KOM" />}
+        {view === "cenotvorba" && (
+          CENOTVORBA_ALLOWED_EMAILS.includes(userEmail)
+            ? <PlaceholderView title="Cenotvorba" />
+            : (
+              <div className="bg-white border border-slate-200 rounded-lg p-10 text-center text-slate-500">
+                <AlertCircle size={28} className="mx-auto mb-3 text-slate-300" />
+                Nemate opravnenie zobrazit tuto sekciu.
+              </div>
+            )
+        )}
+        {view === "designs" && <PlaceholderView title="Dizajny a fotky" />}
+        {view === "navody" && <PlaceholderView title="Navody" />}
         {view === "materials" && (
           <MaterialOrdersView
             materialOrders={materialOrders}
@@ -1590,13 +1606,30 @@ const HEADER_MENU_ITEMS = [
   { icon: <Building2 size={16} />, label: "Nastavenia firmy", v: "company" },
   { icon: <Euro size={16} />, label: "Cennik doprav", v: "pricelist" },
   { icon: <Factory size={16} />, label: "Dodavatelia", v: "suppliers" },
+  { icon: <Recycle size={16} />, label: "EKO-KOM", v: "ekokom" },
+  { icon: <Calculator size={16} />, label: "Cenotvorba", v: "cenotvorba" },
+  { icon: <Image size={16} />, label: "Dizajny a fotky", v: "designs" },
+  { icon: <BookOpen size={16} />, label: "Navody", v: "navody" },
   { icon: <FlaskConical size={16} />, label: "Produkty", v: "products" },
   { icon: <UserCheck size={16} />, label: "Pracovnici", v: "workers" },
 ];
 
-function Header({ view, setView, company, userFullName, onSignOut }) {
+function PlaceholderView({ title }) {
+  return (
+    <div>
+      <h1 className="text-xl font-semibold mb-4">{title}</h1>
+      <div className="bg-white border border-slate-200 rounded-lg p-10 text-center text-slate-500">
+        <Construction size={28} className="mx-auto mb-3 text-slate-300" />
+        Tato sekcia sa pripravuje - obsah doplnime neskor.
+      </div>
+    </div>
+  );
+}
+
+function Header({ view, setView, company, userFullName, userEmail, onSignOut }) {
   const [menuOpen, setMenuOpen] = useState(false);
-  const inMenu = HEADER_MENU_ITEMS.some((item) => item.v === view);
+  const menuItems = HEADER_MENU_ITEMS.filter((item) => item.v !== "cenotvorba" || CENOTVORBA_ALLOWED_EMAILS.includes(userEmail));
+  const inMenu = menuItems.some((item) => item.v === view);
 
   return (
     <header className="bg-slate-900 text-white">
@@ -1632,7 +1665,7 @@ function Header({ view, setView, company, userFullName, onSignOut }) {
             <>
               <div className="fixed inset-0 z-40" onClick={() => setMenuOpen(false)} />
               <div className="absolute top-full right-0 mt-2 bg-white text-slate-900 rounded-md shadow-lg border border-slate-200 py-1.5 w-56 z-50">
-                {HEADER_MENU_ITEMS.map((item) => (
+                {menuItems.map((item) => (
                   <button
                     key={item.v}
                     onClick={() => { setView(item.v); setMenuOpen(false); }}
