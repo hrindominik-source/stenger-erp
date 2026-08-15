@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback, useRef } from "react";
-import { LogOut, Loader2, AlertCircle, PackageCheck, PackageX, Check, TriangleAlert, XCircle, Trash2, CheckCircle2, Camera, X, ChevronRight, Truck, PackagePlus, Warehouse } from "lucide-react";
+import { LogOut, Loader2, AlertCircle, PackageCheck, PackageX, Check, TriangleAlert, XCircle, Trash2, CheckCircle2, Camera, X, ChevronRight, Truck, PackagePlus, Warehouse, LayoutDashboard } from "lucide-react";
 import { supabase } from "./supabaseClient.js";
-import { extractCityFromAddress, todayStr, nowTimeStr, formatDateTime, uid } from "./lib/utils.js";
+import { extractCityFromAddress, todayStr, nowTimeStr, formatDateTime, uid, parseSkDate } from "./lib/utils.js";
 import { computeStockLevels, computeFinishedGoodsStock, wouldExceed, extraKnownMaterials, UNIT_QUICK_PICKS } from "./lib/inventory.js";
 
 const POLL_MS = 4000;
@@ -53,7 +53,7 @@ async function uploadExpediciaPhoto(orderId, formId, file) {
 }
 
 export default function SkladView({ fullName, onSignOut }) {
-  const [tab, setTab] = useState("expedicia");
+  const [tab, setTab] = useState("prehlad");
   const [skladWorkers, setSkladWorkers] = useState([]);
   const [pracovnik, setPracovnik] = useState("");
 
@@ -95,6 +95,7 @@ export default function SkladView({ fullName, onSignOut }) {
         </div>
         <div className="max-w-4xl mx-auto px-4 pb-4">
           <nav className="flex items-stretch gap-2 mt-1 bg-white/5 backdrop-blur-sm border border-white/10 rounded-2xl p-2 shadow-inner">
+            <SkladTabButton active={tab === "prehlad"} onClick={() => setTab("prehlad")} color="prehlad" icon={<LayoutDashboard size={20} />} label="Prehlad" />
             <SkladTabButton active={tab === "expedicia"} onClick={() => setTab("expedicia")} color="expedicia" icon={<Truck size={20} />} label="Expedicia" />
             <SkladTabButton active={tab === "prijem"} onClick={() => setTab("prijem")} color="prijem" icon={<PackagePlus size={20} />} label="Prijem tovaru" />
             <SkladTabButton active={tab === "zasoby"} onClick={() => setTab("zasoby")} color="zasoby" icon={<Warehouse size={20} />} label="Zasoby" />
@@ -122,7 +123,7 @@ export default function SkladView({ fullName, onSignOut }) {
       )}
 
       <main className="max-w-4xl mx-auto px-4 py-6">
-        {tab === "expedicia" ? <ExpediciaTab fullName={activeMeno} /> : tab === "prijem" ? <PrijemTab fullName={pracovnik} /> : <ZasobyTab fullName={activeMeno} />}
+        {tab === "prehlad" ? <PrehladTab /> : tab === "expedicia" ? <ExpediciaTab fullName={activeMeno} /> : tab === "prijem" ? <PrijemTab fullName={pracovnik} /> : <ZasobyTab fullName={activeMeno} />}
       </main>
     </div>
   );
@@ -131,6 +132,7 @@ export default function SkladView({ fullName, onSignOut }) {
 /* ---------------- Expedicia ---------------- */
 
 const SKLAD_TAB_COLORS = {
+  prehlad: { badge: "from-teal-400 to-teal-600", shadow: "shadow-teal-500/40" },
   expedicia: { badge: "from-blue-400 to-blue-600", shadow: "shadow-blue-500/40" },
   prijem: { badge: "from-emerald-400 to-emerald-600", shadow: "shadow-emerald-500/40" },
   zasoby: { badge: "from-violet-400 to-violet-600", shadow: "shadow-violet-500/40" },
@@ -155,6 +157,113 @@ function SkladTabButton({ active, onClick, color, icon, label }) {
     </button>
   );
 }
+
+/* ---------------- Prehlad ---------------- */
+
+function PrehladTab() {
+  const [orders, setOrders] = useState([]);
+  const [plan, setPlan] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
+  const pollRef = useRef(null);
+
+  const fetchAll = useCallback(async () => {
+    const [ordersRes, planRes] = await Promise.all([
+      supabase.rpc("get_orders_for_sklad"),
+      supabase.from("production_plan").select("*"),
+    ]);
+    if (ordersRes.error || planRes.error) {
+      setError("Nepodarilo sa nacitat data.");
+      return;
+    }
+    setError("");
+    setOrders(ordersRes.data || []);
+    setPlan((planRes.data || []).map((row) => row.data));
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      await fetchAll();
+      if (!cancelled) setLoading(false);
+    })();
+    pollRef.current = setInterval(fetchAll, POLL_MS);
+    return () => {
+      cancelled = true;
+      clearInterval(pollRef.current);
+    };
+  }, [fetchAll]);
+
+  if (loading) {
+    return (
+      <div className="text-center text-slate-400 py-10">
+        <Loader2 className="animate-spin mx-auto mb-2" size={24} /> Nacitavam...
+      </div>
+    );
+  }
+
+  const pending = orders.filter((o) => o.stav_expedicie !== "Expedovana");
+  const sortedPlan = plan
+    .slice()
+    .sort((a, b) => (parseSkDate(a.datum) || 0) - (parseSkDate(b.datum) || 0));
+
+  return (
+    <div>
+      {error && <div className="mb-3 bg-red-50 text-red-700 text-sm px-3 py-2.5 rounded-md flex items-center gap-2"><AlertCircle size={16} /> {error}</div>}
+
+      <div className="grid grid-cols-2 gap-3 mb-6">
+        <div className="bg-white border border-slate-200 rounded-xl p-4">
+          <div className="text-xs font-medium text-slate-500 mb-1">Caka na expediciu</div>
+          <div className="text-3xl font-bold text-amber-600">{pending.length}</div>
+        </div>
+        <div className="bg-white border border-slate-200 rounded-xl p-4">
+          <div className="text-xs font-medium text-slate-500 mb-1">Polozky vo vyrobnom plane</div>
+          <div className="text-3xl font-bold text-teal-700">{plan.length}</div>
+        </div>
+      </div>
+
+      <div className="mb-6">
+        <h2 className="text-sm font-semibold text-slate-500 mb-2">Vyrobny plan</h2>
+        {sortedPlan.length === 0 ? (
+          <div className="bg-white border border-slate-200 rounded-lg p-6 text-center text-slate-400 text-sm">Ziadne polozky vo vyrobnom plane.</div>
+        ) : (
+          <div className="bg-white border border-slate-200 rounded-lg overflow-hidden">
+            {sortedPlan.map((r) => (
+              <div key={r.id} className="px-4 py-2.5 border-t border-slate-100 first:border-t-0 flex items-center justify-between gap-3">
+                <div className="min-w-0">
+                  <div className="font-medium text-sm truncate">{r.produktNazov}</div>
+                  <div className="text-xs text-slate-400">{r.mnozstvo} {r.mnozstvoJednotka === "kartonov" ? "kartonov" : "paliet"}{r.poznamka ? " - " + r.poznamka : ""}</div>
+                </div>
+                <div className="text-sm text-slate-600 whitespace-nowrap">{r.datum}</div>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+
+      <div>
+        <h2 className="text-sm font-semibold text-slate-500 mb-2">Expedicie - caka na vybavenie</h2>
+        {pending.length === 0 ? (
+          <div className="bg-white border border-slate-200 rounded-lg p-6 text-center text-slate-400 text-sm">Vsetko vybavene.</div>
+        ) : (
+          <div className="bg-white border border-slate-200 rounded-lg overflow-hidden">
+            {pending.map((o) => (
+              <div key={o.id} className="px-4 py-2.5 border-t border-slate-100 first:border-t-0 flex items-center justify-between gap-3">
+                <div className="min-w-0">
+                  <div className="font-medium text-sm truncate">{o.zakaznik || "-"}</div>
+                  <div className="text-xs text-slate-400 truncate">{o.adresa_dodania_nazov}</div>
+                </div>
+                <div className="text-xs text-slate-500 whitespace-nowrap">{o.cislo_objednavky_dopravy}</div>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+/* ---------------- Expedicia ---------------- */
 
 function ExpediciaTab({ fullName }) {
   const [orders, setOrders] = useState([]);
