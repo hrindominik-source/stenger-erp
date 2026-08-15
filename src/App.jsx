@@ -565,6 +565,7 @@ function OfficeApp({ userFullName, userEmail, onSignOut }) {
   const [prestavky, setPrestavky] = useState([]);
   const [workers, setWorkers] = useState([]);
   const [ulohy, setUlohy] = useState([]);
+  const [expedicniaZaznamy, setExpedicniaZaznamy] = useState([]);
   const [ready, setReady] = useState(false);
   const [loadError, setLoadError] = useState("");
 
@@ -611,7 +612,7 @@ function OfficeApp({ userFullName, userEmail, onSignOut }) {
   useEffect(() => {
     (async () => {
       try {
-        const [ordersRes, carriersRes, customersRes, companyRes, pricelistRes, suppliersRes, materialOrdersRes, pricelistArchiveRes, goodsReceiptsRes, stockIssuesRes, productsRes, productionPlanRes, productionOutputsRes, prestavkyRes, workersRes, ulohyRes] = await Promise.all([
+        const [ordersRes, carriersRes, customersRes, companyRes, pricelistRes, suppliersRes, materialOrdersRes, pricelistArchiveRes, goodsReceiptsRes, stockIssuesRes, productsRes, productionPlanRes, productionOutputsRes, prestavkyRes, workersRes, ulohyRes, expedicniaZaznamyRes] = await Promise.all([
           supabase.from("orders").select("*").order("created_at", { ascending: false }),
           supabase.from("carriers").select("*"),
           supabase.from("customers").select("*"),
@@ -628,6 +629,7 @@ function OfficeApp({ userFullName, userEmail, onSignOut }) {
           supabase.from("prestavky").select("*").order("created_at", { ascending: false }),
           supabase.from("workers").select("*"),
           supabase.from("ulohy").select("*").order("created_at", { ascending: false }),
+          supabase.from("expedicia_zaznamy").select("*").order("created_at", { ascending: false }),
         ]);
         if (ordersRes.error || carriersRes.error || customersRes.error || companyRes.error) {
           setLoadError("Nepodarilo sa nacitat ulozene data.");
@@ -658,6 +660,7 @@ function OfficeApp({ userFullName, userEmail, onSignOut }) {
           if (!prestavkyRes.error) setPrestavky((prestavkyRes.data || []).map((row) => row.data));
           if (!workersRes.error) setWorkers((workersRes.data || []).map((row) => row.data));
           if (!ulohyRes.error) setUlohy((ulohyRes.data || []).map((row) => row.data));
+          if (!expedicniaZaznamyRes.error) setExpedicniaZaznamy((expedicniaZaznamyRes.data || []).map((row) => ({ ...row.data, orderId: row.order_id })));
         }
       } catch (e) {
         setLoadError("Nepodarilo sa nacitat ulozene data.");
@@ -1296,6 +1299,7 @@ function OfficeApp({ userFullName, userEmail, onSignOut }) {
             carriers={carriers}
             customers={customers}
             company={company}
+            expedicniaZaznamy={expedicniaZaznamy}
             onNew={() => setShowNewOrder(true)}
             onOpenTransport={(o) => setTransportOrder(o)}
             onOpenDelivery={(o) => setDeliveryOrder(o)}
@@ -2114,8 +2118,39 @@ function TabButton({ icon, label, active, onClick }) {
 
 /* ---------------- Register ---------------- */
 
-function RegisterView({ orders, carriers, customers, onNew, onOpenTransport, onOpenDelivery, onOpenPallet, onOpenCmr, onOpenNve, onEdit, onDelete, onExport, onToggleExpedicia }) {
+function RegisterView({ orders, carriers, customers, expedicniaZaznamy, onNew, onOpenTransport, onOpenDelivery, onOpenPallet, onOpenCmr, onOpenNve, onEdit, onDelete, onExport, onToggleExpedicia }) {
   const [confirmDelete, setConfirmDelete] = useState(null);
+
+  const batchZaznamy = (expedicniaZaznamy || []).filter((z) => z.typ !== "doprava" && z.typ !== "celkova");
+
+  async function exportExpediciaToExcel() {
+    const dopravaByOrder = new Map();
+    (expedicniaZaznamy || []).filter((z) => z.typ === "doprava").forEach((z) => { dopravaByOrder.set(z.orderId, z); });
+    const rows = batchZaznamy
+      .slice()
+      .sort((a, b) => (parseSkDate(a.datum) || 0) - (parseSkDate(b.datum) || 0))
+      .map((z) => {
+        const order = orders.find((o) => o.id === z.orderId) || {};
+        const doprava = dopravaByOrder.get(z.orderId) || {};
+        return {
+          "Cislo objednavky": order.cisloObjednavky || "",
+          "Zakaznik": order.zakaznik || "",
+          "Produkt": z.produktNazov || "",
+          "Sarza": z.sarza || "",
+          "Pocet paliet": z.pocetPaliet ?? "",
+          "Pocet kartonov": z.pocetKartonov ?? "",
+          "Nazov miesta dodania": order.adresaDodaniaNazov || "",
+          "Adresa dodania": order.adresaDodania || "",
+          "Mesto": extractCityFromAddress(order.adresaDodania) || "",
+          "Dopravca": doprava.dopravca || "",
+          "Vodic": doprava.vodic || "",
+          "Datum nalozenia": z.datum || "",
+          "Datum dodania": order.datumDodania || "",
+        };
+      });
+    await exportRowsToExcel(rows, "Expedicia - sarze", "Expedicia_sarze", 16);
+  }
+
   return (
     <div>
       <div className="flex items-center justify-between mb-4">
@@ -2123,6 +2158,9 @@ function RegisterView({ orders, carriers, customers, onNew, onOpenTransport, onO
         <div className="flex gap-2">
           <button onClick={onExport} disabled={orders.length === 0} title={orders.length === 0 ? "Register je prazdny" : "Exportovat register do Excelu"} className="flex items-center gap-1.5 bg-white border border-slate-200 hover:bg-slate-50 disabled:opacity-50 disabled:cursor-not-allowed text-slate-700 text-sm font-medium px-3 py-2 rounded-md">
             <Download size={16} /> Export do Excelu
+          </button>
+          <button onClick={exportExpediciaToExcel} disabled={batchZaznamy.length === 0} title={batchZaznamy.length === 0 ? "Zatial ziadne nalozene davky" : "Exportovat nalozene davky (sarze) do Excelu"} className="flex items-center gap-1.5 bg-white border border-slate-200 hover:bg-slate-50 disabled:opacity-50 disabled:cursor-not-allowed text-slate-700 text-sm font-medium px-3 py-2 rounded-md">
+            <Download size={16} /> Export expedicie (sarze)
           </button>
           <button onClick={onNew} className="flex items-center gap-1.5 bg-teal-700 hover:bg-teal-800 text-white text-sm font-medium px-3 py-2 rounded-md">
             <Plus size={16} /> Nova objednavka
