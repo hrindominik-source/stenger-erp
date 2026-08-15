@@ -247,11 +247,11 @@ const PRODUCTION_LINKY = [
   { value: "kyble", label: "Kyble" },
   { value: "bulk", label: "Bulk" },
 ];
-const VYROBA_STATUS_LABELS = { caka: "Caka", prebieha: "Prebieha", hotovo: "Hotovo" };
+const VYROBA_STATUS_LABELS = { caka: "Caka", prebieha: "Prebieha", hotovo: "Ukoncene" };
 const STATUS_VYROBY = {
   "Caka": "bg-slate-100 text-slate-700",
   "Prebieha": "bg-blue-100 text-blue-700",
-  "Hotovo": "bg-emerald-100 text-emerald-700",
+  "Ukoncene": "bg-emerald-100 text-emerald-700",
 };
 const EMPTY_PRODUCT = {
   znacka: "",

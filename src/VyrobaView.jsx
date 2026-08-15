@@ -13,7 +13,7 @@ const PRODUCTION_LINKY = [
 const VYROBA_STATUS_OPTIONS = [
   { value: "caka", label: "Caka" },
   { value: "prebieha", label: "Prebieha" },
-  { value: "hotovo", label: "Hotovo" },
+  { value: "hotovo", label: "Ukoncene" },
 ];
 const VYROBA_TAB_COLORS = {
   prehlad: { badge: "from-teal-400 to-teal-600", shadow: "shadow-teal-500/40" },

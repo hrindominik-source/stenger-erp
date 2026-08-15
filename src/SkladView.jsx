@@ -230,7 +230,7 @@ function PrehladTab() {
           <div className="bg-white border border-slate-200 rounded-lg overflow-hidden">
             {sortedPlan.map((r) => {
               const stav = r.stavVyroby || "caka";
-              const stavLabel = stav === "hotovo" ? "Hotovo" : stav === "prebieha" ? "Prebieha" : "Caka";
+              const stavLabel = stav === "hotovo" ? "Ukoncene" : stav === "prebieha" ? "Prebieha" : "Caka";
               const stavClass = stav === "hotovo" ? "bg-emerald-100 text-emerald-700" : stav === "prebieha" ? "bg-blue-100 text-blue-700" : "bg-slate-100 text-slate-700";
               return (
                 <div key={r.id} className="px-4 py-2.5 border-t border-slate-100 first:border-t-0 flex items-center justify-between gap-3">
