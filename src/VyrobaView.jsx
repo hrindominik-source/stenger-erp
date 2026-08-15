@@ -545,6 +545,18 @@ function PrestavkyTab() {
     return prestavky.find((p) => p.meno === meno && !p.casKonca);
   }
 
+  async function deleteBreak(id) {
+    if (!window.confirm("Naozaj zmazat tento zaznam prestavky? (napr. omylom tuknute meno)")) return;
+    setError("");
+    try {
+      const { error: delErr } = await supabase.from("prestavky").delete().eq("id", id);
+      if (delErr) throw delErr;
+      await fetchAll();
+    } catch (e) {
+      setError("Zmazanie zlyhalo, skuste znova.");
+    }
+  }
+
   async function toggleBreak(meno) {
     setBusyMeno(meno);
     setError("");
@@ -617,9 +629,14 @@ function PrestavkyTab() {
           <h2 className="text-sm font-semibold text-slate-500 mb-2">Prave na prestavke</h2>
           <div className="bg-amber-50 border border-amber-200 rounded-lg overflow-hidden">
             {active.map((p) => (
-              <div key={p.id} className="px-4 py-2.5 border-t border-amber-100 first:border-t-0 flex items-center justify-between">
+              <div key={p.id} className="px-4 py-2.5 border-t border-amber-100 first:border-t-0 flex items-center justify-between gap-2">
                 <div className="font-medium text-sm">{p.meno}</div>
-                <div className="text-sm text-amber-700">od {p.casZaciatku}</div>
+                <div className="flex items-center gap-2">
+                  <div className="text-sm text-amber-700">od {p.casZaciatku}</div>
+                  <button onClick={() => deleteBreak(p.id)} title="Zrusit (omylom tuknute)" className="text-amber-700 hover:text-red-600 p-1">
+                    <X size={16} />
+                  </button>
+                </div>
               </div>
             ))}
           </div>
@@ -635,11 +652,16 @@ function PrestavkyTab() {
             {todayPrestavky.map((p) => {
               const mins = durationMinutes(p.casZaciatku, p.casKonca);
               return (
-                <div key={p.id} className="px-4 py-2.5 border-t border-slate-100 first:border-t-0 flex items-center justify-between">
+                <div key={p.id} className="px-4 py-2.5 border-t border-slate-100 first:border-t-0 flex items-center justify-between gap-2">
                   <div className="font-medium text-sm">{p.meno}</div>
-                  <div className="text-sm text-slate-500">
-                    {p.casZaciatku} - {p.casKonca || <span className="text-amber-600 font-medium">prebieha</span>}
-                    {mins !== null && <span className="text-slate-400"> ({mins} min)</span>}
+                  <div className="flex items-center gap-2">
+                    <div className="text-sm text-slate-500">
+                      {p.casZaciatku} - {p.casKonca || <span className="text-amber-600 font-medium">prebieha</span>}
+                      {mins !== null && <span className="text-slate-400"> ({mins} min)</span>}
+                    </div>
+                    <button onClick={() => deleteBreak(p.id)} title="Zmazat zaznam" className="text-slate-400 hover:text-red-600 p-1">
+                      <X size={16} />
+                    </button>
                   </div>
                 </div>
               );
