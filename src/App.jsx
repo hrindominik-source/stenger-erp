@@ -422,31 +422,49 @@ Ak sa polozka z katalogu v objednavke nenachadza, nezaraduj ju do zoznamu. Ak ne
 
 const APP_CHOICE_KEY = "stenger_app_choice";
 
+const APP_LAUNCHER_CARDS = [
+  {
+    key: "erp",
+    label: "ERP",
+    desc: "Objednavky, sklad, vyroba, dodavatelia",
+    icon: <LayoutDashboard size={30} />,
+    badge: "from-teal-400 to-teal-600",
+    shadow: "shadow-teal-500/40",
+    ring: "hover:border-teal-300",
+  },
+  {
+    key: "planovanie",
+    label: "Plan zmien",
+    desc: "Planovanie smien vo vyrobe",
+    icon: <CalendarClock size={30} />,
+    badge: "from-amber-400 to-amber-600",
+    shadow: "shadow-amber-500/40",
+    ring: "hover:border-amber-300",
+  },
+];
+
 function AppLauncher({ onChoose }) {
   return (
-    <div className="min-h-screen bg-slate-50 flex items-center justify-center px-4" style={{ fontFamily: "system-ui, -apple-system, Segoe UI, sans-serif" }}>
+    <div className="min-h-screen bg-gradient-to-b from-slate-50 via-slate-50 to-slate-100 flex items-center justify-center px-4" style={{ fontFamily: "system-ui, -apple-system, Segoe UI, sans-serif" }}>
       <div className="w-full max-w-2xl">
-        <div className="text-center mb-8">
+        <div className="text-center mb-10">
           <img src="/stenger-logo.png" alt="Stenger" className="h-16 w-auto mx-auto mb-3" />
           <div className="text-xs tracking-wider text-slate-400">Stenger Czech s.r.o.</div>
         </div>
-        <div className="grid sm:grid-cols-2 gap-5">
-          <button
-            onClick={() => onChoose("erp")}
-            className="bg-white border border-slate-200 rounded-xl p-8 text-center hover:border-teal-600 hover:shadow-md transition"
-          >
-            <LayoutDashboard size={36} className="mx-auto mb-3 text-teal-700" />
-            <div className="text-lg font-semibold text-slate-900">ERP</div>
-            <div className="text-sm text-slate-500 mt-1">Objednavky, sklad, vyroba, dodavatelia</div>
-          </button>
-          <button
-            onClick={() => onChoose("planovanie")}
-            className="bg-white border border-slate-200 rounded-xl p-8 text-center hover:border-amber-500 hover:shadow-md transition"
-          >
-            <CalendarClock size={36} className="mx-auto mb-3 text-amber-600" />
-            <div className="text-lg font-semibold text-slate-900">Plan zmien</div>
-            <div className="text-sm text-slate-500 mt-1">Planovanie smien vo vyrobe</div>
-          </button>
+        <div className="grid sm:grid-cols-2 gap-6">
+          {APP_LAUNCHER_CARDS.map((c) => (
+            <button
+              key={c.key}
+              onClick={() => onChoose(c.key)}
+              className={"group bg-white border border-slate-200 rounded-2xl p-8 text-center shadow-sm hover:shadow-xl hover:-translate-y-1 transition-all duration-200 " + c.ring}
+            >
+              <span className={"inline-flex items-center justify-center w-16 h-16 rounded-2xl bg-gradient-to-br text-white shadow-lg mb-4 transition-transform duration-200 group-hover:scale-110 " + c.badge + " " + c.shadow}>
+                {c.icon}
+              </span>
+              <div className="text-lg font-bold text-slate-900">{c.label}</div>
+              <div className="text-sm text-slate-500 mt-1">{c.desc}</div>
+            </button>
+          ))}
         </div>
       </div>
     </div>
