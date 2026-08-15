@@ -6,7 +6,7 @@ import { supabase } from './supabaseClient.js';
    DATA
    ========================================================================= */
 /* Zoznam mien (kto vsetko existuje) uz nie je hardcodovany ani editovatelny tu -
-   preberá sa z ERP (Pracovnici, typ "Planovanie zmien") cez syncEmployeesWithOffice
+   preberá sa z ERP (Pracovnici, typ "Vyroba") cez syncEmployeesWithOffice
    nizsie. Tu sa uklada len co k danej osobe patri specificky pre planovanie zmien
    (roly, max. zmien/tyzden, PIN, docasne vyradenie z rozpisu). */
 function syncEmployeesWithOffice(existing, officeWorkers) {
@@ -884,7 +884,7 @@ function EmployeesTab({ employees, onToggleActive, onUpdateMax, onUpdateRoles, a
   return (
     <div className="space-y-6">
       <div className="bg-amber-50 border border-amber-200 text-amber-800 text-xs px-3 py-2 rounded-md">
-        Zoznam mien (kto všetko existuje) sa preberá z ERP → Pracovníci (typ „Planovanie zmien“) — pridávanie, premenovanie aj mazanie robte tam. Tu nastavíte len ich rolu, maximálny počet zmien za týždeň a PIN.
+        Zoznam mien (kto všetko existuje) sa preberá z ERP → Pracovníci (typ „Vyroba“) — pridávanie, premenovanie aj mazanie robte tam, automaticky sa prejaví aj vo Výrobe, Prestávkach aj tu. Tu nastavíte len ich rolu, maximálny počet zmien za týždeň a PIN.
       </div>
 
       <div className="bg-white border border-slate-200 rounded-lg overflow-hidden overflow-x-auto">
@@ -921,7 +921,7 @@ function EmployeesTab({ employees, onToggleActive, onUpdateMax, onUpdateRoles, a
               </tr>
             ))}
             {employees.length === 0 && (
-              <tr><td colSpan={5} className="px-3 py-6 text-center text-slate-400">Zatiaľ žiadny zamestnanec. Pridajte ho v ERP → Pracovníci (typ „Planovanie zmien“).</td></tr>
+              <tr><td colSpan={5} className="px-3 py-6 text-center text-slate-400">Zatiaľ žiadny zamestnanec. Pridajte ho v ERP → Pracovníci (typ „Vyroba“).</td></tr>
             )}
           </tbody>
         </table>
@@ -1197,7 +1197,7 @@ export default function PlanSmienView({ onBack }) {
         const { data: workerRows, error: workersError } = await supabase.from('workers').select('data');
         const officeWorkers = (!workersError ? (workerRows || []) : [])
           .map(r => r.data)
-          .filter(w => w.typ === 'planovanie');
+          .filter(w => w.typ === 'vyroba');
         if (!cancelled) setEmployees(syncEmployeesWithOffice(savedEmployees, officeWorkers));
       } catch (e) {
         if (!cancelled) setEmployees(savedEmployees);

@@ -3829,7 +3829,6 @@ function ProductModal({ product, existingReceipts, existingIssues, onClose, onSa
 const WORKER_TYPY = [
   { value: "vyroba", label: "Vyroba" },
   { value: "sklad", label: "Sklad" },
-  { value: "planovanie", label: "Planovanie zmien" },
 ];
 
 function WorkersView({ workers, onSave }) {
@@ -3851,7 +3850,7 @@ function WorkersView({ workers, onSave }) {
   return (
     <div>
       <h1 className="text-xl font-semibold mb-4">Pracovnici</h1>
-      <p className="text-xs text-slate-400 mb-4">Tento zoznam sluzi na oznacenie, kto zapisal davku na tablete vo Vyrobe alebo v Sklade (nie su to prihlasovacie ucty - kazdy tablet pouziva jeden zdielany login, ludia si tam len "odkliknu" svoje meno). Typ urcuje, na ktorom tablete sa dane meno ponuka na vyber. Typ "Planovanie zmien" urcuje, kto sa zobrazi v appke Plan zmien - mena/pridavanie/mazanie sa spravuje len tu, appka si ich len nacita.</p>
+      <p className="text-xs text-slate-400 mb-4">Tento zoznam sluzi na oznacenie, kto zapisal davku na tablete vo Vyrobe alebo v Sklade (nie su to prihlasovacie ucty - kazdy tablet pouziva jeden zdielany login, ludia si tam len "odkliknu" svoje meno). Typ urcuje, na ktorom tablete sa dane meno ponuka na vyber. Kazdy s typom "Vyroba" sa automaticky zobrazi aj v appke Plan zmien (planovanie smien) - mena/pridavanie/mazanie sa spravuje len tu, appka si ich len nacita.</p>
       <div className="bg-white border border-slate-200 rounded-lg p-4 mb-4">
         <div className="flex gap-2 items-end flex-wrap">
           <label className="flex-1 min-w-[220px]"><span className="block text-xs font-medium text-slate-500 mb-1">Meno pracovnika</span><input value={meno} onChange={(e) => setMeno(e.target.value)} className="w-full border border-slate-200 rounded-md px-2.5 py-1.5 text-sm" /></label>

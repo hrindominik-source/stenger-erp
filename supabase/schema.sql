@@ -681,14 +681,14 @@ create policy "plan_smien_public" on public.plan_smien
   with check (true);
 
 -- ============================================================
--- 28. Plan zmien preberá zoznam mien z workers (typ = "planovanie"),
---     aby ich pridaval/premenovaval/mazal len office (Pracovnici).
+-- 28. Plan zmien preberá zoznam mien priamo z workers (typ = "vyroba") -
+--     kazdy oznaceny v Pracovnikoch ako "Vyroba" sa automaticky zobrazi
+--     aj vo Vyrobe/Prestavkach aj v Plane zmien, bez dalsieho oznacovania.
 --     Appka Plan zmien nema Supabase session (rovnako ako plan_smien
 --     vyssie), preto potrebuje vlastnu verejnu select policy - zamerne
---     obmedzenu len na riadky s typ = "planovanie" (nevystavuje mena
---     zo skladu/vyroby).
+--     obmedzenu len na riadky s typ = "vyroba" (nevystavuje mena zo skladu).
 -- ============================================================
 drop policy if exists "workers_planovanie_public_select" on public.workers;
 create policy "workers_planovanie_public_select" on public.workers
   for select
-  using (data->>'typ' = 'planovanie');
+  using (data->>'typ' = 'vyroba');
