@@ -821,7 +821,73 @@ function EmployeePortal({ employee, weeks, requests, onSubmitRequest, onLogout }
 }
 
 
-function PlannerTab({ weeks, activeWeek, employees, absences, setActiveWeekId, onNav, onCreateWeek, onToggleSunday, onAutoFill, onClearRefill, onSetProduct, onSetPos, onAddGeneral, onRemoveGeneral, onAddExtra, onRemoveExtra, onClearShift, onExport, onShowPreview }) {
+function WeekCalendarPicker({ weeks, activeWeekId, onSelectDate }) {
+  const [open, setOpen] = useState(false);
+  const [viewMonth, setViewMonth] = useState(() => {
+    const d = activeWeekId ? parseISO(activeWeekId) : new Date();
+    return new Date(d.getFullYear(), d.getMonth(), 1);
+  });
+  const weekIds = new Set(weeks.map(w => w.id));
+  const year = viewMonth.getFullYear();
+  const month = viewMonth.getMonth();
+  const startOffset = (new Date(year, month, 1).getDay() + 6) % 7; // 0 = pondelok
+  const daysInMonth = new Date(year, month + 1, 0).getDate();
+  const totalCells = Math.ceil((startOffset + daysInMonth) / 7) * 7;
+  const cells = [];
+  for (let i = 0; i < totalCells; i++) cells.push(new Date(year, month, i - startOffset + 1));
+  const monthLabel = viewMonth.toLocaleDateString('sk-SK', { month: 'long', year: 'numeric' });
+  const todayIso = toISO(new Date());
+
+  return (
+    <div className="relative">
+      <button type="button" onClick={() => setOpen(o => !o)} title="Kalendar" className={'p-2 rounded border ' + (open ? 'bg-amber-50 border-amber-300 text-amber-700' : 'border-slate-300 hover:bg-slate-100')}>
+        <CalendarDays className="w-4 h-4" />
+      </button>
+      {open && (
+        <>
+          <div className="fixed inset-0 z-40" onClick={() => setOpen(false)} />
+          <div className="absolute top-full left-0 mt-2 bg-white border border-slate-200 rounded-lg shadow-lg p-3 z-50 w-72">
+            <div className="flex items-center justify-between mb-2">
+              <button type="button" onClick={() => setViewMonth(m => new Date(m.getFullYear(), m.getMonth() - 1, 1))} className="p-1 rounded hover:bg-slate-100"><ChevronLeft className="w-4 h-4" /></button>
+              <span className="text-sm font-semibold text-slate-800 capitalize">{monthLabel}</span>
+              <button type="button" onClick={() => setViewMonth(m => new Date(m.getFullYear(), m.getMonth() + 1, 1))} className="p-1 rounded hover:bg-slate-100"><ChevronRight className="w-4 h-4" /></button>
+            </div>
+            <div className="grid grid-cols-7 gap-0.5 text-center text-[11px]">
+              {['Po', 'Ut', 'St', 'Št', 'Pi', 'So', 'Ne'].map(d => <div key={d} className="text-slate-400 font-medium py-1">{d}</div>)}
+              {cells.map((date) => {
+                const iso = toISO(date);
+                const mondayIso = mondayOf(iso);
+                const inMonth = date.getMonth() === month;
+                const isActiveWeek = mondayIso === activeWeekId;
+                const hasWeek = weekIds.has(mondayIso);
+                const isToday = iso === todayIso;
+                return (
+                  <button
+                    type="button"
+                    key={iso}
+                    onClick={() => { onSelectDate(mondayIso); setOpen(false); }}
+                    title={'Týždeň od ' + formatSk(mondayIso)}
+                    className={
+                      'py-1.5 rounded-md relative ' +
+                      (isActiveWeek ? 'bg-amber-600 text-white font-semibold' : inMonth ? 'text-slate-700 hover:bg-amber-50' : 'text-slate-300 hover:bg-slate-50') +
+                      (isToday && !isActiveWeek ? ' ring-1 ring-amber-400' : '')
+                    }
+                  >
+                    {date.getDate()}
+                    {hasWeek && <span className={'absolute bottom-0.5 left-1/2 -translate-x-1/2 w-1 h-1 rounded-full ' + (isActiveWeek ? 'bg-white' : 'bg-amber-500')} />}
+                  </button>
+                );
+              })}
+            </div>
+            <p className="text-[11px] text-slate-400 mt-2">Bodka = už existujúci naplánovaný týždeň. Kliknutím na ktorýkoľvek deň prejdete na jeho týždeň (ak neexistuje, vytvorí sa).</p>
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
+function PlannerTab({ weeks, activeWeek, employees, absences, setActiveWeekId, onNav, onCreateWeek, onGotoWeek, onToggleSunday, onAutoFill, onClearRefill, onSetProduct, onSetPos, onAddGeneral, onRemoveGeneral, onAddExtra, onRemoveExtra, onClearShift, onExport, onShowPreview }) {
   if (!activeWeek) {
     return (
       <div className="text-center py-10 text-slate-500">
@@ -839,6 +905,7 @@ function PlannerTab({ weeks, activeWeek, employees, absences, setActiveWeekId, o
           {sortedWeeks.map(w => <option key={w.id} value={w.id}>Týždeň od {formatSk(w.startDate)}</option>)}
         </select>
         <button onClick={() => onNav(1)} className="p-2 rounded border border-slate-300 hover:bg-slate-100"><ChevronRight className="w-4 h-4" /></button>
+        <WeekCalendarPicker weeks={weeks} activeWeekId={activeWeek.id} onSelectDate={onGotoWeek} />
         <button onClick={onCreateWeek} className="px-3 py-2 text-sm rounded border border-slate-300 hover:bg-slate-100 flex items-center gap-1"><Plus className="w-4 h-4" />Nový týždeň</button>
 
         <label className="ml-2 flex items-center gap-1.5 text-sm text-slate-600">
@@ -1268,6 +1335,16 @@ export default function PlanSmienView({ onBack }) {
     const newIdx = idx + dir;
     if (newIdx >= 0 && newIdx < sorted.length) setActiveWeekId(sorted[newIdx].id);
   }
+  function gotoWeekContaining(mondayIso) {
+    const existing = weeks.find(w => w.id === mondayIso);
+    if (existing) {
+      setActiveWeekId(mondayIso);
+    } else {
+      const w = generateWeek(mondayIso, false);
+      setWeeks(ws => [...ws, w]);
+      setActiveWeekId(w.id);
+    }
+  }
 
   function toggleActive(id) { setEmployees(es => es.map(e => (e.id === id ? { ...e, active: !e.active } : e))); }
   function updateWeeklyMax(id, val) { setEmployees(es => es.map(e => (e.id === id ? { ...e, weeklyMax: Number(val) || 1 } : e))); }
@@ -1401,7 +1478,7 @@ export default function PlanSmienView({ onBack }) {
         {tab === 'planner' && (
           <PlannerTab
             weeks={weeks} activeWeek={activeWeek} employees={employees} absences={absences}
-            setActiveWeekId={setActiveWeekId} onNav={gotoAdjacentWeek} onCreateWeek={createNewWeek}
+            setActiveWeekId={setActiveWeekId} onNav={gotoAdjacentWeek} onCreateWeek={createNewWeek} onGotoWeek={gotoWeekContaining}
             onToggleSunday={toggleExtraSunday} onAutoFill={autoFillCurrentWeek} onClearRefill={clearAndRefillWeek}
             onSetProduct={setProduct} onSetPos={setPos} onAddGeneral={addGeneral} onRemoveGeneral={removeGeneral}
             onAddExtra={addExtra} onRemoveExtra={removeExtra} onClearShift={clearShiftAssignment} onExport={copyExport}
