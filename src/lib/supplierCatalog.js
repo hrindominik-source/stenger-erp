@@ -90,7 +90,11 @@ export function mergeSupplierCatalog(existingTovary, importedItems) {
   let added = 0;
   let updated = 0;
   for (const item of importedItems) {
-    const idx = next.findIndex((t) => (t.artikel || "").trim() === item.artikel);
+    // Prazdny/chybajuci artikel sa nesmie pouzit na parovanie - inak sa viacero
+    // roznych polozok bez artiklu navzajom "zluci" do jednej (kazda dalsia prepise
+    // tu predoslu), namiesto aby sa pridali samostatne.
+    const artikel = (item.artikel || "").trim();
+    const idx = artikel ? next.findIndex((t) => (t.artikel || "").trim() === artikel) : -1;
     if (idx === -1) {
       next.push({ popis: item.popis, artikel: item.artikel, balenie: item.balenie });
       added++;

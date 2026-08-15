@@ -43,4 +43,19 @@ describe("mergeSupplierCatalog", () => {
       { popis: "Nova", artikel: "123", balenie: "" },
     ]);
   });
+
+  it("nezluci viacero poloziek s prazdnym artiklom do jednej", () => {
+    const { tovary, added, updated } = mergeSupplierCatalog([], [
+      { artikel: "", popis: "Polozka A", balenie: "" },
+      { artikel: "", popis: "Polozka B", balenie: "" },
+      { artikel: "", popis: "Polozka C", balenie: "" },
+    ]);
+    expect(added).toBe(3);
+    expect(updated).toBe(0);
+    expect(tovary).toEqual([
+      { popis: "Polozka A", artikel: "", balenie: "" },
+      { popis: "Polozka B", artikel: "", balenie: "" },
+      { popis: "Polozka C", artikel: "", balenie: "" },
+    ]);
+  });
 });
