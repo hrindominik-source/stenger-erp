@@ -634,3 +634,21 @@ create policy "prestavky_all" on public.prestavky
   for all
   using (public.current_role() in ('office', 'vyroba'))
   with check (public.current_role() in ('office', 'vyroba'));
+
+-- ============================================================
+-- 26. ulohy - todo/tasks zoznam v office (akcny plan, kto ma
+--     dorucit, termin) - dostupne len rolou "office".
+-- ============================================================
+create table if not exists public.ulohy (
+  id text primary key,
+  data jsonb not null,
+  created_at timestamptz not null default now()
+);
+
+alter table public.ulohy enable row level security;
+
+drop policy if exists "ulohy_all" on public.ulohy;
+create policy "ulohy_all" on public.ulohy
+  for all
+  using (public.current_role() = 'office')
+  with check (public.current_role() = 'office');

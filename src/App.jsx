@@ -6,7 +6,7 @@ import {
   ClipboardList, ArrowLeft, Download, Layers, FileSignature, Printer, Package,
   LogOut, PackageCheck, PackageX, Euro, Factory, Boxes, PackagePlus, Camera,
   LayoutDashboard, Warehouse, MinusCircle, FlaskConical, ClipboardCheck, UserCheck, Menu, Mail, Calendar, FileSpreadsheet,
-  Recycle, Calculator, Image, Construction, BookOpen
+  Recycle, Calculator, Image, Construction, BookOpen, ListChecks
 } from "lucide-react";
 import { supabase } from "./supabaseClient.js";
 import { useAuth } from "./lib/auth.js";
@@ -69,6 +69,8 @@ const EMPTY_ORDER = {
 const EMPTY_CUSTOMER = { nazov: "", adresa: "", ico: "", dic: "", email: "", katalog: [], emaily: [] };
 const EMPTY_CARRIER = { nazov: "", email: "", adresa: "", ico: "", dic: "", tel: "", web: "", emaily: [] };
 const EMPTY_SUPPLIER = { nazov: "", adresa: "", ico: "", dic: "", email: "", tel: "", typ: ["obal"], jazyk: "sk", tovary: [], emaily: [] };
+const ULOHY_OSOBY = ["Dusan Bucha", "Radka Buchova", "Dominik Hrin"];
+const EMPTY_ULOHA = { popis: "", osoby: [], termin: "", hotovo: false };
 const MATERIAL_TYP_OPTIONS = [
   { value: "surovina", label: "Suroviny" },
   { value: "obal", label: "Obalovy material" },
@@ -486,6 +488,7 @@ function OfficeApp({ userFullName, userEmail, onSignOut }) {
   const [productionOutputs, setProductionOutputs] = useState([]);
   const [prestavky, setPrestavky] = useState([]);
   const [workers, setWorkers] = useState([]);
+  const [ulohy, setUlohy] = useState([]);
   const [ready, setReady] = useState(false);
   const [loadError, setLoadError] = useState("");
 
@@ -532,7 +535,7 @@ function OfficeApp({ userFullName, userEmail, onSignOut }) {
   useEffect(() => {
     (async () => {
       try {
-        const [ordersRes, carriersRes, customersRes, companyRes, pricelistRes, suppliersRes, materialOrdersRes, pricelistArchiveRes, goodsReceiptsRes, stockIssuesRes, productsRes, productionPlanRes, productionOutputsRes, prestavkyRes, workersRes] = await Promise.all([
+        const [ordersRes, carriersRes, customersRes, companyRes, pricelistRes, suppliersRes, materialOrdersRes, pricelistArchiveRes, goodsReceiptsRes, stockIssuesRes, productsRes, productionPlanRes, productionOutputsRes, prestavkyRes, workersRes, ulohyRes] = await Promise.all([
           supabase.from("orders").select("*").order("created_at", { ascending: false }),
           supabase.from("carriers").select("*"),
           supabase.from("customers").select("*"),
@@ -548,6 +551,7 @@ function OfficeApp({ userFullName, userEmail, onSignOut }) {
           supabase.from("production_outputs").select("*").order("created_at", { ascending: false }),
           supabase.from("prestavky").select("*").order("created_at", { ascending: false }),
           supabase.from("workers").select("*"),
+          supabase.from("ulohy").select("*").order("created_at", { ascending: false }),
         ]);
         if (ordersRes.error || carriersRes.error || customersRes.error || companyRes.error) {
           setLoadError("Nepodarilo sa nacitat ulozene data.");
@@ -577,6 +581,7 @@ function OfficeApp({ userFullName, userEmail, onSignOut }) {
           if (!productionOutputsRes.error) setProductionOutputs((productionOutputsRes.data || []).map((row) => row.data));
           if (!prestavkyRes.error) setPrestavky((prestavkyRes.data || []).map((row) => row.data));
           if (!workersRes.error) setWorkers((workersRes.data || []).map((row) => row.data));
+          if (!ulohyRes.error) setUlohy((ulohyRes.data || []).map((row) => row.data));
         }
       } catch (e) {
         setLoadError("Nepodarilo sa nacitat ulozene data.");
@@ -817,6 +822,40 @@ function OfficeApp({ userFullName, userEmail, onSignOut }) {
     setMaterialOrders((prev) => prev.filter((o) => o.id !== id));
     try {
       const { error } = await supabase.from("material_orders").delete().eq("id", id);
+      if (error) throw error;
+    } catch (e) {
+      setLoadError("Ulozenie zlyhalo, skuste znova.");
+    }
+  }
+
+  async function saveNewUloha(fields) {
+    const uloha = { ...EMPTY_ULOHA, ...fields, id: uid() };
+    setUlohy((prev) => [uloha, ...prev]);
+    try {
+      const { error } = await supabase.from("ulohy").insert({ id: uloha.id, data: uloha });
+      if (error) throw error;
+    } catch (e) {
+      setLoadError("Ulozenie ulohy zlyhalo, skuste znova.");
+    }
+  }
+
+  async function updateUloha(id, patch) {
+    const current = ulohy.find((u) => u.id === id);
+    if (!current) return;
+    const merged = { ...current, ...patch };
+    setUlohy((prev) => prev.map((u) => (u.id === id ? merged : u)));
+    try {
+      const { error } = await supabase.from("ulohy").update({ data: merged }).eq("id", id);
+      if (error) throw error;
+    } catch (e) {
+      setLoadError("Ulozenie zlyhalo, skuste znova.");
+    }
+  }
+
+  async function deleteUloha(id) {
+    setUlohy((prev) => prev.filter((u) => u.id !== id));
+    try {
+      const { error } = await supabase.from("ulohy").delete().eq("id", id);
       if (error) throw error;
     } catch (e) {
       setLoadError("Ulozenie zlyhalo, skuste znova.");
@@ -1210,6 +1249,9 @@ function OfficeApp({ userFullName, userEmail, onSignOut }) {
             onClose={() => setEditingOrder(null)}
             onSave={(patch) => { updateOrder(editingOrder.id, patch); setEditingOrder(null); }}
           />
+        )}
+        {view === "ulohy" && (
+          <UlohyView ulohy={ulohy} onSave={saveNewUloha} onUpdate={updateUloha} onDelete={deleteUloha} />
         )}
         {view === "carriers" && (
           <CarriersView carriers={carriers} onSave={persistCarriers} onEdit={(c) => setEditingCarrier(c)} />
@@ -1636,6 +1678,7 @@ function downloadHtml(filename, htmlBody) {
 }
 
 const HEADER_MENU_ITEMS = [
+  { icon: <ListChecks size={16} />, label: "Ulohy", v: "ulohy" },
   { icon: <Users size={16} />, label: "Dopravcovia", v: "carriers" },
   { icon: <Package size={16} />, label: "Zakaznici", v: "customers" },
   { icon: <Building2 size={16} />, label: "Nastavenia firmy", v: "company" },
@@ -3062,6 +3105,101 @@ function CmrModal({ order, carriers, customers, company, onClose, onDone }) {
 }
 
 /* ---------------- Carriers ---------------- */
+
+function UlohyView({ ulohy, onSave, onUpdate, onDelete }) {
+  const [popis, setPopis] = useState("");
+  const [osoby, setOsoby] = useState([]);
+  const [termin, setTermin] = useState("");
+  const [formError, setFormError] = useState("");
+  const [confirmDelete, setConfirmDelete] = useState(null);
+
+  const osobyOptions = ULOHY_OSOBY.map((o) => ({ value: o, label: o }));
+
+  function add() {
+    if (!popis.trim()) { setFormError("Vyplnte znenie ulohy."); return; }
+    setFormError("");
+    onSave({ popis: popis.trim(), osoby, termin: termin.trim() });
+    setPopis(""); setOsoby([]); setTermin("");
+  }
+
+  const dnes = parseSkDate(todayStr());
+  const sorted = ulohy.slice().sort((a, b) => {
+    if (!!a.hotovo !== !!b.hotovo) return a.hotovo ? 1 : -1;
+    const da = parseSkDate(a.termin);
+    const db = parseSkDate(b.termin);
+    if (!da && !db) return 0;
+    if (!da) return 1;
+    if (!db) return -1;
+    return da - db;
+  });
+
+  return (
+    <div>
+      <div className="flex items-center justify-between mb-4">
+        <h1 className="text-xl font-semibold">Ulohy</h1>
+      </div>
+      <div className="bg-white border border-slate-200 rounded-lg p-4 mb-4">
+        <Field label="Uloha / akcny plan / bod" value={popis} onChange={setPopis} textarea rows={2} />
+        <MultiCheckField label="Kto ma dorucit" value={osoby} onChange={setOsoby} options={osobyOptions} />
+        <div className="flex gap-2 items-end flex-wrap">
+          <div className="min-w-[160px]">
+            <DateField label="Termin" value={termin} onChange={setTermin} />
+          </div>
+          <button onClick={add} className="mb-3 bg-teal-700 hover:bg-teal-800 text-white text-sm font-medium px-3 py-2 rounded-md flex items-center gap-1.5"><Plus size={16} /> Pridat ulohu</button>
+        </div>
+        {formError && <div className="bg-red-50 text-red-700 text-xs px-3 py-2 rounded-md flex items-center gap-2"><AlertCircle size={14} /> {formError}</div>}
+      </div>
+      {sorted.length === 0 ? (
+        <div className="bg-white border border-slate-200 rounded-lg p-8 text-center text-slate-500">Zatial ziadna uloha.</div>
+      ) : (
+        <div className="bg-white border border-slate-200 rounded-lg overflow-hidden">
+          <table className="w-full text-sm">
+            <thead><tr className="bg-slate-100 text-slate-600 text-left"><th className="px-3 py-2 font-medium">Uloha</th><th className="px-3 py-2 font-medium">Kto</th><th className="px-3 py-2 font-medium">Termin</th><th className="px-3 py-2 font-medium">Stav</th><th className="px-3 py-2"></th></tr></thead>
+            <tbody>
+              {sorted.map((u) => {
+                const terminDate = parseSkDate(u.termin);
+                const overdue = !u.hotovo && terminDate && dnes && terminDate < dnes;
+                return (
+                  <tr key={u.id} className={"border-t border-slate-100 " + (u.hotovo ? "opacity-50" : "")}>
+                    <td className="px-3 py-2 whitespace-pre-wrap max-w-md">{u.popis}</td>
+                    <td className="px-3 py-2 text-slate-500">
+                      <div className="flex flex-wrap gap-1">
+                        {(u.osoby || []).map((o) => (
+                          <span key={o} className="bg-slate-100 text-slate-600 rounded-full px-2 py-0.5 text-xs">{o}</span>
+                        ))}
+                      </div>
+                    </td>
+                    <td className={"px-3 py-2 " + (overdue ? "text-red-600 font-medium" : "text-slate-500")}>{u.termin || "—"}</td>
+                    <td className="px-3 py-2">
+                      <button
+                        onClick={() => onUpdate(u.id, { hotovo: !u.hotovo })}
+                        className={"flex items-center gap-1.5 text-xs font-medium px-2 py-1 rounded-full border " + (u.hotovo ? "bg-green-50 text-green-700 border-green-200" : "bg-white text-slate-500 border-slate-200 hover:bg-slate-50")}
+                      >
+                        <CheckCircle2 size={14} /> {u.hotovo ? "Splnene" : "Otvorene"}
+                      </button>
+                    </td>
+                    <td className="px-3 py-2 text-right">
+                      <IconButton title="Zmazat" onClick={() => setConfirmDelete(u)}><Trash2 size={16} /></IconButton>
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      )}
+      {confirmDelete && (
+        <ModalShell title="Zmazat ulohu?" onClose={() => setConfirmDelete(null)}>
+          <p className="text-sm text-slate-600 mb-4">Naozaj chcete zmazat tuto ulohu? Tuto akciu nie je mozne vratit spat.</p>
+          <div className="flex justify-end gap-2">
+            <button onClick={() => setConfirmDelete(null)} className="px-3 py-1.5 rounded-md text-sm border border-slate-200 text-slate-600">Zrusit</button>
+            <button onClick={() => { onDelete(confirmDelete.id); setConfirmDelete(null); }} className="px-3 py-1.5 rounded-md text-sm bg-red-600 hover:bg-red-700 text-white">Zmazat</button>
+          </div>
+        </ModalShell>
+      )}
+    </div>
+  );
+}
 
 function CarriersView({ carriers, onSave, onEdit }) {
   const [nazov, setNazov] = useState("");
