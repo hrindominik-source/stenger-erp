@@ -425,7 +425,7 @@ const APP_CHOICE_KEY = "stenger_app_choice";
 const APP_LAUNCHER_CARDS = [
   {
     key: "erp",
-    label: "ERP",
+    label: "Stenger ONE",
     desc: "Objednavky, sklad, vyroba, dodavatelia",
     icon: <LayoutDashboard size={30} />,
     badge: "from-teal-400 to-teal-600",

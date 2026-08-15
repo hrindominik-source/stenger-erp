@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Sun, Moon, Droplets, Plus, X, AlertTriangle, Users, Trash2, UserPlus, Copy, ChevronLeft, ChevronRight, Pencil, Check, Printer, KeyRound } from 'lucide-react';
+import { Sun, Moon, Droplets, Plus, X, AlertTriangle, Trash2, UserPlus, Copy, ChevronLeft, ChevronRight, Pencil, Check, Printer, KeyRound, CalendarDays, Users2, CalendarOff, History as HistoryIcon, Upload, BarChart3, LogOut, ArrowLeftRight } from 'lucide-react';
 import { supabase } from './supabaseClient.js';
 
 /* =========================================================================
@@ -30,13 +30,43 @@ const SANITATION_TOTAL = 5;
 const ROLE_LABEL = { pos1: 'Hrncová', 'pos1-backup': 'Hrncová (záskok)', pos3: 'Pozícia 3', general: 'Ostatné' };
 
 const TABS = [
-  { key: 'planner',   label: 'Plán týždňa' },
-  { key: 'employees', label: 'Zamestnankyne' },
-  { key: 'absences',  label: 'Neprítomnosti' },
-  { key: 'history',   label: 'História' },
-  { key: 'import',    label: 'Import histórie' },
-  { key: 'balance',   label: 'Rovnováha' },
+  { key: 'planner',   label: 'Plán týždňa',    icon: <CalendarDays className="w-[18px] h-[18px]" />, color: 'amber' },
+  { key: 'employees', label: 'Zamestnankyne',  icon: <Users2 className="w-[18px] h-[18px]" />,        color: 'blue' },
+  { key: 'absences',  label: 'Neprítomnosti',  icon: <CalendarOff className="w-[18px] h-[18px]" />,   color: 'rose' },
+  { key: 'history',   label: 'História',       icon: <HistoryIcon className="w-[18px] h-[18px]" />,   color: 'violet' },
+  { key: 'import',    label: 'Import histórie', icon: <Upload className="w-[18px] h-[18px]" />,       color: 'emerald' },
+  { key: 'balance',   label: 'Rovnováha',      icon: <BarChart3 className="w-[18px] h-[18px]" />,     color: 'teal' },
 ];
+
+/* Rovnaky "gradientovy odznak" styl navigacie ako v hlavnej ERP appke (NavButton/NAV_COLORS v App.jsx). */
+const TAB_COLORS = {
+  amber:   { badge: 'from-amber-400 to-amber-600',   shadow: 'shadow-amber-500/40' },
+  blue:    { badge: 'from-blue-400 to-blue-600',     shadow: 'shadow-blue-500/40' },
+  rose:    { badge: 'from-rose-400 to-rose-600',     shadow: 'shadow-rose-500/40' },
+  violet:  { badge: 'from-violet-400 to-violet-600', shadow: 'shadow-violet-500/40' },
+  emerald: { badge: 'from-emerald-400 to-emerald-600', shadow: 'shadow-emerald-500/40' },
+  teal:    { badge: 'from-teal-400 to-teal-600',     shadow: 'shadow-teal-500/40' },
+};
+
+function PlanNavButton({ icon, label, active, onClick, color }) {
+  const c = TAB_COLORS[color] || TAB_COLORS.amber;
+  return (
+    <button
+      onClick={onClick}
+      className={
+        'group relative flex-1 flex flex-col items-center justify-center gap-1.5 py-3 px-2 rounded-xl text-sm font-bold text-center leading-tight transition-all duration-200 whitespace-nowrap ' +
+        (active
+          ? 'bg-gradient-to-b from-white to-slate-50 text-slate-900 shadow-lg ' + c.shadow + ' -translate-y-0.5'
+          : 'text-slate-300 hover:text-white hover:bg-white/5 hover:-translate-y-0.5')
+      }
+    >
+      <span className={'flex items-center justify-center w-9 h-9 rounded-lg bg-gradient-to-br text-white shadow-md transition-transform duration-200 group-hover:scale-110 ' + c.badge}>
+        {icon}
+      </span>
+      {label}
+    </button>
+  );
+}
 
 /* =========================================================================
    DATUMY
@@ -646,12 +676,16 @@ function LoginGate({ employees, onAdminLogin, onEmployeeLogin, onBack }) {
 
   if (!mode) {
     return (
-      <div className="min-h-screen bg-slate-50 flex items-center justify-center p-4">
-        <div className="bg-white border border-slate-200 rounded-xl p-8 max-w-sm w-full text-center space-y-4">
-          <h1 className="text-lg font-bold text-slate-900">Plán zmien — výroba</h1>
+      <div className="min-h-screen bg-slate-50 flex items-center justify-center p-4" style={{ fontFamily: "system-ui, -apple-system, Segoe UI, sans-serif" }}>
+        <div className="bg-white border border-slate-200 rounded-xl shadow-sm p-8 max-w-sm w-full text-center space-y-4">
+          <div>
+            <img src="/stenger-logo.png" alt="Stenger" className="h-14 w-auto mx-auto mb-3" />
+            <div className="text-xs tracking-wider text-slate-400 mb-1">Stenger Czech s.r.o.</div>
+            <h1 className="text-lg font-bold text-slate-900">Plán zmien — výroba</h1>
+          </div>
           <p className="text-sm text-slate-500">Kto sa prihlasuje?</p>
-          <button onClick={() => setMode('admin')} className="w-full px-4 py-3 rounded bg-slate-900 text-white font-medium hover:bg-slate-800">Vedúci / vedúca výroby</button>
-          <button onClick={() => setMode('employee')} className="w-full px-4 py-3 rounded border border-slate-300 font-medium hover:bg-slate-50">Zamestnankyňa</button>
+          <button onClick={() => setMode('admin')} className="w-full px-4 py-3 rounded-md bg-amber-600 text-white font-medium hover:bg-amber-700">Vedúci / vedúca výroby</button>
+          <button onClick={() => setMode('employee')} className="w-full px-4 py-3 rounded-md border border-slate-200 text-slate-700 font-medium hover:bg-slate-50">Zamestnankyňa</button>
           {onBack && <button onClick={onBack} className="text-xs text-slate-400 hover:text-slate-600 mt-2">&larr; Iná aplikácia</button>}
         </div>
       </div>
@@ -659,31 +693,32 @@ function LoginGate({ employees, onAdminLogin, onEmployeeLogin, onBack }) {
   }
 
   return (
-    <div className="min-h-screen bg-slate-50 flex items-center justify-center p-4">
-      <div className="bg-white border border-slate-200 rounded-xl p-8 max-w-sm w-full space-y-4">
+    <div className="min-h-screen bg-slate-50 flex items-center justify-center p-4" style={{ fontFamily: "system-ui, -apple-system, Segoe UI, sans-serif" }}>
+      <div className="bg-white border border-slate-200 rounded-xl shadow-sm p-8 max-w-sm w-full space-y-4">
         <button onClick={() => { setMode(null); setError(''); setPin(''); }} className="text-xs text-slate-400 hover:text-slate-600">&larr; Späť</button>
+        <img src="/stenger-logo.png" alt="Stenger" className="h-10 w-auto mx-auto" />
         {mode === 'admin' ? (
           <>
-            <h2 className="font-semibold text-slate-900">Prihlásenie vedúceho</h2>
+            <h2 className="font-semibold text-slate-900 text-center">Prihlásenie vedúceho</h2>
             <input type="password" inputMode="numeric" placeholder="PIN" value={pin} onChange={e => setPin(e.target.value)}
               onKeyDown={e => e.key === 'Enter' && submitAdmin()}
-              className="w-full border border-slate-300 rounded px-3 py-2 text-sm text-center tracking-widest" />
+              className="w-full border border-slate-200 rounded-md px-3 py-2 text-sm text-center tracking-widest focus:outline-none focus:ring-2 focus:ring-amber-600" />
             {error && <p className="text-xs text-rose-600">{error}</p>}
-            <button onClick={submitAdmin} className="w-full px-4 py-2 rounded bg-slate-900 text-white font-medium hover:bg-slate-800">Prihlásiť sa</button>
+            <button onClick={submitAdmin} className="w-full px-4 py-2 rounded-md bg-amber-600 text-white font-medium hover:bg-amber-700">Prihlásiť sa</button>
           </>
         ) : (
           <>
-            <h2 className="font-semibold text-slate-900">Prihlásenie zamestnankyne</h2>
-            <select value={empId} onChange={e => { setEmpId(e.target.value); setError(''); }} className="w-full border border-slate-300 rounded px-3 py-2 text-sm">
+            <h2 className="font-semibold text-slate-900 text-center">Prihlásenie zamestnankyne</h2>
+            <select value={empId} onChange={e => { setEmpId(e.target.value); setError(''); }} className="w-full border border-slate-200 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-600">
               <option value="">— vyberte svoje meno —</option>
               {employees.filter(e => e.active).map(e => <option key={e.id} value={e.id}>{e.name}</option>)}
             </select>
             <input type="password" inputMode="numeric" placeholder="PIN (min. 4 čísla)" value={pin} onChange={e => setPin(e.target.value)}
               onKeyDown={e => e.key === 'Enter' && submitEmployee()}
-              className="w-full border border-slate-300 rounded px-3 py-2 text-sm text-center tracking-widest" />
+              className="w-full border border-slate-200 rounded-md px-3 py-2 text-sm text-center tracking-widest focus:outline-none focus:ring-2 focus:ring-amber-600" />
             <p className="text-xs text-slate-400">Ak sa prihlasujete prvýkrát, zadaný PIN sa vám nastaví natrvalo — zapamätajte si ho. Ak ste ho zabudli, požiadajte vedúceho o reset.</p>
             {error && <p className="text-xs text-rose-600">{error}</p>}
-            <button onClick={submitEmployee} className="w-full px-4 py-2 rounded bg-slate-900 text-white font-medium hover:bg-slate-800">Prihlásiť sa</button>
+            <button onClick={submitEmployee} className="w-full px-4 py-2 rounded-md bg-amber-600 text-white font-medium hover:bg-amber-700">Prihlásiť sa</button>
           </>
         )}
       </div>
@@ -718,11 +753,14 @@ function EmployeePortal({ employee, weeks, requests, onSubmitRequest, onLogout }
   return (
     <div className="min-h-screen bg-slate-50">
       <header className="bg-slate-900 text-white px-4 md:px-6 py-4 flex items-center justify-between">
-        <div>
-          <h1 className="text-lg font-bold">Ahoj, {employee.name}</h1>
-          <p className="text-xs text-slate-400">Vaše zmeny a žiadosti o voľno</p>
+        <div className="flex items-center gap-3">
+          <img src="/stenger-logo.png" alt="Stenger" className="h-9 w-auto" />
+          <div>
+            <h1 className="text-lg font-bold">Ahoj, {employee.name}</h1>
+            <p className="text-xs text-slate-400">Vaše zmeny a žiadosti o voľno</p>
+          </div>
         </div>
-        <button onClick={onLogout} className="text-sm text-slate-300 hover:text-white underline">Odhlásiť sa</button>
+        <button onClick={onLogout} className="flex items-center gap-1.5 px-3 h-9 rounded-md text-sm text-slate-300 hover:bg-slate-800"><LogOut size={16} /> Odhlásiť sa</button>
       </header>
       <main className="p-4 md:p-6 max-w-2xl mx-auto space-y-6">
         <div className="bg-white border border-slate-200 rounded-lg p-4">
@@ -752,7 +790,7 @@ function EmployeePortal({ employee, weeks, requests, onSubmitRequest, onLogout }
           </div>
           <label className="block text-xs text-slate-500 mb-1">Poznámka</label>
           <input value={form.reason} onChange={e => setForm(f => ({ ...f, reason: e.target.value }))} placeholder="napr. dovolenka / lekár" className="w-full border border-slate-300 rounded px-2 py-1.5 text-sm mb-3" />
-          <button onClick={submit} className="px-4 py-2 rounded bg-slate-900 text-white text-sm font-medium hover:bg-slate-800">Odoslať žiadosť nadriadenému</button>
+          <button onClick={submit} className="px-4 py-2 rounded-md bg-amber-600 text-white text-sm font-medium hover:bg-amber-700">Odoslať žiadosť nadriadenému</button>
         </div>
 
         <div className="bg-white border border-slate-200 rounded-lg p-4">
@@ -781,7 +819,7 @@ function PlannerTab({ weeks, activeWeek, employees, absences, setActiveWeekId, o
     return (
       <div className="text-center py-10 text-slate-500">
         Zatiaľ žiadny týždeň.
-        <div className="mt-3"><button onClick={onCreateWeek} className="px-3 py-2 text-sm rounded bg-slate-900 text-white">Vytvoriť prvý týždeň</button></div>
+        <div className="mt-3"><button onClick={onCreateWeek} className="px-3 py-2 text-sm rounded-md bg-amber-600 text-white hover:bg-amber-700">Vytvoriť prvý týždeň</button></div>
       </div>
     );
   }
@@ -802,7 +840,7 @@ function PlannerTab({ weeks, activeWeek, employees, absences, setActiveWeekId, o
         </label>
 
         <div className="ml-auto flex gap-2">
-          <button onClick={onAutoFill} className="px-3 py-2 text-sm rounded bg-slate-900 text-white hover:bg-slate-800">Doplniť prázdne miesta</button>
+          <button onClick={onAutoFill} className="px-3 py-2 text-sm rounded-md bg-amber-600 text-white hover:bg-amber-700">Doplniť prázdne miesta</button>
           <button onClick={onShowPreview} className="px-3 py-2 text-sm rounded border border-slate-300 hover:bg-slate-100 flex items-center gap-1"><Printer className="w-4 h-4" />Ukázať/exportovať náhľad</button>
           <button onClick={onClearRefill} className="px-3 py-2 text-sm rounded border border-slate-300 hover:bg-slate-100">Vyčistiť a preplánovať</button>
           <button onClick={onExport} className="px-3 py-2 text-sm rounded border border-slate-300 hover:bg-slate-100 flex items-center gap-1"><Copy className="w-4 h-4" />Export (text)</button>
@@ -867,7 +905,7 @@ function EmployeesTab({ employees, weeks, newEmpForm, setNewEmpForm, onAdd, onTo
               </label>
             ))}
           </div>
-          <button onClick={onAdd} className="px-3 py-1.5 text-sm rounded bg-slate-900 text-white hover:bg-slate-800">Pridať</button>
+          <button onClick={onAdd} className="px-3 py-1.5 text-sm rounded-md bg-amber-600 text-white hover:bg-amber-700">Pridať</button>
         </div>
       </div>
 
@@ -949,7 +987,7 @@ function EmployeesTab({ employees, weeks, newEmpForm, setNewEmpForm, onAdd, onTo
             <label className="block text-xs text-slate-500 mb-1">Nový PIN (min. 4 znaky)</label>
             <input value={adminPinInput} onChange={e => setAdminPinInput(e.target.value)} className="border border-slate-300 rounded px-2 py-1.5 text-sm w-32" placeholder="napr. 4521" />
           </div>
-          <button onClick={() => { onChangeAdminPin(adminPinInput); setAdminPinInput(''); }} className="px-3 py-1.5 text-sm rounded bg-slate-900 text-white hover:bg-slate-800">Uložiť</button>
+          <button onClick={() => { onChangeAdminPin(adminPinInput); setAdminPinInput(''); }} className="px-3 py-1.5 text-sm rounded-md bg-amber-600 text-white hover:bg-amber-700">Uložiť</button>
         </div>
         <p className="text-xs text-slate-400 mt-1">Tento PIN slúži na vstup do celej appky (mimo zamestnaneckej sekcie). Aktuálny PIN: <span className="font-mono">{adminPin}</span></p>
       </div>
@@ -1002,7 +1040,7 @@ function AbsencesTab({ employees, absences, absForm, setAbsForm, onAdd, onRemove
             <label className="block text-xs text-slate-500 mb-1">Poznámka</label>
             <input value={absForm.reason} onChange={e => setAbsForm(f => ({ ...f, reason: e.target.value }))} placeholder="dovolenka / lekár / ..." className="border border-slate-300 rounded px-2 py-1.5 text-sm" />
           </div>
-          <button onClick={onAdd} className="px-3 py-1.5 text-sm rounded bg-slate-900 text-white hover:bg-slate-800">Pridať</button>
+          <button onClick={onAdd} className="px-3 py-1.5 text-sm rounded-md bg-amber-600 text-white hover:bg-amber-700">Pridať</button>
         </div>
       </div>
       <div className="bg-white border border-slate-200 rounded-lg overflow-hidden">
@@ -1058,7 +1096,7 @@ function ImportTab({ employees, onImport }) {
           placeholder={example}
           className="w-full h-64 text-xs font-mono border border-slate-300 rounded p-2"
         />
-        <button onClick={runImport} disabled={!text.trim()} className={`mt-3 px-4 py-2 text-sm rounded font-medium ${text.trim() ? 'bg-slate-900 text-white hover:bg-slate-800' : 'bg-slate-200 text-slate-400 cursor-not-allowed'}`}>
+        <button onClick={runImport} disabled={!text.trim()} className={`mt-3 px-4 py-2 text-sm rounded-md font-medium ${text.trim() ? 'bg-amber-600 text-white hover:bg-amber-700' : 'bg-slate-200 text-slate-400 cursor-not-allowed'}`}>
           Importovať
         </button>
       </div>
@@ -1390,25 +1428,34 @@ export default function PlanSmienView({ onBack }) {
 
   return (
     <div className="min-h-screen bg-slate-50 text-slate-800 font-sans">
-      <header className="bg-slate-900 text-white px-4 md:px-6 py-4 flex items-center justify-between">
-        <div>
-          <h1 className="text-lg font-bold tracking-tight">Plán zmien — výroba</h1>
-          <p className="text-xs text-slate-400">Dvojzmenná prevádzka · denná / nočná / sanitácia</p>
+      <header className="bg-slate-900 text-white">
+        <div className="max-w-6xl mx-auto px-4 pt-4 flex items-center justify-between flex-wrap gap-2">
+          <div className="flex items-center gap-3">
+            <img src="/stenger-logo.png" alt="Stenger" className="h-10 w-auto" />
+            <div>
+              <div className="text-xs uppercase tracking-wider text-slate-400">Stenger Czech s.r.o.</div>
+              <div className="text-lg font-semibold">Plán zmien — výroba</div>
+            </div>
+          </div>
+          <div className="flex items-center gap-2">
+            {onBack && (
+              <button onClick={onBack} title="Ina aplikacia" className="flex items-center gap-1.5 px-3 h-9 rounded-md text-sm text-slate-300 hover:bg-slate-800">
+                <ArrowLeftRight size={16} /> Iná aplikácia
+              </button>
+            )}
+            <button onClick={logout} title="Odhlasit" className="flex items-center gap-1.5 px-3 h-9 rounded-md text-sm text-slate-300 hover:bg-slate-800">
+              <LogOut size={16} /> Odhlásiť sa
+            </button>
+          </div>
         </div>
-        <div className="flex items-center gap-3">
-          {onBack && <button onClick={onBack} className="text-xs text-slate-300 hover:text-white underline">&larr; Iná aplikácia</button>}
-          <button onClick={logout} className="text-xs text-slate-300 hover:text-white underline">Odhlásiť sa</button>
-          <Users className="w-6 h-6 text-slate-400" />
+        <div className="max-w-6xl mx-auto px-4 pb-4">
+          <nav className="flex items-stretch gap-2 mt-3 bg-white/5 backdrop-blur-sm border border-white/10 rounded-2xl p-2 shadow-inner overflow-x-auto">
+            {TABS.map(t => (
+              <PlanNavButton key={t.key} icon={t.icon} label={t.label} color={t.color} active={tab === t.key} onClick={() => setTab(t.key)} />
+            ))}
+          </nav>
         </div>
       </header>
-      <nav className="flex gap-1 bg-white border-b border-slate-200 px-2 md:px-4 overflow-x-auto">
-        {TABS.map(t => (
-          <button key={t.key} onClick={() => setTab(t.key)}
-            className={`px-4 py-3 text-sm font-medium border-b-2 whitespace-nowrap ${tab === t.key ? 'border-amber-500 text-slate-900' : 'border-transparent text-slate-500 hover:text-slate-700'}`}>
-            {t.label}
-          </button>
-        ))}
-      </nav>
       <main className="p-4 md:p-6 max-w-6xl mx-auto">
         {tab === 'planner' && (
           <PlannerTab
