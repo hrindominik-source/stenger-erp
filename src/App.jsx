@@ -941,6 +941,30 @@ function OfficeApp({ userFullName, userEmail, onSignOut }) {
     }
   }
 
+  async function updateExpedicniaZaznam(id, patch) {
+    const current = expedicniaZaznamy.find((z) => z.id === id);
+    if (!current) return;
+    const merged = { ...current, ...patch };
+    setExpedicniaZaznamy((prev) => prev.map((z) => (z.id === id ? merged : z)));
+    try {
+      const { orderId, ...data } = merged;
+      const { error } = await supabase.from("expedicia_zaznamy").update({ data }).eq("id", id);
+      if (error) throw error;
+    } catch (e) {
+      setLoadError("Ulozenie zlyhalo, skuste znova.");
+    }
+  }
+
+  async function deleteExpedicniaZaznam(id) {
+    setExpedicniaZaznamy((prev) => prev.filter((z) => z.id !== id));
+    try {
+      const { error } = await supabase.from("expedicia_zaznamy").delete().eq("id", id);
+      if (error) throw error;
+    } catch (e) {
+      setLoadError("Ulozenie zlyhalo, skuste znova.");
+    }
+  }
+
   async function saveNewGoodsReceipt(fields) {
     const receipt = { ...EMPTY_GOODS_RECEIPT, ...fields, id: fields.id || uid() };
     setGoodsReceipts((prev) => [receipt, ...prev]);
@@ -1300,6 +1324,9 @@ function OfficeApp({ userFullName, userEmail, onSignOut }) {
             customers={customers}
             company={company}
             expedicniaZaznamy={expedicniaZaznamy}
+            products={products}
+            onUpdateExpedicia={updateExpedicniaZaznam}
+            onDeleteExpedicia={deleteExpedicniaZaznam}
             onNew={() => setShowNewOrder(true)}
             onOpenTransport={(o) => setTransportOrder(o)}
             onOpenDelivery={(o) => setDeliveryOrder(o)}
@@ -2118,36 +2145,55 @@ function TabButton({ icon, label, active, onClick }) {
 
 /* ---------------- Register ---------------- */
 
-function RegisterView({ orders, carriers, customers, expedicniaZaznamy, onNew, onOpenTransport, onOpenDelivery, onOpenPallet, onOpenCmr, onOpenNve, onEdit, onDelete, onExport, onToggleExpedicia }) {
+function RegisterView({ orders, carriers, customers, expedicniaZaznamy, products, onUpdateExpedicia, onDeleteExpedicia, onNew, onOpenTransport, onOpenDelivery, onOpenPallet, onOpenCmr, onOpenNve, onEdit, onDelete, onExport, onToggleExpedicia }) {
   const [confirmDelete, setConfirmDelete] = useState(null);
+  const [detailOrder, setDetailOrder] = useState(null);
 
   const batchZaznamy = (expedicniaZaznamy || []).filter((z) => z.typ !== "doprava" && z.typ !== "celkova");
+  const dopravaByOrder = new Map();
+  (expedicniaZaznamy || []).filter((z) => z.typ === "doprava").forEach((z) => { dopravaByOrder.set(z.orderId, z); });
 
+  // Zorpanie riadok, sa da spolahnut na to, ze v tomto stlpci moze exportovat rovnaka objednavka na viac riadkov (viac sarzi)
   async function exportExpediciaToExcel() {
-    const dopravaByOrder = new Map();
-    (expedicniaZaznamy || []).filter((z) => z.typ === "doprava").forEach((z) => { dopravaByOrder.set(z.orderId, z); });
-    const rows = batchZaznamy
-      .slice()
-      .sort((a, b) => (parseSkDate(a.datum) || 0) - (parseSkDate(b.datum) || 0))
-      .map((z) => {
-        const order = orders.find((o) => o.id === z.orderId) || {};
-        const doprava = dopravaByOrder.get(z.orderId) || {};
-        return {
-          "Cislo objednavky": order.cisloObjednavky || "",
-          "Zakaznik": order.zakaznik || "",
+    const byOrder = new Map();
+    batchZaznamy.forEach((z) => {
+      if (!byOrder.has(z.orderId)) byOrder.set(z.orderId, []);
+      byOrder.get(z.orderId).push(z);
+    });
+    const orderIds = [...byOrder.keys()].sort((a, b) => {
+      const oa = orders.find((o) => o.id === a) || {};
+      const ob = orders.find((o) => o.id === b) || {};
+      return (parseSkDate(oa.datumDodania) || 0) - (parseSkDate(ob.datumDodania) || 0);
+    });
+    const blankRow = { "Cislo objednavky": "", "Cislo dodacieho listu": "", "Zakaznik": "", "Produkt": "", "Sarza": "", "Pocet paliet": "", "Pocet kartonov": "", "Nazov miesta dodania": "", "Adresa dodania": "", "Mesto": "", "Dopravca": "", "Vodic": "", "Datum nalozenia": "", "Datum dodania": "" };
+    const rows = [];
+    orderIds.forEach((orderId, orderIdx) => {
+      const order = orders.find((o) => o.id === orderId) || {};
+      const doprava = dopravaByOrder.get(orderId) || {};
+      const batches = byOrder.get(orderId).slice().sort((a, b) => (parseSkDate(a.datum) || 0) - (parseSkDate(b.datum) || 0));
+      batches.forEach((z, i) => {
+        // Udaje na urovni objednavky (cislo, zakaznik, miesto, doprava, datum dodania) sa vypisu
+        // len na prvom riadku danej objednavky - dalsie sarze tej istej objednavky maju tieto
+        // stlpce prazdne, aby v Exceli vizualne "patrili" pod prvy riadok ako jeden blok.
+        rows.push({
+          "Cislo objednavky": i === 0 ? (order.cisloObjednavky || "") : "",
+          "Cislo dodacieho listu": i === 0 ? (order.cisloDodaciehoListu || "") : "",
+          "Zakaznik": i === 0 ? (order.zakaznik || "") : "",
           "Produkt": z.produktNazov || "",
           "Sarza": z.sarza || "",
           "Pocet paliet": z.pocetPaliet ?? "",
           "Pocet kartonov": z.pocetKartonov ?? "",
-          "Nazov miesta dodania": order.adresaDodaniaNazov || "",
-          "Adresa dodania": order.adresaDodania || "",
-          "Mesto": extractCityFromAddress(order.adresaDodania) || "",
-          "Dopravca": doprava.dopravca || "",
-          "Vodic": doprava.vodic || "",
+          "Nazov miesta dodania": i === 0 ? (order.adresaDodaniaNazov || "") : "",
+          "Adresa dodania": i === 0 ? (order.adresaDodania || "") : "",
+          "Mesto": i === 0 ? (extractCityFromAddress(order.adresaDodania) || "") : "",
+          "Dopravca": i === 0 ? (doprava.dopravca || "") : "",
+          "Vodic": i === 0 ? (doprava.vodic || "") : "",
           "Datum nalozenia": z.datum || "",
-          "Datum dodania": order.datumDodania || "",
-        };
+          "Datum dodania": i === 0 ? (order.datumDodania || "") : "",
+        });
       });
+      if (orderIdx < orderIds.length - 1) rows.push({ ...blankRow });
+    });
     await exportRowsToExcel(rows, "Expedicia - sarze", "Expedicia_sarze", 16);
   }
 
@@ -2191,6 +2237,8 @@ function RegisterView({ orders, carriers, customers, expedicniaZaznamy, onNew, o
               {orders.map((o) => {
                 const carrierMissing = carriers.length === 0;
                 const emailMissing = !o.zakaznikEmail;
+                const orderBatches = batchZaznamy.filter((z) => z.orderId === o.id);
+                const orderDoprava = dopravaByOrder.get(o.id) || null;
                 const rowText = ((o.adresaDodaniaNazov || "") + " " + (o.adresaDodania || "")).toLowerCase();
                 const rowTint = rowText.includes("netto") ? "bg-blue-50" : (rowText.includes("ehg") || rowText.includes("edeka")) ? "bg-red-50" : "";
                 return (
@@ -2242,6 +2290,11 @@ function RegisterView({ orders, carriers, customers, expedicniaZaznamy, onNew, o
                         <IconButton title={o.nveOdoslanaInfo ? "NVE list odoslany " + formatDateTime(o.nveOdoslanaInfo.datum) : o.nveListPath ? "NVE list nahraty - pripravit email" : "NVE list"} sent={!!o.nveOdoslanaInfo} onClick={() => onOpenNve(o)}>
                           <FileSpreadsheet size={16} />
                         </IconButton>
+                        {(orderBatches.length > 0 || orderDoprava) && (
+                          <IconButton title={"Detail expedicie (" + orderBatches.length + " sarzi) - oprava zle zapisanych udajov"} onClick={() => setDetailOrder(o)}>
+                            <Boxes size={16} />
+                          </IconButton>
+                        )}
                         <IconButton title="Upravit / porovnat s PDF" onClick={() => onEdit(o)}><Pencil size={16} /></IconButton>
                         <IconButton title="Zmazat" onClick={() => setConfirmDelete(o)}><Trash2 size={16} /></IconButton>
                       </div>
@@ -2270,7 +2323,136 @@ function RegisterView({ orders, carriers, customers, expedicniaZaznamy, onNew, o
           </div>
         </ModalShell>
       )}
+      {detailOrder && (
+        <ExpediciaDetailModal
+          order={detailOrder}
+          batches={batchZaznamy.filter((z) => z.orderId === detailOrder.id)}
+          doprava={dopravaByOrder.get(detailOrder.id) || null}
+          products={products}
+          onUpdate={onUpdateExpedicia}
+          onDelete={onDeleteExpedicia}
+          onClose={() => setDetailOrder(null)}
+        />
+      )}
     </div>
+  );
+}
+
+function ExpediciaDetailModal({ order, batches, doprava, products, onUpdate, onDelete, onClose }) {
+  const [editingId, setEditingId] = useState(null);
+  const [editForm, setEditForm] = useState(null);
+  const [confirmDeleteId, setConfirmDeleteId] = useState(null);
+
+  function startEdit(z) {
+    setEditingId(z.id);
+    setEditForm({ produktId: z.produktId || "", produktNazov: z.produktNazov || "", sarza: z.sarza || "", pocetPaliet: z.pocetPaliet ?? "", pocetKartonov: z.pocetKartonov ?? "", datum: z.datum || "" });
+  }
+  function saveEdit() {
+    const produkt = products.find((p) => p.id === editForm.produktId);
+    onUpdate(editingId, {
+      produktId: editForm.produktId,
+      produktNazov: produkt ? (produkt.znacka + " " + produkt.gramaz) : editForm.produktNazov,
+      sarza: editForm.sarza.trim(),
+      pocetPaliet: parseFloat(String(editForm.pocetPaliet).replace(",", ".")) || 0,
+      pocetKartonov: editForm.pocetKartonov === "" ? null : (parseFloat(String(editForm.pocetKartonov).replace(",", ".")) || 0),
+      datum: editForm.datum.trim(),
+    });
+    setEditingId(null);
+    setEditForm(null);
+  }
+
+  function startEditDoprava() {
+    setEditingId("doprava");
+    setEditForm({ dopravca: doprava.dopravca || "", vodic: doprava.vodic || "" });
+  }
+  function saveEditDoprava() {
+    onUpdate(doprava.id, { dopravca: editForm.dopravca.trim(), vodic: editForm.vodic.trim() });
+    setEditingId(null);
+    setEditForm(null);
+  }
+
+  return (
+    <ModalShell title={"Detail expedicie - " + (order.cisloObjednavkyDopravy || order.cisloObjednavky)} onClose={onClose} wide>
+      <p className="text-xs text-slate-400 mb-3">Oprava udajov, ktore zapisal sklad pri nakladke (napr. ak sa pri kontrole zisti chyba). Zmena sa ulozi hned.</p>
+
+      <div className="mb-4">
+        <h3 className="text-xs font-semibold uppercase tracking-wide text-slate-500 mb-1.5">Doprava</h3>
+        {doprava ? (
+          editingId === "doprava" ? (
+            <div className="flex gap-2 items-end flex-wrap bg-slate-50 border border-slate-200 rounded-md p-2">
+              <Field label="Dopravca" value={editForm.dopravca} onChange={(v) => setEditForm({ ...editForm, dopravca: v })} />
+              <Field label="Vodic" value={editForm.vodic} onChange={(v) => setEditForm({ ...editForm, vodic: v })} />
+              <button onClick={saveEditDoprava} className="mb-3 bg-teal-700 hover:bg-teal-800 text-white text-sm font-medium px-3 py-2 rounded-md">Ulozit</button>
+              <button onClick={() => { setEditingId(null); setEditForm(null); }} className="mb-3 text-sm text-slate-500 px-3 py-2">Zrusit</button>
+            </div>
+          ) : (
+            <div className="flex items-center justify-between bg-slate-50 border border-slate-200 rounded-md px-3 py-2">
+              <span className="text-sm">{doprava.dopravca || "-"}{doprava.vodic ? " - vodic: " + doprava.vodic : ""}</span>
+              <IconButton title="Upravit" onClick={startEditDoprava}><Pencil size={16} /></IconButton>
+            </div>
+          )
+        ) : (
+          <p className="text-sm text-slate-400">Zatial nezapisane.</p>
+        )}
+      </div>
+
+      <div>
+        <h3 className="text-xs font-semibold uppercase tracking-wide text-slate-500 mb-1.5">Nalozene sarze ({batches.length})</h3>
+        {batches.length === 0 ? (
+          <p className="text-sm text-slate-400">Zatial ziadna nalozena davka.</p>
+        ) : (
+          <div className="border border-slate-200 rounded-md overflow-hidden">
+            <table className="w-full text-xs">
+              <thead><tr className="bg-slate-100 text-slate-600 text-left"><th className="px-2 py-1.5">Produkt</th><th className="px-2 py-1.5">Sarza</th><th className="px-2 py-1.5 text-right">Paliet</th><th className="px-2 py-1.5 text-right">Kartonov</th><th className="px-2 py-1.5">Datum</th><th className="px-2 py-1.5"></th></tr></thead>
+              <tbody>
+                {batches.map((z) => (
+                  editingId === z.id ? (
+                    <tr key={z.id} className="border-t border-slate-100 bg-amber-50">
+                      <td className="px-1 py-1">
+                        <select value={editForm.produktId} onChange={(e) => setEditForm({ ...editForm, produktId: e.target.value })} className="w-full border border-slate-200 rounded px-1.5 py-1">
+                          <option value="">-- {editForm.produktNazov || "produkt"} --</option>
+                          {products.map((p) => <option key={p.id} value={p.id}>{p.znacka} {p.gramaz}</option>)}
+                        </select>
+                      </td>
+                      <td className="px-1 py-1"><input value={editForm.sarza} onChange={(e) => setEditForm({ ...editForm, sarza: e.target.value })} className="w-full border border-slate-200 rounded px-1.5 py-1" /></td>
+                      <td className="px-1 py-1"><input value={editForm.pocetPaliet} onChange={(e) => setEditForm({ ...editForm, pocetPaliet: e.target.value })} className="w-16 border border-slate-200 rounded px-1.5 py-1 text-right" /></td>
+                      <td className="px-1 py-1"><input value={editForm.pocetKartonov} onChange={(e) => setEditForm({ ...editForm, pocetKartonov: e.target.value })} className="w-16 border border-slate-200 rounded px-1.5 py-1 text-right" /></td>
+                      <td className="px-1 py-1"><input value={editForm.datum} onChange={(e) => setEditForm({ ...editForm, datum: e.target.value })} placeholder="DD.MM.RRRR" className="w-24 border border-slate-200 rounded px-1.5 py-1" /></td>
+                      <td className="px-1 py-1 whitespace-nowrap">
+                        <button onClick={saveEdit} className="text-emerald-600 hover:text-emerald-800 p-1" title="Ulozit"><Check className="inline" size={14} /></button>
+                        <button onClick={() => { setEditingId(null); setEditForm(null); }} className="text-slate-400 hover:text-rose-600 p-1" title="Zrusit"><X className="inline" size={14} /></button>
+                      </td>
+                    </tr>
+                  ) : (
+                    <tr key={z.id} className="border-t border-slate-100">
+                      <td className="px-2 py-1.5">{z.produktNazov}</td>
+                      <td className="px-2 py-1.5">{z.sarza || "-"}</td>
+                      <td className="px-2 py-1.5 text-right">{z.pocetPaliet ?? "-"}</td>
+                      <td className="px-2 py-1.5 text-right">{z.pocetKartonov ?? "-"}</td>
+                      <td className="px-2 py-1.5 whitespace-nowrap">{z.datum || "-"}</td>
+                      <td className="px-2 py-1.5 text-right whitespace-nowrap">
+                        <IconButton title="Upravit" onClick={() => startEdit(z)}><Pencil size={16} /></IconButton>
+                        <IconButton title="Zmazat" onClick={() => setConfirmDeleteId(z.id)}><Trash2 size={16} /></IconButton>
+                      </td>
+                    </tr>
+                  )
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
+
+      {confirmDeleteId && (
+        <div className="mt-4 bg-red-50 border border-red-200 rounded-md p-3">
+          <p className="text-sm text-red-700 mb-2">Naozaj zmazat tuto nalozenu davku? Tuto akciu nie je mozne vratit spat.</p>
+          <div className="flex justify-end gap-2">
+            <button onClick={() => setConfirmDeleteId(null)} className="text-sm text-slate-500 px-3 py-1.5">Zrusit</button>
+            <button onClick={() => { onDelete(confirmDeleteId); setConfirmDeleteId(null); }} className="bg-red-600 hover:bg-red-700 text-white text-sm font-medium px-3 py-1.5 rounded-md">Ano, zmazat</button>
+          </div>
+        </div>
+      )}
+    </ModalShell>
   );
 }
 
