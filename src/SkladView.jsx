@@ -228,15 +228,23 @@ function PrehladTab() {
           <div className="bg-white border border-slate-200 rounded-lg p-6 text-center text-slate-400 text-sm">Ziadne polozky vo vyrobnom plane.</div>
         ) : (
           <div className="bg-white border border-slate-200 rounded-lg overflow-hidden">
-            {sortedPlan.map((r) => (
-              <div key={r.id} className="px-4 py-2.5 border-t border-slate-100 first:border-t-0 flex items-center justify-between gap-3">
-                <div className="min-w-0">
-                  <div className="font-medium text-sm truncate">{r.produktNazov}</div>
-                  <div className="text-xs text-slate-400">{r.mnozstvo} {r.mnozstvoJednotka === "kartonov" ? "kartonov" : "paliet"}{r.poznamka ? " - " + r.poznamka : ""}</div>
+            {sortedPlan.map((r) => {
+              const stav = r.stavVyroby || "caka";
+              const stavLabel = stav === "hotovo" ? "Hotovo" : stav === "prebieha" ? "Prebieha" : "Caka";
+              const stavClass = stav === "hotovo" ? "bg-emerald-100 text-emerald-700" : stav === "prebieha" ? "bg-blue-100 text-blue-700" : "bg-slate-100 text-slate-700";
+              return (
+                <div key={r.id} className="px-4 py-2.5 border-t border-slate-100 first:border-t-0 flex items-center justify-between gap-3">
+                  <div className="min-w-0">
+                    <div className="font-medium text-sm truncate">{r.produktNazov}</div>
+                    <div className="text-xs text-slate-400">{r.mnozstvo} {r.mnozstvoJednotka === "kartonov" ? "kartonov" : "paliet"}{r.poznamka ? " - " + r.poznamka : ""}</div>
+                  </div>
+                  <div className="flex items-center gap-2 whitespace-nowrap">
+                    <span className={"text-xs font-medium px-2 py-0.5 rounded-full " + stavClass}>{stavLabel}</span>
+                    <span className="text-sm text-slate-600">{r.datum}</span>
+                  </div>
                 </div>
-                <div className="text-sm text-slate-600 whitespace-nowrap">{r.datum}</div>
-              </div>
-            ))}
+              );
+            })}
           </div>
         )}
       </div>

@@ -244,6 +244,12 @@ const PRODUCTION_LINKY = [
   { value: "kyble", label: "Kyble" },
   { value: "bulk", label: "Bulk" },
 ];
+const VYROBA_STATUS_LABELS = { caka: "Caka", prebieha: "Prebieha", hotovo: "Hotovo" };
+const STATUS_VYROBY = {
+  "Caka": "bg-slate-100 text-slate-700",
+  "Prebieha": "bg-blue-100 text-blue-700",
+  "Hotovo": "bg-emerald-100 text-emerald-700",
+};
 const EMPTY_PRODUCT = {
   znacka: "",
   gramaz: "",
@@ -4708,6 +4714,7 @@ function ProductionPlanView({ productionPlan, products, goodsReceipts, stockIssu
                 <th className="px-3 py-2 font-medium">Mnozstvo</th>
                 <th className="px-3 py-2 font-medium">Termin dodania</th>
                 <th className="px-3 py-2 font-medium">Poznamka</th>
+                <th className="px-3 py-2 font-medium">Stav vyroby</th>
                 <th className="px-3 py-2"></th>
               </tr>
             </thead>
@@ -4724,6 +4731,7 @@ function ProductionPlanView({ productionPlan, products, goodsReceipts, stockIssu
                     <td className="px-3 py-2 text-slate-500 whitespace-nowrap">{r.mnozstvo} {r.mnozstvoJednotka === "kartonov" ? "kartonov" : "paliet"}</td>
                     <td className="px-3 py-2 text-slate-500 whitespace-nowrap">{r.terminDodania}</td>
                     <td className="px-3 py-2 text-slate-500">{r.poznamka}</td>
+                    <td className="px-3 py-2"><Badge text={VYROBA_STATUS_LABELS[r.stavVyroby] || VYROBA_STATUS_LABELS.caka} map={STATUS_VYROBY} /></td>
                     <td className="px-3 py-2 text-right">
                       <div className="flex justify-end gap-1">
                         <IconButton title="Upravit" onClick={() => onEdit(r)}><Pencil size={16} /></IconButton>

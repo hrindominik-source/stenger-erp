@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback, useRef } from "react";
-import { LogOut, Loader2, AlertCircle, CheckCircle2, X, Calendar } from "lucide-react";
+import { LogOut, Loader2, AlertCircle, CheckCircle2, X, Calendar, LayoutDashboard, ClipboardList } from "lucide-react";
 import { supabase } from "./supabaseClient.js";
-import { todayStr, nowTimeStr, uid, isoFromSkDateStr, skDateStrFromIso } from "./lib/utils.js";
+import { todayStr, nowTimeStr, uid, isoFromSkDateStr, skDateStrFromIso, parseSkDate } from "./lib/utils.js";
 import { computeProductionIssues, computeStockLevels, materialShortages } from "./lib/inventory.js";
 
 const PRODUCTION_LINKY = [
@@ -9,6 +9,36 @@ const PRODUCTION_LINKY = [
   { value: "kyble", label: "Kyble" },
   { value: "bulk", label: "Bulk" },
 ];
+
+const VYROBA_STATUS_OPTIONS = [
+  { value: "caka", label: "Caka" },
+  { value: "prebieha", label: "Prebieha" },
+  { value: "hotovo", label: "Hotovo" },
+];
+const VYROBA_TAB_COLORS = {
+  prehlad: { badge: "from-teal-400 to-teal-600", shadow: "shadow-teal-500/40" },
+  vyroba: { badge: "from-blue-400 to-blue-600", shadow: "shadow-blue-500/40" },
+};
+
+function VyrobaTabButton({ active, onClick, color, icon, label }) {
+  const c = VYROBA_TAB_COLORS[color] || VYROBA_TAB_COLORS.prehlad;
+  return (
+    <button
+      onClick={onClick}
+      className={
+        "group relative flex-1 flex flex-col items-center justify-center gap-1.5 py-3.5 px-2 rounded-xl text-base font-bold text-center leading-tight transition-all duration-200 " +
+        (active
+          ? "bg-gradient-to-b from-white to-slate-50 text-slate-900 shadow-lg " + c.shadow + " -translate-y-0.5"
+          : "text-slate-300 hover:text-white hover:bg-white/5 hover:-translate-y-0.5")
+      }
+    >
+      <span className={"flex items-center justify-center w-11 h-11 rounded-lg bg-gradient-to-br text-white shadow-md transition-transform duration-200 group-hover:scale-110 " + c.badge}>
+        {icon}
+      </span>
+      {label}
+    </button>
+  );
+}
 
 function productLabel(p) {
   if (!p) return "";
@@ -48,7 +78,7 @@ function DateFieldBig({ value, onChange }) {
   );
 }
 
-export default function VyrobaView({ fullName, onSignOut }) {
+function VyrobaFormTab({ fullName }) {
   const [products, setProducts] = useState([]);
   const [outputs, setOutputs] = useState([]);
   const [workers, setWorkers] = useState([]);
@@ -229,36 +259,14 @@ export default function VyrobaView({ fullName, onSignOut }) {
 
   if (loading) {
     return (
-      <div className="min-h-screen flex items-center justify-center text-slate-500">
-        <Loader2 className="animate-spin mr-2" size={20} /> Nacitavam...
+      <div className="text-center text-slate-400 py-10">
+        <Loader2 className="animate-spin mx-auto mb-2" size={24} /> Nacitavam...
       </div>
     );
   }
 
   return (
-    <div className="min-h-screen bg-slate-50 text-slate-900" style={{ fontFamily: "system-ui, -apple-system, Segoe UI, sans-serif" }}>
-      <header className="bg-slate-900 text-white">
-        <div className="max-w-2xl mx-auto px-4 py-4 flex items-center justify-between flex-wrap gap-3">
-          <div className="flex items-center gap-3">
-            <img src="/stenger-logo.png" alt="Stenger" className="h-10 w-auto" />
-            <div>
-              <div className="text-xs tracking-wider text-slate-400">Stenger Czech s.r.o.</div>
-              <div className="text-lg font-semibold">Vyroba</div>
-            </div>
-          </div>
-          <div className="flex items-center gap-3">
-            <span className="text-sm text-slate-300">{fullName}</span>
-            <button
-              onClick={onSignOut}
-              className="flex items-center gap-1.5 text-slate-300 hover:bg-slate-800 px-3 py-1.5 rounded-md text-sm"
-            >
-              <LogOut size={16} /> Odhlasit
-            </button>
-          </div>
-        </div>
-      </header>
-
-      <main className="max-w-2xl mx-auto px-4 py-6">
+    <>
         {error && (
           <div className="mb-3 bg-red-50 text-red-700 text-sm px-3 py-2.5 rounded-md flex items-center gap-2">
             <AlertCircle size={16} /> {error}
@@ -383,6 +391,154 @@ export default function VyrobaView({ fullName, onSignOut }) {
             ))}
           </div>
         )}
+    </>
+  );
+}
+
+/* ---------------- Prehlad (vyrobny plan) ---------------- */
+
+function PrehladTab() {
+  const [plan, setPlan] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
+  const [savingId, setSavingId] = useState(null);
+  const pollRef = useRef(null);
+
+  const fetchPlan = useCallback(async () => {
+    const { data, error: fetchError } = await supabase.from("production_plan").select("*");
+    if (fetchError) {
+      setError("Nepodarilo sa nacitat vyrobny plan.");
+      return;
+    }
+    setError("");
+    setPlan((data || []).map((row) => row.data));
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      await fetchPlan();
+      if (!cancelled) setLoading(false);
+    })();
+    pollRef.current = setInterval(fetchPlan, 10000);
+    return () => {
+      cancelled = true;
+      clearInterval(pollRef.current);
+    };
+  }, [fetchPlan]);
+
+  async function setStatus(row, stavVyroby) {
+    setSavingId(row.id);
+    const next = { ...row, stavVyroby };
+    setPlan((prev) => prev.map((r) => (r.id === row.id ? next : r)));
+    const { error: updateError } = await supabase.from("production_plan").update({ data: next }).eq("id", row.id);
+    setSavingId(null);
+    if (updateError) {
+      setError("Zmena stavu sa nepodarila, skuste znova.");
+      await fetchPlan();
+    }
+  }
+
+  if (loading) {
+    return (
+      <div className="text-center text-slate-400 py-10">
+        <Loader2 className="animate-spin mx-auto mb-2" size={24} /> Nacitavam...
+      </div>
+    );
+  }
+
+  const sortedPlan = plan.slice().sort((a, b) => (parseSkDate(a.datum) || 0) - (parseSkDate(b.datum) || 0));
+
+  return (
+    <div>
+      {error && (
+        <div className="mb-3 bg-red-50 text-red-700 text-sm px-3 py-2.5 rounded-md flex items-center gap-2">
+          <AlertCircle size={16} /> {error}
+        </div>
+      )}
+      {sortedPlan.length === 0 ? (
+        <div className="bg-white border border-slate-200 rounded-lg p-10 text-center text-slate-400 text-sm">Zatial ziadne polozky vo vyrobnom plane.</div>
+      ) : (
+        <div className="space-y-3">
+          {sortedPlan.map((r) => {
+            const stav = r.stavVyroby || "caka";
+            return (
+              <div key={r.id} className="bg-white border border-slate-200 rounded-xl p-4">
+                <div className="flex items-start justify-between gap-2 mb-1">
+                  <div className="font-semibold text-base">{r.produktNazov}</div>
+                  <div className="text-sm text-slate-500 whitespace-nowrap">{r.datum}</div>
+                </div>
+                <div className="text-sm text-slate-500 mb-3">
+                  {r.mnozstvo} {r.mnozstvoJednotka === "kartonov" ? "kartonov" : "paliet"}
+                  {r.terminDodania ? " - termin: " + r.terminDodania : ""}
+                  {r.poznamka ? " - " + r.poznamka : ""}
+                </div>
+                <div className="grid grid-cols-3 gap-2">
+                  {VYROBA_STATUS_OPTIONS.map((opt) => (
+                    <button
+                      key={opt.value}
+                      onClick={() => setStatus(r, opt.value)}
+                      disabled={savingId === r.id}
+                      className={
+                        "text-sm font-semibold px-3 py-2.5 rounded-lg border-2 disabled:opacity-60 " +
+                        (stav === opt.value
+                          ? opt.value === "hotovo"
+                            ? "bg-emerald-600 text-white border-emerald-600"
+                            : opt.value === "prebieha"
+                              ? "bg-blue-600 text-white border-blue-600"
+                              : "bg-slate-600 text-white border-slate-600"
+                          : "bg-white text-slate-600 border-slate-200")
+                      }
+                    >
+                      {opt.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/* ---------------- Hlavny obal (hlavicka + taby) ---------------- */
+
+export default function VyrobaView({ fullName, onSignOut }) {
+  const [tab, setTab] = useState("prehlad");
+
+  return (
+    <div className="min-h-screen bg-slate-50 text-slate-900" style={{ fontFamily: "system-ui, -apple-system, Segoe UI, sans-serif" }}>
+      <header className="bg-slate-900 text-white">
+        <div className="max-w-2xl mx-auto px-4 py-4 flex items-center justify-between flex-wrap gap-3">
+          <div className="flex items-center gap-3">
+            <img src="/stenger-logo.png" alt="Stenger" className="h-10 w-auto" />
+            <div>
+              <div className="text-xs tracking-wider text-slate-400">Stenger Czech s.r.o.</div>
+              <div className="text-lg font-semibold">Vyroba</div>
+            </div>
+          </div>
+          <div className="flex items-center gap-3">
+            <span className="text-sm text-slate-300">{fullName}</span>
+            <button
+              onClick={onSignOut}
+              className="flex items-center gap-1.5 text-slate-300 hover:bg-slate-800 px-3 py-1.5 rounded-md text-sm"
+            >
+              <LogOut size={16} /> Odhlasit
+            </button>
+          </div>
+        </div>
+        <div className="max-w-2xl mx-auto px-4 pb-4">
+          <nav className="flex items-stretch gap-2 mt-1 bg-white/5 backdrop-blur-sm border border-white/10 rounded-2xl p-2 shadow-inner">
+            <VyrobaTabButton active={tab === "prehlad"} onClick={() => setTab("prehlad")} color="prehlad" icon={<LayoutDashboard size={20} />} label="Prehlad" />
+            <VyrobaTabButton active={tab === "vyroba"} onClick={() => setTab("vyroba")} color="vyroba" icon={<ClipboardList size={20} />} label="Vyroba" />
+          </nav>
+        </div>
+      </header>
+
+      <main className="max-w-2xl mx-auto px-4 py-6">
+        {tab === "prehlad" ? <PrehladTab /> : <VyrobaFormTab fullName={fullName} />}
       </main>
     </div>
   );

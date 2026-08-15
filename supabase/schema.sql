@@ -458,8 +458,8 @@ alter table public.production_plan enable row level security;
 drop policy if exists "production_plan_all" on public.production_plan;
 create policy "production_plan_all" on public.production_plan
   for all
-  using (public.current_role() in ('office', 'sklad'))
-  with check (public.current_role() in ('office', 'sklad'));
+  using (public.current_role() in ('office', 'sklad', 'vyroba'))
+  with check (public.current_role() in ('office', 'sklad', 'vyroba'));
 
 -- ============================================================
 -- 18. production_outputs - zaznamy skutocnej vyroby (produkt, palety, sarza),
