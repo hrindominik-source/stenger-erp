@@ -400,7 +400,7 @@ function ShiftRow({ week, shift, employees, absences, onSetProduct, onSetPos, on
         <span className="text-xs text-slate-400">{typeMeta.time}</span>
 
         {shift.type !== 'sanitation' ? (
-          <select value={shift.product || ''} onChange={e => onSetProduct(shift.id, e.target.value || null)}
+          <select value={shift.product || ''} onChange={e => onSetProduct(week.id, shift.id, e.target.value || null)}
             className="ml-auto text-sm border border-slate-300 rounded px-2 py-1">
             <option value="">— zvoliť produkt —</option>
             {Object.entries(PRODUCTS).map(([k, v]) => <option key={k} value={k}>{v.label} ({v.total} ľudí)</option>)}
@@ -412,7 +412,7 @@ function ShiftRow({ week, shift, employees, absences, onSetProduct, onSetPos, on
         <span className={`text-xs font-mono px-2 py-1 rounded ${filledCount === total && total > 0 ? 'bg-emerald-100 text-emerald-700' : filledCount < total ? 'bg-amber-50 text-amber-700' : 'bg-blue-50 text-blue-700'}`}>
           {filledCount}/{total || '–'}
         </span>
-        <button onClick={() => onClear(shift.id)} className="text-slate-400 hover:text-rose-600" title="Vyčistiť priradenia">
+        <button onClick={() => onClear(week.id, shift.id)} className="text-slate-400 hover:text-rose-600" title="Vyčistiť priradenia">
           <Trash2 className="w-4 h-4" />
         </button>
       </div>
@@ -422,9 +422,9 @@ function ShiftRow({ week, shift, employees, absences, onSetProduct, onSetPos, on
           <div>
             <div className="text-xs uppercase tracking-wide text-slate-400 mb-1">Hrncová</div>
             {shift.assigned.pos1 ? (
-              <PersonChip name={getEmpNameFrom(employees, shift.assigned.pos1)} warning={warn(shift.assigned.pos1)} onRemove={() => onSetPos(shift.id, 'pos1', null)} />
+              <PersonChip name={getEmpNameFrom(employees, shift.assigned.pos1)} warning={warn(shift.assigned.pos1)} onRemove={() => onSetPos(week.id, shift.id, 'pos1', null)} />
             ) : (
-              <select onChange={e => onSetPos(shift.id, 'pos1', e.target.value || null)} value="" className="text-sm border border-dashed border-slate-300 rounded px-2 py-1 w-full text-slate-400">
+              <select onChange={e => onSetPos(week.id, shift.id, 'pos1', e.target.value || null)} value="" className="text-sm border border-dashed border-slate-300 rounded px-2 py-1 w-full text-slate-400">
                 <option value="">+ priradiť</option>
                 {pos1Options.map(e => <option key={e.id} value={e.id}>{e.name}</option>)}
               </select>
@@ -433,9 +433,9 @@ function ShiftRow({ week, shift, employees, absences, onSetProduct, onSetPos, on
           <div>
             <div className="text-xs uppercase tracking-wide text-slate-400 mb-1">Pozícia 3</div>
             {shift.assigned.pos3 ? (
-              <PersonChip name={getEmpNameFrom(employees, shift.assigned.pos3)} warning={warn(shift.assigned.pos3)} onRemove={() => onSetPos(shift.id, 'pos3', null)} />
+              <PersonChip name={getEmpNameFrom(employees, shift.assigned.pos3)} warning={warn(shift.assigned.pos3)} onRemove={() => onSetPos(week.id, shift.id, 'pos3', null)} />
             ) : (
-              <select onChange={e => onSetPos(shift.id, 'pos3', e.target.value || null)} value="" className="text-sm border border-dashed border-slate-300 rounded px-2 py-1 w-full text-slate-400">
+              <select onChange={e => onSetPos(week.id, shift.id, 'pos3', e.target.value || null)} value="" className="text-sm border border-dashed border-slate-300 rounded px-2 py-1 w-full text-slate-400">
                 <option value="">+ priradiť</option>
                 {pos3Options.map(e => <option key={e.id} value={e.id}>{e.name}</option>)}
               </select>
@@ -445,11 +445,11 @@ function ShiftRow({ week, shift, employees, absences, onSetProduct, onSetPos, on
             <div className="text-xs uppercase tracking-wide text-slate-400 mb-1">Ostatné pozície</div>
             <div className="flex flex-wrap gap-1 mb-1">
               {shift.assigned.general.map(id => (
-                <PersonChip key={id} name={getEmpNameFrom(employees, id)} warning={warn(id)} onRemove={() => onRemoveGeneral(shift.id, id)} />
+                <PersonChip key={id} name={getEmpNameFrom(employees, id)} warning={warn(id)} onRemove={() => onRemoveGeneral(week.id, shift.id, id)} />
               ))}
             </div>
             {shift.assigned.general.length < neededGeneral && (
-              <select onChange={e => { if (e.target.value) onAddGeneral(shift.id, e.target.value); }} value="" className="text-sm border border-dashed border-slate-300 rounded px-2 py-1 w-full text-slate-400">
+              <select onChange={e => { if (e.target.value) onAddGeneral(week.id, shift.id, e.target.value); }} value="" className="text-sm border border-dashed border-slate-300 rounded px-2 py-1 w-full text-slate-400">
                 <option value="">+ priradiť</option>
                 {generalOptions.map(e => <option key={e.id} value={e.id}>{e.name}</option>)}
               </select>
@@ -461,8 +461,8 @@ function ShiftRow({ week, shift, employees, absences, onSetProduct, onSetPos, on
       {total > 0 && (
         <div className="mt-2 pt-2 border-t border-dashed border-slate-200 flex flex-wrap items-center gap-1">
           <span className="text-xs uppercase tracking-wide text-slate-400 mr-1">Navyše (napr. na zaučenie):</span>
-          {shift.extra.map(id => <PersonChip key={id} name={getEmpNameFrom(employees, id)} warning={warn(id)} onRemove={() => onRemoveExtra(shift.id, id)} />)}
-          <select onChange={e => { if (e.target.value) onAddExtra(shift.id, e.target.value); }} value="" className="text-xs border border-dashed border-slate-300 rounded px-1.5 py-1 text-slate-400">
+          {shift.extra.map(id => <PersonChip key={id} name={getEmpNameFrom(employees, id)} warning={warn(id)} onRemove={() => onRemoveExtra(week.id, shift.id, id)} />)}
+          <select onChange={e => { if (e.target.value) onAddExtra(week.id, shift.id, e.target.value); }} value="" className="text-xs border border-dashed border-slate-300 rounded px-1.5 py-1 text-slate-400">
             <option value="">+ pridať navyše</option>
             {anyOptions.map(e => <option key={e.id} value={e.id}>{e.name}</option>)}
           </select>
@@ -897,6 +897,10 @@ function PlannerTab({ weeks, activeWeek, employees, absences, setActiveWeekId, o
     );
   }
   const sortedWeeks = [...weeks].sort((a, b) => a.startDate.localeCompare(b.startDate));
+  const [planTwoWeeks, setPlanTwoWeeks] = useState(false);
+  const secondWeekStart = addDays(activeWeek.startDate, 7);
+  const secondWeek = weeks.find(w => w.id === secondWeekStart) || null;
+
   return (
     <div className="space-y-4">
       <div className="flex flex-wrap items-center gap-2">
@@ -912,11 +916,15 @@ function PlannerTab({ weeks, activeWeek, employees, absences, setActiveWeekId, o
           <input type="checkbox" checked={activeWeek.extraSundayNight} onChange={onToggleSunday} />
           Mimoriadny štart: nočná už v nedeľu 18:00
         </label>
+        <label className="flex items-center gap-1.5 text-sm text-slate-600" title="Vynimocne, napr. par krat do roka - zobrazi aj nasledujuci tyzden pod tymto naraz">
+          <input type="checkbox" checked={planTwoWeeks} onChange={e => setPlanTwoWeeks(e.target.checked)} />
+          Plánovať aj nasledujúci týždeň naraz
+        </label>
 
         <div className="ml-auto flex gap-2">
-          <button onClick={onAutoFill} className="px-3 py-2 text-sm rounded-md bg-amber-600 text-white hover:bg-amber-700">Doplniť prázdne miesta</button>
+          <button onClick={() => onAutoFill(activeWeek.id)} className="px-3 py-2 text-sm rounded-md bg-amber-600 text-white hover:bg-amber-700">Doplniť prázdne miesta</button>
           <button onClick={onShowPreview} className="px-3 py-2 text-sm rounded border border-slate-300 hover:bg-slate-100 flex items-center gap-1"><Printer className="w-4 h-4" />Ukázať/exportovať náhľad</button>
-          <button onClick={onClearRefill} className="px-3 py-2 text-sm rounded border border-slate-300 hover:bg-slate-100">Vyčistiť a preplánovať</button>
+          <button onClick={() => onClearRefill(activeWeek.id)} className="px-3 py-2 text-sm rounded border border-slate-300 hover:bg-slate-100">Vyčistiť a preplánovať</button>
           <button onClick={onExport} className="px-3 py-2 text-sm rounded border border-slate-300 hover:bg-slate-100 flex items-center gap-1"><Copy className="w-4 h-4" />Export (text)</button>
         </div>
       </div>
@@ -931,6 +939,36 @@ function PlannerTab({ weeks, activeWeek, employees, absences, setActiveWeekId, o
             onAddExtra={onAddExtra} onRemoveExtra={onRemoveExtra} onClear={onClearShift} />
         ))}
       </div>
+
+      {planTwoWeeks && (
+        <div className="pt-4 mt-2 border-t-2 border-dashed border-amber-200">
+          <div className="flex flex-wrap items-center gap-2 mb-3">
+            <h3 className="text-sm font-semibold text-slate-700">Nasledujúci týždeň — od {formatSk(secondWeekStart)}</h3>
+            {secondWeek ? (
+              <div className="ml-auto flex gap-2">
+                <button onClick={() => onAutoFill(secondWeek.id)} className="px-3 py-1.5 text-xs rounded-md bg-amber-600 text-white hover:bg-amber-700">Doplniť prázdne miesta</button>
+                <button onClick={() => onClearRefill(secondWeek.id)} className="px-3 py-1.5 text-xs rounded border border-slate-300 hover:bg-slate-100">Vyčistiť a preplánovať</button>
+              </div>
+            ) : (
+              <button onClick={() => onGotoWeek(secondWeekStart)} className="ml-auto px-3 py-1.5 text-xs rounded-md bg-amber-600 text-white hover:bg-amber-700 flex items-center gap-1">
+                <Plus className="w-3.5 h-3.5" /> Vytvoriť tento týždeň
+              </button>
+            )}
+          </div>
+          {secondWeek && (
+            <>
+              <TimelineStrip week={secondWeek} />
+              <div className="space-y-2 mt-3">
+                {secondWeek.shifts.map(s => (
+                  <ShiftRow key={s.id} week={secondWeek} shift={s} employees={employees} absences={absences}
+                    onSetProduct={onSetProduct} onSetPos={onSetPos} onAddGeneral={onAddGeneral} onRemoveGeneral={onRemoveGeneral}
+                    onAddExtra={onAddExtra} onRemoveExtra={onRemoveExtra} onClear={onClearShift} />
+                ))}
+              </div>
+            </>
+          )}
+        </div>
+      )}
     </div>
   );
 }
@@ -1289,22 +1327,24 @@ export default function PlanSmienView({ onBack }) {
     updateWeek(weekId, w => { w.shifts = w.shifts.map(s => (s.id === shiftId ? updater(s) : s)); return w; });
   }
 
-  function setProduct(shiftId, product) { updateShift(activeWeek.id, shiftId, s => { s.product = product; return s; }); }
-  function setPos(shiftId, role, empId) { updateShift(activeWeek.id, shiftId, s => { s.assigned[role] = empId || null; return s; }); }
-  function addGeneral(shiftId, empId) { updateShift(activeWeek.id, shiftId, s => { if (!s.assigned.general.includes(empId)) s.assigned.general.push(empId); return s; }); }
-  function removeGeneral(shiftId, empId) { updateShift(activeWeek.id, shiftId, s => { s.assigned.general = s.assigned.general.filter(id => id !== empId); return s; }); }
-  function addExtra(shiftId, empId) { updateShift(activeWeek.id, shiftId, s => { if (!s.extra.includes(empId)) s.extra.push(empId); return s; }); }
-  function removeExtra(shiftId, empId) { updateShift(activeWeek.id, shiftId, s => { s.extra = s.extra.filter(id => id !== empId); return s; }); }
-  function clearShiftAssignment(shiftId) { updateShift(activeWeek.id, shiftId, s => { s.assigned = { pos1: null, pos3: null, general: [] }; s.extra = []; return s; }); }
+  function setProduct(weekId, shiftId, product) { updateShift(weekId, shiftId, s => { s.product = product; return s; }); }
+  function setPos(weekId, shiftId, role, empId) { updateShift(weekId, shiftId, s => { s.assigned[role] = empId || null; return s; }); }
+  function addGeneral(weekId, shiftId, empId) { updateShift(weekId, shiftId, s => { if (!s.assigned.general.includes(empId)) s.assigned.general.push(empId); return s; }); }
+  function removeGeneral(weekId, shiftId, empId) { updateShift(weekId, shiftId, s => { s.assigned.general = s.assigned.general.filter(id => id !== empId); return s; }); }
+  function addExtra(weekId, shiftId, empId) { updateShift(weekId, shiftId, s => { if (!s.extra.includes(empId)) s.extra.push(empId); return s; }); }
+  function removeExtra(weekId, shiftId, empId) { updateShift(weekId, shiftId, s => { s.extra = s.extra.filter(id => id !== empId); return s; }); }
+  function clearShiftAssignment(weekId, shiftId) { updateShift(weekId, shiftId, s => { s.assigned = { pos1: null, pos3: null, general: [] }; s.extra = []; return s; }); }
 
-  function autoFillCurrentWeek() {
-    if (!activeWeek) return;
-    const filled = autoFillWeek(activeWeek, employees, absences, weeks);
+  function autoFillCurrentWeek(weekId) {
+    const week = weeks.find(w => w.id === (weekId || (activeWeek && activeWeek.id)));
+    if (!week) return;
+    const filled = autoFillWeek(week, employees, absences, weeks);
     setWeeks(ws => ws.map(w => (w.id === filled.id ? filled : w)));
   }
-  function clearAndRefillWeek() {
-    if (!activeWeek) return;
-    const cleared = cloneWeek(activeWeek);
+  function clearAndRefillWeek(weekId) {
+    const week = weeks.find(w => w.id === (weekId || (activeWeek && activeWeek.id)));
+    if (!week) return;
+    const cleared = cloneWeek(week);
     cleared.shifts.forEach(s => { s.assigned = { pos1: null, pos3: null, general: [] }; s.extra = []; });
     const filled = autoFillWeek(cleared, employees, absences, weeks.map(w => (w.id === cleared.id ? cleared : w)));
     setWeeks(ws => ws.map(w => (w.id === filled.id ? filled : w)));
