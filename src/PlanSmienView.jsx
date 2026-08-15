@@ -1,25 +1,32 @@
 import React, { useState, useEffect } from 'react';
-import { Sun, Moon, Droplets, Plus, X, AlertTriangle, Trash2, UserPlus, Copy, ChevronLeft, ChevronRight, Pencil, Check, Printer, KeyRound, CalendarDays, Users2, CalendarOff, History as HistoryIcon, Upload, BarChart3, LogOut, ArrowLeftRight } from 'lucide-react';
+import { Sun, Moon, Droplets, Plus, X, AlertTriangle, Trash2, Copy, ChevronLeft, ChevronRight, Printer, KeyRound, CalendarDays, Users2, CalendarOff, History as HistoryIcon, Upload, BarChart3, LogOut, ArrowLeftRight } from 'lucide-react';
 import { supabase } from './supabaseClient.js';
 
 /* =========================================================================
    DATA
    ========================================================================= */
-const DEFAULT_EMPLOYEES = [
-  { id: 'e1',  name: 'Mašková Lenka',      roles: ['pos1'],                     weeklyMax: 4, active: true },
-  { id: 'e2',  name: 'Jana Dragounová',    roles: ['pos1','pos3','general'],    weeklyMax: 4, active: true },
-  { id: 'e3',  name: 'Martina Vávrová',    roles: ['pos1','pos3','general'],    weeklyMax: 4, active: true },
-  { id: 'e4',  name: 'Yvetta Cafourková',  roles: ['pos1','pos3','general'],    weeklyMax: 4, active: true },
-  { id: 'e5',  name: 'Petra Achačová',     roles: ['pos1-backup','pos3','general'], weeklyMax: 4, active: true },
-  { id: 'e6',  name: 'Milena Jechová',     roles: ['pos3','general'],           weeklyMax: 4, active: true },
-  { id: 'e7',  name: 'Zuzana Svobodová',   roles: ['pos3','general'],           weeklyMax: 2, active: true },
-  { id: 'e8',  name: 'Lucie Fišerová',     roles: ['general'],                  weeklyMax: 4, active: true },
-  { id: 'e9',  name: 'Lucie Melicharová',  roles: ['general'],                  weeklyMax: 4, active: true },
-  { id: 'e10', name: 'Monika Mandíková',   roles: ['general'],                  weeklyMax: 4, active: true },
-  { id: 'e11', name: 'Bohdana Matejková',  roles: ['general'],                  weeklyMax: 4, active: true },
-  { id: 'e12', name: 'Vendula Svobodová',  roles: ['general'],                  weeklyMax: 4, active: true },
-  { id: 'e13', name: 'Kvetoslava Buchová', roles: ['general'],                  weeklyMax: 4, active: true },
-];
+/* Zoznam mien (kto vsetko existuje) uz nie je hardcodovany ani editovatelny tu -
+   preberá sa z ERP (Pracovnici, typ "Planovanie zmien") cez syncEmployeesWithOffice
+   nizsie. Tu sa uklada len co k danej osobe patri specificky pre planovanie zmien
+   (roly, max. zmien/tyzden, PIN, docasne vyradenie z rozpisu). */
+function syncEmployeesWithOffice(existing, officeWorkers) {
+  const officeIds = new Set(officeWorkers.map(w => w.id));
+  const byId = new Map(existing.map(e => [e.id, e]));
+  officeWorkers.forEach(w => {
+    const cur = byId.get(w.id);
+    if (cur) {
+      byId.set(w.id, { ...cur, name: w.meno });
+    } else {
+      byId.set(w.id, { id: w.id, name: w.meno, roles: ['general'], weeklyMax: 4, active: true, pin: null });
+    }
+  });
+  existing.forEach(e => {
+    if (!officeIds.has(e.id)) {
+      byId.set(e.id, { ...byId.get(e.id), active: false });
+    }
+  });
+  return [...byId.values()];
+}
 
 const PRODUCTS = {
   sacky:   { label: 'Vrecká (sáčky)', total: 4 },
@@ -31,7 +38,7 @@ const ROLE_LABEL = { pos1: 'Hrncová', 'pos1-backup': 'Hrncová (záskok)', pos3
 
 const TABS = [
   { key: 'planner',   label: 'Plán týždňa',    icon: <CalendarDays className="w-[18px] h-[18px]" />, color: 'amber' },
-  { key: 'employees', label: 'Zamestnankyne',  icon: <Users2 className="w-[18px] h-[18px]" />,        color: 'blue' },
+  { key: 'employees', label: 'Zamestnanci',    icon: <Users2 className="w-[18px] h-[18px]" />,        color: 'blue' },
   { key: 'absences',  label: 'Neprítomnosti',  icon: <CalendarOff className="w-[18px] h-[18px]" />,   color: 'rose' },
   { key: 'history',   label: 'História',       icon: <HistoryIcon className="w-[18px] h-[18px]" />,   color: 'violet' },
   { key: 'import',    label: 'Import histórie', icon: <Upload className="w-[18px] h-[18px]" />,       color: 'emerald' },
@@ -242,7 +249,7 @@ function fillGeneralBlock(w, shiftsBlock, employees, absences, allWeeks) {
 
 /* Import historie zo zjednodusenho textoveho formatu:
    DATUM;TYP;PRODUKT;HRNCOVA;POZICIA3;OSTATNI,OSTATNI,...
-   TYP = den/noc/sanitacia, PRODUKT a mena su volitelne, mena sa paruju podla existujucich zamestnankyn. */
+   TYP = den/noc/sanitacia, PRODUKT a mena su volitelne, mena sa paruju podla existujucich zamestnancov. */
 function mapProductToken(p) {
   const s = (p || '').toLowerCase();
   if (s.includes('sac')) return 'sacky';
@@ -685,7 +692,7 @@ function LoginGate({ employees, onAdminLogin, onEmployeeLogin, onBack }) {
           </div>
           <p className="text-sm text-slate-500">Kto sa prihlasuje?</p>
           <button onClick={() => setMode('admin')} className="w-full px-4 py-3 rounded-md bg-amber-600 text-white font-medium hover:bg-amber-700">Vedúci / vedúca výroby</button>
-          <button onClick={() => setMode('employee')} className="w-full px-4 py-3 rounded-md border border-slate-200 text-slate-700 font-medium hover:bg-slate-50">Zamestnankyňa</button>
+          <button onClick={() => setMode('employee')} className="w-full px-4 py-3 rounded-md border border-slate-200 text-slate-700 font-medium hover:bg-slate-50">Zamestnanec</button>
           {onBack && <button onClick={onBack} className="text-xs text-slate-400 hover:text-slate-600 mt-2">&larr; Iná aplikácia</button>}
         </div>
       </div>
@@ -708,7 +715,7 @@ function LoginGate({ employees, onAdminLogin, onEmployeeLogin, onBack }) {
           </>
         ) : (
           <>
-            <h2 className="font-semibold text-slate-900 text-center">Prihlásenie zamestnankyne</h2>
+            <h2 className="font-semibold text-slate-900 text-center">Prihlásenie zamestnanca</h2>
             <select value={empId} onChange={e => { setEmpId(e.target.value); setError(''); }} className="w-full border border-slate-200 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-600">
               <option value="">— vyberte svoje meno —</option>
               {employees.filter(e => e.active).map(e => <option key={e.id} value={e.id}>{e.name}</option>)}
@@ -861,52 +868,23 @@ function PlannerTab({ weeks, activeWeek, employees, absences, setActiveWeekId, o
   );
 }
 
-function EmployeesTab({ employees, weeks, newEmpForm, setNewEmpForm, onAdd, onToggleActive, onUpdateMax, onRemoveHard, onRename, onUpdateRoles, onResetDefaults, adminPin, onChangeAdminPin, onResetPin }) {
+function EmployeesTab({ employees, onToggleActive, onUpdateMax, onUpdateRoles, adminPin, onChangeAdminPin, onResetPin }) {
   const ROLE_OPTIONS = [
     { key: 'pos1', label: 'Hrncová' },
     { key: 'pos1-backup', label: 'Hrncová – záskok' },
     { key: 'pos3', label: 'Pozícia 3' },
     { key: 'general', label: 'Ostatné pozície' },
   ];
-  function toggleRole(k) {
-    setNewEmpForm(f => ({ ...f, roles: f.roles.includes(k) ? f.roles.filter(r => r !== k) : [...f.roles, k] }));
+  function toggleRole(emp, k) {
+    const roles = (emp.roles || []).includes(k) ? emp.roles.filter(r => r !== k) : [...(emp.roles || []), k];
+    if (roles.length === 0) return;
+    onUpdateRoles(emp.id, roles);
   }
-  const [editingId, setEditingId] = useState(null);
-  const [editName, setEditName] = useState('');
-  const [editRoles, setEditRoles] = useState([]);
-  function startEdit(e) { setEditingId(e.id); setEditName(e.name); setEditRoles(e.roles); }
-  function toggleEditRole(k) { setEditRoles(rs => (rs.includes(k) ? rs.filter(r => r !== k) : [...rs, k])); }
-  function saveEdit() {
-    if (editName.trim()) onRename(editingId, editName.trim());
-    if (editRoles.length > 0) onUpdateRoles(editingId, editRoles);
-    setEditingId(null);
-    setEditName('');
-    setEditRoles([]);
-  }
-  function cancelEdit() { setEditingId(null); setEditName(''); setEditRoles([]); }
   const [adminPinInput, setAdminPinInput] = useState('');
   return (
     <div className="space-y-6">
-      <div className="bg-white border border-slate-200 rounded-lg p-4">
-        <h3 className="font-semibold mb-3 flex items-center gap-2"><UserPlus className="w-4 h-4" />Pridať zamestnankyňu</h3>
-        <div className="flex flex-wrap gap-3 items-end">
-          <div>
-            <label className="block text-xs text-slate-500 mb-1">Meno</label>
-            <input value={newEmpForm.name} onChange={e => setNewEmpForm(f => ({ ...f, name: e.target.value }))} className="border border-slate-300 rounded px-2 py-1.5 text-sm" placeholder="Meno a priezvisko" />
-          </div>
-          <div>
-            <label className="block text-xs text-slate-500 mb-1">Max. zmien / týždeň</label>
-            <input type="number" min="1" max="10" value={newEmpForm.weeklyMax} onChange={e => setNewEmpForm(f => ({ ...f, weeklyMax: e.target.value }))} className="border border-slate-300 rounded px-2 py-1.5 text-sm w-20" />
-          </div>
-          <div className="flex gap-3 flex-wrap">
-            {ROLE_OPTIONS.map(r => (
-              <label key={r.key} className="flex items-center gap-1 text-xs text-slate-600">
-                <input type="checkbox" checked={newEmpForm.roles.includes(r.key)} onChange={() => toggleRole(r.key)} /> {r.label}
-              </label>
-            ))}
-          </div>
-          <button onClick={onAdd} className="px-3 py-1.5 text-sm rounded-md bg-amber-600 text-white hover:bg-amber-700">Pridať</button>
-        </div>
+      <div className="bg-amber-50 border border-amber-200 text-amber-800 text-xs px-3 py-2 rounded-md">
+        Zoznam mien (kto všetko existuje) sa preberá z ERP → Pracovníci (typ „Planovanie zmien“) — pridávanie, premenovanie aj mazanie robte tam. Tu nastavíte len ich rolu, maximálny počet zmien za týždeň a PIN.
       </div>
 
       <div className="bg-white border border-slate-200 rounded-lg overflow-hidden overflow-x-auto">
@@ -915,69 +893,38 @@ function EmployeesTab({ employees, weeks, newEmpForm, setNewEmpForm, onAdd, onTo
             <tr><th className="text-left px-3 py-2">Meno</th><th className="text-left px-3 py-2">Pozície</th><th className="text-left px-3 py-2">Max/týždeň</th><th className="text-left px-3 py-2">Stav</th><th></th></tr>
           </thead>
           <tbody>
-            {employees.map(e => {
-              const used = weeks.some(w => w.shifts.some(s => shiftPeopleIds(s).includes(e.id)));
-              return (
-                <tr key={e.id} className="border-t border-slate-100">
-                  <td className="px-3 py-2 font-medium whitespace-nowrap">
-                    {editingId === e.id ? (
-                      <div className="flex items-center gap-1">
-                        <input
-                          autoFocus
-                          value={editName}
-                          onChange={ev => setEditName(ev.target.value)}
-                          onKeyDown={ev => { if (ev.key === 'Enter') saveEdit(); if (ev.key === 'Escape') cancelEdit(); }}
-                          className="border border-slate-300 rounded px-1.5 py-1 text-sm w-40"
-                        />
-                        <button onClick={saveEdit} disabled={editRoles.length === 0} className={`p-1 ${editRoles.length === 0 ? 'text-slate-300 cursor-not-allowed' : 'text-emerald-600 hover:text-emerald-800'}`} title="Uložiť"><Check className="w-4 h-4" /></button>
-                        <button onClick={cancelEdit} className="p-1 text-slate-400 hover:text-rose-600" title="Zrušiť"><X className="w-4 h-4" /></button>
-                      </div>
-                    ) : (
-                      <div className="flex items-center gap-1.5">
-                        {e.name}
-                        <button onClick={() => startEdit(e)} className="p-0.5 text-slate-300 hover:text-slate-600" title="Upraviť meno"><Pencil className="w-3.5 h-3.5" /></button>
-                      </div>
-                    )}
-                  </td>
-                  <td className="px-3 py-2 text-xs text-slate-500">
-                    {editingId === e.id ? (
-                      <div className="flex flex-col gap-1">
-                        {ROLE_OPTIONS.map(r => (
-                          <label key={r.key} className="flex items-center gap-1.5 text-xs text-slate-600 whitespace-nowrap">
-                            <input type="checkbox" checked={editRoles.includes(r.key)} onChange={() => toggleEditRole(r.key)} /> {r.label}
-                          </label>
-                        ))}
-                        {editRoles.length === 0 && <span className="text-rose-500 text-[11px]">Vyberte aspoň jednu pozíciu</span>}
-                      </div>
-                    ) : (
-                      e.roles.map(r => ROLE_LABEL[r]).join(', ')
-                    )}
-                  </td>
-                  <td className="px-3 py-2"><input type="number" min="1" max="10" value={e.weeklyMax} onChange={ev => onUpdateMax(e.id, ev.target.value)} className="w-16 border border-slate-300 rounded px-1.5 py-1" /></td>
-                  <td className="px-3 py-2">
-                    <button onClick={() => onToggleActive(e.id)} className={`px-2 py-1 rounded text-xs font-medium ${e.active ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-200 text-slate-500'}`}>
-                      {e.active ? 'Aktívna' : 'Neaktívna'}
+            {employees.map(e => (
+              <tr key={e.id} className="border-t border-slate-100">
+                <td className="px-3 py-2 font-medium whitespace-nowrap">{e.name}</td>
+                <td className="px-3 py-2 text-xs text-slate-500">
+                  <div className="flex flex-col gap-1">
+                    {ROLE_OPTIONS.map(r => (
+                      <label key={r.key} className="flex items-center gap-1.5 text-xs text-slate-600 whitespace-nowrap">
+                        <input type="checkbox" checked={(e.roles || []).includes(r.key)} onChange={() => toggleRole(e, r.key)} /> {r.label}
+                      </label>
+                    ))}
+                  </div>
+                </td>
+                <td className="px-3 py-2"><input type="number" min="1" max="10" value={e.weeklyMax} onChange={ev => onUpdateMax(e.id, ev.target.value)} className="w-16 border border-slate-300 rounded px-1.5 py-1" /></td>
+                <td className="px-3 py-2">
+                  <button onClick={() => onToggleActive(e.id)} className={`px-2 py-1 rounded text-xs font-medium ${e.active ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-200 text-slate-500'}`}>
+                    {e.active ? 'Aktívny' : 'Neaktívny'}
+                  </button>
+                </td>
+                <td className="px-3 py-2 text-right whitespace-nowrap">
+                  {e.pin && (
+                    <button onClick={() => onResetPin(e.id)} title="Resetovať PIN (zabudnutý) — nastaví si nový pri ďalšom prihlásení" className="p-1 rounded text-slate-400 hover:text-amber-600">
+                      <KeyRound className="w-4 h-4" />
                     </button>
-                  </td>
-                  <td className="px-3 py-2 text-right whitespace-nowrap">
-                    {e.pin && (
-                      <button onClick={() => onResetPin(e.id)} title="Resetovať PIN (zabudnutý) — nastaví si nový pri ďalšom prihlásení" className="p-1 rounded text-slate-400 hover:text-amber-600 mr-1">
-                        <KeyRound className="w-4 h-4" />
-                      </button>
-                    )}
-                    <button disabled={used} onClick={() => onRemoveHard(e.id)} title={used ? 'Nemožno odstrániť — má priradené smeny v histórii' : 'Odstrániť natrvalo'} className={`p-1 rounded ${used ? 'text-slate-300 cursor-not-allowed' : 'text-slate-400 hover:text-rose-600'}`}>
-                      <Trash2 className="w-4 h-4" />
-                    </button>
-                  </td>
-                </tr>
-              );
-            })}
+                  )}
+                </td>
+              </tr>
+            ))}
+            {employees.length === 0 && (
+              <tr><td colSpan={5} className="px-3 py-6 text-center text-slate-400">Zatiaľ žiadny zamestnanec. Pridajte ho v ERP → Pracovníci (typ „Planovanie zmien“).</td></tr>
+            )}
           </tbody>
         </table>
-      </div>
-      <div className="flex items-center justify-between flex-wrap gap-2">
-        <p className="text-xs text-slate-400 max-w-2xl">Zneaktívnenie (namiesto odstránenia) zachová históriu smien, len sa zamestnankyňa už neponúkne pri plánovaní. Odstrániť natrvalo ide len vtedy, ak nemá žiadne priradené smeny v žiadnom týždni.</p>
-        <button onClick={onResetDefaults} className="px-3 py-1.5 text-xs rounded border border-slate-300 hover:bg-slate-100 whitespace-nowrap">Nastaviť predvolené limity (4, Svobodová 2)</button>
       </div>
 
       <div className="bg-white border border-slate-200 rounded-lg p-4">
@@ -1022,7 +969,7 @@ function AbsencesTab({ employees, absences, absForm, setAbsForm, onAdd, onRemove
         <h3 className="font-semibold mb-3">Nahlásiť neprítomnosť ručne (dovolenka, lekár, iné)</h3>
         <div className="flex flex-wrap gap-3 items-end">
           <div>
-            <label className="block text-xs text-slate-500 mb-1">Zamestnankyňa</label>
+            <label className="block text-xs text-slate-500 mb-1">Zamestnanec</label>
             <select value={absForm.employeeId} onChange={e => setAbsForm(f => ({ ...f, employeeId: e.target.value }))} className="border border-slate-300 rounded px-2 py-1.5 text-sm">
               <option value="">— vybrať —</option>
               {employees.filter(e => e.active).map(e => <option key={e.id} value={e.id}>{e.name}</option>)}
@@ -1046,7 +993,7 @@ function AbsencesTab({ employees, absences, absForm, setAbsForm, onAdd, onRemove
       <div className="bg-white border border-slate-200 rounded-lg overflow-hidden">
         <table className="w-full text-sm">
           <thead className="bg-slate-50 text-slate-500 text-xs uppercase">
-            <tr><th className="text-left px-3 py-2">Zamestnankyňa</th><th className="text-left px-3 py-2">Od</th><th className="text-left px-3 py-2">Do</th><th className="text-left px-3 py-2">Poznámka</th><th></th></tr>
+            <tr><th className="text-left px-3 py-2">Zamestnanec</th><th className="text-left px-3 py-2">Od</th><th className="text-left px-3 py-2">Do</th><th className="text-left px-3 py-2">Poznámka</th><th></th></tr>
           </thead>
           <tbody>
             {absences.slice().sort((a, b) => a.from.localeCompare(b.from)).map(a => (
@@ -1088,7 +1035,7 @@ function ImportTab({ employees, onImport }) {
       <div className="bg-white border border-slate-200 rounded-lg p-4">
         <h3 className="font-semibold mb-2">Import starších týždňov (2-3 mesiace histórie)</h3>
         <p className="text-sm text-slate-500 mb-3">
-          Vložte údaje v jednoduchom textovom formáte nižšie — jeden riadok na jednu zmenu. Mená sa musia zhodovať s menami v záložke „Zamestnankyne“ (inak sa zobrazia ako nespárované). Importované týždne sa započítajú do histórie aj do rovnováhy zmien.
+          Vložte údaje v jednoduchom textovom formáte nižšie — jeden riadok na jednu zmenu. Mená sa musia zhodovať s menami v záložke „Zamestnanci“ (inak sa zobrazia ako nespárované). Importované týždne sa započítajú do histórie aj do rovnováhy zmien.
         </p>
         <textarea
           value={text}
@@ -1114,7 +1061,7 @@ function ImportTab({ employees, onImport }) {
           )}
           {result.unmatched.length > 0 && (
             <div>
-              <p className="text-amber-600 font-medium mb-1">Nespárované mená (neboli priradené, skontrolujte pravopis alebo pridajte zamestnankyňu):</p>
+              <p className="text-amber-600 font-medium mb-1">Nespárované mená (neboli priradené, skontrolujte pravopis alebo pridajte zamestnanca v ERP → Pracovníci):</p>
               <p className="text-amber-600 text-xs">{result.unmatched.join(', ')}</p>
             </div>
           )}
@@ -1199,11 +1146,11 @@ function ExportModal({ text, onClose }) {
    HLAVNA APLIKACIA
    Perzistencia beziala povodne cez window.storage (Claude Artifacts API),
    ktore v tomto projekte neexistuje - nahradene jednym zdielanym riadkom
-   v Supabase (tabulka plan_smien, id=1), aby vsetky zariadenia/zamestnankyne
+   v Supabase (tabulka plan_smien, id=1), aby vsetci na vsetkych zariadeniach
    videli ten isty rozpis naraz.
    ========================================================================= */
 export default function PlanSmienView({ onBack }) {
-  const [employees, setEmployees] = useState(DEFAULT_EMPLOYEES);
+  const [employees, setEmployees] = useState([]);
   const [absences, setAbsences] = useState([]);
   const [requests, setRequests] = useState([]);
   const [adminPin, setAdminPin] = useState('1234');
@@ -1215,18 +1162,18 @@ export default function PlanSmienView({ onBack }) {
   const [loaded, setLoaded] = useState(false);
   const [exportText, setExportText] = useState(null);
   const [showPreview, setShowPreview] = useState(false);
-  const [newEmpForm, setNewEmpForm] = useState({ name: '', roles: [], weeklyMax: 4 });
   const [absForm, setAbsForm] = useState({ employeeId: '', from: '', to: '', reason: '' });
 
   useEffect(() => {
     let cancelled = false;
     (async () => {
+      let savedEmployees = [];
       try {
         const { data: row, error } = await supabase.from('plan_smien').select('data').eq('id', 1).single();
         const d = !error && row ? row.data : null;
         if (d && Object.keys(d).length > 0) {
+          savedEmployees = d.employees || [];
           if (!cancelled) {
-            setEmployees(d.employees && d.employees.length ? d.employees : DEFAULT_EMPLOYEES);
             setAbsences(d.absences || []);
             setRequests(d.requests || []);
             setAdminPin(d.adminPin || '1234');
@@ -1245,6 +1192,15 @@ export default function PlanSmienView({ onBack }) {
           setWeeks([w]);
           setActiveWeekId(w.id);
         }
+      }
+      try {
+        const { data: workerRows, error: workersError } = await supabase.from('workers').select('data');
+        const officeWorkers = (!workersError ? (workerRows || []) : [])
+          .map(r => r.data)
+          .filter(w => w.typ === 'planovanie');
+        if (!cancelled) setEmployees(syncEmployeesWithOffice(savedEmployees, officeWorkers));
+      } catch (e) {
+        if (!cancelled) setEmployees(savedEmployees);
       }
       if (!cancelled) setLoaded(true);
     })();
@@ -1313,24 +1269,9 @@ export default function PlanSmienView({ onBack }) {
     if (newIdx >= 0 && newIdx < sorted.length) setActiveWeekId(sorted[newIdx].id);
   }
 
-  function addEmployee() {
-    if (!newEmpForm.name.trim() || newEmpForm.roles.length === 0) return;
-    const id = 'e' + Date.now();
-    setEmployees(es => [...es, { id, name: newEmpForm.name.trim(), roles: newEmpForm.roles, weeklyMax: Number(newEmpForm.weeklyMax) || 4, active: true }]);
-    setNewEmpForm({ name: '', roles: [], weeklyMax: 4 });
-  }
   function toggleActive(id) { setEmployees(es => es.map(e => (e.id === id ? { ...e, active: !e.active } : e))); }
-  function renameEmployee(id, name) { setEmployees(es => es.map(e => (e.id === id ? { ...e, name } : e))); }
   function updateWeeklyMax(id, val) { setEmployees(es => es.map(e => (e.id === id ? { ...e, weeklyMax: Number(val) || 1 } : e))); }
   function updateEmployeeRoles(id, roles) { if (roles.length === 0) return; setEmployees(es => es.map(e => (e.id === id ? { ...e, roles } : e))); }
-  function resetToDefaultLimits() {
-    setEmployees(es => es.map(e => ({ ...e, weeklyMax: e.name === 'Zuzana Svobodová' ? 2 : 4 })));
-  }
-  function removeEmployeeHard(id) {
-    const usedAnywhere = weeks.some(w => w.shifts.some(s => shiftPeopleIds(s).includes(id)));
-    if (usedAnywhere) return;
-    setEmployees(es => es.filter(e => e.id !== id));
-  }
 
   function addAbsence() {
     if (!absForm.employeeId || !absForm.from || !absForm.to) return;
@@ -1353,7 +1294,7 @@ export default function PlanSmienView({ onBack }) {
   }
   function attemptEmployeeLogin(employeeId, pin) {
     const emp = employees.find(e => e.id === employeeId);
-    if (!emp) return { success: false, message: 'Neznáma zamestnankyňa.' };
+    if (!emp) return { success: false, message: 'Neznámy zamestnanec.' };
     if (!emp.pin) {
       if (!pin || pin.length < 4) return { success: false, message: 'Zvoľte si PIN, aspoň 4 znaky.' };
       setEmployees(es => es.map(x => (x.id === employeeId ? { ...x, pin } : x)));
@@ -1468,9 +1409,8 @@ export default function PlanSmienView({ onBack }) {
           />
         )}
         {tab === 'employees' && (
-          <EmployeesTab employees={employees} weeks={weeks} newEmpForm={newEmpForm} setNewEmpForm={setNewEmpForm}
-            onAdd={addEmployee} onToggleActive={toggleActive} onUpdateMax={updateWeeklyMax} onRemoveHard={removeEmployeeHard} onRename={renameEmployee}
-            onUpdateRoles={updateEmployeeRoles} onResetDefaults={resetToDefaultLimits}
+          <EmployeesTab employees={employees} onToggleActive={toggleActive} onUpdateMax={updateWeeklyMax}
+            onUpdateRoles={updateEmployeeRoles}
             adminPin={adminPin} onChangeAdminPin={changeAdminPin} onResetPin={resetEmployeePin} />
         )}
         {tab === 'absences' && (
