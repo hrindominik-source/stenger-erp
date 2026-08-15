@@ -445,7 +445,7 @@ const APP_LAUNCHER_CARDS = [
 
 function AppLauncher({ onChoose }) {
   return (
-    <div className="min-h-screen bg-gradient-to-b from-slate-50 via-slate-50 to-slate-100 flex items-center justify-center px-4" style={{ fontFamily: "system-ui, -apple-system, Segoe UI, sans-serif" }}>
+    <div className="min-h-screen bg-slate-900 flex items-center justify-center px-4" style={{ fontFamily: "system-ui, -apple-system, Segoe UI, sans-serif" }}>
       <div className="w-full max-w-2xl">
         <div className="text-center mb-10">
           <img src="/stenger-logo.png" alt="Stenger" className="h-16 w-auto mx-auto mb-3" />
