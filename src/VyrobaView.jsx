@@ -531,8 +531,8 @@ export default function VyrobaView({ fullName, onSignOut }) {
         </div>
         <div className="max-w-2xl mx-auto px-4 pb-4">
           <nav className="flex items-stretch gap-2 mt-1 bg-white/5 backdrop-blur-sm border border-white/10 rounded-2xl p-2 shadow-inner">
-            <VyrobaTabButton active={tab === "prehlad"} onClick={() => setTab("prehlad")} color="prehlad" icon={<LayoutDashboard size={20} />} label="Prehlad" />
-            <VyrobaTabButton active={tab === "vyroba"} onClick={() => setTab("vyroba")} color="vyroba" icon={<ClipboardList size={20} />} label="Vyroba" />
+            <VyrobaTabButton active={tab === "prehlad"} onClick={() => setTab("prehlad")} color="prehlad" icon={<LayoutDashboard size={20} />} label="Vyrobny plan" />
+            <VyrobaTabButton active={tab === "vyroba"} onClick={() => setTab("vyroba")} color="vyroba" icon={<ClipboardList size={20} />} label="Zapisat davku" />
           </nav>
         </div>
       </header>
