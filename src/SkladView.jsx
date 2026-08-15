@@ -103,7 +103,7 @@ export default function SkladView({ fullName, onSignOut }) {
         </div>
       </header>
 
-      {skladWorkers.length > 0 && (
+      {tab !== "prehlad" && skladWorkers.length > 0 && (
         <div className="max-w-4xl mx-auto px-4 pt-4">
           <div className="bg-white border border-slate-200 rounded-xl p-3">
             <div className="text-xs font-medium text-slate-500 mb-2">Kto pracuje</div>
