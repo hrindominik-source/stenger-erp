@@ -615,3 +615,22 @@ create policy "invoices_rw" on storage.objects
   using (bucket_id = 'invoices' and public.current_role() = 'office')
   with check (bucket_id = 'invoices' and public.current_role() = 'office');
 -- on conflict (id) do update set full_name = excluded.full_name, role = excluded.role;
+
+-- ============================================================
+-- 25. prestavky - zaznamy prestavok pracovnikov vo vyrobe (zaciatok/koniec),
+--     zapisovane rolou "vyroba" jednym tuknutim na tablete; office ich vidi
+--     a moze exportovat/opravit vo Vyrobnom plane.
+-- ============================================================
+create table if not exists public.prestavky (
+  id text primary key,
+  data jsonb not null,
+  created_at timestamptz not null default now()
+);
+
+alter table public.prestavky enable row level security;
+
+drop policy if exists "prestavky_all" on public.prestavky;
+create policy "prestavky_all" on public.prestavky
+  for all
+  using (public.current_role() in ('office', 'vyroba'))
+  with check (public.current_role() in ('office', 'vyroba'));

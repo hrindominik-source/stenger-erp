@@ -1,5 +1,21 @@
 import { describe, it, expect } from "vitest";
-import { extractCityFromAddress, formatDateTime, parseSkDate, isoFromSkDateStr, skDateStrFromIso } from "./utils.js";
+import { extractCityFromAddress, formatDateTime, parseSkDate, isoFromSkDateStr, skDateStrFromIso, durationMinutes } from "./utils.js";
+
+describe("durationMinutes", () => {
+  it("vypocita rozdiel v minutach", () => {
+    expect(durationMinutes("09:00", "09:15")).toBe(15);
+    expect(durationMinutes("08:50", "09:05")).toBe(15);
+  });
+
+  it("vrati null ak chyba zaciatok alebo koniec", () => {
+    expect(durationMinutes("", "09:15")).toBeNull();
+    expect(durationMinutes("09:00", "")).toBeNull();
+  });
+
+  it("zvladne prestavku cez polnoc", () => {
+    expect(durationMinutes("23:50", "00:05")).toBe(15);
+  });
+});
 
 describe("parseSkDate", () => {
   it("vrati null pre prazdny alebo neplatny vstup", () => {

@@ -38,6 +38,16 @@ export function skDateStrFromIso(iso) {
   return m ? `${m[3]}.${m[2]}.${m[1]}` : "";
 }
 
+export function durationMinutes(start, end) {
+  if (!start || !end) return null;
+  const [sh, sm] = start.split(":").map(Number);
+  const [eh, em] = end.split(":").map(Number);
+  if ([sh, sm, eh, em].some((n) => isNaN(n))) return null;
+  let mins = eh * 60 + em - (sh * 60 + sm);
+  if (mins < 0) mins += 24 * 60; // cez polnoc - okrajovy pripad
+  return mins;
+}
+
 export function extractCityFromAddress(adresa) {
   if (!adresa) return "";
   const text = String(adresa);

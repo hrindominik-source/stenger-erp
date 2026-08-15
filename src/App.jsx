@@ -13,7 +13,7 @@ import { useAuth } from "./lib/auth.js";
 import Login from "./Login.jsx";
 const SkladView = lazy(() => import("./SkladView.jsx"));
 const VyrobaView = lazy(() => import("./VyrobaView.jsx"));
-import { extractCityFromAddress, todayStr, uid, parseSkDate, isoFromSkDateStr, skDateStrFromIso } from "./lib/utils.js";
+import { extractCityFromAddress, todayStr, uid, parseSkDate, isoFromSkDateStr, skDateStrFromIso, durationMinutes } from "./lib/utils.js";
 import { parsePricelistFile, computeTransportPrice, computeTransportPriceForCity, formatEur } from "./lib/pricelist.js";
 import { parseSupplierCatalogFile, mergeSupplierCatalog } from "./lib/supplierCatalog.js";
 import { exportRowsToExcel, exportSheetsToExcel } from "./lib/exportExcel.js";
@@ -484,6 +484,7 @@ function OfficeApp({ userFullName, userEmail, onSignOut }) {
   const [products, setProducts] = useState([]);
   const [productionPlan, setProductionPlan] = useState([]);
   const [productionOutputs, setProductionOutputs] = useState([]);
+  const [prestavky, setPrestavky] = useState([]);
   const [workers, setWorkers] = useState([]);
   const [ready, setReady] = useState(false);
   const [loadError, setLoadError] = useState("");
@@ -531,7 +532,7 @@ function OfficeApp({ userFullName, userEmail, onSignOut }) {
   useEffect(() => {
     (async () => {
       try {
-        const [ordersRes, carriersRes, customersRes, companyRes, pricelistRes, suppliersRes, materialOrdersRes, pricelistArchiveRes, goodsReceiptsRes, stockIssuesRes, productsRes, productionPlanRes, productionOutputsRes, workersRes] = await Promise.all([
+        const [ordersRes, carriersRes, customersRes, companyRes, pricelistRes, suppliersRes, materialOrdersRes, pricelistArchiveRes, goodsReceiptsRes, stockIssuesRes, productsRes, productionPlanRes, productionOutputsRes, prestavkyRes, workersRes] = await Promise.all([
           supabase.from("orders").select("*").order("created_at", { ascending: false }),
           supabase.from("carriers").select("*"),
           supabase.from("customers").select("*"),
@@ -545,6 +546,7 @@ function OfficeApp({ userFullName, userEmail, onSignOut }) {
           supabase.from("products").select("*"),
           supabase.from("production_plan").select("*").order("created_at", { ascending: false }),
           supabase.from("production_outputs").select("*").order("created_at", { ascending: false }),
+          supabase.from("prestavky").select("*").order("created_at", { ascending: false }),
           supabase.from("workers").select("*"),
         ]);
         if (ordersRes.error || carriersRes.error || customersRes.error || companyRes.error) {
@@ -573,6 +575,7 @@ function OfficeApp({ userFullName, userEmail, onSignOut }) {
           if (!productsRes.error) setProducts((productsRes.data || []).map((row) => row.data));
           if (!productionPlanRes.error) setProductionPlan((productionPlanRes.data || []).map((row) => row.data));
           if (!productionOutputsRes.error) setProductionOutputs((productionOutputsRes.data || []).map((row) => row.data));
+          if (!prestavkyRes.error) setPrestavky((prestavkyRes.data || []).map((row) => row.data));
           if (!workersRes.error) setWorkers((workersRes.data || []).map((row) => row.data));
         }
       } catch (e) {
@@ -990,6 +993,30 @@ function OfficeApp({ userFullName, userEmail, onSignOut }) {
     }
   }
 
+  // Oprava/zmazanie zaznamu prestavky (napr. ked pracovnicka zabudla tuknut koniec).
+  async function deletePrestavka(id) {
+    setPrestavky((prev) => prev.filter((p) => p.id !== id));
+    try {
+      const { error } = await supabase.from("prestavky").delete().eq("id", id);
+      if (error) throw error;
+    } catch (e) {
+      setLoadError("Zmazanie zlyhalo, skuste znova.");
+    }
+  }
+
+  async function updatePrestavka(id, patch) {
+    const current = prestavky.find((p) => p.id === id);
+    if (!current) return;
+    const merged = { ...current, ...patch };
+    setPrestavky((prev) => prev.map((p) => (p.id === id ? merged : p)));
+    try {
+      const { error } = await supabase.from("prestavky").update({ data: merged }).eq("id", id);
+      if (error) throw error;
+    } catch (e) {
+      setLoadError("Ulozenie zlyhalo, skuste znova.");
+    }
+  }
+
   async function exportToExcel() {
     const rows = orders.map((o) => ({
       "Cislo objednavky dopravy": o.cisloObjednavkyDopravy || "",
@@ -1261,11 +1288,13 @@ function OfficeApp({ userFullName, userEmail, onSignOut }) {
             goodsReceipts={goodsReceipts}
             stockIssues={stockIssues}
             productionOutputs={productionOutputs}
+            prestavky={prestavky}
             onNew={() => setShowNewProductionPlan(true)}
             onEdit={(p) => setEditingProductionPlan(p)}
             onDelete={deleteProductionPlan}
             onDeleteOutput={deleteProductionOutput}
             onEditOutput={(o) => setEditingProductionOutput(o)}
+            onDeletePrestavka={deletePrestavka}
           />
         )}
         {view === "workers" && (
@@ -4623,9 +4652,10 @@ function StockIssueFormModal({ issue, existingReceipts, existingIssues, currentU
 
 /* ---------------- Vyrobny plan ---------------- */
 
-function ProductionPlanView({ productionPlan, products, goodsReceipts, stockIssues, productionOutputs, onNew, onEdit, onDelete, onDeleteOutput, onEditOutput }) {
+function ProductionPlanView({ productionPlan, products, goodsReceipts, stockIssues, productionOutputs, prestavky, onNew, onEdit, onDelete, onDeleteOutput, onEditOutput, onDeletePrestavka }) {
   const [confirmDelete, setConfirmDelete] = useState(null);
   const [confirmDeleteOutput, setConfirmDeleteOutput] = useState(null);
+  const [confirmDeletePrestavka, setConfirmDeletePrestavka] = useState(null);
   const [filterLinka, setFilterLinka] = useState("vsetko");
 
   const stock = computeStockLevels(goodsReceipts, stockIssues);
@@ -4654,6 +4684,17 @@ function ProductionPlanView({ productionPlan, products, goodsReceipts, stockIssu
       "Zapisala": o.zapisala,
     }));
     await exportRowsToExcel(exportRows, "Vyrobne zaznamy", "Vyrobne_zaznamy", 16);
+  }
+
+  async function exportPrestavkyToExcel() {
+    const exportRows = (prestavky || []).map((p) => ({
+      "Meno": p.meno,
+      "Datum": p.datum,
+      "Zaciatok": p.casZaciatku,
+      "Koniec": p.casKonca || "prebieha",
+      "Trvanie (min)": durationMinutes(p.casZaciatku, p.casKonca) ?? "",
+    }));
+    await exportRowsToExcel(exportRows, "Prestavky", "Prestavky", 16);
   }
 
   async function exportPlanToExcel() {
@@ -4799,6 +4840,65 @@ function ProductionPlanView({ productionPlan, products, goodsReceipts, stockIssu
             </tbody>
           </table>
         </div>
+      )}
+
+      <div className="flex items-center justify-between mt-8 mb-2">
+        <h2 className="text-sm font-semibold text-slate-500">Prestavky</h2>
+        <button onClick={exportPrestavkyToExcel} className="text-xs text-teal-700 hover:text-teal-900 font-medium flex items-center gap-1"><Download size={14} /> Export do Excelu</button>
+      </div>
+      {(() => {
+        const aktualne = (prestavky || []).filter((p) => !p.casKonca);
+        return aktualne.length > 0 && (
+          <div className="mb-2 bg-amber-50 text-amber-800 text-xs px-3 py-2 rounded-md flex items-center gap-2">
+            <AlertCircle size={14} /> Prave na prestavke: {aktualne.map((p) => p.meno).join(", ")}
+          </div>
+        );
+      })()}
+      {(prestavky || []).length === 0 ? (
+        <div className="bg-white border border-slate-200 rounded-lg p-6 text-center text-slate-400 text-sm">Zatial ziadne zaznamy prestavok.</div>
+      ) : (
+        <div className="bg-white border border-slate-200 rounded-lg overflow-hidden">
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="bg-slate-100 text-slate-600 text-left">
+                <th className="px-3 py-2 font-medium">Meno</th>
+                <th className="px-3 py-2 font-medium">Datum</th>
+                <th className="px-3 py-2 font-medium">Zaciatok</th>
+                <th className="px-3 py-2 font-medium">Koniec</th>
+                <th className="px-3 py-2 font-medium">Trvanie</th>
+                <th className="px-3 py-2"></th>
+              </tr>
+            </thead>
+            <tbody>
+              {prestavky.slice(0, 50).map((p) => {
+                const mins = durationMinutes(p.casZaciatku, p.casKonca);
+                return (
+                  <tr key={p.id} className="border-t border-slate-100">
+                    <td className="px-3 py-2 font-medium">{p.meno}</td>
+                    <td className="px-3 py-2 text-slate-500 whitespace-nowrap">{p.datum}</td>
+                    <td className="px-3 py-2 text-slate-500 whitespace-nowrap">{p.casZaciatku}</td>
+                    <td className="px-3 py-2 text-slate-500 whitespace-nowrap">{p.casKonca || <span className="text-amber-600 font-medium">prebieha</span>}</td>
+                    <td className="px-3 py-2 text-slate-500 whitespace-nowrap">{mins !== null ? mins + " min" : "-"}</td>
+                    <td className="px-3 py-2 text-right">
+                      <IconButton title="Zmazat" onClick={() => setConfirmDeletePrestavka(p)}><Trash2 size={16} /></IconButton>
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      )}
+      {confirmDeletePrestavka && (
+        <ModalShell title="Zmazat zaznam prestavky?" onClose={() => setConfirmDeletePrestavka(null)}>
+          <p className="text-sm text-slate-600 mb-4">Naozaj chcete zmazat zaznam prestavky pre "{confirmDeletePrestavka.meno}" ({confirmDeletePrestavka.datum})? Tuto akciu nie je mozne vratit spat.</p>
+          <div className="flex justify-end gap-2">
+            <button onClick={() => setConfirmDeletePrestavka(null)} className="text-sm text-slate-500 px-3 py-2">Zrusit</button>
+            <button onClick={() => { onDeletePrestavka(confirmDeletePrestavka.id); setConfirmDeletePrestavka(null); }} className="bg-red-600 hover:bg-red-700 text-white text-sm font-medium px-4 py-2 rounded-md flex items-center gap-1.5">
+              <Trash2 size={16} /> Ano, zmazat
+            </button>
+          </div>
+        </ModalShell>
       )}
 
       {confirmDeleteOutput && (

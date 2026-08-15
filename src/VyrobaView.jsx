@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback, useRef } from "react";
-import { LogOut, Loader2, AlertCircle, CheckCircle2, X, Calendar, LayoutDashboard, ClipboardList } from "lucide-react";
+import { LogOut, Loader2, AlertCircle, CheckCircle2, X, Calendar, LayoutDashboard, ClipboardList, Coffee } from "lucide-react";
 import { supabase } from "./supabaseClient.js";
-import { todayStr, nowTimeStr, uid, isoFromSkDateStr, skDateStrFromIso, parseSkDate } from "./lib/utils.js";
+import { todayStr, nowTimeStr, uid, isoFromSkDateStr, skDateStrFromIso, parseSkDate, durationMinutes } from "./lib/utils.js";
 import { computeProductionIssues, computeStockLevels, materialShortages } from "./lib/inventory.js";
 
 const PRODUCTION_LINKY = [
@@ -18,6 +18,7 @@ const VYROBA_STATUS_OPTIONS = [
 const VYROBA_TAB_COLORS = {
   prehlad: { badge: "from-teal-400 to-teal-600", shadow: "shadow-teal-500/40" },
   vyroba: { badge: "from-blue-400 to-blue-600", shadow: "shadow-blue-500/40" },
+  prestavky: { badge: "from-amber-400 to-amber-600", shadow: "shadow-amber-500/40" },
 };
 
 function VyrobaTabButton({ active, onClick, color, icon, label }) {
@@ -503,6 +504,153 @@ function PrehladTab() {
   );
 }
 
+/* ---------------- Prestavky ---------------- */
+
+function PrestavkyTab() {
+  const [workers, setWorkers] = useState([]);
+  const [prestavky, setPrestavky] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
+  const [busyMeno, setBusyMeno] = useState("");
+  const pollRef = useRef(null);
+
+  const fetchAll = useCallback(async () => {
+    const [workersRes, prestavkyRes] = await Promise.all([
+      supabase.from("workers").select("*"),
+      supabase.from("prestavky").select("*").order("created_at", { ascending: false }),
+    ]);
+    if (workersRes.error || prestavkyRes.error) {
+      setError("Nepodarilo sa nacitat data.");
+      return;
+    }
+    setError("");
+    setWorkers((workersRes.data || []).map((row) => row.data).filter((w) => w.typ === "vyroba"));
+    setPrestavky((prestavkyRes.data || []).map((row) => row.data));
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      await fetchAll();
+      if (!cancelled) setLoading(false);
+    })();
+    pollRef.current = setInterval(fetchAll, 10000);
+    return () => {
+      cancelled = true;
+      clearInterval(pollRef.current);
+    };
+  }, [fetchAll]);
+
+  function activeBreakFor(meno) {
+    return prestavky.find((p) => p.meno === meno && !p.casKonca);
+  }
+
+  async function toggleBreak(meno) {
+    setBusyMeno(meno);
+    setError("");
+    const active = activeBreakFor(meno);
+    try {
+      if (active) {
+        const next = { ...active, casKonca: nowTimeStr() };
+        const { error: updErr } = await supabase.from("prestavky").update({ data: next }).eq("id", active.id);
+        if (updErr) throw updErr;
+      } else {
+        const id = uid();
+        const record = { id, meno, datum: todayStr(), casZaciatku: nowTimeStr(), casKonca: "" };
+        const { error: insErr } = await supabase.from("prestavky").insert({ id, data: record });
+        if (insErr) throw insErr;
+      }
+      await fetchAll();
+    } catch (e) {
+      setError("Nepodarilo sa ulozit, skuste znova.");
+    }
+    setBusyMeno("");
+  }
+
+  if (loading) {
+    return (
+      <div className="text-center text-slate-400 py-10">
+        <Loader2 className="animate-spin mx-auto mb-2" size={24} /> Nacitavam...
+      </div>
+    );
+  }
+
+  const today = todayStr();
+  const todayPrestavky = prestavky.filter((p) => p.datum === today).sort((a, b) => (b.casZaciatku || "").localeCompare(a.casZaciatku || ""));
+  const active = todayPrestavky.filter((p) => !p.casKonca);
+
+  return (
+    <div>
+      {error && (
+        <div className="mb-3 bg-red-50 text-red-700 text-sm px-3 py-2.5 rounded-md flex items-center gap-2">
+          <AlertCircle size={16} /> {error}
+        </div>
+      )}
+
+      <div className="mb-1 text-sm font-medium text-slate-500">Tuknite na svoje meno - zacne alebo skonci vasu prestavku</div>
+      {workers.length === 0 ? (
+        <div className="text-sm text-slate-400 mb-5">Zatial ziadni pracovnici (doplni office v Pracovnikoch).</div>
+      ) : (
+        <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 mb-5">
+          {workers.map((w) => {
+            const isActive = !!activeBreakFor(w.meno);
+            return (
+              <button
+                key={w.id}
+                onClick={() => toggleBreak(w.meno)}
+                disabled={busyMeno === w.meno}
+                className={
+                  "text-base font-semibold px-4 py-3.5 rounded-xl border-2 text-center active:scale-[0.98] transition-transform disabled:opacity-60 " +
+                  (isActive ? "bg-amber-500 text-white border-amber-500" : "bg-white text-slate-700 border-slate-200")
+                }
+              >
+                {w.meno}
+                {isActive && <div className="text-xs font-normal mt-0.5">na prestavke</div>}
+              </button>
+            );
+          })}
+        </div>
+      )}
+
+      {active.length > 0 && (
+        <div className="mb-5">
+          <h2 className="text-sm font-semibold text-slate-500 mb-2">Prave na prestavke</h2>
+          <div className="bg-amber-50 border border-amber-200 rounded-lg overflow-hidden">
+            {active.map((p) => (
+              <div key={p.id} className="px-4 py-2.5 border-t border-amber-100 first:border-t-0 flex items-center justify-between">
+                <div className="font-medium text-sm">{p.meno}</div>
+                <div className="text-sm text-amber-700">od {p.casZaciatku}</div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      <div>
+        <h2 className="text-sm font-semibold text-slate-500 mb-2">Dnesne prestavky</h2>
+        {todayPrestavky.length === 0 ? (
+          <div className="bg-white border border-slate-200 rounded-lg p-6 text-center text-slate-400 text-sm">Dnes zatial ziadne prestavky.</div>
+        ) : (
+          <div className="bg-white border border-slate-200 rounded-lg overflow-hidden">
+            {todayPrestavky.map((p) => {
+              const mins = durationMinutes(p.casZaciatku, p.casKonca);
+              return (
+                <div key={p.id} className="px-4 py-2.5 border-t border-slate-100 first:border-t-0 flex items-center justify-between">
+                  <div className="font-medium text-sm">{p.meno}</div>
+                  <div className="text-sm text-slate-500">
+                    {p.casZaciatku} - {p.casKonca || <span className="text-amber-600 font-medium">prebieha</span>}
+                    {mins !== null && <span className="text-slate-400"> ({mins} min)</span>}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
 /* ---------------- Hlavny obal (hlavicka + taby) ---------------- */
 
 export default function VyrobaView({ fullName, onSignOut }) {
@@ -533,12 +681,13 @@ export default function VyrobaView({ fullName, onSignOut }) {
           <nav className="flex items-stretch gap-2 mt-1 bg-white/5 backdrop-blur-sm border border-white/10 rounded-2xl p-2 shadow-inner">
             <VyrobaTabButton active={tab === "prehlad"} onClick={() => setTab("prehlad")} color="prehlad" icon={<LayoutDashboard size={20} />} label="Vyrobny plan" />
             <VyrobaTabButton active={tab === "vyroba"} onClick={() => setTab("vyroba")} color="vyroba" icon={<ClipboardList size={20} />} label="Zapisat davku" />
+            <VyrobaTabButton active={tab === "prestavky"} onClick={() => setTab("prestavky")} color="prestavky" icon={<Coffee size={20} />} label="Prestavky" />
           </nav>
         </div>
       </header>
 
       <main className="max-w-2xl mx-auto px-4 py-6">
-        {tab === "prehlad" ? <PrehladTab /> : <VyrobaFormTab fullName={fullName} />}
+        {tab === "prehlad" ? <PrehladTab /> : tab === "vyroba" ? <VyrobaFormTab fullName={fullName} /> : <PrestavkyTab />}
       </main>
     </div>
   );
