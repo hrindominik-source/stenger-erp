@@ -6,13 +6,14 @@ import {
   ClipboardList, ArrowLeft, Download, Layers, FileSignature, Printer, Package,
   LogOut, PackageCheck, PackageX, Euro, Factory, Boxes, PackagePlus, Camera,
   LayoutDashboard, Warehouse, MinusCircle, FlaskConical, ClipboardCheck, UserCheck, Menu, Mail, Calendar, FileSpreadsheet,
-  Recycle, Calculator, Image, Construction, BookOpen, ListChecks
+  Recycle, Calculator, Image, Construction, BookOpen, ListChecks, CalendarClock
 } from "lucide-react";
 import { supabase } from "./supabaseClient.js";
 import { useAuth } from "./lib/auth.js";
 import Login from "./Login.jsx";
 const SkladView = lazy(() => import("./SkladView.jsx"));
 const VyrobaView = lazy(() => import("./VyrobaView.jsx"));
+const PlanSmienView = lazy(() => import("./PlanSmienView.jsx"));
 import { extractCityFromAddress, todayStr, uid, parseSkDate, isoFromSkDateStr, skDateStrFromIso, durationMinutes } from "./lib/utils.js";
 import { parsePricelistFile, computeTransportPrice, computeTransportPriceForCity, formatEur } from "./lib/pricelist.js";
 import { parseSupplierCatalogFile, mergeSupplierCatalog } from "./lib/supplierCatalog.js";
@@ -419,8 +420,65 @@ Odpovedz VYLUCNE JSON objektom v tvare:
 Ak sa polozka z katalogu v objednavke nenachadza, nezaraduj ju do zoznamu. Ak nevies presne urcit pocet paliet/kartonov, odhadni z poctu kusov ak je uvedeny, inak nechaj prazdny retazec.`;
 }
 
+const APP_CHOICE_KEY = "stenger_app_choice";
+
+function AppLauncher({ onChoose }) {
+  return (
+    <div className="min-h-screen bg-slate-50 flex items-center justify-center px-4" style={{ fontFamily: "system-ui, -apple-system, Segoe UI, sans-serif" }}>
+      <div className="w-full max-w-2xl">
+        <div className="text-center mb-8">
+          <img src="/stenger-logo.png" alt="Stenger" className="h-16 w-auto mx-auto mb-3" />
+          <div className="text-xs tracking-wider text-slate-400">Stenger Czech s.r.o.</div>
+        </div>
+        <div className="grid sm:grid-cols-2 gap-5">
+          <button
+            onClick={() => onChoose("erp")}
+            className="bg-white border border-slate-200 rounded-xl p-8 text-center hover:border-teal-600 hover:shadow-md transition"
+          >
+            <LayoutDashboard size={36} className="mx-auto mb-3 text-teal-700" />
+            <div className="text-lg font-semibold text-slate-900">ERP</div>
+            <div className="text-sm text-slate-500 mt-1">Objednavky, sklad, vyroba, dodavatelia</div>
+          </button>
+          <button
+            onClick={() => onChoose("planovanie")}
+            className="bg-white border border-slate-200 rounded-xl p-8 text-center hover:border-amber-500 hover:shadow-md transition"
+          >
+            <CalendarClock size={36} className="mx-auto mb-3 text-amber-600" />
+            <div className="text-lg font-semibold text-slate-900">Plan zmien</div>
+            <div className="text-sm text-slate-500 mt-1">Planovanie smien vo vyrobe</div>
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export default function MiniERP() {
   const { loading: authLoading, session, profile, profileError, signIn, signOut } = useAuth();
+  const [appChoice, setAppChoice] = useState(() => {
+    try { return localStorage.getItem(APP_CHOICE_KEY) || null; } catch (e) { return null; }
+  });
+
+  function chooseApp(choice) {
+    try { localStorage.setItem(APP_CHOICE_KEY, choice); } catch (e) {}
+    setAppChoice(choice);
+  }
+  function switchApp() {
+    try { localStorage.removeItem(APP_CHOICE_KEY); } catch (e) {}
+    setAppChoice(null);
+  }
+
+  if (!appChoice) {
+    return <AppLauncher onChoose={chooseApp} />;
+  }
+
+  if (appChoice === "planovanie") {
+    return (
+      <Suspense fallback={<div className="min-h-screen flex items-center justify-center text-slate-500"><Loader2 className="animate-spin mr-2" size={20} /> Nacitavam...</div>}>
+        <PlanSmienView onBack={switchApp} />
+      </Suspense>
+    );
+  }
 
   if (authLoading) {
     return (
@@ -430,7 +488,7 @@ export default function MiniERP() {
     );
   }
   if (!session) {
-    return <Login onSignIn={signIn} />;
+    return <Login onSignIn={signIn} onSwitchApp={switchApp} />;
   }
   if (profileError) {
     return (

@@ -652,3 +652,30 @@ create policy "ulohy_all" on public.ulohy
   for all
   using (public.current_role() = 'office')
   with check (public.current_role() = 'office');
+
+-- ============================================================
+-- 27. plan_smien - planovanie zmien vo vyrobe (samostatna appka,
+--     jeden riadok, id = 1). Otvara sa uz z uvodnej obrazovky pred
+--     prihlasenim do ERP a ma vlastny PIN gate (veduci/zamestnankyna),
+--     preto NEMA su vazane na public.current_role() - pristup je
+--     zamerne verejny cez anon kluc, chraneny len appkovym PIN-om
+--     (rovnako ako povodny navrh appky), nie je to citliva financna
+--     tabulka.
+-- ============================================================
+create table if not exists public.plan_smien (
+  id int primary key default 1,
+  data jsonb not null default '{}'::jsonb,
+  updated_at timestamptz not null default now()
+);
+
+insert into public.plan_smien (id, data)
+values (1, '{}'::jsonb)
+on conflict (id) do nothing;
+
+alter table public.plan_smien enable row level security;
+
+drop policy if exists "plan_smien_public" on public.plan_smien;
+create policy "plan_smien_public" on public.plan_smien
+  for all
+  using (true)
+  with check (true);

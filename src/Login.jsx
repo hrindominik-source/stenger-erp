@@ -1,7 +1,7 @@
 import React, { useState } from "react";
 import { Loader2, AlertCircle, LogIn } from "lucide-react";
 
-export default function Login({ onSignIn }) {
+export default function Login({ onSignIn, onSwitchApp }) {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [busy, setBusy] = useState(false);
@@ -66,6 +66,11 @@ export default function Login({ onSignIn }) {
             Prihlasit sa
           </button>
         </form>
+        {onSwitchApp && (
+          <button onClick={onSwitchApp} className="block w-full text-center text-xs text-slate-400 hover:text-slate-600 mt-4">
+            &larr; Ina aplikacia
+          </button>
+        )}
       </div>
     </div>
   );
