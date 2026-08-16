@@ -6,7 +6,7 @@ import {
   ClipboardList, ArrowLeft, Download, Layers, FileSignature, Printer, Package,
   LogOut, PackageCheck, PackageX, Euro, Factory, Boxes, PackagePlus, Camera,
   LayoutDashboard, Warehouse, MinusCircle, FlaskConical, ClipboardCheck, UserCheck, Menu, Mail, Calendar, FileSpreadsheet,
-  Recycle, Calculator, Image, Construction, BookOpen, ListChecks, CalendarClock
+  Recycle, Calculator, Image, Construction, BookOpen, ListChecks, CalendarClock, Coffee
 } from "lucide-react";
 import { supabase } from "./supabaseClient.js";
 import { useAuth } from "./lib/auth.js";
@@ -1871,7 +1871,7 @@ function Header({ view, setView, company, userFullName, userEmail, onSignOut }) 
           <NavButton icon={<Boxes size={18} />} label="Objednavky surovin a obalov" color="amber" active={view === "materials"} onClick={() => setView("materials")} />
           <NavButton icon={<PackagePlus size={18} />} label="Prijem tovaru" color="emerald" active={view === "goodsreceipts"} onClick={() => setView("goodsreceipts")} />
           <NavButton icon={<Warehouse size={18} />} label="Stav zasob" color="violet" active={view === "stock"} onClick={() => setView("stock")} />
-          <NavButton icon={<ClipboardCheck size={18} />} label="Vyrobny plan" color="rose" active={view === "productionplan"} onClick={() => setView("productionplan")} />
+          <NavButton icon={<ClipboardCheck size={18} />} label="Vyroba" color="rose" active={view === "productionplan"} onClick={() => setView("productionplan")} />
         </nav>
       </div>
     </header>
@@ -5091,6 +5091,7 @@ function ProductionPlanView({ productionPlan, products, goodsReceipts, stockIssu
   const [confirmDeleteOutput, setConfirmDeleteOutput] = useState(null);
   const [confirmDeletePrestavka, setConfirmDeletePrestavka] = useState(null);
   const [filterLinka, setFilterLinka] = useState("vsetko");
+  const [tab, setTab] = useState("plan");
 
   const stock = computeStockLevels(goodsReceipts, stockIssues);
   function shortagesFor(row) {
@@ -5152,11 +5153,43 @@ function ProductionPlanView({ productionPlan, products, goodsReceipts, stockIssu
     setTimeout(() => window.print(), 50);
   }
 
+  const aktualnePrestavky = (prestavky || []).filter((p) => !p.casKonca);
+  const PLAN_TABS = [
+    { key: "plan", label: "Vyrobny plan", icon: <ClipboardCheck size={16} /> },
+    { key: "zaznamy", label: "Vyrobne zaznamy", icon: <Factory size={16} /> },
+    { key: "prestavky", label: "Prestavky", icon: <Coffee size={16} />, badge: aktualnePrestavky.length || null },
+  ];
+
   return (
     <div>
       <PrintDocument id="production-plan-print" title="Vyrobny plan" body={printBody || "Ziadne zaznamy."} />
       <div className="flex items-center justify-between mb-4 flex-wrap gap-2">
-        <h1 className="text-xl font-semibold">Vyrobny plan</h1>
+        <h1 className="text-xl font-semibold">Vyroba</h1>
+      </div>
+
+      <div className="flex gap-1.5 mb-4">
+        {PLAN_TABS.map((t) => (
+          <button
+            key={t.key}
+            onClick={() => setTab(t.key)}
+            className={"flex items-center gap-1.5 text-sm font-medium px-3 py-2 rounded-md border " + (tab === t.key ? "bg-teal-700 text-white border-teal-700" : "bg-white text-slate-700 border-slate-200 hover:bg-slate-50")}
+          >
+            {t.icon} {t.label}
+            {t.badge ? (
+              <span className={"text-xs font-semibold px-1.5 rounded-full " + (tab === t.key ? "bg-white/25 text-white" : "bg-amber-100 text-amber-700")}>{t.badge}</span>
+            ) : null}
+          </button>
+        ))}
+      </div>
+
+      {tab === "plan" && (
+      <>
+      <div className="flex items-center justify-between mb-4 flex-wrap gap-2">
+        <div className="flex gap-1.5 flex-wrap">
+          {[{ value: "vsetko", label: "Vsetko" }, ...PRODUCTION_LINKY].map((l) => (
+            <button key={l.value} onClick={() => setFilterLinka(l.value)} className={"text-sm px-3 py-1.5 rounded-md border " + (filterLinka === l.value ? "bg-teal-700 text-white border-teal-700" : "bg-white text-slate-700 border-slate-200")}>{l.label}</button>
+          ))}
+        </div>
         <div className="flex gap-2">
           <button onClick={exportPlanToExcel} disabled={rows.length === 0} title={rows.length === 0 ? "Plan je prazdny" : "Exportovat vyrobny plan do Excelu"} className="flex items-center gap-1.5 bg-white border border-slate-200 hover:bg-slate-50 disabled:opacity-50 disabled:cursor-not-allowed text-slate-700 text-sm font-medium px-3 py-2 rounded-md">
             <Download size={16} /> Export do Excelu
@@ -5166,12 +5199,6 @@ function ProductionPlanView({ productionPlan, products, goodsReceipts, stockIssu
             <Plus size={16} /> Novy zaznam
           </button>
         </div>
-      </div>
-
-      <div className="flex gap-1.5 mb-4">
-        {[{ value: "vsetko", label: "Vsetko" }, ...PRODUCTION_LINKY].map((l) => (
-          <button key={l.value} onClick={() => setFilterLinka(l.value)} className={"text-sm px-3 py-1.5 rounded-md border " + (filterLinka === l.value ? "bg-teal-700 text-white border-teal-700" : "bg-white text-slate-700 border-slate-200")}>{l.label}</button>
-        ))}
       </div>
 
       {rows.length === 0 ? (
@@ -5232,8 +5259,12 @@ function ProductionPlanView({ productionPlan, products, goodsReceipts, stockIssu
           </div>
         </ModalShell>
       )}
+      </>
+      )}
 
-      <div className="flex items-center justify-between mt-8 mb-2">
+      {tab === "zaznamy" && (
+      <>
+      <div className="flex items-center justify-between mb-2">
         <h2 className="text-sm font-semibold text-slate-500">Vyrobne zaznamy (skutocna vyroba)</h2>
         <button onClick={exportOutputsToExcel} className="text-xs text-teal-700 hover:text-teal-900 font-medium flex items-center gap-1"><Download size={14} /> Export do Excelu</button>
       </div>
@@ -5275,8 +5306,23 @@ function ProductionPlanView({ productionPlan, products, goodsReceipts, stockIssu
           </table>
         </div>
       )}
+      {confirmDeleteOutput && (
+        <ModalShell title="Zmazat vyrobny zaznam?" onClose={() => setConfirmDeleteOutput(null)}>
+          <p className="text-sm text-slate-600 mb-4">Naozaj chcete zmazat tento zaznam skutocnej vyroby? Zarovej sa zrusia aj vydaje surovin, ktore pri jeho ulozeni vznikli (oprava zasob).</p>
+          <div className="flex justify-end gap-2">
+            <button onClick={() => setConfirmDeleteOutput(null)} className="text-sm text-slate-500 px-3 py-2">Zrusit</button>
+            <button onClick={() => { onDeleteOutput(confirmDeleteOutput); setConfirmDeleteOutput(null); }} className="bg-red-600 hover:bg-red-700 text-white text-sm font-medium px-4 py-2 rounded-md flex items-center gap-1.5">
+              <Trash2 size={16} /> Ano, zmazat
+            </button>
+          </div>
+        </ModalShell>
+      )}
+      </>
+      )}
 
-      <div className="flex items-center justify-between mt-8 mb-2">
+      {tab === "prestavky" && (
+      <>
+      <div className="flex items-center justify-between mb-2">
         <h2 className="text-sm font-semibold text-slate-500">Prestavky</h2>
         <button onClick={exportPrestavkyToExcel} className="text-xs text-teal-700 hover:text-teal-900 font-medium flex items-center gap-1"><Download size={14} /> Export do Excelu</button>
       </div>
@@ -5334,17 +5380,7 @@ function ProductionPlanView({ productionPlan, products, goodsReceipts, stockIssu
           </div>
         </ModalShell>
       )}
-
-      {confirmDeleteOutput && (
-        <ModalShell title="Zmazat vyrobny zaznam?" onClose={() => setConfirmDeleteOutput(null)}>
-          <p className="text-sm text-slate-600 mb-4">Naozaj chcete zmazat tento zaznam skutocnej vyroby? Zarovej sa zrusia aj vydaje surovin, ktore pri jeho ulozeni vznikli (oprava zasob).</p>
-          <div className="flex justify-end gap-2">
-            <button onClick={() => setConfirmDeleteOutput(null)} className="text-sm text-slate-500 px-3 py-2">Zrusit</button>
-            <button onClick={() => { onDeleteOutput(confirmDeleteOutput); setConfirmDeleteOutput(null); }} className="bg-red-600 hover:bg-red-700 text-white text-sm font-medium px-4 py-2 rounded-md flex items-center gap-1.5">
-              <Trash2 size={16} /> Ano, zmazat
-            </button>
-          </div>
-        </ModalShell>
+      </>
       )}
     </div>
   );
