@@ -74,7 +74,7 @@ const ULOHY_OSOBY = ["Dusan Bucha", "Radka Buchova", "Dominik Hrin"];
 const EMPTY_ULOHA = { popis: "", osoby: [], termin: "", hotovo: false };
 const MATERIAL_TYP_OPTIONS = [
   { value: "surovina", label: "Suroviny" },
-  { value: "obal", label: "Obalovy material" },
+  { value: "obal", label: "Obalový materiál" },
 ];
 // Legacy dat mohol mat "typ" ako obycajny retazec (pred zavedenim viacnasobneho vyberu).
 function normalizeSupplierTyp(typ) {
@@ -83,9 +83,9 @@ function normalizeSupplierTyp(typ) {
   return ["obal"];
 }
 const MATERIAL_JAZYK_OPTIONS = [
-  { value: "sk", label: "Slovencina" },
-  { value: "cz", label: "Cestina" },
-  { value: "en", label: "Anglictina" },
+  { value: "sk", label: "Slovenština" },
+  { value: "cz", label: "Čeština" },
+  { value: "en", label: "Angličtina" },
 ];
 const MATERIAL_ORDER_EMAIL_I18N = {
   sk: {
@@ -157,7 +157,7 @@ function materialTypLabel(typ) {
     .filter(Boolean)
     .join(" + ");
 }
-const COMPANY_DELIVERY_ADDRESSES = ["Plynarenska 366, 261 01 Pribram I"];
+const COMPANY_DELIVERY_ADDRESSES = ["Plynárenská 366, 261 01 Příbram I"];
 const EMPTY_MATERIAL_ORDER = {
   dodavatelId: "",
   dodavatel: "",
@@ -188,15 +188,15 @@ const STATUS_MATERIAL_DOPRAVA = {
   "Osobny odber": "bg-amber-100 text-amber-700",
 };
 const SPOSOB_DOPRAVY_OPTIONS = [
-  { value: "doprava", label: "Objednavame dopravu" },
-  { value: "dodavatel", label: "Dodavatel dorucuje sam" },
+  { value: "doprava", label: "Objednáváme dopravu" },
+  { value: "dodavatel", label: "Dodavatel doručuje sám" },
   { value: "vyzdvihnutie", label: "Osobny odber" },
 ];
 const STATUS_MATERIAL_OBJEDNAVKA = {
   "Neodoslana": "bg-slate-100 text-slate-700",
   "Odoslana": "bg-emerald-100 text-emerald-700",
 };
-const MATERIAL_QUICK_PICKS = ["Kukurica Mushroom Yellow", "Cukor Tereos krystal", "Sol SUPERFINE", "Tuk AKOSNAC NT MB", "Kartony", "Kbeliky", "Folie", "Strecove folie", "Pasky"];
+const MATERIAL_QUICK_PICKS = ["Kukuřice Mushroom Yellow", "Cukr Tereos krystal", "Sůl SUPERFINE", "Tuk AKOSNAC NT MB", "Kartony", "Kbelíky", "Fólie", "Střešní fólie", "Pásky"];
 const EMPTY_GOODS_RECEIPT = {
   datumPrijatia: "",
   casPrijatia: "",
@@ -243,15 +243,15 @@ const STATUS_PREVZATIA = {
 };
 
 const PRODUCTION_LINKY = [
-  { value: "sacky", label: "Sacky" },
-  { value: "kyble", label: "Kyble" },
+  { value: "sacky", label: "Sáčky" },
+  { value: "kyble", label: "Kbelíky" },
   { value: "bulk", label: "Bulk" },
 ];
-const VYROBA_STATUS_LABELS = { caka: "Caka", prebieha: "Prebieha", hotovo: "Ukoncene" };
+const VYROBA_STATUS_LABELS = { caka: "Čeká", prebieha: "Probíhá", hotovo: "Ukončeno" };
 const STATUS_VYROBY = {
-  "Caka": "bg-slate-100 text-slate-700",
-  "Prebieha": "bg-blue-100 text-blue-700",
-  "Ukoncene": "bg-emerald-100 text-emerald-700",
+  "Čeká": "bg-slate-100 text-slate-700",
+  "Probíhá": "bg-blue-100 text-blue-700",
+  "Ukončeno": "bg-emerald-100 text-emerald-700",
 };
 const EMPTY_PRODUCT = {
   znacka: "",
@@ -285,7 +285,7 @@ function productLabel(p) {
 // mailto: telo je vzdy plain text, takze skutocna HTML tabulka nie je mozna a
 // zarovnanie medzerami by sa rozpadlo pri zalomeni dlhsich nazvov v mailovom klientovi.
 function materialOrderItemsText(order, mnozstvoLabel) {
-  const label = mnozstvoLabel || "Mnozstvo";
+  const label = mnozstvoLabel || "Množství";
   if (order.polozky && order.polozky.length) {
     return order.polozky
       .map((it, i) => {
@@ -294,7 +294,7 @@ function materialOrderItemsText(order, mnozstvoLabel) {
       })
       .join("\n");
   }
-  return [order.popisMaterialu, order.mnozstvo].filter(Boolean).join(" - ") || "[doplnte]";
+  return [order.popisMaterialu, order.mnozstvo].filter(Boolean).join(" - ") || "[doplňte]";
 }
 
 function formatDateTime(iso) {
@@ -322,7 +322,7 @@ function subtractBusinessDays(date, days) {
 }
 function nakladkaDateFromDodanie(datumDodaniaStr) {
   const d = parseSkDate(datumDodaniaStr);
-  if (!d) return "[doplnte]";
+  if (!d) return "[doplňte]";
   return formatSkDate(subtractBusinessDays(d, 2));
 }
 
@@ -330,13 +330,13 @@ async function fileToBase64(file) {
   return new Promise((resolve, reject) => {
     const r = new FileReader();
     r.onload = () => resolve(r.result.split(",")[1]);
-    r.onerror = () => reject(new Error("Nepodarilo sa nacitat subor"));
+    r.onerror = () => reject(new Error("Nepodařilo se načíst soubor"));
     r.readAsDataURL(file);
   });
 }
 
 async function callClaude(contentBlocks, apiKey) {
-  if (!apiKey) throw new Error("Chyba API kluc. Doplnte ho v Nastaveniach firmy, aby fungovala AI extrakcia.");
+  if (!apiKey) throw new Error("Chyba API klíče. Doplňte ho v Nastavení firmy, aby fungovala AI extrakce.");
   const response = await fetch("https://api.anthropic.com/v1/messages", {
     method: "POST",
     headers: {
@@ -353,14 +353,14 @@ async function callClaude(contentBlocks, apiKey) {
   });
   if (!response.ok) {
     const errText = await response.text().catch(() => "");
-    throw new Error("Chyba pri komunikacii s AI (" + response.status + "). " + errText.slice(0, 200));
+    throw new Error("Chyba při komunikaci s AI (" + response.status + "). " + errText.slice(0, 200));
   }
   const data = await response.json();
   const text = (data.content || []).map((b) => b.text || "").join("\n");
   const clean = text.replace(/```json|```/g, "").trim();
   const jsonStart = clean.indexOf("{");
   const jsonEnd = clean.lastIndexOf("}");
-  if (jsonStart === -1 || jsonEnd === -1) throw new Error("AI nevratila platny JSON");
+  if (jsonStart === -1 || jsonEnd === -1) throw new Error("AI nevrátila platný JSON");
   return JSON.parse(clean.slice(jsonStart, jsonEnd + 1));
 }
 
@@ -426,7 +426,7 @@ const APP_LAUNCHER_CARDS = [
   {
     key: "erp",
     label: "Stenger ONE",
-    desc: "Objednavky, sklad, vyroba, dodavatelia",
+    desc: "Objednávky, sklad, výroba, dodavatelé",
     icon: <LayoutDashboard size={30} />,
     badge: "from-teal-400 to-teal-600",
     shadow: "shadow-teal-500/40",
@@ -434,8 +434,8 @@ const APP_LAUNCHER_CARDS = [
   },
   {
     key: "planovanie",
-    label: "Plan zmien",
-    desc: "Planovanie smien vo vyrobe",
+    label: "Plán směn",
+    desc: "Plánování směn ve výrobě",
     icon: <CalendarClock size={30} />,
     badge: "from-amber-400 to-amber-600",
     shadow: "shadow-amber-500/40",
@@ -492,7 +492,7 @@ export default function MiniERP() {
 
   if (appChoice === "planovanie") {
     return (
-      <Suspense fallback={<div className="min-h-screen flex items-center justify-center text-slate-500"><Loader2 className="animate-spin mr-2" size={20} /> Nacitavam...</div>}>
+      <Suspense fallback={<div className="min-h-screen flex items-center justify-center text-slate-500"><Loader2 className="animate-spin mr-2" size={20} /> Načítám...</div>}>
         <PlanSmienView onBack={switchApp} />
       </Suspense>
     );
@@ -501,7 +501,7 @@ export default function MiniERP() {
   if (authLoading) {
     return (
       <div className="min-h-screen flex items-center justify-center text-slate-500">
-        <Loader2 className="animate-spin mr-2" size={20} /> Nacitavam...
+        <Loader2 className="animate-spin mr-2" size={20} /> Načítám...
       </div>
     );
   }
@@ -521,7 +521,7 @@ export default function MiniERP() {
   }
   const lazyFallback = (
     <div className="min-h-screen flex items-center justify-center text-slate-500">
-      <Loader2 className="animate-spin mr-2" size={20} /> Nacitavam...
+      <Loader2 className="animate-spin mr-2" size={20} /> Načítám...
     </div>
   );
   if (profile?.role === "sklad") {
@@ -603,7 +603,7 @@ function OfficeApp({ userFullName, userEmail, onSignOut }) {
   const fetchOrders = useCallback(async () => {
     const { data, error } = await supabase.from("orders").select("*").order("created_at", { ascending: false });
     if (error) {
-      setLoadError("Nepodarilo sa nacitat objednavky.");
+      setLoadError("Nepodařilo se načíst objednávky.");
       return;
     }
     setOrders((data || []).map((row) => ({ ...row.data, stavExpedicie: row.stav_expedicie })));
@@ -632,7 +632,7 @@ function OfficeApp({ userFullName, userEmail, onSignOut }) {
           supabase.from("expedicia_zaznamy").select("*").order("created_at", { ascending: false }),
         ]);
         if (ordersRes.error || carriersRes.error || customersRes.error || companyRes.error) {
-          setLoadError("Nepodarilo sa nacitat ulozene data.");
+          setLoadError("Nepodařilo se načíst uložená data.");
         } else {
           setOrders((ordersRes.data || []).map((row) => ({ ...row.data, stavExpedicie: row.stav_expedicie })));
           setCarriers((carriersRes.data || []).map((row) => row.data));
@@ -663,7 +663,7 @@ function OfficeApp({ userFullName, userEmail, onSignOut }) {
           if (!expedicniaZaznamyRes.error) setExpedicniaZaznamy((expedicniaZaznamyRes.data || []).map((row) => ({ ...row.data, orderId: row.order_id })));
         }
       } catch (e) {
-        setLoadError("Nepodarilo sa nacitat ulozene data.");
+        setLoadError("Nepodařilo se načíst uložená data.");
       }
       setReady(true);
     })();
@@ -709,7 +709,7 @@ function OfficeApp({ userFullName, userEmail, onSignOut }) {
         if (error) throw error;
       }
     } catch (e) {
-      setLoadError("Ulozenie zlyhalo, skuste znova.");
+      setLoadError("Uložení se nezdařilo, zkuste to znovu.");
     }
   }
   async function persistCustomers(next) {
@@ -728,7 +728,7 @@ function OfficeApp({ userFullName, userEmail, onSignOut }) {
         if (error) throw error;
       }
     } catch (e) {
-      setLoadError("Ulozenie zlyhalo, skuste znova.");
+      setLoadError("Uložení se nezdařilo, zkuste to znovu.");
     }
   }
   async function persistCompany(next) {
@@ -744,9 +744,9 @@ function OfficeApp({ userFullName, userEmail, onSignOut }) {
         })
         .eq("id", 1);
       if (error) throw error;
-      setToast("Udaje o firme boli ulozene.");
+      setToast("Údaje o firmě byly uloženy.");
     } catch (e) {
-      setLoadError("Ulozenie zlyhalo, skuste znova.");
+      setLoadError("Uložení se nezdařilo, zkuste to znovu.");
     }
   }
 
@@ -758,7 +758,7 @@ function OfficeApp({ userFullName, userEmail, onSignOut }) {
       if (error) throw error;
       setPricelistArchive((prev) => [{ ...entry, archived_at: new Date().toISOString() }, ...prev]);
     } catch (e) {
-      setLoadError("Archivacia cennika zlyhala.");
+      setLoadError("Archivace ceníku se nezdařila.");
     }
   }
 
@@ -769,7 +769,7 @@ function OfficeApp({ userFullName, userEmail, onSignOut }) {
       const { error } = await supabase.from("pricelist").update({ data: next }).eq("id", 1);
       if (error) throw error;
     } catch (e) {
-      setLoadError("Ulozenie cennika zlyhalo, skuste znova.");
+      setLoadError("Uložení ceníku se nezdařilo, zkuste to znovu.");
     }
   }
 
@@ -780,7 +780,7 @@ function OfficeApp({ userFullName, userEmail, onSignOut }) {
       const { error } = await supabase.from("pricelist").update({ data: {} }).eq("id", 1);
       if (error) throw error;
     } catch (e) {
-      setLoadError("Zmazanie cennika zlyhalo, skuste znova.");
+      setLoadError("Smazání ceníku se nezdařilo, zkuste to znovu.");
     }
   }
 
@@ -794,7 +794,7 @@ function OfficeApp({ userFullName, userEmail, onSignOut }) {
       const { error } = await supabase.from("pricelist_archive").delete().eq("id", id);
       if (error) throw error;
     } catch (e) {
-      setLoadError("Zmazanie z archivu zlyhalo, skuste znova.");
+      setLoadError("Smazání z archivu se nezdařilo, zkuste to znovu.");
     }
   }
 
@@ -814,7 +814,7 @@ function OfficeApp({ userFullName, userEmail, onSignOut }) {
         if (error) throw error;
       }
     } catch (e) {
-      setLoadError("Ulozenie zlyhalo, skuste znova.");
+      setLoadError("Uložení se nezdařilo, zkuste to znovu.");
     }
   }
 
@@ -834,7 +834,7 @@ function OfficeApp({ userFullName, userEmail, onSignOut }) {
         if (error) throw error;
       }
     } catch (e) {
-      setLoadError("Ulozenie zlyhalo, skuste znova.");
+      setLoadError("Uložení se nezdařilo, zkuste to znovu.");
     }
   }
 
@@ -854,14 +854,14 @@ function OfficeApp({ userFullName, userEmail, onSignOut }) {
         if (error) throw error;
       }
     } catch (e) {
-      setLoadError("Ulozenie zlyhalo, skuste znova.");
+      setLoadError("Uložení se nezdařilo, zkuste to znovu.");
     }
   }
 
   async function saveNewMaterialOrder(fields) {
     const { data: num, error: numError } = await supabase.rpc("next_material_order_number");
     if (numError || num === null || num === undefined) {
-      setLoadError("Nepodarilo sa prideelit cislo objednavky, skuste znova.");
+      setLoadError("Nepodařilo se přidělit číslo objednávky, zkuste to znovu.");
       return;
     }
     const order = {
@@ -879,7 +879,7 @@ function OfficeApp({ userFullName, userEmail, onSignOut }) {
       const { error } = await supabase.from("material_orders").insert({ id: order.id, data: order });
       if (error) throw error;
     } catch (e) {
-      setLoadError("Ulozenie objednavky zlyhalo, skuste znova.");
+      setLoadError("Uložení objednávky se nezdařilo, zkuste to znovu.");
     }
     setShowNewMaterialOrder(false);
   }
@@ -893,7 +893,7 @@ function OfficeApp({ userFullName, userEmail, onSignOut }) {
       const { error } = await supabase.from("material_orders").update({ data: merged }).eq("id", id);
       if (error) throw error;
     } catch (e) {
-      setLoadError("Ulozenie zlyhalo, skuste znova.");
+      setLoadError("Uložení se nezdařilo, zkuste to znovu.");
     }
   }
 
@@ -903,7 +903,7 @@ function OfficeApp({ userFullName, userEmail, onSignOut }) {
       const { error } = await supabase.from("material_orders").delete().eq("id", id);
       if (error) throw error;
     } catch (e) {
-      setLoadError("Ulozenie zlyhalo, skuste znova.");
+      setLoadError("Uložení se nezdařilo, zkuste to znovu.");
     }
   }
 
@@ -914,7 +914,7 @@ function OfficeApp({ userFullName, userEmail, onSignOut }) {
       const { error } = await supabase.from("ulohy").insert({ id: uloha.id, data: uloha });
       if (error) throw error;
     } catch (e) {
-      setLoadError("Ulozenie ulohy zlyhalo, skuste znova.");
+      setLoadError("Uložení úkolu se nezdařilo, zkuste to znovu.");
     }
   }
 
@@ -927,7 +927,7 @@ function OfficeApp({ userFullName, userEmail, onSignOut }) {
       const { error } = await supabase.from("ulohy").update({ data: merged }).eq("id", id);
       if (error) throw error;
     } catch (e) {
-      setLoadError("Ulozenie zlyhalo, skuste znova.");
+      setLoadError("Uložení se nezdařilo, zkuste to znovu.");
     }
   }
 
@@ -937,7 +937,7 @@ function OfficeApp({ userFullName, userEmail, onSignOut }) {
       const { error } = await supabase.from("ulohy").delete().eq("id", id);
       if (error) throw error;
     } catch (e) {
-      setLoadError("Ulozenie zlyhalo, skuste znova.");
+      setLoadError("Uložení se nezdařilo, zkuste to znovu.");
     }
   }
 
@@ -951,7 +951,7 @@ function OfficeApp({ userFullName, userEmail, onSignOut }) {
       const { error } = await supabase.from("expedicia_zaznamy").update({ data }).eq("id", id);
       if (error) throw error;
     } catch (e) {
-      setLoadError("Ulozenie zlyhalo, skuste znova.");
+      setLoadError("Uložení se nezdařilo, zkuste to znovu.");
     }
   }
 
@@ -961,7 +961,7 @@ function OfficeApp({ userFullName, userEmail, onSignOut }) {
       const { error } = await supabase.from("expedicia_zaznamy").delete().eq("id", id);
       if (error) throw error;
     } catch (e) {
-      setLoadError("Ulozenie zlyhalo, skuste znova.");
+      setLoadError("Uložení se nezdařilo, zkuste to znovu.");
     }
   }
 
@@ -972,7 +972,7 @@ function OfficeApp({ userFullName, userEmail, onSignOut }) {
       const { error } = await supabase.from("goods_receipts").insert({ id: receipt.id, data: receipt });
       if (error) throw error;
     } catch (e) {
-      setLoadError("Ulozenie zlyhalo, skuste znova.");
+      setLoadError("Uložení se nezdařilo, zkuste to znovu.");
     }
     setShowNewGoodsReceipt(false);
     return receipt;
@@ -987,7 +987,7 @@ function OfficeApp({ userFullName, userEmail, onSignOut }) {
       const { error } = await supabase.from("goods_receipts").update({ data: merged }).eq("id", id);
       if (error) throw error;
     } catch (e) {
-      setLoadError("Ulozenie zlyhalo, skuste znova.");
+      setLoadError("Uložení se nezdařilo, zkuste to znovu.");
     }
   }
 
@@ -997,7 +997,7 @@ function OfficeApp({ userFullName, userEmail, onSignOut }) {
       const { error } = await supabase.from("goods_receipts").delete().eq("id", id);
       if (error) throw error;
     } catch (e) {
-      setLoadError("Ulozenie zlyhalo, skuste znova.");
+      setLoadError("Uložení se nezdařilo, zkuste to znovu.");
     }
   }
 
@@ -1008,7 +1008,7 @@ function OfficeApp({ userFullName, userEmail, onSignOut }) {
       const { error } = await supabase.from("stock_issues").insert({ id: issue.id, data: issue });
       if (error) throw error;
     } catch (e) {
-      setLoadError("Ulozenie zlyhalo, skuste znova.");
+      setLoadError("Uložení se nezdařilo, zkuste to znovu.");
     }
     setShowNewStockIssue(false);
     return issue;
@@ -1023,7 +1023,7 @@ function OfficeApp({ userFullName, userEmail, onSignOut }) {
       const { error } = await supabase.from("stock_issues").update({ data: merged }).eq("id", id);
       if (error) throw error;
     } catch (e) {
-      setLoadError("Ulozenie zlyhalo, skuste znova.");
+      setLoadError("Uložení se nezdařilo, zkuste to znovu.");
     }
   }
 
@@ -1033,7 +1033,7 @@ function OfficeApp({ userFullName, userEmail, onSignOut }) {
       const { error } = await supabase.from("stock_issues").delete().eq("id", id);
       if (error) throw error;
     } catch (e) {
-      setLoadError("Ulozenie zlyhalo, skuste znova.");
+      setLoadError("Uložení se nezdařilo, zkuste to znovu.");
     }
   }
 
@@ -1044,7 +1044,7 @@ function OfficeApp({ userFullName, userEmail, onSignOut }) {
       const { error } = await supabase.from("production_plan").insert({ id: plan.id, data: plan });
       if (error) throw error;
     } catch (e) {
-      setLoadError("Ulozenie zlyhalo, skuste znova.");
+      setLoadError("Uložení se nezdařilo, zkuste to znovu.");
     }
     setShowNewProductionPlan(false);
     return plan;
@@ -1059,7 +1059,7 @@ function OfficeApp({ userFullName, userEmail, onSignOut }) {
       const { error } = await supabase.from("production_plan").update({ data: merged }).eq("id", id);
       if (error) throw error;
     } catch (e) {
-      setLoadError("Ulozenie zlyhalo, skuste znova.");
+      setLoadError("Uložení se nezdařilo, zkuste to znovu.");
     }
   }
 
@@ -1069,7 +1069,7 @@ function OfficeApp({ userFullName, userEmail, onSignOut }) {
       const { error } = await supabase.from("production_plan").delete().eq("id", id);
       if (error) throw error;
     } catch (e) {
-      setLoadError("Ulozenie zlyhalo, skuste znova.");
+      setLoadError("Uložení se nezdařilo, zkuste to znovu.");
     }
   }
 
@@ -1086,7 +1086,7 @@ function OfficeApp({ userFullName, userEmail, onSignOut }) {
       const { error } = await supabase.from("production_outputs").delete().eq("id", output.id);
       if (error) throw error;
     } catch (e) {
-      setLoadError("Zmazanie zlyhalo, skuste znova.");
+      setLoadError("Smazání se nezdařilo, zkuste to znovu.");
     }
   }
 
@@ -1117,7 +1117,7 @@ function OfficeApp({ userFullName, userEmail, onSignOut }) {
             mnozstvoCislo: issue.mnozstvoCislo,
             mnozstvoJednotka: issue.mnozstvoJednotka,
             dovod: "Vyroba",
-            poznamka: "Sarza " + (merged.sarza || "") + " - " + (merged.produktNazov || ""),
+            poznamka: "Šarže " + (merged.sarza || "") + " - " + (merged.produktNazov || ""),
             zapisal: merged.zapisala || "",
           },
         });
@@ -1131,7 +1131,7 @@ function OfficeApp({ userFullName, userEmail, onSignOut }) {
       const { data: freshIssues, error: fetchErr } = await supabase.from("stock_issues").select("*").order("created_at", { ascending: false });
       if (!fetchErr) setStockIssues((freshIssues || []).map((r) => r.data));
     } catch (e) {
-      setLoadError("Ulozenie zlyhalo, skuste znova.");
+      setLoadError("Uložení se nezdařilo, zkuste to znovu.");
     }
   }
 
@@ -1142,7 +1142,7 @@ function OfficeApp({ userFullName, userEmail, onSignOut }) {
       const { error } = await supabase.from("prestavky").delete().eq("id", id);
       if (error) throw error;
     } catch (e) {
-      setLoadError("Zmazanie zlyhalo, skuste znova.");
+      setLoadError("Smazání se nezdařilo, zkuste to znovu.");
     }
   }
 
@@ -1155,35 +1155,35 @@ function OfficeApp({ userFullName, userEmail, onSignOut }) {
       const { error } = await supabase.from("prestavky").update({ data: merged }).eq("id", id);
       if (error) throw error;
     } catch (e) {
-      setLoadError("Ulozenie zlyhalo, skuste znova.");
+      setLoadError("Uložení se nezdařilo, zkuste to znovu.");
     }
   }
 
   async function exportToExcel() {
     const rows = orders.map((o) => ({
-      "Cislo objednavky dopravy": o.cisloObjednavkyDopravy || "",
-      "Cislo dodacieho listu": o.cisloDodaciehoListu || "",
-      "Cislo objednavky zakaznika": o.cisloObjednavkyZakaznika || "",
-      "Datum prijatia": o.datumPrijatia,
-      "Zakaznik": o.zakaznik,
-      "Miesto dodania": (o.adresaDodaniaNazov ? o.adresaDodaniaNazov + " - " : "") + o.adresaDodania,
-      "Datum dodania": o.datumDodania,
-      "Cas dodania": o.casDodania,
-      "Pocet paliet": o.pocetPaliet,
-      "Pocet paletovych miest": o.pocetPaletovychMiest,
-      "Pocet kartonov": o.pocetKartonov,
+      "Číslo objednávky dopravy": o.cisloObjednavkyDopravy || "",
+      "Číslo dodacího listu": o.cisloDodaciehoListu || "",
+      "Číslo objednávky zákazníka": o.cisloObjednavkyZakaznika || "",
+      "Datum přijetí": o.datumPrijatia,
+      "Zákazník": o.zakaznik,
+      "Místo dodání": (o.adresaDodaniaNazov ? o.adresaDodaniaNazov + " - " : "") + o.adresaDodania,
+      "Datum dodání": o.datumDodania,
+      "Čas dodání": o.casDodania,
+      "Počet palet": o.pocetPaliet,
+      "Počet paletových míst": o.pocetPaletovychMiest,
+      "Počet kartonů": o.pocetKartonov,
       "Hmotnost": o.hmotnost,
-      "Palety zpet": o.paletyZpat ? "Ano" : "Nie",
-      "Dopravca": (carriers.find((c) => c.id === o.dopravcaId) || {}).nazov || "",
-      "Stav objednavky": o.stavObjednavky,
+      "Palety zpět": o.paletyZpat ? "Ano" : "Nie",
+      "Dopravce": (carriers.find((c) => c.id === o.dopravcaId) || {}).nazov || "",
+      "Stav objednávky": o.stavObjednavky,
       "Stav dopravy": o.stavDopravy,
-      "Stav expedicie": o.stavExpedicie === "Expedovana" ? "Expedovana" : "Neexpedovana",
-      "Dodaci list odoslany": o.dodaciListOdoslany === "Ano" ? "Ano" : "Nie",
-      "Paletovy listok pripraveny": o.paletovyListokInfo ? "Ano" : "Nie",
-      "CMR pripravene": o.cmrInfo ? "Ano" : "Nie",
-      "Poznamka": o.poznamka,
+      "Stav expedice": o.stavExpedicie === "Expedovana" ? "Expedovana" : "Neexpedovana",
+      "Dodací list odeslán": o.dodaciListOdoslany === "Ano" ? "Ano" : "Nie",
+      "Paletový lístek připraven": o.paletovyListokInfo ? "Ano" : "Nie",
+      "CMR připraveno": o.cmrInfo ? "Ano" : "Nie",
+      "Poznámka": o.poznamka,
     }));
-    await exportRowsToExcel(rows, "Register objednavok", "Register_objednavok");
+    await exportRowsToExcel(rows, "Registr objednávek", "Register_objednavok");
   }
 
   function nextOrderNumber() {
@@ -1196,7 +1196,7 @@ function OfficeApp({ userFullName, userEmail, onSignOut }) {
     const suffix = ddmmFromSkDateStr(fields.datumDodania);
     const { data: numData, error: numError } = await supabase.rpc("next_order_numbers");
     if (numError || !numData || !numData[0]) {
-      setLoadError("Nepodarilo sa prideelit cislo objednavky, skuste znova.");
+      setLoadError("Nepodařilo se přidělit číslo objednávky, zkuste to znovu.");
       return;
     }
     const { doprava_num: dopravaNum, dodak_num: dodakNum } = numData[0];
@@ -1241,7 +1241,7 @@ function OfficeApp({ userFullName, userEmail, onSignOut }) {
       const { error } = await supabase.from("orders").insert(orderRowFromOrder(order));
       if (error) throw error;
     } catch (e) {
-      setLoadError("Ulozenie objednavky zlyhalo, skuste znova.");
+      setLoadError("Uložení objednávky se nezdařilo, zkuste to znovu.");
     }
     setShowNewOrder(false);
   }
@@ -1256,7 +1256,7 @@ function OfficeApp({ userFullName, userEmail, onSignOut }) {
       const { error } = await supabase.from("orders").update(row).eq("id", id);
       if (error) throw error;
     } catch (e) {
-      setLoadError("Ulozenie zlyhalo, skuste znova.");
+      setLoadError("Uložení se nezdařilo, zkuste to znovu.");
     }
   }
   async function deleteOrder(id) {
@@ -1265,7 +1265,7 @@ function OfficeApp({ userFullName, userEmail, onSignOut }) {
       const { error } = await supabase.from("orders").delete().eq("id", id);
       if (error) throw error;
     } catch (e) {
-      setLoadError("Ulozenie zlyhalo, skuste znova.");
+      setLoadError("Uložení se nezdařilo, zkuste to znovu.");
     }
   }
   async function toggleExpedicia(order) {
@@ -1276,14 +1276,14 @@ function OfficeApp({ userFullName, userEmail, onSignOut }) {
       if (error) throw error;
     } catch (e) {
       setOrders((prev) => prev.map((o) => (o.id === order.id ? { ...o, stavExpedicie: order.stavExpedicie } : o)));
-      setLoadError("Zmena stavu expedicie zlyhala, skuste znova.");
+      setLoadError("Změna stavu expedice se nezdařila, zkuste to znovu.");
     }
   }
 
   if (!ready) {
     return (
       <div className="flex items-center justify-center h-96 text-slate-500">
-        <Loader2 className="animate-spin mr-2" size={20} /> Nacitavam...
+        <Loader2 className="animate-spin mr-2" size={20} /> Načítám...
       </div>
     );
   }
@@ -1512,7 +1512,7 @@ function OfficeApp({ userFullName, userEmail, onSignOut }) {
           onSent={(dopravcaId, info) => {
             updateMaterialOrder(sendMaterialOrder.id, { stavDopravy: "Objednana", dopravcaId, dopravaOdoslanaInfo: info });
             setSendMaterialOrder(null);
-            setToast("Objednavka dopravy bola odoslana (" + (carriers.find((c) => c.id === dopravcaId) || {}).nazov + ").");
+            setToast("Objednávka dopravy byla odeslána (" + (carriers.find((c) => c.id === dopravcaId) || {}).nazov + ").");
           }}
         />
       )}
@@ -1526,7 +1526,7 @@ function OfficeApp({ userFullName, userEmail, onSignOut }) {
           onSent={(info) => {
             updateMaterialOrder(sendSupplierMaterialOrder.id, { stavObjednavky: "Odoslana", objednavkaOdoslanaInfo: info });
             setSendSupplierMaterialOrder(null);
-            setToast("Objednavka bola odoslana dodavatelovi (" + info.to + ").");
+            setToast("Objednávka byla odeslána dodavateli (" + info.to + ").");
           }}
         />
       )}
@@ -1563,7 +1563,7 @@ function OfficeApp({ userFullName, userEmail, onSignOut }) {
             for (const u of updates) {
               await updateGoodsReceipt(u.receiptId, u.patch);
             }
-            setToast(`Cena doplnena k ${updates.length} prijmu(om) tovaru.`);
+            setToast(`Cena doplněna k ${updates.length} příjmu(ům) zboží.`);
           }}
         />
       )}
@@ -1645,7 +1645,7 @@ function OfficeApp({ userFullName, userEmail, onSignOut }) {
           onSent={(dopravcaId, info) => {
             updateOrder(transportOrder.id, { stavDopravy: "Objednana", dopravcaId, dopravaOdoslanaInfo: info });
             setTransportOrder(null);
-            setToast("Objednavka dopravy bola odoslana (" + (carriers.find((c) => c.id === dopravcaId) || {}).nazov + ").");
+            setToast("Objednávka dopravy byla odeslána (" + (carriers.find((c) => c.id === dopravcaId) || {}).nazov + ").");
           }}
         />
       )}
@@ -1660,7 +1660,7 @@ function OfficeApp({ userFullName, userEmail, onSignOut }) {
           onSent={(email, info) => {
             updateOrder(deliveryOrder.id, { dodaciListOdoslany: "Ano", zakaznikEmail: email, stavObjednavky: "Odoslana", dodaciListOdoslanaInfo: info });
             setDeliveryOrder(null);
-            setToast("Dodaci list bol odoslany na " + email + ".");
+            setToast("Dodací list byl odeslán na " + email + ".");
           }}
         />
       )}
@@ -1673,7 +1673,7 @@ function OfficeApp({ userFullName, userEmail, onSignOut }) {
           onDone={(info, action) => {
             updateOrder(palletOrder.id, { paletovyListokInfo: info });
             setPalletOrder(null);
-            setToast(action === "print" ? "Paletovy listok posielany na tlac." : "Paletovy listok bol stiahnuty.");
+            setToast(action === "print" ? "Paletový lístek odesílán na tisk." : "Paletový lístek byl stažen.");
           }}
         />
       )}
@@ -1687,7 +1687,7 @@ function OfficeApp({ userFullName, userEmail, onSignOut }) {
           onDone={(info, action) => {
             updateOrder(cmrOrder.id, { cmrInfo: info });
             setCmrOrder(null);
-            setToast(action === "print" ? "CMR posielane na tlac." : "CMR bolo stiahnute.");
+            setToast(action === "print" ? "CMR odesíláno na tisk." : "CMR bylo staženo.");
           }}
         />
       )}
@@ -1703,7 +1703,7 @@ function OfficeApp({ userFullName, userEmail, onSignOut }) {
           onSent={(info) => {
             updateOrder(nveOrder.id, { nveOdoslanaInfo: info });
             setNveOrder(null);
-            setToast("Email s NVE listom pripraveny (" + info.to + ").");
+            setToast("E-mail s NVE listem připraven (" + info.to + ").");
           }}
         />
       )}
@@ -1786,18 +1786,18 @@ function downloadHtml(filename, htmlBody) {
 }
 
 const HEADER_MENU_ITEMS = [
-  { icon: <ListChecks size={16} />, label: "Ulohy", v: "ulohy" },
-  { icon: <Users size={16} />, label: "Dopravcovia", v: "carriers" },
-  { icon: <Package size={16} />, label: "Zakaznici", v: "customers" },
-  { icon: <Building2 size={16} />, label: "Nastavenia firmy", v: "company" },
-  { icon: <Euro size={16} />, label: "Cennik doprav", v: "pricelist" },
-  { icon: <Factory size={16} />, label: "Dodavatelia", v: "suppliers" },
+  { icon: <ListChecks size={16} />, label: "Úkoly", v: "ulohy" },
+  { icon: <Users size={16} />, label: "Dopravci", v: "carriers" },
+  { icon: <Package size={16} />, label: "Zákazníci", v: "customers" },
+  { icon: <Building2 size={16} />, label: "Nastavení firmy", v: "company" },
+  { icon: <Euro size={16} />, label: "Ceník dopravy", v: "pricelist" },
+  { icon: <Factory size={16} />, label: "Dodavatelé", v: "suppliers" },
   { icon: <Recycle size={16} />, label: "EKO-KOM", v: "ekokom" },
-  { icon: <Calculator size={16} />, label: "Cenotvorba", v: "cenotvorba" },
-  { icon: <Image size={16} />, label: "Dizajny a fotky", v: "designs" },
-  { icon: <BookOpen size={16} />, label: "Navody", v: "navody" },
+  { icon: <Calculator size={16} />, label: "Tvorba cen", v: "cenotvorba" },
+  { icon: <Image size={16} />, label: "Designy a fotky", v: "designs" },
+  { icon: <BookOpen size={16} />, label: "Návody", v: "navody" },
   { icon: <FlaskConical size={16} />, label: "Produkty", v: "products" },
-  { icon: <UserCheck size={16} />, label: "Pracovnici", v: "workers" },
+  { icon: <UserCheck size={16} />, label: "Pracovníci", v: "workers" },
 ];
 
 function PlaceholderView({ title }) {
@@ -1806,7 +1806,7 @@ function PlaceholderView({ title }) {
       <h1 className="text-xl font-semibold mb-4">{title}</h1>
       <div className="bg-white border border-slate-200 rounded-lg p-10 text-center text-slate-500">
         <Construction size={28} className="mx-auto mb-3 text-slate-300" />
-        Tato sekcia sa pripravuje - obsah doplnime neskor.
+        Tato sekce se připravuje - obsah doplníme později.
       </div>
     </div>
   );
@@ -1834,17 +1834,17 @@ function Header({ view, setView, company, userFullName, userEmail, onSignOut }) 
           <div className="flex items-center gap-2">
             <button
               onClick={() => setMenuOpen((v) => !v)}
-              title="Dalsie sekcie"
+              title="Další sekce"
               className={"flex items-center justify-center w-9 h-9 rounded-md " + (inMenu ? "bg-white text-slate-900" : "text-slate-300 hover:bg-slate-800")}
             >
               <Menu size={18} />
             </button>
             <button
               onClick={onSignOut}
-              title="Odhlasit"
+              title="Odhlásit"
               className="flex items-center gap-1.5 px-3 h-9 rounded-md text-sm text-slate-300 hover:bg-slate-800"
             >
-              <LogOut size={16} /> Odhlasit
+              <LogOut size={16} /> Odhlásit
             </button>
           </div>
           {menuOpen && (
@@ -1867,12 +1867,12 @@ function Header({ view, setView, company, userFullName, userEmail, onSignOut }) 
       </div>
       <div className="max-w-6xl mx-auto px-4 pb-4">
         <nav className="flex items-stretch gap-2 mt-3 bg-white/5 backdrop-blur-sm border border-white/10 rounded-2xl p-2 shadow-inner">
-          <NavButton icon={<LayoutDashboard size={18} />} label="Prehlad" color="teal" active={view === "dashboard"} onClick={() => setView("dashboard")} />
-          <NavButton icon={<ClipboardList size={18} />} label="Objednavky" color="blue" active={view === "register"} onClick={() => setView("register")} />
-          <NavButton icon={<Boxes size={18} />} label="Objednavky surovin a obalov" color="amber" active={view === "materials"} onClick={() => setView("materials")} />
-          <NavButton icon={<PackagePlus size={18} />} label="Prijem tovaru" color="emerald" active={view === "goodsreceipts"} onClick={() => setView("goodsreceipts")} />
-          <NavButton icon={<Warehouse size={18} />} label="Stav zasob" color="violet" active={view === "stock"} onClick={() => setView("stock")} />
-          <NavButton icon={<ClipboardCheck size={18} />} label="Vyroba" color="rose" active={view === "productionplan"} onClick={() => setView("productionplan")} />
+          <NavButton icon={<LayoutDashboard size={18} />} label="Přehled" color="teal" active={view === "dashboard"} onClick={() => setView("dashboard")} />
+          <NavButton icon={<ClipboardList size={18} />} label="Objednávky" color="blue" active={view === "register"} onClick={() => setView("register")} />
+          <NavButton icon={<Boxes size={18} />} label="Objednávky surovin a obalů" color="amber" active={view === "materials"} onClick={() => setView("materials")} />
+          <NavButton icon={<PackagePlus size={18} />} label="Příjem zboží" color="emerald" active={view === "goodsreceipts"} onClick={() => setView("goodsreceipts")} />
+          <NavButton icon={<Warehouse size={18} />} label="Stav zásob" color="violet" active={view === "stock"} onClick={() => setView("stock")} />
+          <NavButton icon={<ClipboardCheck size={18} />} label="Výroba" color="rose" active={view === "productionplan"} onClick={() => setView("productionplan")} />
         </nav>
       </div>
     </header>
@@ -2010,7 +2010,7 @@ function DateField({ label, value, onChange }) {
         />
         <button
           type="button"
-          title="Vybrat z kalendara"
+          title="Vybrat z kalendáře"
           onClick={() => { const el = nativeRef.current; if (el && el.showPicker) el.showPicker(); }}
           className="border border-slate-200 rounded-md px-2.5 text-slate-500 hover:bg-slate-50 hover:text-teal-700"
         >
@@ -2110,9 +2110,9 @@ function ItemsTable({ items, setItems }) {
           <thead>
             <tr className="bg-slate-100 text-slate-600 text-left">
               <th className="px-2 py-1.5">Popis</th>
-              <th className="px-2 py-1.5 w-24">Artikel</th>
+              <th className="px-2 py-1.5 w-24">Artikl</th>
               <th className="px-2 py-1.5 w-16">Palet</th>
-              <th className="px-2 py-1.5 w-16">Karton</th>
+              <th className="px-2 py-1.5 w-16">Kartonů</th>
               <th className="px-2 py-1.5 w-8"></th>
             </tr>
           </thead>
@@ -2131,7 +2131,7 @@ function ItemsTable({ items, setItems }) {
           </tbody>
         </table>
       </div>
-      <button onClick={add} className="mt-1.5 text-xs text-teal-700 hover:text-teal-900 flex items-center gap-1"><Plus size={12} /> Pridat polozku</button>
+      <button onClick={add} className="mt-1.5 text-xs text-teal-700 hover:text-teal-900 flex items-center gap-1"><Plus size={12} /> Přidat položku</button>
     </div>
   );
 }
@@ -2166,7 +2166,7 @@ function RegisterView({ orders, carriers, customers, expedicniaZaznamy, products
       const ob = orders.find((o) => o.id === b) || {};
       return (parseSkDate(oa.datumDodania) || 0) - (parseSkDate(ob.datumDodania) || 0);
     });
-    const blankRow = { "Cislo objednavky": "", "Cislo dodacieho listu": "", "Zakaznik": "", "Produkt": "", "Sarza": "", "Pocet paliet": "", "Pocet kartonov": "", "Nazov miesta dodania": "", "Adresa dodania": "", "Mesto": "", "Dopravca": "", "Vodic": "", "Datum nalozenia": "", "Datum dodania": "" };
+    const blankRow = { "Číslo objednávky": "", "Číslo dodacího listu": "", "Zákazník": "", "Produkt": "", "Šarže": "", "Počet palet": "", "Počet kartonů": "", "Název místa dodání": "", "Adresa dodania": "", "Město": "", "Dopravce": "", "Řidič": "", "Datum naložení": "", "Datum dodání": "" };
     const rows = [];
     orderIds.forEach((orderId, orderIdx) => {
       const order = orders.find((o) => o.id === orderId) || {};
@@ -2177,36 +2177,36 @@ function RegisterView({ orders, carriers, customers, expedicniaZaznamy, products
         // len na prvom riadku danej objednavky - dalsie sarze tej istej objednavky maju tieto
         // stlpce prazdne, aby v Exceli vizualne "patrili" pod prvy riadok ako jeden blok.
         rows.push({
-          "Cislo objednavky": i === 0 ? (order.cisloObjednavky || "") : "",
-          "Cislo dodacieho listu": i === 0 ? (order.cisloDodaciehoListu || "") : "",
-          "Zakaznik": i === 0 ? (order.zakaznik || "") : "",
+          "Číslo objednávky": i === 0 ? (order.cisloObjednavky || "") : "",
+          "Číslo dodacího listu": i === 0 ? (order.cisloDodaciehoListu || "") : "",
+          "Zákazník": i === 0 ? (order.zakaznik || "") : "",
           "Produkt": z.produktNazov || "",
-          "Sarza": z.sarza || "",
-          "Pocet paliet": z.pocetPaliet ?? "",
-          "Pocet kartonov": z.pocetKartonov ?? "",
-          "Nazov miesta dodania": i === 0 ? (order.adresaDodaniaNazov || "") : "",
+          "Šarže": z.sarza || "",
+          "Počet palet": z.pocetPaliet ?? "",
+          "Počet kartonů": z.pocetKartonov ?? "",
+          "Název místa dodání": i === 0 ? (order.adresaDodaniaNazov || "") : "",
           "Adresa dodania": i === 0 ? (order.adresaDodania || "") : "",
-          "Mesto": i === 0 ? (extractCityFromAddress(order.adresaDodania) || "") : "",
-          "Dopravca": i === 0 ? (doprava.dopravca || "") : "",
-          "Vodic": i === 0 ? (doprava.vodic || "") : "",
-          "Datum nalozenia": z.datum || "",
-          "Datum dodania": i === 0 ? (order.datumDodania || "") : "",
+          "Město": i === 0 ? (extractCityFromAddress(order.adresaDodania) || "") : "",
+          "Dopravce": i === 0 ? (doprava.dopravca || "") : "",
+          "Řidič": i === 0 ? (doprava.vodic || "") : "",
+          "Datum naložení": z.datum || "",
+          "Datum dodání": i === 0 ? (order.datumDodania || "") : "",
         });
       });
       if (orderIdx < orderIds.length - 1) rows.push({ ...blankRow });
     });
-    await exportRowsToExcel(rows, "Expedicia - sarze", "Expedicia_sarze", 16);
+    await exportRowsToExcel(rows, "Expedice - šarže", "Expedicia_sarze", 16);
   }
 
   return (
     <div>
       <div className="flex items-center justify-between mb-4">
-        <h1 className="text-xl font-semibold">Objednavky</h1>
+        <h1 className="text-xl font-semibold">Objednávky</h1>
         <div className="flex gap-2">
-          <button onClick={onExport} disabled={orders.length === 0} title={orders.length === 0 ? "Register je prazdny" : "Exportovat register do Excelu"} className="flex items-center gap-1.5 bg-white border border-slate-200 hover:bg-slate-50 disabled:opacity-50 disabled:cursor-not-allowed text-slate-700 text-sm font-medium px-3 py-2 rounded-md">
+          <button onClick={onExport} disabled={orders.length === 0} title={orders.length === 0 ? "Registr je prázdný" : "Exportovat registr do Excelu"} className="flex items-center gap-1.5 bg-white border border-slate-200 hover:bg-slate-50 disabled:opacity-50 disabled:cursor-not-allowed text-slate-700 text-sm font-medium px-3 py-2 rounded-md">
             <Download size={16} /> Export do Excelu
           </button>
-          <button onClick={exportExpediciaToExcel} disabled={batchZaznamy.length === 0} title={batchZaznamy.length === 0 ? "Zatial ziadne nalozene davky" : "Exportovat nalozene davky (sarze) do Excelu"} className="flex items-center gap-1.5 bg-white border border-slate-200 hover:bg-slate-50 disabled:opacity-50 disabled:cursor-not-allowed text-slate-700 text-sm font-medium px-3 py-2 rounded-md">
+          <button onClick={exportExpediciaToExcel} disabled={batchZaznamy.length === 0} title={batchZaznamy.length === 0 ? "Zatím žádné naložené dávky" : "Exportovat naložené dávky (šarže) do Excelu"} className="flex items-center gap-1.5 bg-white border border-slate-200 hover:bg-slate-50 disabled:opacity-50 disabled:cursor-not-allowed text-slate-700 text-sm font-medium px-3 py-2 rounded-md">
             <Download size={16} /> Export expedicie (sarze)
           </button>
           <button onClick={onNew} className="flex items-center gap-1.5 bg-teal-700 hover:bg-teal-800 text-white text-sm font-medium px-3 py-2 rounded-md">
@@ -2218,20 +2218,20 @@ function RegisterView({ orders, carriers, customers, expedicniaZaznamy, products
       {orders.length === 0 ? (
         <div className="bg-white border border-slate-200 rounded-lg p-10 text-center text-slate-500">
           <ClipboardList size={28} className="mx-auto mb-3 text-slate-300" />
-          Zatial ziadne objednavky. Kliknite na "Nova objednavka" a vlozte text alebo subor.
+          Zatím žádné objednávky. Klikněte na "Nová objednávka" a vložte text nebo soubor.
         </div>
       ) : (
         <div className="bg-white border border-slate-200 rounded-lg overflow-x-auto">
           <table className="w-full text-sm">
             <thead>
               <tr className="bg-slate-100 text-slate-600 text-left">
-                <th className="px-3 py-2 font-medium whitespace-nowrap">Cislo dopravy</th>
-                <th className="px-3 py-2 font-medium">Zakaznik / miesto dodania</th>
-                <th className="px-3 py-2 font-medium whitespace-nowrap">Dodanie</th>
+                <th className="px-3 py-2 font-medium whitespace-nowrap">Číslo dopravy</th>
+                <th className="px-3 py-2 font-medium">Zákazník / místo dodání</th>
+                <th className="px-3 py-2 font-medium whitespace-nowrap">Dodání</th>
                 <th className="px-3 py-2 font-medium">Doprava</th>
-                <th className="px-3 py-2 font-medium">Dodaci list</th>
-                <th className="px-3 py-2 font-medium">Expedicia</th>
-                <th className="px-3 py-2 font-medium text-right">Akcie</th>
+                <th className="px-3 py-2 font-medium">Dodací list</th>
+                <th className="px-3 py-2 font-medium">Expedice</th>
+                <th className="px-3 py-2 font-medium text-right">Akce</th>
               </tr>
             </thead>
             <tbody>
@@ -2258,12 +2258,12 @@ function RegisterView({ orders, carriers, customers, expedicniaZaznamy, products
                     </td>
                     <td className="px-3 py-2"><Badge text={o.stavDopravy} map={STATUS_TRANSPORT} /></td>
                     <td className="px-3 py-2">
-                      <Badge text={o.dodaciListOdoslany === "Ano" ? "Odoslany" : "Neodoslany"} map={{ Odoslany: "bg-emerald-100 text-emerald-700", Neodoslany: "bg-slate-100 text-slate-700" }} />
+                      <Badge text={o.dodaciListOdoslany === "Ano" ? "Odesláno" : "Neodesláno"} map={{ Odoslany: "bg-emerald-100 text-emerald-700", Neodoslany: "bg-slate-100 text-slate-700" }} />
                     </td>
                     <td className="px-3 py-2" onClick={(e) => e.stopPropagation()}>
                       <button
                         onClick={() => onToggleExpedicia(o)}
-                        title="Kliknutim prepnete stav expedicie"
+                        title="Kliknutím přepnete stav expedice"
                         className={"text-xs font-medium px-2 py-1 rounded-full whitespace-nowrap border border-transparent hover:brightness-95 " + (STATUS_EXPEDICIA[o.stavExpedicie] || STATUS_EXPEDICIA["Neexpedovana"])}
                       >
                         {o.stavExpedicie === "Expedovana" ? "Expedovana" : "Neexpedovana"}
@@ -2272,32 +2272,32 @@ function RegisterView({ orders, carriers, customers, expedicniaZaznamy, products
                     <td className="px-3 py-2" onClick={(e) => e.stopPropagation()}>
                       <div className="flex justify-end gap-1 flex-wrap">
                         <IconButton
-                          title={o.sposobDopravy === "vyzdvihnutie" ? "Zakaznik si tovar vyzdvihuje sam - doprava sa neobjednava" : carrierMissing ? "Najprv pridajte dopravcu v Nastaveniach" : o.dopravaOdoslanaInfo ? "Odoslane " + formatDateTime(o.dopravaOdoslanaInfo.datum) : "Objednavka dopravy"}
+                          title={o.sposobDopravy === "vyzdvihnutie" ? "Zákazník si zboží vyzvedává sám - doprava se neobjednává" : carrierMissing ? "Nejprve přidejte dopravce v Nastavení" : o.dopravaOdoslanaInfo ? "Odesláno " + formatDateTime(o.dopravaOdoslanaInfo.datum) : "Objednávka dopravy"}
                           disabled={o.sposobDopravy === "vyzdvihnutie" || carrierMissing}
                           sent={!!o.dopravaOdoslanaInfo}
                           onClick={() => onOpenTransport(o)}
                         >
                           <Truck size={16} />
                         </IconButton>
-                        <IconButton title={o.paletovyListokInfo ? "Pripravene " + formatDateTime(o.paletovyListokInfo.datum) : "Paletovy listok"} sent={!!o.paletovyListokInfo} onClick={() => onOpenPallet(o)}>
+                        <IconButton title={o.paletovyListokInfo ? "Připraveno " + formatDateTime(o.paletovyListokInfo.datum) : "Paletový lístek"} sent={!!o.paletovyListokInfo} onClick={() => onOpenPallet(o)}>
                           <Layers size={16} />
                         </IconButton>
-                        <IconButton title={o.cmrInfo ? "Pripravene " + formatDateTime(o.cmrInfo.datum) : "CMR"} sent={!!o.cmrInfo} onClick={() => onOpenCmr(o)}>
+                        <IconButton title={o.cmrInfo ? "Připraveno " + formatDateTime(o.cmrInfo.datum) : "CMR"} sent={!!o.cmrInfo} onClick={() => onOpenCmr(o)}>
                           <FileSignature size={16} />
                         </IconButton>
-                        <IconButton title={o.dodaciListOdoslanaInfo ? "Odoslane " + formatDateTime(o.dodaciListOdoslanaInfo.datum) : emailMissing ? "Dodaci list (e-mail zakaznika doplnte v okne)" : "Dodaci list"} sent={!!o.dodaciListOdoslanaInfo} onClick={() => onOpenDelivery(o)}>
+                        <IconButton title={o.dodaciListOdoslanaInfo ? "Odesláno " + formatDateTime(o.dodaciListOdoslanaInfo.datum) : emailMissing ? "Dodací list (e-mail zákazníka doplňte v okně)" : "Dodací list"} sent={!!o.dodaciListOdoslanaInfo} onClick={() => onOpenDelivery(o)}>
                           <FileText size={16} />
                         </IconButton>
-                        <IconButton title={o.nveOdoslanaInfo ? "NVE list odoslany " + formatDateTime(o.nveOdoslanaInfo.datum) : o.nveListPath ? "NVE list nahraty - pripravit email" : "NVE list"} sent={!!o.nveOdoslanaInfo} onClick={() => onOpenNve(o)}>
+                        <IconButton title={o.nveOdoslanaInfo ? "NVE list odeslán " + formatDateTime(o.nveOdoslanaInfo.datum) : o.nveListPath ? "NVE list nahrán - připravit e-mail" : "NVE list"} sent={!!o.nveOdoslanaInfo} onClick={() => onOpenNve(o)}>
                           <FileSpreadsheet size={16} />
                         </IconButton>
                         {(orderBatches.length > 0 || orderDoprava) && (
-                          <IconButton title={"Detail expedicie (" + orderBatches.length + " sarzi) - oprava zle zapisanych udajov"} onClick={() => setDetailOrder(o)}>
+                          <IconButton title={"Detail expedice (" + orderBatches.length + " šarží) - oprava chybně zapsaných údajů"} onClick={() => setDetailOrder(o)}>
                             <Boxes size={16} />
                           </IconButton>
                         )}
                         <IconButton title="Upravit / porovnat s PDF" onClick={() => onEdit(o)}><Pencil size={16} /></IconButton>
-                        <IconButton title="Zmazat" onClick={() => setConfirmDelete(o)}><Trash2 size={16} /></IconButton>
+                        <IconButton title="Smazat" onClick={() => setConfirmDelete(o)}><Trash2 size={16} /></IconButton>
                       </div>
                     </td>
                   </tr>
@@ -2308,13 +2308,13 @@ function RegisterView({ orders, carriers, customers, expedicniaZaznamy, products
         </div>
       )}
       {confirmDelete && (
-        <ModalShell title="Zmazat objednavku?" onClose={() => setConfirmDelete(null)}>
+        <ModalShell title="Smazat objednávku?" onClose={() => setConfirmDelete(null)}>
           <p className="text-sm text-slate-600 mb-4">
-            Naozaj chcete zmazat objednavku <b>{confirmDelete.cisloObjednavkyDopravy}</b>
+            Opravdu chcete smazat objednávku <b>{confirmDelete.cisloObjednavkyDopravy}</b>
             {confirmDelete.zakaznik ? " (" + confirmDelete.zakaznik + ")" : ""}? Tuto akciu nie je mozne vratit spat.
           </p>
           <div className="flex justify-end gap-2">
-            <button onClick={() => setConfirmDelete(null)} className="text-sm text-slate-500 px-3 py-2">Zrusit</button>
+            <button onClick={() => setConfirmDelete(null)} className="text-sm text-slate-500 px-3 py-2">Zrušit</button>
             <button
               onClick={() => { onDelete(confirmDelete.id); setConfirmDelete(null); }}
               className="bg-red-600 hover:bg-red-700 text-white text-sm font-medium px-4 py-2 rounded-md flex items-center gap-1.5"
@@ -2373,38 +2373,38 @@ function ExpediciaDetailModal({ order, batches, doprava, products, onUpdate, onD
   }
 
   return (
-    <ModalShell title={"Detail expedicie - " + (order.cisloObjednavkyDopravy || order.cisloObjednavky)} onClose={onClose} wide>
-      <p className="text-xs text-slate-400 mb-3">Oprava udajov, ktore zapisal sklad pri nakladke (napr. ak sa pri kontrole zisti chyba). Zmena sa ulozi hned.</p>
+    <ModalShell title={"Detail expedice - " + (order.cisloObjednavkyDopravy || order.cisloObjednavky)} onClose={onClose} wide>
+      <p className="text-xs text-slate-400 mb-3">Oprava údajů, které zapsal sklad při nakládce (např. pokud se při kontrole zjistí chyba). Změna se uloží ihned.</p>
 
       <div className="mb-4">
         <h3 className="text-xs font-semibold uppercase tracking-wide text-slate-500 mb-1.5">Doprava</h3>
         {doprava ? (
           editingId === "doprava" ? (
             <div className="flex gap-2 items-end flex-wrap bg-slate-50 border border-slate-200 rounded-md p-2">
-              <Field label="Dopravca" value={editForm.dopravca} onChange={(v) => setEditForm({ ...editForm, dopravca: v })} />
-              <Field label="Vodic" value={editForm.vodic} onChange={(v) => setEditForm({ ...editForm, vodic: v })} />
-              <button onClick={saveEditDoprava} className="mb-3 bg-teal-700 hover:bg-teal-800 text-white text-sm font-medium px-3 py-2 rounded-md">Ulozit</button>
-              <button onClick={() => { setEditingId(null); setEditForm(null); }} className="mb-3 text-sm text-slate-500 px-3 py-2">Zrusit</button>
+              <Field label="Dopravce" value={editForm.dopravca} onChange={(v) => setEditForm({ ...editForm, dopravca: v })} />
+              <Field label="Řidič" value={editForm.vodic} onChange={(v) => setEditForm({ ...editForm, vodic: v })} />
+              <button onClick={saveEditDoprava} className="mb-3 bg-teal-700 hover:bg-teal-800 text-white text-sm font-medium px-3 py-2 rounded-md">Uložit</button>
+              <button onClick={() => { setEditingId(null); setEditForm(null); }} className="mb-3 text-sm text-slate-500 px-3 py-2">Zrušit</button>
             </div>
           ) : (
             <div className="flex items-center justify-between bg-slate-50 border border-slate-200 rounded-md px-3 py-2">
-              <span className="text-sm">{doprava.dopravca || "-"}{doprava.vodic ? " - vodic: " + doprava.vodic : ""}</span>
+              <span className="text-sm">{doprava.dopravca || "-"}{doprava.vodic ? " - řidič: " + doprava.vodic : ""}</span>
               <IconButton title="Upravit" onClick={startEditDoprava}><Pencil size={16} /></IconButton>
             </div>
           )
         ) : (
-          <p className="text-sm text-slate-400">Zatial nezapisane.</p>
+          <p className="text-sm text-slate-400">Zatím nezapsáno.</p>
         )}
       </div>
 
       <div>
-        <h3 className="text-xs font-semibold uppercase tracking-wide text-slate-500 mb-1.5">Nalozene sarze ({batches.length})</h3>
+        <h3 className="text-xs font-semibold uppercase tracking-wide text-slate-500 mb-1.5">Naložené šarže ({batches.length})</h3>
         {batches.length === 0 ? (
-          <p className="text-sm text-slate-400">Zatial ziadna nalozena davka.</p>
+          <p className="text-sm text-slate-400">Zatím žádná naložená dávka.</p>
         ) : (
           <div className="border border-slate-200 rounded-md overflow-hidden">
             <table className="w-full text-xs">
-              <thead><tr className="bg-slate-100 text-slate-600 text-left"><th className="px-2 py-1.5">Produkt</th><th className="px-2 py-1.5">Sarza</th><th className="px-2 py-1.5 text-right">Paliet</th><th className="px-2 py-1.5 text-right">Kartonov</th><th className="px-2 py-1.5">Datum</th><th className="px-2 py-1.5"></th></tr></thead>
+              <thead><tr className="bg-slate-100 text-slate-600 text-left"><th className="px-2 py-1.5">Produkt</th><th className="px-2 py-1.5">Šarže</th><th className="px-2 py-1.5 text-right">Palet</th><th className="px-2 py-1.5 text-right">Kartonů</th><th className="px-2 py-1.5">Datum</th><th className="px-2 py-1.5"></th></tr></thead>
               <tbody>
                 {batches.map((z) => (
                   editingId === z.id ? (
@@ -2420,8 +2420,8 @@ function ExpediciaDetailModal({ order, batches, doprava, products, onUpdate, onD
                       <td className="px-1 py-1"><input value={editForm.pocetKartonov} onChange={(e) => setEditForm({ ...editForm, pocetKartonov: e.target.value })} className="w-16 border border-slate-200 rounded px-1.5 py-1 text-right" /></td>
                       <td className="px-1 py-1"><input value={editForm.datum} onChange={(e) => setEditForm({ ...editForm, datum: e.target.value })} placeholder="DD.MM.RRRR" className="w-24 border border-slate-200 rounded px-1.5 py-1" /></td>
                       <td className="px-1 py-1 whitespace-nowrap">
-                        <button onClick={saveEdit} className="text-emerald-600 hover:text-emerald-800 p-1" title="Ulozit"><Check className="inline" size={14} /></button>
-                        <button onClick={() => { setEditingId(null); setEditForm(null); }} className="text-slate-400 hover:text-rose-600 p-1" title="Zrusit"><X className="inline" size={14} /></button>
+                        <button onClick={saveEdit} className="text-emerald-600 hover:text-emerald-800 p-1" title="Uložit"><Check className="inline" size={14} /></button>
+                        <button onClick={() => { setEditingId(null); setEditForm(null); }} className="text-slate-400 hover:text-rose-600 p-1" title="Zrušit"><X className="inline" size={14} /></button>
                       </td>
                     </tr>
                   ) : (
@@ -2433,7 +2433,7 @@ function ExpediciaDetailModal({ order, batches, doprava, products, onUpdate, onD
                       <td className="px-2 py-1.5 whitespace-nowrap">{z.datum || "-"}</td>
                       <td className="px-2 py-1.5 text-right whitespace-nowrap">
                         <IconButton title="Upravit" onClick={() => startEdit(z)}><Pencil size={16} /></IconButton>
-                        <IconButton title="Zmazat" onClick={() => setConfirmDeleteId(z.id)}><Trash2 size={16} /></IconButton>
+                        <IconButton title="Smazat" onClick={() => setConfirmDeleteId(z.id)}><Trash2 size={16} /></IconButton>
                       </td>
                     </tr>
                   )
@@ -2446,10 +2446,10 @@ function ExpediciaDetailModal({ order, batches, doprava, products, onUpdate, onD
 
       {confirmDeleteId && (
         <div className="mt-4 bg-red-50 border border-red-200 rounded-md p-3">
-          <p className="text-sm text-red-700 mb-2">Naozaj zmazat tuto nalozenu davku? Tuto akciu nie je mozne vratit spat.</p>
+          <p className="text-sm text-red-700 mb-2">Opravdu smazat tuto naloženou dávku? Tuto akci nelze vrátit zpět.</p>
           <div className="flex justify-end gap-2">
-            <button onClick={() => setConfirmDeleteId(null)} className="text-sm text-slate-500 px-3 py-1.5">Zrusit</button>
-            <button onClick={() => { onDelete(confirmDeleteId); setConfirmDeleteId(null); }} className="bg-red-600 hover:bg-red-700 text-white text-sm font-medium px-3 py-1.5 rounded-md">Ano, zmazat</button>
+            <button onClick={() => setConfirmDeleteId(null)} className="text-sm text-slate-500 px-3 py-1.5">Zrušit</button>
+            <button onClick={() => { onDelete(confirmDeleteId); setConfirmDeleteId(null); }} className="bg-red-600 hover:bg-red-700 text-white text-sm font-medium px-3 py-1.5 rounded-md">Ano, smazat</button>
           </div>
         </div>
       )}
@@ -2499,11 +2499,11 @@ function NewOrderPage({ onClose, onSave, suggestedNumber, defaultAdresaNakladky,
       let blocks;
       let zdrojDokument = null;
       if (mode === "text") {
-        if (!text.trim()) throw new Error("Vlozte text objednavky.");
-        blocks = [{ type: "text", text: "TEXT OBJEDNAVKY:\n" + text }];
+        if (!text.trim()) throw new Error("Vložte text objednávky.");
+        blocks = [{ type: "text", text: "TEXT OBJEDNÁVKY:\n" + text }];
         zdrojDokument = { typ: "text", obsah: text };
       } else {
-        if (!file) throw new Error("Vyberte subor.");
+        if (!file) throw new Error("Vyberte soubor.");
         if (file.type === "application/pdf") {
           const b64 = await fileToBase64(file);
           blocks = [{ type: "document", source: { type: "base64", media_type: "application/pdf", data: b64 } }];
@@ -2516,10 +2516,10 @@ function NewOrderPage({ onClose, onSave, suggestedNumber, defaultAdresaNakladky,
           const buf = await file.arrayBuffer();
           const mammoth = await import("mammoth");
           const out = await mammoth.extractRawText({ arrayBuffer: buf });
-          blocks = [{ type: "text", text: "TEXT OBJEDNAVKY:\n" + out.value }];
+          blocks = [{ type: "text", text: "TEXT OBJEDNÁVKY:\n" + out.value }];
           zdrojDokument = { typ: "text", obsah: out.value, nazovSuboru: file.name };
         } else {
-          throw new Error("Nepodporovany typ suboru. Pouzite PDF, DOCX alebo obrazok.");
+          throw new Error("Nepodporovaný typ souboru. Použijte PDF, DOCX nebo obrázek.");
         }
       }
       const result = await callClaude([...blocks, { type: "text", text: EXTRACT_INSTRUCTIONS }], company.apiKey);
@@ -2535,7 +2535,7 @@ function NewOrderPage({ onClose, onSave, suggestedNumber, defaultAdresaNakladky,
         zdrojDokument,
       });
     } catch (e) {
-      setError(e.message || "Extrakcia zlyhala.");
+      setError(e.message || "Extrakce se nezdařila.");
     }
     setBusy(false);
   }
@@ -2549,7 +2549,7 @@ function NewOrderPage({ onClose, onSave, suggestedNumber, defaultAdresaNakladky,
       const result = await callClaude([...sourceBlocks, { type: "text", text: buildItemsInstructions(customer.katalog) }], company.apiKey);
       setExtracted({ ...extracted, polozky: result.polozky || [] });
     } catch (e) {
-      setError(e.message || "Priradenie polozok zlyhalo.");
+      setError(e.message || "Přiřazení položek se nezdařilo.");
     }
     setBusyItems(false);
   }
@@ -2557,42 +2557,42 @@ function NewOrderPage({ onClose, onSave, suggestedNumber, defaultAdresaNakladky,
   if (extracted) {
     const customer = customers.find((c) => c.id === extracted.zakaznikId);
     return (
-      <PageShell title="Skontrolujte udaje pred ulozenim" onBack={() => setExtracted(null)}>
+      <PageShell title="Zkontrolujte údaje před uložením" onBack={() => setExtracted(null)}>
         <div className="flex flex-col lg:flex-row gap-6">
         <div className="lg:w-1/2">
         <SelectField
-          label="Zakaznik (odberatel)"
+          label="Zákazník (odběratel)"
           value={extracted.zakaznikId}
           onChange={(v) => {
             const c = customers.find((x) => x.id === v);
             setExtracted({ ...extracted, zakaznikId: v, zakaznik: c ? c.nazov : extracted.zakaznik });
           }}
-          options={[{ value: "", label: "-- nevybrane / doplnim rucne --" }, ...customers.map((c) => ({ value: c.id, label: c.nazov }))]}
+          options={[{ value: "", label: "-- nevybráno / doplním ručně --" }, ...customers.map((c) => ({ value: c.id, label: c.nazov }))]}
         />
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-4">
-          <Field label="Nazov zakaznika (zobrazenie)" value={extracted.zakaznik} onChange={(v) => setExtracted({ ...extracted, zakaznik: v })} />
-          <Field label="Cislo objednavky zakaznika (Belegnummer)" value={extracted.cisloObjednavkyZakaznika} onChange={(v) => setExtracted({ ...extracted, cisloObjednavkyZakaznika: v })} />
-          <Field label="Kontaktna osoba" value={extracted.kontaktnaOsoba} onChange={(v) => setExtracted({ ...extracted, kontaktnaOsoba: v })} />
+          <Field label="Název zákazníka (zobrazení)" value={extracted.zakaznik} onChange={(v) => setExtracted({ ...extracted, zakaznik: v })} />
+          <Field label="Číslo objednávky zákazníka (Belegnummer)" value={extracted.cisloObjednavkyZakaznika} onChange={(v) => setExtracted({ ...extracted, cisloObjednavkyZakaznika: v })} />
+          <Field label="Kontaktní osoba" value={extracted.kontaktnaOsoba} onChange={(v) => setExtracted({ ...extracted, kontaktnaOsoba: v })} />
           <Field label="E-mail" value={extracted.zakaznikEmail} onChange={(v) => setExtracted({ ...extracted, zakaznikEmail: v })} />
-          <Field label="Nazov miesta dodania" value={extracted.adresaDodaniaNazov} onChange={(v) => setExtracted({ ...extracted, adresaDodaniaNazov: v })} />
+          <Field label="Název místa dodání" value={extracted.adresaDodaniaNazov} onChange={(v) => setExtracted({ ...extracted, adresaDodaniaNazov: v })} />
           <Field label="Adresa dodania" value={extracted.adresaDodania} onChange={(v) => setExtracted({ ...extracted, adresaDodania: v })} />
-          <DateField label="Datum dodania" value={extracted.datumDodania} onChange={(v) => setExtracted({ ...extracted, datumDodania: v })} />
-          <Field label="Cas dodania" value={extracted.casDodania} onChange={(v) => setExtracted({ ...extracted, casDodania: v })} />
-          <Field label="Mercareon / Transporeon ref. (ORDER-N° retazca)" value={extracted.mercareonRef} onChange={(v) => setExtracted({ ...extracted, mercareonRef: v })} />
-          <Field label="Pocet paliet (kusov)" value={extracted.pocetPaliet} onChange={(v) => setExtracted({ ...extracted, pocetPaliet: v })} />
-          <Field label="Pocet paletovych miest (double stack)" value={extracted.pocetPaletovychMiest} onChange={(v) => setExtracted({ ...extracted, pocetPaletovychMiest: v })} />
-          <Field label="Pocet kartonov (celkovo)" value={extracted.pocetKartonov} onChange={(v) => setExtracted({ ...extracted, pocetKartonov: v })} />
+          <DateField label="Datum dodání" value={extracted.datumDodania} onChange={(v) => setExtracted({ ...extracted, datumDodania: v })} />
+          <Field label="Čas dodání" value={extracted.casDodania} onChange={(v) => setExtracted({ ...extracted, casDodania: v })} />
+          <Field label="Mercareon / Transporeon ref. (ORDER-N° řetězce)" value={extracted.mercareonRef} onChange={(v) => setExtracted({ ...extracted, mercareonRef: v })} />
+          <Field label="Počet palet (kusů)" value={extracted.pocetPaliet} onChange={(v) => setExtracted({ ...extracted, pocetPaliet: v })} />
+          <Field label="Počet paletových míst (double stack)" value={extracted.pocetPaletovychMiest} onChange={(v) => setExtracted({ ...extracted, pocetPaletovychMiest: v })} />
+          <Field label="Počet kartonů (celkem)" value={extracted.pocetKartonov} onChange={(v) => setExtracted({ ...extracted, pocetKartonov: v })} />
           <Field label="Hmotnost (kg)" value={extracted.hmotnost} onChange={(v) => setExtracted({ ...extracted, hmotnost: v })} />
         </div>
-        <ToggleField label="Sposob dopravy" value={extracted.sposobDopravy !== "vyzdvihnutie"} onChange={(v) => setExtracted({ ...extracted, sposobDopravy: v ? "doprava" : "vyzdvihnutie" })} yesLabel="Doprava (zabezpecujeme my)" noLabel="Vyzdvihnutie zakaznikom" />
-        <ToggleField label="Palety zpet" value={extracted.paletyZpat} onChange={(v) => setExtracted({ ...extracted, paletyZpat: v })} yesLabel="Ano" noLabel="Nie" />
-        <Field label="Popis tovaru (volny text)" value={extracted.popisTovaru} onChange={(v) => setExtracted({ ...extracted, popisTovaru: v })} textarea />
-        <Field label="Poznamka" value={extracted.poznamka} onChange={(v) => setExtracted({ ...extracted, poznamka: v })} textarea />
+        <ToggleField label="Způsob dopravy" value={extracted.sposobDopravy !== "vyzdvihnutie"} onChange={(v) => setExtracted({ ...extracted, sposobDopravy: v ? "doprava" : "vyzdvihnutie" })} yesLabel="Doprava (zajišťujeme my)" noLabel="Vyzvednutí zákazníkem" />
+        <ToggleField label="Palety zpět" value={extracted.paletyZpat} onChange={(v) => setExtracted({ ...extracted, paletyZpat: v })} yesLabel="Ano" noLabel="Nie" />
+        <Field label="Popis zboží (volný text)" value={extracted.popisTovaru} onChange={(v) => setExtracted({ ...extracted, popisTovaru: v })} textarea />
+        <Field label="Poznámka" value={extracted.poznamka} onChange={(v) => setExtracted({ ...extracted, poznamka: v })} textarea />
 
         {customer && customer.katalog && customer.katalog.length > 0 && (
           <button onClick={handleMatchItems} disabled={busyItems} className="mb-3 text-xs bg-slate-100 hover:bg-slate-200 text-slate-700 px-3 py-1.5 rounded-md flex items-center gap-1.5">
             {busyItems ? <Loader2 size={12} className="animate-spin" /> : <CheckCircle2 size={12} />}
-            {busyItems ? "Priradujem..." : "Priradit polozky z katalogu (AI)"}
+            {busyItems ? "Přiřazuji..." : "Přiřadit položky z katalogu (AI)"}
           </button>
         )}
         <ItemsTable items={extracted.polozky} setItems={(items) => setExtracted({ ...extracted, polozky: items })} />
@@ -2600,8 +2600,8 @@ function NewOrderPage({ onClose, onSave, suggestedNumber, defaultAdresaNakladky,
         {error && <div className="mb-3 bg-red-50 text-red-700 text-sm px-3 py-2 rounded-md flex items-center gap-2"><AlertCircle size={16} /> {error}</div>}
 
         <div className="flex justify-between items-center mt-4 pb-2">
-          <button onClick={() => setExtracted(null)} className="text-sm text-slate-500 flex items-center gap-1 hover:text-slate-800"><ArrowLeft size={14} /> Spat</button>
-          <button onClick={() => onSave(extracted)} className="bg-teal-700 hover:bg-teal-800 text-white text-sm font-medium px-4 py-2 rounded-md flex items-center gap-1.5"><CheckCircle2 size={16} /> Ulozit do registra</button>
+          <button onClick={() => setExtracted(null)} className="text-sm text-slate-500 flex items-center gap-1 hover:text-slate-800"><ArrowLeft size={14} /> Zpět</button>
+          <button onClick={() => onSave(extracted)} className="bg-teal-700 hover:bg-teal-800 text-white text-sm font-medium px-4 py-2 rounded-md flex items-center gap-1.5"><CheckCircle2 size={16} /> Uložit do registru</button>
         </div>
         </div>
         <div className="lg:w-1/2">
@@ -2616,33 +2616,33 @@ function NewOrderPage({ onClose, onSave, suggestedNumber, defaultAdresaNakladky,
   }
 
   return (
-    <PageShell title="Nova objednavka" onBack={onClose}>
+    <PageShell title="Nová objednávka" onBack={onClose}>
       <div className="flex gap-2 mb-4">
-        <TabButton icon={<Clipboard size={14} />} label="Vlozit text" active={mode === "text"} onClick={() => setMode("text")} />
-        <TabButton icon={<Upload size={14} />} label="Nahrat subor" active={mode === "file"} onClick={() => setMode("file")} />
-        <TabButton icon={<Pencil size={14} />} label="Vlozit objednavku manualne" active={mode === "manual"} onClick={() => setMode("manual")} />
+        <TabButton icon={<Clipboard size={14} />} label="Vložit text" active={mode === "text"} onClick={() => setMode("text")} />
+        <TabButton icon={<Upload size={14} />} label="Nahrát soubor" active={mode === "file"} onClick={() => setMode("file")} />
+        <TabButton icon={<Pencil size={14} />} label="Vložit objednávku ručně" active={mode === "manual"} onClick={() => setMode("manual")} />
       </div>
       {mode === "text" && (
-        <textarea value={text} onChange={(e) => setText(e.target.value)} rows={10} placeholder="Sem vlozte text objednavky z e-mailu..." className="w-full border border-slate-200 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-teal-600" />
+        <textarea value={text} onChange={(e) => setText(e.target.value)} rows={10} placeholder="Sem vložte text objednávky z e-mailu..." className="w-full border border-slate-200 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-teal-600" />
       )}
       {mode === "file" && (
         <div onClick={() => fileInputRef.current?.click()} className="border-2 border-dashed border-slate-200 rounded-lg p-10 text-center text-slate-500 cursor-pointer hover:border-teal-400 hover:text-teal-700">
           <Upload size={24} className="mx-auto mb-2" />
-          {file ? file.name : "Kliknite pre vyber suboru (PDF, DOCX, obrazok)"}
+          {file ? file.name : "Klikněte pro výběr souboru (PDF, DOCX, obrázek)"}
           <input ref={fileInputRef} type="file" accept=".pdf,.docx,image/*,application/pdf" className="hidden" onChange={(e) => setFile(e.target.files[0] || null)} />
         </div>
       )}
       {mode === "manual" && (
         <div className="border border-slate-200 rounded-lg p-6 text-center text-slate-500 text-sm">
-          Otvori sa prazdny formular objednavky, ktory vyplnite rucne (bez automatického rozpoznávania z dokumentu).
+          Otevře se prázdný formulář objednávky, který vyplníte ručně (bez automatického rozpoznávání z dokumentu).
         </div>
       )}
       {error && <div className="mt-3 bg-red-50 text-red-700 text-sm px-3 py-2 rounded-md flex items-center gap-2"><AlertCircle size={16} /> {error}</div>}
       <div className="flex justify-between mt-4 pb-2">
-        <button onClick={onClose} className="text-sm text-slate-500 px-3 py-2">Zrusit</button>
+        <button onClick={onClose} className="text-sm text-slate-500 px-3 py-2">Zrušit</button>
         <button onClick={handleExtract} disabled={busy} className="bg-teal-700 hover:bg-teal-800 disabled:opacity-60 text-white text-sm font-medium px-4 py-2 rounded-md flex items-center gap-1.5">
           {busy ? <Loader2 size={16} className="animate-spin" /> : <CheckCircle2 size={16} />}
-          {busy ? "Spracovavam..." : mode === "manual" ? "Pokracovat na formular" : "Spracovat udaje"}
+          {busy ? "Zpracovávám..." : mode === "manual" ? "Pokračovat na formulář" : "Zpracovat údaje"}
         </button>
       </div>
     </PageShell>
@@ -2682,7 +2682,7 @@ function PdfPreview({ zdrojDokument }) {
           rel="noreferrer"
           className={"text-xs px-2 py-1 rounded-md border border-slate-200 text-slate-600 hover:bg-slate-50 flex items-center gap-1 " + (!blobUrl ? "opacity-50 pointer-events-none" : "")}
         >
-          Otvorit PDF v novej karte
+          Otevřít PDF v nové kartě
         </a>
         <a
           href={blobUrl || "#"}
@@ -2695,13 +2695,13 @@ function PdfPreview({ zdrojDokument }) {
       {blobUrl && !failed ? (
         <iframe
           src={blobUrl}
-          title="Zdrojova objednavka PDF"
+          title="Zdrojová objednávka PDF"
           style={{ width: "100%", height: "65vh", border: "1px solid #e2e8f0", borderRadius: "6px" }}
           onError={() => setFailed(true)}
         />
       ) : (
         <div className="text-xs text-slate-400 border border-dashed border-slate-200 rounded-md p-6 text-center">
-          Nahlad sa nepodarilo zobrazit priamo tu - pouzite tlacidlo "Otvorit v novej karte" vyssie.
+          Nahlad sa nepodarilo zobrazit priamo tu - pouzite tlacidlo "Otevřít v nové kartě" vyssie.
         </div>
       )}
     </div>
@@ -2723,13 +2723,13 @@ function DocumentPreview({ zdrojDokument }) {
     return (
       <div>
         <div className="text-xs text-slate-500 mb-1">{zdrojDokument.nazovSuboru || "objednavka"}</div>
-        <img src={`data:${zdrojDokument.mediaType};base64,${zdrojDokument.data}`} alt="Zdrojova objednavka" className="w-full rounded-md border border-slate-200" />
+        <img src={`data:${zdrojDokument.mediaType};base64,${zdrojDokument.data}`} alt="Zdrojová objednávka" className="w-full rounded-md border border-slate-200" />
       </div>
     );
   }
   return (
     <div>
-      <div className="text-xs text-slate-500 mb-1">{zdrojDokument.nazovSuboru || "Vlozeny text objednavky"}</div>
+      <div className="text-xs text-slate-500 mb-1">{zdrojDokument.nazovSuboru || "Vložený text objednávky"}</div>
       <pre className="text-xs whitespace-pre-wrap bg-slate-50 border border-slate-200 rounded-md p-3" style={{ maxHeight: "70vh", overflowY: "auto" }}>{zdrojDokument.obsah}</pre>
     </div>
   );
@@ -2738,36 +2738,36 @@ function DocumentPreview({ zdrojDokument }) {
 function EditOrderPage({ order, customers, onClose, onSave }) {
   const [f, setF] = useState({ ...order });
   return (
-    <PageShell title={"Upravit objednavku " + order.cisloObjednavkyDopravy} onBack={onClose}>
+    <PageShell title={"Upravit objednávku " + order.cisloObjednavkyDopravy} onBack={onClose}>
       <div className="flex flex-col lg:flex-row gap-6">
         <div className="lg:w-1/2">
-          <SelectField label="Zakaznik (odberatel)" value={f.zakaznikId} onChange={(v) => { const c = customers.find((x) => x.id === v); setF({ ...f, zakaznikId: v, zakaznik: c ? c.nazov : f.zakaznik }); }} options={[{ value: "", label: "-- nevybrane --" }, ...customers.map((c) => ({ value: c.id, label: c.nazov }))]} />
+          <SelectField label="Zákazník (odběratel)" value={f.zakaznikId} onChange={(v) => { const c = customers.find((x) => x.id === v); setF({ ...f, zakaznikId: v, zakaznik: c ? c.nazov : f.zakaznik }); }} options={[{ value: "", label: "-- nevybráno --" }, ...customers.map((c) => ({ value: c.id, label: c.nazov }))]} />
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-4">
-            <Field label="Nazov zakaznika" value={f.zakaznik} onChange={(v) => setF({ ...f, zakaznik: v })} />
-            <Field label="Cislo objednavky zakaznika (Belegnummer)" value={f.cisloObjednavkyZakaznika} onChange={(v) => setF({ ...f, cisloObjednavkyZakaznika: v })} />
-            <Field label="Kontaktna osoba" value={f.kontaktnaOsoba} onChange={(v) => setF({ ...f, kontaktnaOsoba: v })} />
+            <Field label="Název zákazníka" value={f.zakaznik} onChange={(v) => setF({ ...f, zakaznik: v })} />
+            <Field label="Číslo objednávky zákazníka (Belegnummer)" value={f.cisloObjednavkyZakaznika} onChange={(v) => setF({ ...f, cisloObjednavkyZakaznika: v })} />
+            <Field label="Kontaktní osoba" value={f.kontaktnaOsoba} onChange={(v) => setF({ ...f, kontaktnaOsoba: v })} />
             <Field label="E-mail" value={f.zakaznikEmail} onChange={(v) => setF({ ...f, zakaznikEmail: v })} />
-            <Field label="Nazov miesta dodania" value={f.adresaDodaniaNazov} onChange={(v) => setF({ ...f, adresaDodaniaNazov: v })} />
+            <Field label="Název místa dodání" value={f.adresaDodaniaNazov} onChange={(v) => setF({ ...f, adresaDodaniaNazov: v })} />
             <Field label="Adresa dodania" value={f.adresaDodania} onChange={(v) => setF({ ...f, adresaDodania: v })} />
-            <Field label="Adresa nakladky" value={f.adresaNakladky} onChange={(v) => setF({ ...f, adresaNakladky: v })} />
-            <DateField label="Datum dodania" value={f.datumDodania} onChange={(v) => setF({ ...f, datumDodania: v })} />
-            <Field label="Cas dodania" value={f.casDodania} onChange={(v) => setF({ ...f, casDodania: v })} />
-            <Field label="Mercareon / Transporeon ref. (ORDER-N° retazca)" value={f.mercareonRef} onChange={(v) => setF({ ...f, mercareonRef: v })} />
-            <Field label="Cislo nemeckeho dodacieho listu (Lieferschein DE od kolegov)" value={f.nemeckyDodakCislo || ""} onChange={(v) => setF({ ...f, nemeckyDodakCislo: v })} />
-            <Field label="Pocet paliet (kusov)" value={f.pocetPaliet} onChange={(v) => setF({ ...f, pocetPaliet: v })} />
-            <Field label="Pocet paletovych miest (double stack)" value={f.pocetPaletovychMiest} onChange={(v) => setF({ ...f, pocetPaletovychMiest: v })} />
-            <Field label="Pocet kartonov (celkovo)" value={f.pocetKartonov} onChange={(v) => setF({ ...f, pocetKartonov: v })} />
-            <Field label="Vyska palety (cm)" value={f.vyskaPalety} onChange={(v) => setF({ ...f, vyskaPalety: v })} />
+            <Field label="Adresa nakládky" value={f.adresaNakladky} onChange={(v) => setF({ ...f, adresaNakladky: v })} />
+            <DateField label="Datum dodání" value={f.datumDodania} onChange={(v) => setF({ ...f, datumDodania: v })} />
+            <Field label="Čas dodání" value={f.casDodania} onChange={(v) => setF({ ...f, casDodania: v })} />
+            <Field label="Mercareon / Transporeon ref. (ORDER-N° řetězce)" value={f.mercareonRef} onChange={(v) => setF({ ...f, mercareonRef: v })} />
+            <Field label="Číslo německého dodacího listu (Lieferschein DE od kolegů)" value={f.nemeckyDodakCislo || ""} onChange={(v) => setF({ ...f, nemeckyDodakCislo: v })} />
+            <Field label="Počet palet (kusů)" value={f.pocetPaliet} onChange={(v) => setF({ ...f, pocetPaliet: v })} />
+            <Field label="Počet paletových míst (double stack)" value={f.pocetPaletovychMiest} onChange={(v) => setF({ ...f, pocetPaletovychMiest: v })} />
+            <Field label="Počet kartonů (celkem)" value={f.pocetKartonov} onChange={(v) => setF({ ...f, pocetKartonov: v })} />
+            <Field label="Výška palety (cm)" value={f.vyskaPalety} onChange={(v) => setF({ ...f, vyskaPalety: v })} />
             <Field label="Hmotnost (kg)" value={f.hmotnost} onChange={(v) => setF({ ...f, hmotnost: v })} />
           </div>
-          <ToggleField label="Sposob dopravy" value={f.sposobDopravy !== "vyzdvihnutie"} onChange={(v) => setF({ ...f, sposobDopravy: v ? "doprava" : "vyzdvihnutie", stavDopravy: v ? (f.stavDopravy === "Vyzdvihnutie" ? "Neobjednana" : f.stavDopravy) : "Vyzdvihnutie" })} yesLabel="Doprava (zabezpecujeme my)" noLabel="Vyzdvihnutie zakaznikom" />
-          <ToggleField label="Palety zpet" value={f.paletyZpat} onChange={(v) => setF({ ...f, paletyZpat: v })} yesLabel="Ano" noLabel="Nie" />
-          <Field label="Popis tovaru (volny text)" value={f.popisTovaru} onChange={(v) => setF({ ...f, popisTovaru: v })} textarea />
-          <Field label="Poznamka" value={f.poznamka} onChange={(v) => setF({ ...f, poznamka: v })} textarea />
+          <ToggleField label="Způsob dopravy" value={f.sposobDopravy !== "vyzdvihnutie"} onChange={(v) => setF({ ...f, sposobDopravy: v ? "doprava" : "vyzdvihnutie", stavDopravy: v ? (f.stavDopravy === "Vyzdvihnutie" ? "Neobjednana" : f.stavDopravy) : "Vyzdvihnutie" })} yesLabel="Doprava (zajišťujeme my)" noLabel="Vyzvednutí zákazníkem" />
+          <ToggleField label="Palety zpět" value={f.paletyZpat} onChange={(v) => setF({ ...f, paletyZpat: v })} yesLabel="Ano" noLabel="Nie" />
+          <Field label="Popis zboží (volný text)" value={f.popisTovaru} onChange={(v) => setF({ ...f, popisTovaru: v })} textarea />
+          <Field label="Poznámka" value={f.poznamka} onChange={(v) => setF({ ...f, poznamka: v })} textarea />
           <ItemsTable items={f.polozky || []} setItems={(items) => setF({ ...f, polozky: items })} />
           <div className="flex justify-between mt-2 pb-2">
-            <button onClick={onClose} className="text-sm text-slate-500 px-3 py-2">Zrusit</button>
-            <button onClick={() => onSave(f)} className="bg-teal-700 hover:bg-teal-800 text-white text-sm font-medium px-4 py-2 rounded-md">Ulozit zmeny</button>
+            <button onClick={onClose} className="text-sm text-slate-500 px-3 py-2">Zrušit</button>
+            <button onClick={() => onSave(f)} className="bg-teal-700 hover:bg-teal-800 text-white text-sm font-medium px-4 py-2 rounded-md">Uložit změny</button>
           </div>
         </div>
         <div className="lg:w-1/2">
@@ -2808,41 +2808,41 @@ function TransportModal({ order, carriers, company, onClose, onSent }) {
       setTo(c ? c.email : "");
     }
   }
-  const [subject, setSubject] = useState(last ? last.subject : `Objednavka prepravy c. ${order.cisloObjednavkyDopravy}`);
+  const [subject, setSubject] = useState(last ? last.subject : `Objednávka přepravy č. ${order.cisloObjednavkyDopravy}`);
   const [body, setBody] = useState(
     last ? last.body :
-    `${company.nazov || "[Nazov spolocnosti]"}\n` +
-    `IC: ${company.ico || ""}  DIC: ${company.dic || ""}  TEL: ${company.tel || ""}\n\n` +
-    `PRO: ${carrier ? carrier.nazov : "[dopravca]"}  NEOZNAMOVAT ODESILATELE!!\n\n` +
-    `OBJEDNAVKA C. ${order.cisloObjednavkyDopravy}\n\n` +
-    `Objednavam: DOPRAVU na ${order.pocetPaliet || "[doplnte]"} europalet` +
-    (order.pocetPaletovychMiest ? ` (${order.pocetPaletovychMiest} paletovych miest)` : "") +
-    (order.vyskaPalety ? `, vyska palety ${order.vyskaPalety} cm` : "") +
-    `, hmotnost ${order.hmotnost || "[doplnte]"} kg.\n` +
-    (order.pocetKartonov ? `Pocet kartonov: ${order.pocetKartonov}\n` : "") +
-    `Palety zpet: ${order.paletyZpat ? "ANO" : "NE"}\n` +
+    `${company.nazov || "[Název společnosti]"}\n` +
+    `IČ: ${company.ico || ""}  DIČ: ${company.dic || ""}  TEL: ${company.tel || ""}\n\n` +
+    `PRO: ${carrier ? carrier.nazov : "[dopravce]"}  NEOZNAMOVAT ODESÍLATELE!!\n\n` +
+    `OBJEDNÁVKA Č. ${order.cisloObjednavkyDopravy}\n\n` +
+    `Objednávám: DOPRAVU na ${order.pocetPaliet || "[doplňte]"} europalet` +
+    (order.pocetPaletovychMiest ? ` (${order.pocetPaletovychMiest} paletových míst)` : "") +
+    (order.vyskaPalety ? `, výška palety ${order.vyskaPalety} cm` : "") +
+    `, hmotnost ${order.hmotnost || "[doplňte]"} kg.\n` +
+    (order.pocetKartonov ? `Počet kartonů: ${order.pocetKartonov}\n` : "") +
+    `Palety zpět: ${order.paletyZpat ? "ANO" : "NE"}\n` +
     (order.mercareonRef ? `Mercareon/Transporeon ref.: ${order.mercareonRef}\n` : "") +
-    `\nNAKLADKA: ${company.nazov || "[Nazov spolocnosti]"}\n${company.adresa || ""}\n` +
-    `Datum nakladky: ${nakladkaDateFromDodanie(order.datumDodania)}\n\n` +
-    `VYKLADKA: ${order.datumDodania || "[doplnte]"}${order.casDodania ? " cas: " + order.casDodania : ""}\n` +
+    `\nNAKLÁDKA: ${company.nazov || "[Název společnosti]"}\n${company.adresa || ""}\n` +
+    `Datum nakládky: ${nakladkaDateFromDodanie(order.datumDodania)}\n\n` +
+    `VYKLÁDKA: ${order.datumDodania || "[doplňte]"}${order.casDodania ? " čas: " + order.casDodania : ""}\n` +
     `${order.adresaDodaniaNazov || ""}\n${order.adresaDodania || ""}\n\n` +
-    `Poznamka: ${order.poznamka || ""}\n\n` +
+    `Poznámka: ${order.poznamka || ""}\n\n` +
     `Cena: - EUR\n\n` +
     `${company.kontaktnaOsoba || ""}\n${company.nazov || ""}\n${company.email || ""}\n${company.tel || ""}`
   );
 
   return (
-    <ModalShell title={"Objednavka dopravy - " + order.cisloObjednavkyDopravy} onClose={onClose} extraWide>
-      {last && <div className="mb-3 bg-emerald-50 text-emerald-800 text-xs px-3 py-2 rounded-md flex items-center gap-2"><CheckCircle2 size={14} /> Naposledy odoslane {formatDateTime(last.datum)} na {last.to}</div>}
-      <SelectField label="Dopravca" value={carrierId} onChange={pickCarrier} options={carriers.map((c) => ({ value: c.id, label: `${c.nazov} (${c.email})` }))} />
+    <ModalShell title={"Objednávka dopravy - " + order.cisloObjednavkyDopravy} onClose={onClose} extraWide>
+      {last && <div className="mb-3 bg-emerald-50 text-emerald-800 text-xs px-3 py-2 rounded-md flex items-center gap-2"><CheckCircle2 size={14} /> Naposledy odesláno {formatDateTime(last.datum)} na {last.to}</div>}
+      <SelectField label="Dopravce" value={carrierId} onChange={pickCarrier} options={carriers.map((c) => ({ value: c.id, label: `${c.nazov} (${c.email})` }))} />
       <EmailQuickPicks emaily={carrier ? carrier.emaily : []} onPick={setTo} />
       <Field label="E-mail (komu)" value={to} onChange={setTo} type="email" />
-      <Field label="Predmet" value={subject} onChange={setSubject} />
-      <Field label="Text spravy" value={body} onChange={setBody} textarea rows={18} />
+      <Field label="Předmět" value={subject} onChange={setSubject} />
+      <Field label="Text zprávy" value={body} onChange={setBody} textarea rows={18} />
       <div className="flex justify-end gap-2 mt-2">
-        <button onClick={onClose} className="text-sm text-slate-500 px-3 py-2">Zrusit</button>
+        <button onClick={onClose} className="text-sm text-slate-500 px-3 py-2">Zrušit</button>
         <a href={to ? buildMailto(to, subject, body) : "#"} onClick={() => to && onSent(carrierId, { subject, body, to, datum: new Date().toISOString() })} className={"bg-teal-700 hover:bg-teal-800 text-white text-sm font-medium px-4 py-2 rounded-md flex items-center gap-1.5 " + (!to ? "opacity-50 pointer-events-none" : "")}>
-          <Truck size={16} /> Odoslat dopravcovi
+          <Truck size={16} /> Odeslat dopravci
         </a>
       </div>
     </ModalShell>
@@ -2875,7 +2875,7 @@ function LieferscheinPrintTable({ id, company, customer, order, carrierName, tra
                 {transportPrice.matched ? (
                   <b>{formatEur(transportPrice.total)}</b>
                 ) : (
-                  <span style={{ color: "#b45309" }}>neurcena{transportPrice.reason ? " (" + transportPrice.reason + ")" : ""}</span>
+                  <span style={{ color: "#b45309" }}>neurčena{transportPrice.reason ? " (" + transportPrice.reason + ")" : ""}</span>
                 )}
               </div>
             )}
@@ -2883,7 +2883,7 @@ function LieferscheinPrintTable({ id, company, customer, order, carrierName, tra
         </div>
 
         <div style={{ marginTop: "8px", textAlign: "right" }}>
-          <div style={{ fontStyle: "italic", fontSize: "10px" }}>Lieferadresse/adresa dodani</div>
+          <div style={{ fontStyle: "italic", fontSize: "10px" }}>Lieferadresse/adresa dodání</div>
           <div style={{ fontWeight: "bold" }}>{order.adresaDodaniaNazov}</div>
           <div style={{ whiteSpace: "pre-wrap" }}>{order.adresaDodania}</div>
         </div>
@@ -2913,7 +2913,7 @@ function LieferscheinPrintTable({ id, company, customer, order, carrierName, tra
           <thead>
             <tr style={{ borderBottom: "2px solid #333", textAlign: "left" }}>
               <th style={{ padding: "3px" }}>Palet</th>
-              <th style={{ padding: "3px" }}>Karton</th>
+              <th style={{ padding: "3px" }}>Kartonů</th>
               <th style={{ padding: "3px" }}>BEZEICHNUNG</th>
               <th style={{ padding: "3px" }}>STK</th>
               <th style={{ padding: "3px" }}>ARTIKEL LIEF.NUM.</th>
@@ -2983,11 +2983,11 @@ function buildLieferscheinHtml({ company, customer, order, carrierName, transpor
         <div style="text-align:right;">
           <div style="font-size:9px;color:#777;">obj. dopravy: ${order.cisloObjednavkyDopravy}</div>
           <div style="font-weight:bold;font-size:16px;">LIEFERSCHEIN <span style="font-weight:normal;font-size:12px;">Nr: ${order.cisloDodaciehoListu}</span></div>
-          ${transportPrice ? `<div style="font-size:11px;margin-top:2px;">Cena dopravy: ${transportPrice.matched ? `<b>${formatEur(transportPrice.total)}</b>` : `<span style="color:#b45309;">neurcena${transportPrice.reason ? " (" + transportPrice.reason + ")" : ""}</span>`}</div>` : ""}
+          ${transportPrice ? `<div style="font-size:11px;margin-top:2px;">Cena dopravy: ${transportPrice.matched ? `<b>${formatEur(transportPrice.total)}</b>` : `<span style="color:#b45309;">neurčena${transportPrice.reason ? " (" + transportPrice.reason + ")" : ""}</span>`}</div>` : ""}
         </div>
       </div>
       <div style="margin-top:8px;text-align:right;">
-        <div style="font-style:italic;font-size:10px;">Lieferadresse/adresa dodani</div>
+        <div style="font-style:italic;font-size:10px;">Lieferadresse/adresa dodání</div>
         <div style="font-weight:bold;">${order.adresaDodaniaNazov || ""}</div>
         <div style="white-space:pre-wrap;">${order.adresaDodania || ""}</div>
       </div>
@@ -3012,7 +3012,7 @@ function buildLieferscheinHtml({ company, customer, order, carrierName, transpor
       </div>
       <table style="width:100%;border-collapse:collapse;margin-top:10px;font-size:10.5px;">
         <thead><tr style="border-bottom:2px solid #333;text-align:left;">
-          <th style="padding:3px;">Palet</th><th style="padding:3px;">Karton</th><th style="padding:3px;">BEZEICHNUNG</th><th style="padding:3px;">STK</th><th style="padding:3px;">ARTIKEL LIEF.NUM.</th>
+          <th style="padding:3px;">Palet</th><th style="padding:3px;">Kartonů</th><th style="padding:3px;">BEZEICHNUNG</th><th style="padding:3px;">STK</th><th style="padding:3px;">ARTIKEL LIEF.NUM.</th>
         </tr></thead>
         <tbody>${itemRows}</tbody>
       </table>
@@ -3034,29 +3034,29 @@ function DeliveryModal({ order, customers, carriers, company, pricelist, onClose
   const printId = "print-lieferschein-" + order.id;
   const defaultEmail = (customer && customer.email) ? customer.email : (order.zakaznikEmail || "");
   const [email, setEmail] = useState(last ? last.to : defaultEmail);
-  const [subject, setSubject] = useState(last ? last.subject : `Lieferschein / Dodaci list c. ${order.cisloDodaciehoListu}`);
+  const [subject, setSubject] = useState(last ? last.subject : `Lieferschein / Dodací list č. ${order.cisloDodaciehoListu}`);
   const transportPrice = computeTransportPrice(order, pricelist, extractCityFromAddress);
 
   function buildItemsLines() {
     if (order.polozky && order.polozky.length > 0) {
       return order.polozky.map((it) => `  ${it.popis}${it.artikel ? " (art. " + it.artikel + ")" : ""} - Palet: ${it.palet || "0"}, Karton: ${it.karton || "0"}`).join("\n");
     }
-    return `  ${order.popisTovaru || "[doplnte]"} - ${order.mnozstvo || ""}`;
+    return `  ${order.popisTovaru || "[doplňte]"} - ${order.mnozstvo || ""}`;
   }
 
   const [body, setBody] = useState(
     last ? last.body :
-    `${company.nazov || "[Nazov spolocnosti]"}\n${company.adresa || ""}\n\n` +
-    `LIEFERSCHEIN / DODACI LIST  Nr: ${order.cisloDodaciehoListu}\n` +
-    `(objednavka dopravy c.: ${order.cisloObjednavkyDopravy})\n\n` +
-    `Lieferadresse / adresa dodani:\n${order.adresaDodaniaNazov || ""}\n${order.adresaDodania || ""}\n\n` +
-    `Abnehmer / odberatel:\n${customer ? customer.nazov : (order.zakaznik || "")}\n${customer ? customer.adresa : ""}\n${customer && customer.dic ? "Ust.-Id Nr. " + customer.dic : ""}\n\n` +
-    `Lieferungstag / datum dodania: ${order.datumDodania || "[doplnte]"}\n` +
-    `Bestellung / cislo objednavky zakaznika: ${order.cisloObjednavkyZakaznika || "[doplnte]"}\n\n` +
-    `TOVAR:\n${buildItemsLines()}\n\n` +
-    `Celkovy pocet paliet: ${order.pocetPaliet || ""}${order.pocetKartonov ? "   Celkovy pocet kartonov: " + order.pocetKartonov : ""}\n\n` +
-    `Poznamka: ${order.poznamka || ""}\n\n` +
-    `Cena dopravy: ${transportPrice.matched ? formatEur(transportPrice.total) : "neurcena (" + transportPrice.reason + ")"}\n\n` +
+    `${company.nazov || "[Název společnosti]"}\n${company.adresa || ""}\n\n` +
+    `LIEFERSCHEIN / DODACÍ LIST  Nr: ${order.cisloDodaciehoListu}\n` +
+    `(objednávka dopravy č.: ${order.cisloObjednavkyDopravy})\n\n` +
+    `Lieferadresse / adresa dodání:\n${order.adresaDodaniaNazov || ""}\n${order.adresaDodania || ""}\n\n` +
+    `Abnehmer / odběratel:\n${customer ? customer.nazov : (order.zakaznik || "")}\n${customer ? customer.adresa : ""}\n${customer && customer.dic ? "Ust.-Id Nr. " + customer.dic : ""}\n\n` +
+    `Lieferungstag / datum dodání: ${order.datumDodania || "[doplňte]"}\n` +
+    `Bestellung / číslo objednávky zákazníka: ${order.cisloObjednavkyZakaznika || "[doplňte]"}\n\n` +
+    `ZBOŽÍ:\n${buildItemsLines()}\n\n` +
+    `Celkový počet palet: ${order.pocetPaliet || ""}${order.pocetKartonov ? "   Celkový počet kartonů: " + order.pocetKartonov : ""}\n\n` +
+    `Poznámka: ${order.poznamka || ""}\n\n` +
+    `Cena dopravy: ${transportPrice.matched ? formatEur(transportPrice.total) : "neurčena (" + transportPrice.reason + ")"}\n\n` +
     `vystavil: ${company.kontaktnaOsoba || ""} (${company.email || ""})`
   );
 
@@ -3069,20 +3069,20 @@ function DeliveryModal({ order, customers, carriers, company, pricelist, onClose
   }
 
   return (
-    <ModalShell title={"Dodaci list - " + order.cisloDodaciehoListu} onClose={onClose} wide>
+    <ModalShell title={"Dodací list - " + order.cisloDodaciehoListu} onClose={onClose} wide>
       <LieferscheinPrintTable id={printId} company={company} customer={customer} order={order} carrierName={carrier ? carrier.nazov : ""} transportPrice={transportPrice} />
-      {last && <div className="mb-3 bg-emerald-50 text-emerald-800 text-xs px-3 py-2 rounded-md flex items-center gap-2"><CheckCircle2 size={14} /> Naposledy odoslane {formatDateTime(last.datum)} na {last.to}</div>}
-      <p className="text-xs text-slate-400 mb-3">Nahlad hore zodpoveda presnemu formatu vasho Lieferscheinu - "Stiahnut" ulozi rovnaky vzhlad ako .html. E-mail nizsie sa posiela kolegom v Nemecku ako obycajny text (mailto nepodporuje formatovanu prilohu).</p>
+      {last && <div className="mb-3 bg-emerald-50 text-emerald-800 text-xs px-3 py-2 rounded-md flex items-center gap-2"><CheckCircle2 size={14} /> Naposledy odesláno {formatDateTime(last.datum)} na {last.to}</div>}
+      <p className="text-xs text-slate-400 mb-3">Náhled nahoře odpovídá přesnému formátu vašeho Lieferscheinu - "Stáhnout" uloží stejný vzhled jako .html. E-mail níže se posílá kolegům do Německa jako obyčejný text (mailto nepodporuje formátovanou přílohu).</p>
       <EmailQuickPicks emaily={customer ? customer.emaily : []} onPick={setEmail} />
-      <Field label="E-mail (kolegovia v Nemecku)" value={email} onChange={setEmail} type="email" />
-      <Field label="Predmet" value={subject} onChange={setSubject} />
-      <Field label="Text spravy (e-mail)" value={body} onChange={setBody} textarea />
+      <Field label="E-mail (kolegové v Německu)" value={email} onChange={setEmail} type="email" />
+      <Field label="Předmět" value={subject} onChange={setSubject} />
+      <Field label="Text zprávy (e-mail)" value={body} onChange={setBody} textarea />
       <div className="flex justify-end gap-2 mt-2 flex-wrap">
-        <button onClick={onClose} className="text-sm text-slate-500 px-3 py-2">Zrusit</button>
-        <button onClick={handleDownload} className="bg-white border border-slate-200 hover:bg-slate-50 text-slate-700 text-sm font-medium px-4 py-2 rounded-md flex items-center gap-1.5"><Download size={16} /> Stiahnut</button>
-        <button onClick={handlePrint} className="bg-white border border-slate-200 hover:bg-slate-50 text-slate-700 text-sm font-medium px-4 py-2 rounded-md flex items-center gap-1.5"><Printer size={16} /> Vytlacit</button>
+        <button onClick={onClose} className="text-sm text-slate-500 px-3 py-2">Zrušit</button>
+        <button onClick={handleDownload} className="bg-white border border-slate-200 hover:bg-slate-50 text-slate-700 text-sm font-medium px-4 py-2 rounded-md flex items-center gap-1.5"><Download size={16} /> Stáhnout</button>
+        <button onClick={handlePrint} className="bg-white border border-slate-200 hover:bg-slate-50 text-slate-700 text-sm font-medium px-4 py-2 rounded-md flex items-center gap-1.5"><Printer size={16} /> Vytisknout</button>
         <a href={email ? buildMailto(email, subject, body) : "#"} onClick={() => email && onSent(email, { subject, body, to: email, datum: new Date().toISOString() })} className={"bg-teal-700 hover:bg-teal-800 text-white text-sm font-medium px-4 py-2 rounded-md flex items-center gap-1.5 " + (!email ? "opacity-50 pointer-events-none" : "")}>
-          <FileText size={16} /> Odoslat mailom
+          <FileText size={16} /> Odeslat e-mailem
         </a>
       </div>
     </ModalShell>
@@ -3214,31 +3214,31 @@ function PalletModal({ order, onClose, onDone }) {
   const [miesto, setMiesto] = useState(extractCityFromAddress(order.adresaDodania) || (last ? last.miesto : "") || "");
 
   function handlePrint() {
-    onDone({ subject: "Paletovy listok", body: `Nalozeno: ${nalozeno}, Miesto: ${miesto}`, nalozeno, miesto, to: "vytlacene", datum: new Date().toISOString() }, "print");
+    onDone({ subject: "Paletový lístek", body: `Naloženo: ${nalozeno}, Místo: ${miesto}`, nalozeno, miesto, to: "vytlacene", datum: new Date().toISOString() }, "print");
     setTimeout(() => window.print(), 50);
   }
   function handleDownload() {
     const html = buildPalletHtml({ cislo: order.cisloObjednavkyDopravy, nalozeno, miesto });
     downloadHtml(`Paletovy_listok_${order.cisloObjednavkyDopravy.replace("/", "-")}.html`, html);
-    onDone({ subject: "Paletovy listok", body: html, nalozeno, miesto, to: "stiahnute", datum: new Date().toISOString() }, "download");
+    onDone({ subject: "Paletový lístek", body: html, nalozeno, miesto, to: "stiahnute", datum: new Date().toISOString() }, "download");
   }
 
   return (
-    <ModalShell title={"Paletovy listok - " + order.cisloObjednavkyDopravy} onClose={onClose} wide>
+    <ModalShell title={"Paletový lístek - " + order.cisloObjednavkyDopravy} onClose={onClose} wide>
       <div className="border border-slate-300 rounded-md overflow-x-auto mb-3 bg-white" style={{ maxHeight: "50vh", overflowY: "auto" }}>
         <div style={{ minWidth: "600px", padding: "12px" }} dangerouslySetInnerHTML={{ __html: buildPalletHtml({ cislo: order.cisloObjednavkyDopravy, nalozeno, miesto }) }} />
       </div>
       <PalletPrintTable id={printId} cislo={order.cisloObjednavkyDopravy} nalozeno={nalozeno} miesto={miesto} />
-      {last && <div className="mb-3 bg-emerald-50 text-emerald-800 text-xs px-3 py-2 rounded-md flex items-center gap-2"><CheckCircle2 size={14} /> Naposledy pripravene {formatDateTime(last.datum)}</div>}
-      <p className="text-xs text-slate-400 mb-3">Formular je 1:1 kopia vasho originalneho paletoveho listku - meni sa len cislo objednavky dopravy, pocet paliet a mesto dodania (predvyplnene z objednavky). Ostatne (RZ, meno vodica, podpisy) doplna vodic/sklad rucne po vytlaceni.</p>
+      {last && <div className="mb-3 bg-emerald-50 text-emerald-800 text-xs px-3 py-2 rounded-md flex items-center gap-2"><CheckCircle2 size={14} /> Naposledy připraveno {formatDateTime(last.datum)}</div>}
+      <p className="text-xs text-slate-400 mb-3">Formulář je 1:1 kopie vašeho originálního paletového lístku - mění se jen číslo objednávky dopravy, počet palet a město dodání (předvyplněné z objednávky). Ostatní (RZ, jméno řidiče, podpisy) doplňuje řidič/sklad ručně po vytištění.</p>
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-3">
-        <Field label="Pocet paliet (NALOZENO/SLOZENO EUROPALET)" value={nalozeno} onChange={setNalozeno} />
-        <Field label="Misto doruceni" value={miesto} onChange={setMiesto} />
+        <Field label="Počet palet (NALOŽENO/SLOŽENO EUROPALET)" value={nalozeno} onChange={setNalozeno} />
+        <Field label="Místo doručení" value={miesto} onChange={setMiesto} />
       </div>
       <div className="flex justify-end gap-2 mt-2">
-        <button onClick={onClose} className="text-sm text-slate-500 px-3 py-2">Zrusit</button>
-        <button onClick={handleDownload} className="bg-white border border-slate-200 hover:bg-slate-50 text-slate-700 text-sm font-medium px-4 py-2 rounded-md flex items-center gap-1.5"><Download size={16} /> Stiahnut</button>
-        <button onClick={handlePrint} className="bg-teal-700 hover:bg-teal-800 text-white text-sm font-medium px-4 py-2 rounded-md flex items-center gap-1.5"><Printer size={16} /> Vytlacit</button>
+        <button onClick={onClose} className="text-sm text-slate-500 px-3 py-2">Zrušit</button>
+        <button onClick={handleDownload} className="bg-white border border-slate-200 hover:bg-slate-50 text-slate-700 text-sm font-medium px-4 py-2 rounded-md flex items-center gap-1.5"><Download size={16} /> Stáhnout</button>
+        <button onClick={handlePrint} className="bg-teal-700 hover:bg-teal-800 text-white text-sm font-medium px-4 py-2 rounded-md flex items-center gap-1.5"><Printer size={16} /> Vytisknout</button>
       </div>
     </ModalShell>
   );
@@ -3268,10 +3268,10 @@ function NveListModal({ order, company, onClose, onSave, onSent }) {
   const [body, setBody] = useState(
     last ? last.body :
     `Ahoj,\n\n` +
-    `v prilohe posielame NVE list k objednavke c. ${order.cisloObjednavkyDopravy}${order.zakaznik ? " (" + order.zakaznik + ")" : ""}.\n` +
-    `Dodaci list: ${dodakRef}${mesto ? ", miesto dodania: " + mesto : ""}\n\n` +
-    `POZOR: priloha sa nepripaja automaticky - pred odoslanim nezabudnite rucne pripojit stiahnuty subor${order.nveListFileName ? ' "' + order.nveListFileName + '"' : ""}.\n\n` +
-    `S pozdravom`
+    `v příloze posíláme NVE list k objednávce č. ${order.cisloObjednavkyDopravy}${order.zakaznik ? " (" + order.zakaznik + ")" : ""}.\n` +
+    `Dodací list: ${dodakRef}${mesto ? ", místo dodání: " + mesto : ""}\n\n` +
+    `POZOR: příloha se nepřipojuje automaticky - před odesláním nezapomeňte ručně připojit stažený soubor${order.nveListFileName ? ' "' + order.nveListFileName + '"' : ""}.\n\n` +
+    `S pozdravem`
   );
 
   async function handleFile(e) {
@@ -3286,7 +3286,7 @@ function NveListModal({ order, company, onClose, onSave, onSent }) {
       if (uploadError) throw uploadError;
       await onSave({ nveListPath: path, nveListFileName: file.name, nveListUploadedAt: new Date().toISOString() });
     } catch (err) {
-      setError("Nahratie suboru zlyhalo, skuste znova.");
+      setError("Nahrání souboru se nezdařilo, zkuste to znovu.");
     }
     setBusy(false);
     if (e.target) e.target.value = "";
@@ -3295,10 +3295,10 @@ function NveListModal({ order, company, onClose, onSave, onSent }) {
   return (
     <ModalShell title={"NVE list - " + order.cisloObjednavkyDopravy} onClose={onClose} extraWide>
       <div className="mb-3">
-        <span className="block text-xs font-medium text-slate-500 mb-1">Cislo nemeckeho dodacieho listu (Lieferschein DE od kolegov) - nepovinne, len ak sa tovar posiela cez nich (napr. Stenger Waffeln)</span>
+        <span className="block text-xs font-medium text-slate-500 mb-1">Číslo německého dodacího listu (Lieferschein DE od kolegů) - nepovinné, jen pokud se zboží posílá přes ně (např. Stenger Waffeln)</span>
         <div className="flex gap-1.5">
-          <input value={dodak} onChange={(e) => setDodak(e.target.value)} placeholder="napr. 2206-22007895" className="flex-1 border border-slate-200 rounded-md px-2.5 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-teal-600" />
-          <button type="button" onClick={applyDodakToSubject} className="text-xs bg-slate-100 hover:bg-slate-200 text-slate-700 px-3 py-1.5 rounded-md font-medium whitespace-nowrap">Ulozit a doplnit do predmetu</button>
+          <input value={dodak} onChange={(e) => setDodak(e.target.value)} placeholder="např. 2206-22007895" className="flex-1 border border-slate-200 rounded-md px-2.5 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-teal-600" />
+          <button type="button" onClick={applyDodakToSubject} className="text-xs bg-slate-100 hover:bg-slate-200 text-slate-700 px-3 py-1.5 rounded-md font-medium whitespace-nowrap">Uložit a doplnit do předmětu</button>
         </div>
       </div>
       <div className="mb-3">
@@ -3307,13 +3307,13 @@ function NveListModal({ order, company, onClose, onSave, onSent }) {
           <div className="flex items-center justify-between bg-slate-50 rounded-md px-3 py-2 text-sm">
             <span className="flex items-center gap-2 text-slate-700"><FileSpreadsheet size={16} className="text-teal-700" /> {order.nveListFileName || "NVE list"} <span className="text-slate-400 text-xs">({formatDateTime(order.nveListUploadedAt)})</span></span>
             <div className="flex items-center gap-2">
-              <button onClick={() => openNveListFile(order.nveListPath)} className="text-xs text-teal-700 hover:text-teal-900 font-medium flex items-center gap-1"><Download size={14} /> Stiahnut</button>
+              <button onClick={() => openNveListFile(order.nveListPath)} className="text-xs text-teal-700 hover:text-teal-900 font-medium flex items-center gap-1"><Download size={14} /> Stáhnout</button>
               <button onClick={() => fileInputRef.current && fileInputRef.current.click()} disabled={busy} className="text-xs text-slate-500 hover:text-slate-700 font-medium disabled:opacity-50">Nahradit</button>
             </div>
           </div>
         ) : (
           <button onClick={() => fileInputRef.current && fileInputRef.current.click()} disabled={busy} className="w-full flex items-center justify-center gap-1.5 bg-white border-2 border-dashed border-slate-300 hover:border-teal-500 hover:text-teal-700 text-slate-500 text-sm font-medium px-3 py-4 rounded-md disabled:opacity-50">
-            <Upload size={16} /> {busy ? "Nahravam..." : "Nahrat NVE list (Excel z Maxim)"}
+            <Upload size={16} /> {busy ? "Nahrávám..." : "Nahrát NVE list (Excel z Maxim)"}
           </button>
         )}
         <input ref={fileInputRef} type="file" accept=".xlsx,.xls,.csv" className="hidden" onChange={handleFile} />
@@ -3321,26 +3321,26 @@ function NveListModal({ order, company, onClose, onSave, onSent }) {
       </div>
 
       {!order.nveListPath && (
-        <div className="mb-3 bg-amber-50 text-amber-800 text-xs px-3 py-2 rounded-md flex items-center gap-2"><AlertCircle size={14} /> Najprv nahrajte NVE list, potom pripravte email.</div>
+        <div className="mb-3 bg-amber-50 text-amber-800 text-xs px-3 py-2 rounded-md flex items-center gap-2"><AlertCircle size={14} /> Nejprve nahrajte NVE list, poté připravte e-mail.</div>
       )}
-      {last && <div className="mb-3 bg-emerald-50 text-emerald-800 text-xs px-3 py-2 rounded-md flex items-center gap-2"><CheckCircle2 size={14} /> Naposledy odoslane {formatDateTime(last.datum)} na {last.to}</div>}
+      {last && <div className="mb-3 bg-emerald-50 text-emerald-800 text-xs px-3 py-2 rounded-md flex items-center gap-2"><CheckCircle2 size={14} /> Naposledy odesláno {formatDateTime(last.datum)} na {last.to}</div>}
 
-      <Field label="E-mail (komu) - oddelte ciarkou pri viacerych adresach" value={to} onChange={setTo} />
-      <Field label="Predmet" value={subject} onChange={setSubject} />
-      <Field label="Text spravy" value={body} onChange={setBody} textarea rows={8} />
-      <p className="text-xs text-slate-400 mb-2">Priloha sa cez mailto odkaz nepripaja automaticky - po kliknuti "Otvorit email" pretiahnite stiahnuty subor do otvoreneho draftu.</p>
+      <Field label="E-mail (komu) - oddělte čárkou při více adresách" value={to} onChange={setTo} />
+      <Field label="Předmět" value={subject} onChange={setSubject} />
+      <Field label="Text zprávy" value={body} onChange={setBody} textarea rows={8} />
+      <p className="text-xs text-slate-400 mb-2">Příloha se přes mailto odkaz nepřipojuje automaticky - po kliknutí na "Otevřít e-mail" přetáhněte stažený soubor do otevřeného draftu.</p>
 
       <div className="flex justify-end gap-2 mt-2">
-        <button onClick={onClose} className="text-sm text-slate-500 px-3 py-2">Zrusit</button>
+        <button onClick={onClose} className="text-sm text-slate-500 px-3 py-2">Zrušit</button>
         {order.nveListPath && (
-          <button onClick={() => openNveListFile(order.nveListPath)} className="bg-white border border-slate-200 hover:bg-slate-50 text-slate-700 text-sm font-medium px-4 py-2 rounded-md flex items-center gap-1.5"><Download size={16} /> Stiahnut prilohu</button>
+          <button onClick={() => openNveListFile(order.nveListPath)} className="bg-white border border-slate-200 hover:bg-slate-50 text-slate-700 text-sm font-medium px-4 py-2 rounded-md flex items-center gap-1.5"><Download size={16} /> Stáhnout přílohu</button>
         )}
         <a
           href={to && order.nveListPath ? buildMailto(to, subject, body) : "#"}
           onClick={() => to && order.nveListPath && onSent({ subject, body, to, datum: new Date().toISOString() })}
           className={"bg-teal-700 hover:bg-teal-800 text-white text-sm font-medium px-4 py-2 rounded-md flex items-center gap-1.5 " + (!to || !order.nveListPath ? "opacity-50 pointer-events-none" : "")}
         >
-          <Mail size={16} /> Otvorit email
+          <Mail size={16} /> Otevřít e-mail
         </a>
       </div>
     </ModalShell>
@@ -3357,24 +3357,24 @@ function CmrModal({ order, carriers, customers, company, onClose, onDone }) {
   const printId = "print-cmr-" + order.id;
   const [body, setBody] = useState(
     last ? last.body :
-    `MEZINARODNI NAKLADNI LIST c. ${order.cisloObjednavkyDopravy}\n\n` +
-    `1. Odesilatel: ${company.nazov || "[doplnte]"}\n${company.adresa || ""}\n\n` +
-    `2. Prijemce: ${customer ? customer.nazov : (order.zakaznik || "[doplnte]")}\n${customer ? customer.adresa : ""}\n\n` +
-    `3. Misto vykladky zbozi: ${order.adresaDodaniaNazov || ""}\n${order.adresaDodania || ""}\n\n` +
-    `4. Misto a datum nakladky zbozi: ${company.adresa || ""}, ${nakladkaDateFromDodanie(order.datumDodania)}\n\n` +
-    `5. Pripojene doklady: LS: ${order.cisloDodaciehoListu}${order.nemeckyDodakCislo ? `, Lieferschein DE: ${order.nemeckyDodakCislo}` : ""}\n\n` +
-    `6-12. Oznaceni zbozi: ${order.popisTovaru || "POPCORN"}\n` +
-    `Pocet kolli: ${order.pocetPaliet || "[doplnte]"}   Druh obalu: EUROPALETTEN\n` +
-    `Hr. hmotnost v kg: ${order.hmotnost || "[doplnte]"}\n\n` +
-    `13. Pokyny odesilatele: EUROPALETTEN\n\n` +
-    `16. Dopravce: ${order.sposobDopravy === "vyzdvihnutie" ? "VYZDVIHNUTIE ZAKAZNIKOM (zakaznik si zabezpecuje dopravu sam)" : carrier ? carrier.nazov : "[doplnte]"}\n${carrier ? carrier.adresa || "" : ""}\n${carrier && carrier.ico ? "ICO: " + carrier.ico : ""} ${carrier && carrier.dic ? "DIC: " + carrier.dic : ""}\n${carrier ? carrier.tel || "" : ""} ${carrier ? carrier.email || "" : ""}\n` +
-    `SPZ vozidla: [doplni dopravce]   Jmeno ridice: [doplni dopravce]\n\n` +
-    `17. Dalsi dopravci: -\n\n` +
-    `THE DELIVERED QUANTITY // DODANO: ${order.pocetPaliet || ""}\n` +
-    `RETURNED QUANTITY // VRACENO: [doplni pri navratu]\n\n` +
-    `Podpis a peciatka odesilatele: ______________________\n` +
-    `Podpis a peciatka dopravce: ______________________\n` +
-    `Podpis a peciatka prijemce: ______________________`
+    `MEZINÁRODNÍ NÁKLADNÍ LIST č. ${order.cisloObjednavkyDopravy}\n\n` +
+    `1. Odesílatel: ${company.nazov || "[doplňte]"}\n${company.adresa || ""}\n\n` +
+    `2. Příjemce: ${customer ? customer.nazov : (order.zakaznik || "[doplňte]")}\n${customer ? customer.adresa : ""}\n\n` +
+    `3. Místo vykládky zboží: ${order.adresaDodaniaNazov || ""}\n${order.adresaDodania || ""}\n\n` +
+    `4. Místo a datum nakládky zboží: ${company.adresa || ""}, ${nakladkaDateFromDodanie(order.datumDodania)}\n\n` +
+    `5. Připojené doklady: LS: ${order.cisloDodaciehoListu}${order.nemeckyDodakCislo ? `, Lieferschein DE: ${order.nemeckyDodakCislo}` : ""}\n\n` +
+    `6-12. Označení zboží: ${order.popisTovaru || "POPCORN"}\n` +
+    `Počet kolli: ${order.pocetPaliet || "[doplňte]"}   Druh obalu: EUROPALETTEN\n` +
+    `Hr. hmotnost v kg: ${order.hmotnost || "[doplňte]"}\n\n` +
+    `13. Pokyny odesílatele: EUROPALETTEN\n\n` +
+    `16. Dopravce: ${order.sposobDopravy === "vyzdvihnutie" ? "VYZVEDNUTÍ ZÁKAZNÍKEM (zákazník si zajišťuje dopravu sám)" : carrier ? carrier.nazov : "[doplňte]"}\n${carrier ? carrier.adresa || "" : ""}\n${carrier && carrier.ico ? "IČO: " + carrier.ico : ""} ${carrier && carrier.dic ? "DIČ: " + carrier.dic : ""}\n${carrier ? carrier.tel || "" : ""} ${carrier ? carrier.email || "" : ""}\n` +
+    `SPZ vozidla: [doplní dopravce]   Jméno řidiče: [doplní dopravce]\n\n` +
+    `17. Další dopravci: -\n\n` +
+    `THE DELIVERED QUANTITY // DODÁNO: ${order.pocetPaliet || ""}\n` +
+    `RETURNED QUANTITY // VRÁCENO: [doplní se při návratu]\n\n` +
+    `Podpis a razítko odesílatele: ______________________\n` +
+    `Podpis a razítko dopravce: ______________________\n` +
+    `Podpis a razítko příjemce: ______________________`
   );
 
   function handlePrint() {
@@ -3388,14 +3388,14 @@ function CmrModal({ order, carriers, customers, company, onClose, onDone }) {
 
   return (
     <ModalShell title={"CMR - " + order.cisloObjednavkyDopravy} onClose={onClose} wide>
-      <PrintDocument id={printId} title="CMR - MEZINARODNI NAKLADNI LIST" body={body} />
-      {last && <div className="mb-3 bg-emerald-50 text-emerald-800 text-xs px-3 py-2 rounded-md flex items-center gap-2"><CheckCircle2 size={14} /> Naposledy pripravene {formatDateTime(last.datum)}</div>}
-      <p className="text-xs text-slate-400 mb-3">Obsahovy podklad podla udajov objednavky, cislovanie zodpoveda poliam CMR listu, nejde o certifikovane tlacivo.</p>
+      <PrintDocument id={printId} title="CMR - MEZINÁRODNÍ NÁKLADNÍ LIST" body={body} />
+      {last && <div className="mb-3 bg-emerald-50 text-emerald-800 text-xs px-3 py-2 rounded-md flex items-center gap-2"><CheckCircle2 size={14} /> Naposledy připraveno {formatDateTime(last.datum)}</div>}
+      <p className="text-xs text-slate-400 mb-3">Obsahový podklad podle údajů objednávky, číslování odpovídá polím CMR listu, nejde o certifikovaný tiskopis.</p>
       <Field label="Text dokumentu" value={body} onChange={setBody} textarea />
       <div className="flex justify-end gap-2 mt-2">
-        <button onClick={onClose} className="text-sm text-slate-500 px-3 py-2">Zrusit</button>
-        <button onClick={handleDownload} className="bg-white border border-slate-200 hover:bg-slate-50 text-slate-700 text-sm font-medium px-4 py-2 rounded-md flex items-center gap-1.5"><Download size={16} /> Stiahnut</button>
-        <button onClick={handlePrint} className="bg-teal-700 hover:bg-teal-800 text-white text-sm font-medium px-4 py-2 rounded-md flex items-center gap-1.5"><Printer size={16} /> Vytlacit</button>
+        <button onClick={onClose} className="text-sm text-slate-500 px-3 py-2">Zrušit</button>
+        <button onClick={handleDownload} className="bg-white border border-slate-200 hover:bg-slate-50 text-slate-700 text-sm font-medium px-4 py-2 rounded-md flex items-center gap-1.5"><Download size={16} /> Stáhnout</button>
+        <button onClick={handlePrint} className="bg-teal-700 hover:bg-teal-800 text-white text-sm font-medium px-4 py-2 rounded-md flex items-center gap-1.5"><Printer size={16} /> Vytisknout</button>
       </div>
     </ModalShell>
   );
@@ -3413,7 +3413,7 @@ function UlohyView({ ulohy, onSave, onUpdate, onDelete }) {
   const osobyOptions = ULOHY_OSOBY.map((o) => ({ value: o, label: o }));
 
   function add() {
-    if (!popis.trim()) { setFormError("Vyplnte znenie ulohy."); return; }
+    if (!popis.trim()) { setFormError("Vyplňte znění úkolu."); return; }
     setFormError("");
     onSave({ popis: popis.trim(), osoby, termin: termin.trim() });
     setPopis(""); setOsoby([]); setTermin("");
@@ -3433,25 +3433,25 @@ function UlohyView({ ulohy, onSave, onUpdate, onDelete }) {
   return (
     <div>
       <div className="flex items-center justify-between mb-4">
-        <h1 className="text-xl font-semibold">Ulohy</h1>
+        <h1 className="text-xl font-semibold">Úkoly</h1>
       </div>
       <div className="bg-white border border-slate-200 rounded-lg p-4 mb-4">
-        <Field label="Uloha / akcny plan / bod" value={popis} onChange={setPopis} textarea rows={2} />
-        <MultiCheckField label="Kto ma dorucit" value={osoby} onChange={setOsoby} options={osobyOptions} />
+        <Field label="Úkol / akční plán / bod" value={popis} onChange={setPopis} textarea rows={2} />
+        <MultiCheckField label="Kdo má doručit" value={osoby} onChange={setOsoby} options={osobyOptions} />
         <div className="flex gap-2 items-end flex-wrap">
           <div className="min-w-[160px]">
-            <DateField label="Termin" value={termin} onChange={setTermin} />
+            <DateField label="Termín" value={termin} onChange={setTermin} />
           </div>
-          <button onClick={add} className="mb-3 bg-teal-700 hover:bg-teal-800 text-white text-sm font-medium px-3 py-2 rounded-md flex items-center gap-1.5"><Plus size={16} /> Pridat ulohu</button>
+          <button onClick={add} className="mb-3 bg-teal-700 hover:bg-teal-800 text-white text-sm font-medium px-3 py-2 rounded-md flex items-center gap-1.5"><Plus size={16} /> Přidat úkol</button>
         </div>
         {formError && <div className="bg-red-50 text-red-700 text-xs px-3 py-2 rounded-md flex items-center gap-2"><AlertCircle size={14} /> {formError}</div>}
       </div>
       {sorted.length === 0 ? (
-        <div className="bg-white border border-slate-200 rounded-lg p-8 text-center text-slate-500">Zatial ziadna uloha.</div>
+        <div className="bg-white border border-slate-200 rounded-lg p-8 text-center text-slate-500">Zatím žádný úkol.</div>
       ) : (
         <div className="bg-white border border-slate-200 rounded-lg overflow-hidden">
           <table className="w-full text-sm">
-            <thead><tr className="bg-slate-100 text-slate-600 text-left"><th className="px-3 py-2 font-medium">Uloha</th><th className="px-3 py-2 font-medium">Kto</th><th className="px-3 py-2 font-medium">Termin</th><th className="px-3 py-2 font-medium">Stav</th><th className="px-3 py-2"></th></tr></thead>
+            <thead><tr className="bg-slate-100 text-slate-600 text-left"><th className="px-3 py-2 font-medium">Úkol</th><th className="px-3 py-2 font-medium">Kdo</th><th className="px-3 py-2 font-medium">Termín</th><th className="px-3 py-2 font-medium">Stav</th><th className="px-3 py-2"></th></tr></thead>
             <tbody>
               {sorted.map((u) => {
                 const terminDate = parseSkDate(u.termin);
@@ -3472,11 +3472,11 @@ function UlohyView({ ulohy, onSave, onUpdate, onDelete }) {
                         onClick={() => onUpdate(u.id, { hotovo: !u.hotovo })}
                         className={"flex items-center gap-1.5 text-xs font-medium px-2 py-1 rounded-full border " + (u.hotovo ? "bg-green-50 text-green-700 border-green-200" : "bg-white text-slate-500 border-slate-200 hover:bg-slate-50")}
                       >
-                        <CheckCircle2 size={14} /> {u.hotovo ? "Splnene" : "Otvorene"}
+                        <CheckCircle2 size={14} /> {u.hotovo ? "Splněno" : "Otevřeno"}
                       </button>
                     </td>
                     <td className="px-3 py-2 text-right">
-                      <IconButton title="Zmazat" onClick={() => setConfirmDelete(u)}><Trash2 size={16} /></IconButton>
+                      <IconButton title="Smazat" onClick={() => setConfirmDelete(u)}><Trash2 size={16} /></IconButton>
                     </td>
                   </tr>
                 );
@@ -3486,11 +3486,11 @@ function UlohyView({ ulohy, onSave, onUpdate, onDelete }) {
         </div>
       )}
       {confirmDelete && (
-        <ModalShell title="Zmazat ulohu?" onClose={() => setConfirmDelete(null)}>
-          <p className="text-sm text-slate-600 mb-4">Naozaj chcete zmazat tuto ulohu? Tuto akciu nie je mozne vratit spat.</p>
+        <ModalShell title="Smazat úkol?" onClose={() => setConfirmDelete(null)}>
+          <p className="text-sm text-slate-600 mb-4">Opravdu chcete smazat tento úkol? Tuto akci nelze vrátit zpět.</p>
           <div className="flex justify-end gap-2">
-            <button onClick={() => setConfirmDelete(null)} className="px-3 py-1.5 rounded-md text-sm border border-slate-200 text-slate-600">Zrusit</button>
-            <button onClick={() => { onDelete(confirmDelete.id); setConfirmDelete(null); }} className="px-3 py-1.5 rounded-md text-sm bg-red-600 hover:bg-red-700 text-white">Zmazat</button>
+            <button onClick={() => setConfirmDelete(null)} className="px-3 py-1.5 rounded-md text-sm border border-slate-200 text-slate-600">Zrušit</button>
+            <button onClick={() => { onDelete(confirmDelete.id); setConfirmDelete(null); }} className="px-3 py-1.5 rounded-md text-sm bg-red-600 hover:bg-red-700 text-white">Smazat</button>
           </div>
         </ModalShell>
       )}
@@ -3504,9 +3504,9 @@ function CarriersView({ carriers, onSave, onEdit }) {
   const [formError, setFormError] = useState("");
 
   function add() {
-    if (!nazov.trim() && !email.trim()) { setFormError("Vyplnte nazov aj e-mail dopravcu."); return; }
-    if (!nazov.trim()) { setFormError("Vyplnte nazov dopravcu."); return; }
-    if (!email.trim()) { setFormError("Vyplnte e-mail dopravcu."); return; }
+    if (!nazov.trim() && !email.trim()) { setFormError("Vyplňte název i e-mail dopravce."); return; }
+    if (!nazov.trim()) { setFormError("Vyplňte název dopravce."); return; }
+    if (!email.trim()) { setFormError("Vyplňte e-mail dopravce."); return; }
     setFormError("");
     onSave([...carriers, { ...EMPTY_CARRIER, id: uid(), nazov: nazov.trim(), email: email.trim() }]);
     setNazov(""); setEmail("");
@@ -3514,7 +3514,7 @@ function CarriersView({ carriers, onSave, onEdit }) {
   function remove(id) { onSave(carriers.filter((c) => c.id !== id)); }
   async function exportToExcel() {
     const rows = carriers.map((c) => ({
-      "Nazov": c.nazov,
+      "Název": c.nazov,
       "E-mail": c.email,
       "Adresa": c.adresa,
       "ICO": c.ico,
@@ -3522,32 +3522,32 @@ function CarriersView({ carriers, onSave, onEdit }) {
       "Telefon": c.tel,
       "Web": c.web,
     }));
-    await exportRowsToExcel(rows, "Dopravcovia", "Dopravcovia");
+    await exportRowsToExcel(rows, "Dopravci", "Dopravci");
   }
 
   return (
     <div>
       <div className="flex items-center justify-between mb-4">
-        <h1 className="text-xl font-semibold">Dopravcovia</h1>
-        <button onClick={exportToExcel} disabled={carriers.length === 0} title={carriers.length === 0 ? "Zoznam je prazdny" : "Exportovat do Excelu"} className="flex items-center gap-1.5 bg-white border border-slate-200 hover:bg-slate-50 disabled:opacity-50 disabled:cursor-not-allowed text-slate-700 text-sm font-medium px-3 py-2 rounded-md">
+        <h1 className="text-xl font-semibold">Dopravci</h1>
+        <button onClick={exportToExcel} disabled={carriers.length === 0} title={carriers.length === 0 ? "Seznam je prázdný" : "Exportovat do Excelu"} className="flex items-center gap-1.5 bg-white border border-slate-200 hover:bg-slate-50 disabled:opacity-50 disabled:cursor-not-allowed text-slate-700 text-sm font-medium px-3 py-2 rounded-md">
           <Download size={16} /> Export do Excelu
         </button>
       </div>
       <div className="bg-white border border-slate-200 rounded-lg p-4 mb-4">
         <div className="flex gap-2 items-end flex-wrap">
-          <label className="flex-1 min-w-[160px]"><span className="block text-xs font-medium text-slate-500 mb-1">Nazov dopravcu</span><input value={nazov} onChange={(e) => setNazov(e.target.value)} className="w-full border border-slate-200 rounded-md px-2.5 py-1.5 text-sm" /></label>
+          <label className="flex-1 min-w-[160px]"><span className="block text-xs font-medium text-slate-500 mb-1">Název dopravce</span><input value={nazov} onChange={(e) => setNazov(e.target.value)} className="w-full border border-slate-200 rounded-md px-2.5 py-1.5 text-sm" /></label>
           <label className="flex-1 min-w-[160px]"><span className="block text-xs font-medium text-slate-500 mb-1">E-mail</span><input value={email} onChange={(e) => setEmail(e.target.value)} type="email" className="w-full border border-slate-200 rounded-md px-2.5 py-1.5 text-sm" /></label>
-          <button onClick={add} className="bg-teal-700 hover:bg-teal-800 text-white text-sm font-medium px-3 py-2 rounded-md flex items-center gap-1.5"><Plus size={16} /> Pridat</button>
+          <button onClick={add} className="bg-teal-700 hover:bg-teal-800 text-white text-sm font-medium px-3 py-2 rounded-md flex items-center gap-1.5"><Plus size={16} /> Přidat</button>
         </div>
         {formError && <div className="mt-2 bg-red-50 text-red-700 text-xs px-3 py-2 rounded-md flex items-center gap-2"><AlertCircle size={14} /> {formError}</div>}
-        <p className="text-xs text-slate-400 mt-2">Po pridani kliknite na "Upravit" pre doplnenie adresy, ICO, DIC (pouziva sa v CMR).</p>
+        <p className="text-xs text-slate-400 mt-2">Po přidání klikněte na "Upravit" pro doplnění adresy, IČO, DIČ (používá se v CMR).</p>
       </div>
       {carriers.length === 0 ? (
-        <div className="bg-white border border-slate-200 rounded-lg p-8 text-center text-slate-500">Zatial ziadny dopravca.</div>
+        <div className="bg-white border border-slate-200 rounded-lg p-8 text-center text-slate-500">Zatím žádný dopravce.</div>
       ) : (
         <div className="bg-white border border-slate-200 rounded-lg overflow-hidden">
           <table className="w-full text-sm">
-            <thead><tr className="bg-slate-100 text-slate-600 text-left"><th className="px-3 py-2 font-medium">Nazov</th><th className="px-3 py-2 font-medium">E-mail</th><th className="px-3 py-2"></th></tr></thead>
+            <thead><tr className="bg-slate-100 text-slate-600 text-left"><th className="px-3 py-2 font-medium">Název</th><th className="px-3 py-2 font-medium">E-mail</th><th className="px-3 py-2"></th></tr></thead>
             <tbody>
               {carriers.map((c) => (
                 <tr key={c.id} className="border-t border-slate-100">
@@ -3556,7 +3556,7 @@ function CarriersView({ carriers, onSave, onEdit }) {
                   <td className="px-3 py-2 text-right">
                     <div className="flex justify-end gap-1">
                       <IconButton title="Upravit" onClick={() => onEdit(c)}><Pencil size={16} /></IconButton>
-                      <IconButton title="Zmazat" onClick={() => remove(c.id)}><Trash2 size={16} /></IconButton>
+                      <IconButton title="Smazat" onClick={() => remove(c.id)}><Trash2 size={16} /></IconButton>
                     </div>
                   </td>
                 </tr>
@@ -3585,7 +3585,7 @@ function EmailListEditor({ emaily, onChange, caption }) {
 
   return (
     <div className="mb-3">
-      <span className="block text-xs font-medium text-slate-500 mb-1">{caption || "Dalsie e-maily podla ucelu (napr. Objednavky, Faktury) - pri viacerych adresach naraz ich oddelte ciarkou"}</span>
+      <span className="block text-xs font-medium text-slate-500 mb-1">{caption || "Další e-maily podle účelu (např. Objednávky, Faktury) - při více adresách najednou je oddělte čárkou"}</span>
       {(emaily || []).length > 0 && (
         <div className="mb-1.5 space-y-1">
           {emaily.map((e, i) => (
@@ -3597,7 +3597,7 @@ function EmailListEditor({ emaily, onChange, caption }) {
         </div>
       )}
       <div className="flex gap-2">
-        <input value={label} onChange={(e) => setLabel(e.target.value)} placeholder="Ucel (napr. Objednavky)" className="w-36 border border-slate-200 rounded-md px-2.5 py-1.5 text-sm" />
+        <input value={label} onChange={(e) => setLabel(e.target.value)} placeholder="Účel (např. Objednávky)" className="w-36 border border-slate-200 rounded-md px-2.5 py-1.5 text-sm" />
         <input
           value={email}
           onChange={(e) => setEmail(e.target.value)}
@@ -3605,7 +3605,7 @@ function EmailListEditor({ emaily, onChange, caption }) {
           placeholder="email1@x.cz, email2@x.cz"
           className="flex-1 border border-slate-200 rounded-md px-2.5 py-1.5 text-sm"
         />
-        <button onClick={add} className="bg-slate-100 hover:bg-slate-200 text-slate-700 text-sm font-medium px-3 py-1.5 rounded-md flex items-center gap-1"><Plus size={14} /> Pridat</button>
+        <button onClick={add} className="bg-slate-100 hover:bg-slate-200 text-slate-700 text-sm font-medium px-3 py-1.5 rounded-md flex items-center gap-1"><Plus size={14} /> Přidat</button>
       </div>
     </div>
   );
@@ -3614,8 +3614,8 @@ function EmailListEditor({ emaily, onChange, caption }) {
 function CarrierModal({ carrier, onClose, onSave }) {
   const [f, setF] = useState({ ...EMPTY_CARRIER, ...carrier });
   return (
-    <ModalShell title={"Upravit dopravcu - " + carrier.nazov} onClose={onClose}>
-      <Field label="Nazov" value={f.nazov} onChange={(v) => setF({ ...f, nazov: v })} />
+    <ModalShell title={"Upravit dopravce - " + carrier.nazov} onClose={onClose}>
+      <Field label="Název" value={f.nazov} onChange={(v) => setF({ ...f, nazov: v })} />
       <Field label="E-mail" value={f.email} onChange={(v) => setF({ ...f, email: v })} type="email" />
       <Field label="Adresa" value={f.adresa} onChange={(v) => setF({ ...f, adresa: v })} textarea />
       <Field label="ICO" value={f.ico} onChange={(v) => setF({ ...f, ico: v })} />
@@ -3623,7 +3623,7 @@ function CarrierModal({ carrier, onClose, onSave }) {
       <Field label="Telefon" value={f.tel} onChange={(v) => setF({ ...f, tel: v })} />
       <Field label="Web" value={f.web} onChange={(v) => setF({ ...f, web: v })} />
       <EmailListEditor emaily={f.emaily} onChange={(list) => setF({ ...f, emaily: list })} />
-      <div className="flex justify-end mt-2"><button onClick={() => onSave(f)} className="bg-teal-700 hover:bg-teal-800 text-white text-sm font-medium px-4 py-2 rounded-md">Ulozit</button></div>
+      <div className="flex justify-end mt-2"><button onClick={() => onSave(f)} className="bg-teal-700 hover:bg-teal-800 text-white text-sm font-medium px-4 py-2 rounded-md">Uložit</button></div>
     </ModalShell>
   );
 }
@@ -3635,7 +3635,7 @@ function CustomersView({ customers, onSave, onEdit }) {
   const [formError, setFormError] = useState("");
 
   function add() {
-    if (!nazov.trim()) { setFormError("Vyplnte nazov zakaznika."); return; }
+    if (!nazov.trim()) { setFormError("Vyplňte název zákazníka."); return; }
     setFormError("");
     onSave([...customers, { ...EMPTY_CUSTOMER, id: uid(), nazov: nazov.trim() }]);
     setNazov("");
@@ -3643,38 +3643,38 @@ function CustomersView({ customers, onSave, onEdit }) {
   function remove(id) { onSave(customers.filter((c) => c.id !== id)); }
   async function exportToExcel() {
     const rows = customers.map((c) => ({
-      "Nazov": c.nazov,
+      "Název": c.nazov,
       "Adresa": c.adresa,
       "ICO": c.ico,
       "DIC": c.dic,
       "E-mail": c.email,
-      "Polozky v katalogu": (c.katalog || []).length,
+      "Položky v katalogu": (c.katalog || []).length,
     }));
-    await exportRowsToExcel(rows, "Zakaznici", "Zakaznici");
+    await exportRowsToExcel(rows, "Zákazníci", "Zákazníci");
   }
 
   return (
     <div>
       <div className="flex items-center justify-between mb-4">
-        <h1 className="text-xl font-semibold">Zakaznici</h1>
-        <button onClick={exportToExcel} disabled={customers.length === 0} title={customers.length === 0 ? "Zoznam je prazdny" : "Exportovat do Excelu"} className="flex items-center gap-1.5 bg-white border border-slate-200 hover:bg-slate-50 disabled:opacity-50 disabled:cursor-not-allowed text-slate-700 text-sm font-medium px-3 py-2 rounded-md">
+        <h1 className="text-xl font-semibold">Zákazníci</h1>
+        <button onClick={exportToExcel} disabled={customers.length === 0} title={customers.length === 0 ? "Seznam je prázdný" : "Exportovat do Excelu"} className="flex items-center gap-1.5 bg-white border border-slate-200 hover:bg-slate-50 disabled:opacity-50 disabled:cursor-not-allowed text-slate-700 text-sm font-medium px-3 py-2 rounded-md">
           <Download size={16} /> Export do Excelu
         </button>
       </div>
       <div className="bg-white border border-slate-200 rounded-lg p-4 mb-4">
         <div className="flex gap-2 items-end flex-wrap">
-          <label className="flex-1 min-w-[220px]"><span className="block text-xs font-medium text-slate-500 mb-1">Nazov zakaznika (odberatela)</span><input value={nazov} onChange={(e) => setNazov(e.target.value)} className="w-full border border-slate-200 rounded-md px-2.5 py-1.5 text-sm" /></label>
-          <button onClick={add} className="bg-teal-700 hover:bg-teal-800 text-white text-sm font-medium px-3 py-2 rounded-md flex items-center gap-1.5"><Plus size={16} /> Pridat</button>
+          <label className="flex-1 min-w-[220px]"><span className="block text-xs font-medium text-slate-500 mb-1">Název zákazníka (odběratele)</span><input value={nazov} onChange={(e) => setNazov(e.target.value)} className="w-full border border-slate-200 rounded-md px-2.5 py-1.5 text-sm" /></label>
+          <button onClick={add} className="bg-teal-700 hover:bg-teal-800 text-white text-sm font-medium px-3 py-2 rounded-md flex items-center gap-1.5"><Plus size={16} /> Přidat</button>
         </div>
         {formError && <div className="mt-2 bg-red-50 text-red-700 text-xs px-3 py-2 rounded-md flex items-center gap-2"><AlertCircle size={14} /> {formError}</div>}
-        <p className="text-xs text-slate-400 mt-2">Po pridani kliknite na "Upravit" pre doplnenie fakturacnej adresy, ICO/DIC a katalogu tovaru.</p>
+        <p className="text-xs text-slate-400 mt-2">Po přidání klikněte na "Upravit" pro doplnění fakturační adresy, IČO/DIČ a katalogu zboží.</p>
       </div>
       {customers.length === 0 ? (
-        <div className="bg-white border border-slate-200 rounded-lg p-8 text-center text-slate-500">Zatial ziadny zakaznik.</div>
+        <div className="bg-white border border-slate-200 rounded-lg p-8 text-center text-slate-500">Zatím žádný zákazník.</div>
       ) : (
         <div className="bg-white border border-slate-200 rounded-lg overflow-hidden">
           <table className="w-full text-sm">
-            <thead><tr className="bg-slate-100 text-slate-600 text-left"><th className="px-3 py-2 font-medium">Nazov</th><th className="px-3 py-2 font-medium">Adresa</th><th className="px-3 py-2 font-medium">Polozky v katalogu</th><th className="px-3 py-2"></th></tr></thead>
+            <thead><tr className="bg-slate-100 text-slate-600 text-left"><th className="px-3 py-2 font-medium">Název</th><th className="px-3 py-2 font-medium">Adresa</th><th className="px-3 py-2 font-medium">Položky v katalogu</th><th className="px-3 py-2"></th></tr></thead>
             <tbody>
               {customers.map((c) => (
                 <tr key={c.id} className="border-t border-slate-100">
@@ -3684,7 +3684,7 @@ function CustomersView({ customers, onSave, onEdit }) {
                   <td className="px-3 py-2 text-right">
                     <div className="flex justify-end gap-1">
                       <IconButton title="Upravit" onClick={() => onEdit(c)}><Pencil size={16} /></IconButton>
-                      <IconButton title="Zmazat" onClick={() => remove(c.id)}><Trash2 size={16} /></IconButton>
+                      <IconButton title="Smazat" onClick={() => remove(c.id)}><Trash2 size={16} /></IconButton>
                     </div>
                   </td>
                 </tr>
@@ -3707,23 +3707,23 @@ function CatalogTable({ katalog, setKatalog }) {
   function add() { setKatalog([...katalog, { popis: "", artikel: "", detail: "" }]); }
   return (
     <div className="mb-3">
-      <span className="block text-xs font-medium text-slate-500 mb-1">Katalog tovaru</span>
+      <span className="block text-xs font-medium text-slate-500 mb-1">Katalog zboží</span>
       <div className="border border-slate-200 rounded-md overflow-hidden">
         <table className="w-full text-xs">
-          <thead><tr className="bg-slate-100 text-slate-600 text-left"><th className="px-2 py-1.5">Popis tovaru</th><th className="px-2 py-1.5 w-28">Cislo artiklu</th><th className="px-2 py-1.5 w-48">Balenie / EAN / cert. (viac riadkov)</th><th className="px-2 py-1.5 w-8"></th></tr></thead>
+          <thead><tr className="bg-slate-100 text-slate-600 text-left"><th className="px-2 py-1.5">Popis zboží</th><th className="px-2 py-1.5 w-28">Číslo artiklu</th><th className="px-2 py-1.5 w-48">Balenie / EAN / cert. (viac riadkov)</th><th className="px-2 py-1.5 w-8"></th></tr></thead>
           <tbody>
             {katalog.map((k, i) => (
               <tr key={i} className="border-t border-slate-100">
                 <td className="px-1 py-1"><input value={k.popis} onChange={(e) => update(i, "popis", e.target.value)} className="w-full border border-slate-200 rounded px-1.5 py-1" /></td>
                 <td className="px-1 py-1"><input value={k.artikel} onChange={(e) => update(i, "artikel", e.target.value)} className="w-full border border-slate-200 rounded px-1.5 py-1" /></td>
-                <td className="px-1 py-1"><textarea value={k.detail || ""} onChange={(e) => update(i, "detail", e.target.value)} rows={2} placeholder="napr. inhalt: 20 x 75g Beutel, 1 PLT=16 KRT" className="w-full border border-slate-200 rounded px-1.5 py-1" /></td>
+                <td className="px-1 py-1"><textarea value={k.detail || ""} onChange={(e) => update(i, "detail", e.target.value)} rows={2} placeholder="např. inhalt: 20 x 75g Beutel, 1 PLT=16 KRT" className="w-full border border-slate-200 rounded px-1.5 py-1" /></td>
                 <td className="px-1 py-1 text-center"><button onClick={() => remove(i)} className="text-slate-400 hover:text-red-600"><Trash2 size={14} /></button></td>
               </tr>
             ))}
           </tbody>
         </table>
       </div>
-      <button onClick={add} className="mt-1.5 text-xs text-teal-700 hover:text-teal-900 flex items-center gap-1"><Plus size={12} /> Pridat polozku katalogu</button>
+      <button onClick={add} className="mt-1.5 text-xs text-teal-700 hover:text-teal-900 flex items-center gap-1"><Plus size={12} /> Přidat položku katalogu</button>
     </div>
   );
 }
@@ -3731,15 +3731,15 @@ function CatalogTable({ katalog, setKatalog }) {
 function CustomerModal({ customer, onClose, onSave }) {
   const [f, setF] = useState({ ...EMPTY_CUSTOMER, ...customer, katalog: customer.katalog || [] });
   return (
-    <ModalShell title={"Upravit zakaznika - " + customer.nazov} onClose={onClose} wide>
-      <Field label="Nazov" value={f.nazov} onChange={(v) => setF({ ...f, nazov: v })} />
-      <Field label="Fakturacna adresa (Abnehmer)" value={f.adresa} onChange={(v) => setF({ ...f, adresa: v })} textarea />
+    <ModalShell title={"Upravit zákazníka - " + customer.nazov} onClose={onClose} wide>
+      <Field label="Název" value={f.nazov} onChange={(v) => setF({ ...f, nazov: v })} />
+      <Field label="Fakturační adresa (Abnehmer)" value={f.adresa} onChange={(v) => setF({ ...f, adresa: v })} textarea />
       <Field label="ICO" value={f.ico} onChange={(v) => setF({ ...f, ico: v })} />
-      <Field label="DIC / Ust.-Id Nr." value={f.dic} onChange={(v) => setF({ ...f, dic: v })} />
-      <Field label="E-mail (komu sa posiela dodaci list - oddelte ciarkou, ak viac adries)" value={f.email} onChange={(v) => setF({ ...f, email: v })} />
+      <Field label="DIČ / Ust.-Id Nr." value={f.dic} onChange={(v) => setF({ ...f, dic: v })} />
+      <Field label="E-mail (komu se posílá dodací list - oddělte čárkou, pokud je více adres)" value={f.email} onChange={(v) => setF({ ...f, email: v })} />
       <EmailListEditor emaily={f.emaily} onChange={(list) => setF({ ...f, emaily: list })} />
       <CatalogTable katalog={f.katalog} setKatalog={(k) => setF({ ...f, katalog: k })} />
-      <div className="flex justify-end mt-2"><button onClick={() => onSave(f)} className="bg-teal-700 hover:bg-teal-800 text-white text-sm font-medium px-4 py-2 rounded-md">Ulozit</button></div>
+      <div className="flex justify-end mt-2"><button onClick={() => onSave(f)} className="bg-teal-700 hover:bg-teal-800 text-white text-sm font-medium px-4 py-2 rounded-md">Uložit</button></div>
     </ModalShell>
   );
 }
@@ -3751,7 +3751,7 @@ function SuppliersView({ suppliers, onSave, onEdit }) {
   const [formError, setFormError] = useState("");
 
   function add() {
-    if (!nazov.trim()) { setFormError("Vyplnte nazov dodavatela."); return; }
+    if (!nazov.trim()) { setFormError("Vyplňte název dodavatele."); return; }
     setFormError("");
     onSave([...suppliers, { ...EMPTY_SUPPLIER, id: uid(), nazov: nazov.trim() }]);
     setNazov("");
@@ -3759,41 +3759,41 @@ function SuppliersView({ suppliers, onSave, onEdit }) {
   function remove(id) { onSave(suppliers.filter((s) => s.id !== id)); }
   async function exportToExcel() {
     const rows = suppliers.map((s) => ({
-      "Nazov": s.nazov,
+      "Název": s.nazov,
       "Typ": materialTypLabel(s.typ),
-      "Jazyk komunikacie": (MATERIAL_JAZYK_OPTIONS.find((o) => o.value === s.jazyk) || {}).label || "Slovencina",
+      "Jazyk komunikace": (MATERIAL_JAZYK_OPTIONS.find((o) => o.value === s.jazyk) || {}).label || "Slovenština",
       "Adresa": s.adresa,
       "ICO": s.ico,
       "DIC": s.dic,
       "E-mail": s.email,
       "Telefon": s.tel,
-      "Tovary v katalogu": (s.tovary || []).length,
+      "Zboží v katalogu": (s.tovary || []).length,
     }));
-    await exportRowsToExcel(rows, "Dodavatelia", "Dodavatelia");
+    await exportRowsToExcel(rows, "Dodavatelé", "Dodavatelé");
   }
 
   return (
     <div>
       <div className="flex items-center justify-between mb-4">
-        <h1 className="text-xl font-semibold">Dodavatelia</h1>
-        <button onClick={exportToExcel} disabled={suppliers.length === 0} title={suppliers.length === 0 ? "Zoznam je prazdny" : "Exportovat do Excelu"} className="flex items-center gap-1.5 bg-white border border-slate-200 hover:bg-slate-50 disabled:opacity-50 disabled:cursor-not-allowed text-slate-700 text-sm font-medium px-3 py-2 rounded-md">
+        <h1 className="text-xl font-semibold">Dodavatelé</h1>
+        <button onClick={exportToExcel} disabled={suppliers.length === 0} title={suppliers.length === 0 ? "Seznam je prázdný" : "Exportovat do Excelu"} className="flex items-center gap-1.5 bg-white border border-slate-200 hover:bg-slate-50 disabled:opacity-50 disabled:cursor-not-allowed text-slate-700 text-sm font-medium px-3 py-2 rounded-md">
           <Download size={16} /> Export do Excelu
         </button>
       </div>
       <div className="bg-white border border-slate-200 rounded-lg p-4 mb-4">
         <div className="flex gap-2 items-end flex-wrap">
-          <label className="flex-1 min-w-[220px]"><span className="block text-xs font-medium text-slate-500 mb-1">Nazov dodavatela</span><input value={nazov} onChange={(e) => setNazov(e.target.value)} className="w-full border border-slate-200 rounded-md px-2.5 py-1.5 text-sm" /></label>
-          <button onClick={add} className="bg-teal-700 hover:bg-teal-800 text-white text-sm font-medium px-3 py-2 rounded-md flex items-center gap-1.5"><Plus size={16} /> Pridat</button>
+          <label className="flex-1 min-w-[220px]"><span className="block text-xs font-medium text-slate-500 mb-1">Název dodavatele</span><input value={nazov} onChange={(e) => setNazov(e.target.value)} className="w-full border border-slate-200 rounded-md px-2.5 py-1.5 text-sm" /></label>
+          <button onClick={add} className="bg-teal-700 hover:bg-teal-800 text-white text-sm font-medium px-3 py-2 rounded-md flex items-center gap-1.5"><Plus size={16} /> Přidat</button>
         </div>
         {formError && <div className="mt-2 bg-red-50 text-red-700 text-xs px-3 py-2 rounded-md flex items-center gap-2"><AlertCircle size={14} /> {formError}</div>}
-        <p className="text-xs text-slate-400 mt-2">Po pridani kliknite na "Upravit" pre doplnenie adresy (miesto vyzdvihnutia), e-mailu, ICO, DIC.</p>
+        <p className="text-xs text-slate-400 mt-2">Po přidání klikněte na "Upravit" pro doplnění adresy (místo vyzvednutí), e-mailu, IČO, DIČ.</p>
       </div>
       {suppliers.length === 0 ? (
-        <div className="bg-white border border-slate-200 rounded-lg p-8 text-center text-slate-500">Zatial ziadny dodavatel.</div>
+        <div className="bg-white border border-slate-200 rounded-lg p-8 text-center text-slate-500">Zatím žádný dodavatel.</div>
       ) : (
         <div className="bg-white border border-slate-200 rounded-lg overflow-hidden">
           <table className="w-full text-sm">
-            <thead><tr className="bg-slate-100 text-slate-600 text-left"><th className="px-3 py-2 font-medium">Nazov</th><th className="px-3 py-2 font-medium">Typ</th><th className="px-3 py-2 font-medium">Adresa</th><th className="px-3 py-2 font-medium">Tovary</th><th className="px-3 py-2"></th></tr></thead>
+            <thead><tr className="bg-slate-100 text-slate-600 text-left"><th className="px-3 py-2 font-medium">Název</th><th className="px-3 py-2 font-medium">Typ</th><th className="px-3 py-2 font-medium">Adresa</th><th className="px-3 py-2 font-medium">Zboží</th><th className="px-3 py-2"></th></tr></thead>
             <tbody>
               {suppliers.map((s) => (
                 <tr key={s.id} className="border-t border-slate-100">
@@ -3804,7 +3804,7 @@ function SuppliersView({ suppliers, onSave, onEdit }) {
                   <td className="px-3 py-2 text-right">
                     <div className="flex justify-end gap-1">
                       <IconButton title="Upravit" onClick={() => onEdit(s)}><Pencil size={16} /></IconButton>
-                      <IconButton title="Zmazat" onClick={() => remove(s.id)}><Trash2 size={16} /></IconButton>
+                      <IconButton title="Smazat" onClick={() => remove(s.id)}><Trash2 size={16} /></IconButton>
                     </div>
                   </td>
                 </tr>
@@ -3846,9 +3846,9 @@ function SupplierGoodsTable({ tovary, setTovary }) {
       const items = await parseSupplierCatalogFile(buf);
       const { tovary: next, added, updated } = mergeSupplierCatalog(tovary, items);
       setTovary(next);
-      setImportMsg(`Naimportovane: ${added} novych, ${updated} aktualizovanych.`);
+      setImportMsg(`Naimportováno: ${added} nových, ${updated} aktualizovaných.`);
     } catch (err) {
-      setImportError(err.message || "Nepodarilo sa spracovat subor.");
+      setImportError(err.message || "Nepodařilo se zpracovat soubor.");
     }
     setImportBusy(false);
     if (fileInputRef.current) fileInputRef.current.value = "";
@@ -3857,10 +3857,10 @@ function SupplierGoodsTable({ tovary, setTovary }) {
   return (
     <div className="mb-3">
       <div className="flex items-center justify-between mb-1">
-        <span className="block text-xs font-medium text-slate-500">Tovary / materialy, ktore dodava</span>
+        <span className="block text-xs font-medium text-slate-500">Zboží / materiály, které dodává</span>
         <div className="flex items-center gap-2">
           <button type="button" disabled={importBusy} onClick={() => fileInputRef.current && fileInputRef.current.click()} className="text-xs text-teal-700 hover:text-teal-900 flex items-center gap-1 disabled:opacity-50">
-            <Upload size={12} /> {importBusy ? "Importujem..." : "Import z XLS"}
+            <Upload size={12} /> {importBusy ? "Importuji..." : "Import z XLS"}
           </button>
           <input ref={fileInputRef} type="file" accept=".xls,.xlsx" className="hidden" onChange={handleImportFile} />
         </div>
@@ -3869,20 +3869,20 @@ function SupplierGoodsTable({ tovary, setTovary }) {
       {importMsg && <p className="text-xs text-teal-700 mb-1">{importMsg}</p>}
       <div className="border border-slate-200 rounded-md overflow-hidden">
         <table className="w-full text-xs">
-          <thead><tr className="bg-slate-100 text-slate-600 text-left"><th className="px-2 py-1.5">Nazov polozky</th><th className="px-2 py-1.5 w-28">Artikel</th><th className="px-2 py-1.5 w-48">Balenie (napr. 25 kg karton, 40 kartonov/paleta)</th><th className="px-2 py-1.5 w-8"></th></tr></thead>
+          <thead><tr className="bg-slate-100 text-slate-600 text-left"><th className="px-2 py-1.5">Název položky</th><th className="px-2 py-1.5 w-28">Artikl</th><th className="px-2 py-1.5 w-48">Balenie (napr. 25 kg karton, 40 kartonov/paleta)</th><th className="px-2 py-1.5 w-8"></th></tr></thead>
           <tbody>
             {tovary.map((t, i) => (
               <tr key={i} className="border-t border-slate-100">
                 <td className="px-1 py-1"><input value={t.popis} onChange={(e) => update(i, "popis", e.target.value)} className="w-full border border-slate-200 rounded px-1.5 py-1" /></td>
                 <td className="px-1 py-1"><input value={t.artikel} onChange={(e) => update(i, "artikel", e.target.value)} className="w-full border border-slate-200 rounded px-1.5 py-1" /></td>
-                <td className="px-1 py-1"><input value={t.balenie || ""} onChange={(e) => update(i, "balenie", e.target.value)} className="w-full border border-slate-200 rounded px-1.5 py-1" /></td>
+                <td className="px-1 py-1"><input value={t.balenie || ""} onChange={(e) => update(i, "balení", e.target.value)} className="w-full border border-slate-200 rounded px-1.5 py-1" /></td>
                 <td className="px-1 py-1 text-center"><button onClick={() => remove(i)} className="text-slate-400 hover:text-red-600"><Trash2 size={14} /></button></td>
               </tr>
             ))}
           </tbody>
         </table>
       </div>
-      <button onClick={add} className="mt-1.5 text-xs text-teal-700 hover:text-teal-900 flex items-center gap-1"><Plus size={12} /> Pridat polozku</button>
+      <button onClick={add} className="mt-1.5 text-xs text-teal-700 hover:text-teal-900 flex items-center gap-1"><Plus size={12} /> Přidat položku</button>
     </div>
   );
 }
@@ -3891,11 +3891,11 @@ function SupplierModal({ supplier, onClose, onSave }) {
   const [f, setF] = useState({ ...EMPTY_SUPPLIER, ...supplier, typ: normalizeSupplierTyp(supplier.typ), jazyk: supplier.jazyk || "sk", tovary: normalizeTovary(supplier.tovary) });
 
   return (
-    <ModalShell title={"Upravit dodavatela - " + supplier.nazov} onClose={onClose} wide>
-      <Field label="Nazov" value={f.nazov} onChange={(v) => setF({ ...f, nazov: v })} />
-      <MultiCheckField label="Typ dodavatela (co dodava - moze byt aj oboje)" value={f.typ} onChange={(v) => setF({ ...f, typ: v })} options={MATERIAL_TYP_OPTIONS} />
-      <SegmentedField label="Jazyk komunikacie (predmet a text objednavkoveho emailu)" value={f.jazyk} onChange={(v) => setF({ ...f, jazyk: v })} options={MATERIAL_JAZYK_OPTIONS} />
-      <Field label="Adresa (miesto vyzdvihnutia)" value={f.adresa} onChange={(v) => setF({ ...f, adresa: v })} textarea />
+    <ModalShell title={"Upravit dodavatele - " + supplier.nazov} onClose={onClose} wide>
+      <Field label="Název" value={f.nazov} onChange={(v) => setF({ ...f, nazov: v })} />
+      <MultiCheckField label="Typ dodavatele (co dodává - může být i obojí)" value={f.typ} onChange={(v) => setF({ ...f, typ: v })} options={MATERIAL_TYP_OPTIONS} />
+      <SegmentedField label="Jazyk komunikace (předmět a text objednávkového e-mailu)" value={f.jazyk} onChange={(v) => setF({ ...f, jazyk: v })} options={MATERIAL_JAZYK_OPTIONS} />
+      <Field label="Adresa (místo vyzvednutí)" value={f.adresa} onChange={(v) => setF({ ...f, adresa: v })} textarea />
       <Field label="ICO" value={f.ico} onChange={(v) => setF({ ...f, ico: v })} />
       <Field label="DIC" value={f.dic} onChange={(v) => setF({ ...f, dic: v })} />
       <Field label="E-mail" value={f.email} onChange={(v) => setF({ ...f, email: v })} type="email" />
@@ -3905,7 +3905,7 @@ function SupplierModal({ supplier, onClose, onSave }) {
 
       <EmailListEditor emaily={f.emaily} onChange={(list) => setF({ ...f, emaily: list })} />
 
-      <div className="flex justify-end mt-2"><button onClick={() => onSave(f)} className="bg-teal-700 hover:bg-teal-800 text-white text-sm font-medium px-4 py-2 rounded-md">Ulozit</button></div>
+      <div className="flex justify-end mt-2"><button onClick={() => onSave(f)} className="bg-teal-700 hover:bg-teal-800 text-white text-sm font-medium px-4 py-2 rounded-md">Uložit</button></div>
     </ModalShell>
   );
 }
@@ -3917,7 +3917,7 @@ function ProductsView({ products, onSave, onEdit }) {
   const [formError, setFormError] = useState("");
 
   function add() {
-    if (!f.znacka.trim()) { setFormError("Vyplnte znacku/nazov produktu."); return; }
+    if (!f.znacka.trim()) { setFormError("Vyplňte značku/název produktu."); return; }
     setFormError("");
     onSave([...products, { ...EMPTY_PRODUCT, ...f, znacka: f.znacka.trim(), id: uid() }]);
     setF({ znacka: "", gramaz: "", ksVKartone: "", kartonovNaPalete: "", linka: "sacky" });
@@ -3927,10 +3927,10 @@ function ProductsView({ products, onSave, onEdit }) {
     const rows = products.map((p) => ({
       "Produkt": productLabel(p),
       "Linka": (PRODUCTION_LINKY.find((l) => l.value === p.linka) || {}).label || p.linka,
-      "Gramaz": p.gramaz,
-      "Ks v kartone": p.ksVKartone,
-      "Kartonov na palete": p.kartonovNaPalete,
-      "Polozky v recepture": (p.receptura || []).length,
+      "Gramáž": p.gramaz,
+      "Ks v kartonu": p.ksVKartone,
+      "Kartonů na paletě": p.kartonovNaPalete,
+      "Položky v receptuře": (p.receptura || []).length,
     }));
     await exportRowsToExcel(rows, "Produkty", "Produkty");
   }
@@ -3939,28 +3939,28 @@ function ProductsView({ products, onSave, onEdit }) {
     <div>
       <div className="flex items-center justify-between mb-4">
         <h1 className="text-xl font-semibold">Produkty</h1>
-        <button onClick={exportToExcel} disabled={products.length === 0} title={products.length === 0 ? "Zoznam je prazdny" : "Exportovat do Excelu"} className="flex items-center gap-1.5 bg-white border border-slate-200 hover:bg-slate-50 disabled:opacity-50 disabled:cursor-not-allowed text-slate-700 text-sm font-medium px-3 py-2 rounded-md">
+        <button onClick={exportToExcel} disabled={products.length === 0} title={products.length === 0 ? "Seznam je prázdný" : "Exportovat do Excelu"} className="flex items-center gap-1.5 bg-white border border-slate-200 hover:bg-slate-50 disabled:opacity-50 disabled:cursor-not-allowed text-slate-700 text-sm font-medium px-3 py-2 rounded-md">
           <Download size={16} /> Export do Excelu
         </button>
       </div>
       <div className="bg-white border border-slate-200 rounded-lg p-4 mb-4">
         <div className="flex gap-2 items-end flex-wrap">
-          <label className="min-w-[160px]"><span className="block text-xs font-medium text-slate-500 mb-1">Znacka / nazov</span><input value={f.znacka} onChange={(e) => setF({ ...f, znacka: e.target.value })} placeholder="napr. FUN" className="w-full border border-slate-200 rounded-md px-2.5 py-1.5 text-sm" /></label>
-          <label className="w-24"><span className="block text-xs font-medium text-slate-500 mb-1">Gramaz</span><input value={f.gramaz} onChange={(e) => setF({ ...f, gramaz: e.target.value })} placeholder="250" className="w-full border border-slate-200 rounded-md px-2.5 py-1.5 text-sm" /></label>
-          <label className="w-28"><span className="block text-xs font-medium text-slate-500 mb-1">Ks v kartone</span><input value={f.ksVKartone} onChange={(e) => setF({ ...f, ksVKartone: e.target.value })} placeholder="24" className="w-full border border-slate-200 rounded-md px-2.5 py-1.5 text-sm" /></label>
-          <label className="w-32"><span className="block text-xs font-medium text-slate-500 mb-1">Kartonov/paletu</span><input value={f.kartonovNaPalete} onChange={(e) => setF({ ...f, kartonovNaPalete: e.target.value })} placeholder="4" className="w-full border border-slate-200 rounded-md px-2.5 py-1.5 text-sm" /></label>
+          <label className="min-w-[160px]"><span className="block text-xs font-medium text-slate-500 mb-1">Značka / název</span><input value={f.znacka} onChange={(e) => setF({ ...f, znacka: e.target.value })} placeholder="např. FUN" className="w-full border border-slate-200 rounded-md px-2.5 py-1.5 text-sm" /></label>
+          <label className="w-24"><span className="block text-xs font-medium text-slate-500 mb-1">Gramáž</span><input value={f.gramaz} onChange={(e) => setF({ ...f, gramaz: e.target.value })} placeholder="250" className="w-full border border-slate-200 rounded-md px-2.5 py-1.5 text-sm" /></label>
+          <label className="w-28"><span className="block text-xs font-medium text-slate-500 mb-1">Ks v kartonu</span><input value={f.ksVKartone} onChange={(e) => setF({ ...f, ksVKartone: e.target.value })} placeholder="24" className="w-full border border-slate-200 rounded-md px-2.5 py-1.5 text-sm" /></label>
+          <label className="w-32"><span className="block text-xs font-medium text-slate-500 mb-1">Kartonů/paletu</span><input value={f.kartonovNaPalete} onChange={(e) => setF({ ...f, kartonovNaPalete: e.target.value })} placeholder="4" className="w-full border border-slate-200 rounded-md px-2.5 py-1.5 text-sm" /></label>
           <label className="w-28"><span className="block text-xs font-medium text-slate-500 mb-1">Linka</span>
             <select value={f.linka} onChange={(e) => setF({ ...f, linka: e.target.value })} className="w-full border border-slate-200 rounded-md px-2.5 py-1.5 text-sm">
               {PRODUCTION_LINKY.map((l) => <option key={l.value} value={l.value}>{l.label}</option>)}
             </select>
           </label>
-          <button onClick={add} className="bg-teal-700 hover:bg-teal-800 text-white text-sm font-medium px-3 py-2 rounded-md flex items-center gap-1.5"><Plus size={16} /> Pridat</button>
+          <button onClick={add} className="bg-teal-700 hover:bg-teal-800 text-white text-sm font-medium px-3 py-2 rounded-md flex items-center gap-1.5"><Plus size={16} /> Přidat</button>
         </div>
         {formError && <div className="mt-2 bg-red-50 text-red-700 text-xs px-3 py-2 rounded-md flex items-center gap-2"><AlertCircle size={14} /> {formError}</div>}
-        <p className="text-xs text-slate-400 mt-2">Po pridani kliknite na "Upravit" pre doplnenie receptury (suroviny na 1 paletu).</p>
+        <p className="text-xs text-slate-400 mt-2">Po přidání klikněte na "Upravit" pro doplnění receptury (suroviny na 1 paletu).</p>
       </div>
       {products.length === 0 ? (
-        <div className="bg-white border border-slate-200 rounded-lg p-8 text-center text-slate-500">Zatial ziadny produkt.</div>
+        <div className="bg-white border border-slate-200 rounded-lg p-8 text-center text-slate-500">Zatím žádný produkt.</div>
       ) : (
         <div className="bg-white border border-slate-200 rounded-lg overflow-hidden">
           <table className="w-full text-sm">
@@ -3974,7 +3974,7 @@ function ProductsView({ products, onSave, onEdit }) {
                   <td className="px-3 py-2 text-right">
                     <div className="flex justify-end gap-1">
                       <IconButton title="Upravit" onClick={() => onEdit(p)}><Pencil size={16} /></IconButton>
-                      <IconButton title="Zmazat" onClick={() => remove(p.id)}><Trash2 size={16} /></IconButton>
+                      <IconButton title="Smazat" onClick={() => remove(p.id)}><Trash2 size={16} /></IconButton>
                     </div>
                   </td>
                 </tr>
@@ -4001,7 +4001,7 @@ function RecipeTable({ receptura, setReceptura, existingReceipts, existingIssues
       <span className="block text-xs font-medium text-slate-500 mb-1">Receptura (suroviny na 1 paletu)</span>
       <div className="border border-slate-200 rounded-md overflow-hidden">
         <table className="w-full text-xs">
-          <thead><tr className="bg-slate-100 text-slate-600 text-left"><th className="px-2 py-1.5">Material</th><th className="px-2 py-1.5 w-24">Mnozstvo</th><th className="px-2 py-1.5 w-24">Jednotka</th><th className="px-2 py-1.5 w-8"></th></tr></thead>
+          <thead><tr className="bg-slate-100 text-slate-600 text-left"><th className="px-2 py-1.5">Materiál</th><th className="px-2 py-1.5 w-24">Množství</th><th className="px-2 py-1.5 w-24">Jednotka</th><th className="px-2 py-1.5 w-8"></th></tr></thead>
           <tbody>
             {receptura.map((r, i) => (
               <tr key={i} className="border-t border-slate-100">
@@ -4021,7 +4021,7 @@ function RecipeTable({ receptura, setReceptura, existingReceipts, existingIssues
       <datalist id="production-material-picks">
         {materialPicks.map((m) => <option key={m} value={m} />)}
       </datalist>
-      <button onClick={add} className="mt-1.5 text-xs text-teal-700 hover:text-teal-900 flex items-center gap-1"><Plus size={12} /> Pridat surovinu</button>
+      <button onClick={add} className="mt-1.5 text-xs text-teal-700 hover:text-teal-900 flex items-center gap-1"><Plus size={12} /> Přidat surovinu</button>
     </div>
   );
 }
@@ -4031,16 +4031,16 @@ function ProductModal({ product, existingReceipts, existingIssues, onClose, onSa
   return (
     <ModalShell title={"Upravit produkt - " + productLabel(product)} onClose={onClose} wide>
       <div className="grid grid-cols-2 gap-x-3">
-        <Field label="Znacka / nazov" value={f.znacka} onChange={(v) => setF({ ...f, znacka: v })} />
+        <Field label="Značka / název" value={f.znacka} onChange={(v) => setF({ ...f, znacka: v })} />
         <SelectField label="Linka" value={f.linka} onChange={(v) => setF({ ...f, linka: v })} options={PRODUCTION_LINKY.map((l) => ({ value: l.value, label: l.label }))} />
       </div>
       <div className="grid grid-cols-3 gap-x-3">
-        <Field label="Gramaz" value={f.gramaz} onChange={(v) => setF({ ...f, gramaz: v })} />
-        <Field label="Ks v kartone" value={f.ksVKartone} onChange={(v) => setF({ ...f, ksVKartone: v })} />
-        <Field label="Kartonov na palete" value={f.kartonovNaPalete} onChange={(v) => setF({ ...f, kartonovNaPalete: v })} />
+        <Field label="Gramáž" value={f.gramaz} onChange={(v) => setF({ ...f, gramaz: v })} />
+        <Field label="Ks v kartonu" value={f.ksVKartone} onChange={(v) => setF({ ...f, ksVKartone: v })} />
+        <Field label="Kartonů na paletě" value={f.kartonovNaPalete} onChange={(v) => setF({ ...f, kartonovNaPalete: v })} />
       </div>
       <RecipeTable receptura={f.receptura} setReceptura={(r) => setF({ ...f, receptura: r })} existingReceipts={existingReceipts} existingIssues={existingIssues} />
-      <div className="flex justify-end mt-2"><button onClick={() => onSave(f)} className="bg-teal-700 hover:bg-teal-800 text-white text-sm font-medium px-4 py-2 rounded-md">Ulozit</button></div>
+      <div className="flex justify-end mt-2"><button onClick={() => onSave(f)} className="bg-teal-700 hover:bg-teal-800 text-white text-sm font-medium px-4 py-2 rounded-md">Uložit</button></div>
     </ModalShell>
   );
 }
@@ -4058,7 +4058,7 @@ function WorkersView({ workers, onSave }) {
   const [formError, setFormError] = useState("");
 
   function add() {
-    if (!meno.trim()) { setFormError("Vyplnte meno pracovnika."); return; }
+    if (!meno.trim()) { setFormError("Vyplňte jméno pracovníka."); return; }
     setFormError("");
     onSave([...workers, { id: uid(), meno: meno.trim(), typ }]);
     setMeno("");
@@ -4070,26 +4070,26 @@ function WorkersView({ workers, onSave }) {
 
   return (
     <div>
-      <h1 className="text-xl font-semibold mb-4">Pracovnici</h1>
-      <p className="text-xs text-slate-400 mb-4">Tento zoznam sluzi na oznacenie, kto zapisal davku na tablete vo Vyrobe alebo v Sklade (nie su to prihlasovacie ucty - kazdy tablet pouziva jeden zdielany login, ludia si tam len "odkliknu" svoje meno). Typ urcuje, na ktorom tablete sa dane meno ponuka na vyber. Kazdy s typom "Vyroba" sa automaticky zobrazi aj v appke Plan zmien (planovanie smien) - mena/pridavanie/mazanie sa spravuje len tu, appka si ich len nacita.</p>
+      <h1 className="text-xl font-semibold mb-4">Pracovníci</h1>
+      <p className="text-xs text-slate-400 mb-4">Tento seznam slouží k označení, kdo zapsal dávku na tabletu ve Výrobě nebo na Skladu (nejsou to přihlašovací účty - každý tablet používá jeden sdílený login, lidé si tam jen "odkliknou" své jméno). Typ určuje, na kterém tabletu se dané jméno nabízí k výběru. Každý s typem "Vyroba" se automaticky zobrazí i v appce Plán směn (plánování směn) - jména/přidávání/mazání se spravuje jen tady, appka si je jen načte.</p>
       <div className="bg-white border border-slate-200 rounded-lg p-4 mb-4">
         <div className="flex gap-2 items-end flex-wrap">
-          <label className="flex-1 min-w-[220px]"><span className="block text-xs font-medium text-slate-500 mb-1">Meno pracovnika</span><input value={meno} onChange={(e) => setMeno(e.target.value)} className="w-full border border-slate-200 rounded-md px-2.5 py-1.5 text-sm" /></label>
+          <label className="flex-1 min-w-[220px]"><span className="block text-xs font-medium text-slate-500 mb-1">Jméno pracovníka</span><input value={meno} onChange={(e) => setMeno(e.target.value)} className="w-full border border-slate-200 rounded-md px-2.5 py-1.5 text-sm" /></label>
           <label><span className="block text-xs font-medium text-slate-500 mb-1">Typ</span>
             <select value={typ} onChange={(e) => setTyp(e.target.value)} className="border border-slate-200 rounded-md px-2.5 py-1.5 text-sm">
               {WORKER_TYPY.map((t) => <option key={t.value} value={t.value}>{t.label}</option>)}
             </select>
           </label>
-          <button onClick={add} className="bg-teal-700 hover:bg-teal-800 text-white text-sm font-medium px-3 py-2 rounded-md flex items-center gap-1.5"><Plus size={16} /> Pridat</button>
+          <button onClick={add} className="bg-teal-700 hover:bg-teal-800 text-white text-sm font-medium px-3 py-2 rounded-md flex items-center gap-1.5"><Plus size={16} /> Přidat</button>
         </div>
         {formError && <div className="mt-2 bg-red-50 text-red-700 text-xs px-3 py-2 rounded-md flex items-center gap-2"><AlertCircle size={14} /> {formError}</div>}
       </div>
       {workers.length === 0 ? (
-        <div className="bg-white border border-slate-200 rounded-lg p-8 text-center text-slate-500">Zatial ziadny pracovnik.</div>
+        <div className="bg-white border border-slate-200 rounded-lg p-8 text-center text-slate-500">Zatím žádný pracovník.</div>
       ) : (
         <div className="bg-white border border-slate-200 rounded-lg overflow-hidden">
           <table className="w-full text-sm">
-            <thead><tr className="bg-slate-100 text-slate-600 text-left"><th className="px-3 py-2 font-medium">Meno</th><th className="px-3 py-2 font-medium">Typ</th><th className="px-3 py-2"></th></tr></thead>
+            <thead><tr className="bg-slate-100 text-slate-600 text-left"><th className="px-3 py-2 font-medium">Jméno</th><th className="px-3 py-2 font-medium">Typ</th><th className="px-3 py-2"></th></tr></thead>
             <tbody>
               {workers.map((w) => (
                 <tr key={w.id} className="border-t border-slate-100">
@@ -4100,7 +4100,7 @@ function WorkersView({ workers, onSave }) {
                     </select>
                   </td>
                   <td className="px-3 py-2 text-right">
-                    <IconButton title="Zmazat" onClick={() => remove(w.id)}><Trash2 size={16} /></IconButton>
+                    <IconButton title="Smazat" onClick={() => remove(w.id)}><Trash2 size={16} /></IconButton>
                   </td>
                 </tr>
               ))}
@@ -4118,29 +4118,29 @@ function MaterialOrdersView({ materialOrders, suppliers, carriers, onNew, onEdit
   const [confirmDelete, setConfirmDelete] = useState(null);
   async function exportToExcel() {
     const rows = materialOrders.map((o) => ({
-      "Cislo dopravy": o.cisloObjednavkyDopravy,
+      "Číslo dopravy": o.cisloObjednavkyDopravy,
       "Dodavatel": o.dodavatel,
-      "Adresa vyzdvihnutia": o.adresaVyzdvihnutia,
-      "Popis materialu": o.popisMaterialu,
-      "Mnozstvo": o.mnozstvo,
-      "Termin dodania": o.terminDodaniaNeurcity ? "Bude upresneny" : o.terminDodania,
-      "Sposob dopravy": (SPOSOB_DOPRAVY_OPTIONS.find((s) => s.value === o.sposobDopravy) || {}).label || "Objednavame dopravu",
-      "Datum vyzdvihnutia": o.sposobDopravy === "dodavatel" ? "" : (o.vyzdvihnutieNeurcite ? "Bude upresnene" : o.datumVyzdvihnutia),
-      "Dopravca": (carriers.find((c) => c.id === o.dopravcaId) || {}).nazov || "",
-      "Nazov miesta dodania": o.sposobDopravy === "vyzdvihnutie" ? "" : o.adresaDodaniaNazov,
+      "Adresa vyzvednutí": o.adresaVyzdvihnutia,
+      "Popis materiálu": o.popisMaterialu,
+      "Množství": o.mnozstvo,
+      "Termín dodání": o.terminDodaniaNeurcity ? "Bude upřesněn" : o.terminDodania,
+      "Způsob dopravy": (SPOSOB_DOPRAVY_OPTIONS.find((s) => s.value === o.sposobDopravy) || {}).label || "Objednáváme dopravu",
+      "Datum vyzvednutí": o.sposobDopravy === "dodavatel" ? "" : (o.vyzdvihnutieNeurcite ? "Bude upřesněno" : o.datumVyzdvihnutia),
+      "Dopravce": (carriers.find((c) => c.id === o.dopravcaId) || {}).nazov || "",
+      "Název místa dodání": o.sposobDopravy === "vyzdvihnutie" ? "" : o.adresaDodaniaNazov,
       "Adresa dodania": o.sposobDopravy === "vyzdvihnutie" ? "" : o.adresaDodania,
-      "Stav objednavky": o.stavObjednavky || "Neodoslana",
+      "Stav objednávky": o.stavObjednavky || "Neodoslana",
       "Stav dopravy": o.stavDopravy,
-      "Poznamka": o.poznamka,
+      "Poznámka": o.poznamka,
     }));
-    await exportRowsToExcel(rows, "Objednavky surovin", "Objednavky_surovin_a_obalov");
+    await exportRowsToExcel(rows, "Objednávky surovin", "Objednavky_surovin_a_obalov");
   }
   return (
     <div>
       <div className="flex items-center justify-between mb-4">
-        <h1 className="text-xl font-semibold">Objednavky surovin a obalov</h1>
+        <h1 className="text-xl font-semibold">Objednávky surovin a obalů</h1>
         <div className="flex gap-2">
-          <button onClick={exportToExcel} disabled={materialOrders.length === 0} title={materialOrders.length === 0 ? "Zoznam je prazdny" : "Exportovat do Excelu"} className="flex items-center gap-1.5 bg-white border border-slate-200 hover:bg-slate-50 disabled:opacity-50 disabled:cursor-not-allowed text-slate-700 text-sm font-medium px-3 py-2 rounded-md">
+          <button onClick={exportToExcel} disabled={materialOrders.length === 0} title={materialOrders.length === 0 ? "Seznam je prázdný" : "Exportovat do Excelu"} className="flex items-center gap-1.5 bg-white border border-slate-200 hover:bg-slate-50 disabled:opacity-50 disabled:cursor-not-allowed text-slate-700 text-sm font-medium px-3 py-2 rounded-md">
             <Download size={16} /> Export do Excelu
           </button>
           <button onClick={onNew} className="flex items-center gap-1.5 bg-teal-700 hover:bg-teal-800 text-white text-sm font-medium px-3 py-2 rounded-md">
@@ -4151,20 +4151,20 @@ function MaterialOrdersView({ materialOrders, suppliers, carriers, onNew, onEdit
       {materialOrders.length === 0 ? (
         <div className="bg-white border border-slate-200 rounded-lg p-10 text-center text-slate-500">
           <Boxes size={28} className="mx-auto mb-3 text-slate-300" />
-          Zatial ziadne objednavky surovin/obalov.
+          Zatím žádné objednávky surovin/obalů.
         </div>
       ) : (
         <div className="bg-white border border-slate-200 rounded-lg overflow-x-auto">
           <table className="w-full text-sm">
             <thead>
               <tr className="bg-slate-100 text-slate-600 text-left">
-                <th className="px-3 py-2 font-medium whitespace-nowrap">Cislo dopravy</th>
-                <th className="px-3 py-2 font-medium">Dodavatel / adresa vyzdvihnutia</th>
-                <th className="px-3 py-2 font-medium whitespace-nowrap">Termin dodania</th>
+                <th className="px-3 py-2 font-medium whitespace-nowrap">Číslo dopravy</th>
+                <th className="px-3 py-2 font-medium">Dodavatel / adresa vyzvednutí</th>
+                <th className="px-3 py-2 font-medium whitespace-nowrap">Termín dodání</th>
                 <th className="px-3 py-2 font-medium whitespace-nowrap">Vyzdvihnutie</th>
-                <th className="px-3 py-2 font-medium">Objednavka</th>
+                <th className="px-3 py-2 font-medium">Objednávka</th>
                 <th className="px-3 py-2 font-medium">Doprava</th>
-                <th className="px-3 py-2 font-medium text-right">Akcie</th>
+                <th className="px-3 py-2 font-medium text-right">Akce</th>
               </tr>
             </thead>
             <tbody>
@@ -4180,13 +4180,13 @@ function MaterialOrdersView({ materialOrders, suppliers, carriers, onNew, onEdit
                       <div className="text-xs text-slate-400">{o.adresaVyzdvihnutia}</div>
                     </td>
                     <td className="px-3 py-2 whitespace-nowrap">
-                      {o.terminDodaniaNeurcity ? <span className="text-slate-500">Bude upresneny</span> : (o.terminDodania || <span className="text-slate-400">-</span>)}
+                      {o.terminDodaniaNeurcity ? <span className="text-slate-500">Bude upřesněn</span> : (o.terminDodania || <span className="text-slate-400">-</span>)}
                     </td>
                     <td className="px-3 py-2 whitespace-nowrap">
                       {o.sposobDopravy === "dodavatel" ? (
-                        <span className="text-slate-500">Dodavatel dorucuje sam</span>
+                        <span className="text-slate-500">Dodavatel doručuje sám</span>
                       ) : o.vyzdvihnutieNeurcite ? (
-                        <span className="text-slate-500">Bude upresnene</span>
+                        <span className="text-slate-500">Bude upřesněno</span>
                       ) : (
                         o.datumVyzdvihnutia || <span className="text-slate-400">-</span>
                       )}
@@ -4197,7 +4197,7 @@ function MaterialOrdersView({ materialOrders, suppliers, carriers, onNew, onEdit
                     <td className="px-3 py-2" onClick={(e) => e.stopPropagation()}>
                       <div className="flex justify-end gap-1 flex-wrap">
                         <IconButton
-                          title={supplierEmailMissing ? "Doplnte e-mail dodavatela" : o.objednavkaOdoslanaInfo ? "Odoslane " + formatDateTime(o.objednavkaOdoslanaInfo.datum) : "Objednavka dodavatelovi"}
+                          title={supplierEmailMissing ? "Doplňte e-mail dodavatele" : o.objednavkaOdoslanaInfo ? "Odesláno " + formatDateTime(o.objednavkaOdoslanaInfo.datum) : "Objednávka dodavateli"}
                           disabled={supplierEmailMissing}
                           sent={!!o.objednavkaOdoslanaInfo}
                           onClick={() => onSendSupplier(o)}
@@ -4205,7 +4205,7 @@ function MaterialOrdersView({ materialOrders, suppliers, carriers, onNew, onEdit
                           <Mail size={16} />
                         </IconButton>
                         <IconButton
-                          title={o.sposobDopravy === "dodavatel" ? "Dodavatel dorucuje tovar sam - doprava sa neobjednava" : o.sposobDopravy === "vyzdvihnutie" ? "Osobny odber - doprava sa neobjednava" : carrierMissing ? "Najprv pridajte dopravcu v Nastaveniach" : o.dopravaOdoslanaInfo ? "Odoslane " + formatDateTime(o.dopravaOdoslanaInfo.datum) : "Objednavka dopravy"}
+                          title={o.sposobDopravy === "dodavatel" ? "Dodavatel doručuje zboží sám - doprava se neobjednává" : o.sposobDopravy === "vyzdvihnutie" ? "Osobní odběr - doprava se neobjednává" : carrierMissing ? "Nejprve přidejte dopravce v Nastavení" : o.dopravaOdoslanaInfo ? "Odesláno " + formatDateTime(o.dopravaOdoslanaInfo.datum) : "Objednávka dopravy"}
                           disabled={o.sposobDopravy !== "doprava" || carrierMissing}
                           sent={!!o.dopravaOdoslanaInfo}
                           onClick={() => onSend(o)}
@@ -4213,7 +4213,7 @@ function MaterialOrdersView({ materialOrders, suppliers, carriers, onNew, onEdit
                           <Truck size={16} />
                         </IconButton>
                         <IconButton title="Upravit" onClick={() => onEdit(o)}><Pencil size={16} /></IconButton>
-                        <IconButton title="Zmazat" onClick={() => setConfirmDelete(o)}><Trash2 size={16} /></IconButton>
+                        <IconButton title="Smazat" onClick={() => setConfirmDelete(o)}><Trash2 size={16} /></IconButton>
                       </div>
                     </td>
                   </tr>
@@ -4224,13 +4224,13 @@ function MaterialOrdersView({ materialOrders, suppliers, carriers, onNew, onEdit
         </div>
       )}
       {confirmDelete && (
-        <ModalShell title="Zmazat objednavku?" onClose={() => setConfirmDelete(null)}>
+        <ModalShell title="Smazat objednávku?" onClose={() => setConfirmDelete(null)}>
           <p className="text-sm text-slate-600 mb-4">
-            Naozaj chcete zmazat objednavku <b>{confirmDelete.cisloObjednavkyDopravy}</b>
+            Opravdu chcete smazat objednávku <b>{confirmDelete.cisloObjednavkyDopravy}</b>
             {confirmDelete.dodavatel ? " (" + confirmDelete.dodavatel + ")" : ""}? Tuto akciu nie je mozne vratit spat.
           </p>
           <div className="flex justify-end gap-2">
-            <button onClick={() => setConfirmDelete(null)} className="text-sm text-slate-500 px-3 py-2">Zrusit</button>
+            <button onClick={() => setConfirmDelete(null)} className="text-sm text-slate-500 px-3 py-2">Zrušit</button>
             <button
               onClick={() => { onDelete(confirmDelete.id); setConfirmDelete(null); }}
               className="bg-red-600 hover:bg-red-700 text-white text-sm font-medium px-4 py-2 rounded-md flex items-center gap-1.5"
@@ -4273,7 +4273,7 @@ function MaterialOrderItemsTable({ items, setItems, supplierTovary }) {
 
   return (
     <div className="mb-3">
-      <span className="block text-xs font-medium text-slate-500 mb-1">Polozky objednavky</span>
+      <span className="block text-xs font-medium text-slate-500 mb-1">Položky objednávky</span>
       {supplierTovary.length > 0 && (
         <div className="mb-2 flex flex-wrap gap-1.5">
           {supplierTovary.map((t, i) => (
@@ -4286,13 +4286,13 @@ function MaterialOrderItemsTable({ items, setItems, supplierTovary }) {
       {items.length > 0 && (
         <div className="border border-slate-200 rounded-md overflow-hidden mb-1.5">
           <table className="w-full text-xs">
-            <thead><tr className="bg-slate-100 text-slate-600 text-left"><th className="px-2 py-1.5">Popis</th><th className="px-2 py-1.5 w-24">Artikel</th><th className="px-2 py-1.5 w-16">Mnozstvo</th><th className="px-2 py-1.5 w-24">Jednotka</th><th className="px-2 py-1.5 w-8"></th></tr></thead>
+            <thead><tr className="bg-slate-100 text-slate-600 text-left"><th className="px-2 py-1.5">Popis</th><th className="px-2 py-1.5 w-24">Artikl</th><th className="px-2 py-1.5 w-16">Množství</th><th className="px-2 py-1.5 w-24">Jednotka</th><th className="px-2 py-1.5 w-8"></th></tr></thead>
             <tbody>
               {items.map((it, i) => (
                 <tr key={i} className="border-t border-slate-100">
                   <td className="px-1 py-1"><input value={it.popis} onChange={(e) => update(i, "popis", e.target.value)} className="w-full border border-slate-200 rounded px-1.5 py-1" /></td>
                   <td className="px-1 py-1"><input value={it.artikel} onChange={(e) => update(i, "artikel", e.target.value)} className="w-full border border-slate-200 rounded px-1.5 py-1" /></td>
-                  <td className="px-1 py-1"><input value={it.mnozstvoCislo !== undefined ? it.mnozstvoCislo : ""} onChange={(e) => updateMnozstvo(i, e.target.value, it.mnozstvoJednotka || "ks")} inputMode="decimal" placeholder="napr. 2" className="w-full border border-slate-200 rounded px-1.5 py-1" /></td>
+                  <td className="px-1 py-1"><input value={it.mnozstvoCislo !== undefined ? it.mnozstvoCislo : ""} onChange={(e) => updateMnozstvo(i, e.target.value, it.mnozstvoJednotka || "ks")} inputMode="decimal" placeholder="např. 2" className="w-full border border-slate-200 rounded px-1.5 py-1" /></td>
                   <td className="px-1 py-1">
                     <select value={it.mnozstvoJednotka || "ks"} onChange={(e) => updateMnozstvo(i, it.mnozstvoCislo, e.target.value)} className="w-full border border-slate-200 rounded px-1.5 py-1">
                       {UNIT_QUICK_PICKS.map((u) => <option key={u} value={u}>{u}</option>)}
@@ -4308,7 +4308,7 @@ function MaterialOrderItemsTable({ items, setItems, supplierTovary }) {
       {totalEntries.length > 0 && (
         <p className="text-xs text-slate-500 mb-1.5">Spolu: {totalEntries.map(([u, n]) => `${n % 1 === 0 ? n : n.toFixed(2)} ${u}`).join(", ")}</p>
       )}
-      <button onClick={addCustom} className="text-xs text-teal-700 hover:text-teal-900 flex items-center gap-1"><Plus size={12} /> Pridat vlastnu polozku</button>
+      <button onClick={addCustom} className="text-xs text-teal-700 hover:text-teal-900 flex items-center gap-1"><Plus size={12} /> Přidat vlastní položku</button>
     </div>
   );
 }
@@ -4332,56 +4332,56 @@ function MaterialOrderFormModal({ order, suppliers, company, onClose, onSave }) 
   }
 
   return (
-    <ModalShell title={order ? "Upravit objednavku - " + order.cisloObjednavkyDopravy : "Nova objednavka surovin/obalov"} onClose={onClose} wide>
+    <ModalShell title={order ? "Upravit objednávku - " + order.cisloObjednavkyDopravy : "Nová objednávka surovin/obalů"} onClose={onClose} wide>
       <SelectField
         label="Dodavatel"
         value={f.dodavatelId}
         onChange={pickSupplier}
-        options={[{ value: "", label: "-- vyberte / doplnim rucne --" }, ...suppliers.map((s) => ({ value: s.id, label: s.nazov }))]}
+        options={[{ value: "", label: "-- vyberte / doplním ručně --" }, ...suppliers.map((s) => ({ value: s.id, label: s.nazov }))]}
       />
-      <Field label="Nazov dodavatela (zobrazenie)" value={f.dodavatel} onChange={(v) => setF({ ...f, dodavatel: v })} />
+      <Field label="Název dodavatele (zobrazení)" value={f.dodavatel} onChange={(v) => setF({ ...f, dodavatel: v })} />
 
-      <SegmentedField label="Sposob dorucenia" value={f.sposobDopravy} onChange={pickSposobDopravy} options={SPOSOB_DOPRAVY_OPTIONS} />
+      <SegmentedField label="Způsob doručení" value={f.sposobDopravy} onChange={pickSposobDopravy} options={SPOSOB_DOPRAVY_OPTIONS} />
 
       {f.sposobDopravy !== "dodavatel" && (
-        <Field label="Adresa vyzdvihnutia (u dodavatela)" value={f.adresaVyzdvihnutia} onChange={(v) => setF({ ...f, adresaVyzdvihnutia: v })} textarea />
+        <Field label="Adresa vyzvednutí (u dodavatele)" value={f.adresaVyzdvihnutia} onChange={(v) => setF({ ...f, adresaVyzdvihnutia: v })} textarea />
       )}
 
       <MaterialOrderItemsTable items={f.polozky} setItems={(items) => setF({ ...f, polozky: items })} supplierTovary={supplierTovary} />
-      <Field label="Popis materialu / obaloveho materialu (zhrnutie, nepovinne ak su vyplnene polozky)" value={f.popisMaterialu} onChange={(v) => setF({ ...f, popisMaterialu: v })} textarea />
-      <Field label="Mnozstvo (zhrnutie)" value={f.mnozstvo} onChange={(v) => setF({ ...f, mnozstvo: v })} />
+      <Field label="Popis materiálu / obalového materiálu (shrnutí, nepovinné, pokud jsou vyplněné položky)" value={f.popisMaterialu} onChange={(v) => setF({ ...f, popisMaterialu: v })} textarea />
+      <Field label="Množství (shrnutí)" value={f.mnozstvo} onChange={(v) => setF({ ...f, mnozstvo: v })} />
 
       {f.sposobDopravy !== "vyzdvihnutie" && (
         <>
-          <Field label="Nazov miesta dodania (firma)" value={f.adresaDodaniaNazov} onChange={(v) => setF({ ...f, adresaDodaniaNazov: v })} />
+          <Field label="Název místa dodání (firma)" value={f.adresaDodaniaNazov} onChange={(v) => setF({ ...f, adresaDodaniaNazov: v })} />
           <div className="mb-1 flex flex-wrap gap-1.5">
             {COMPANY_DELIVERY_ADDRESSES.map((a) => (
               <button key={a} type="button" onClick={() => setF({ ...f, adresaDodania: a })} className="text-xs bg-slate-100 hover:bg-slate-200 text-slate-700 px-2 py-1 rounded-md">{a}</button>
             ))}
           </div>
-          <Field label="Adresa dodania (kam ma dodavatel/dopravca tovar doviezt)" value={f.adresaDodania} onChange={(v) => setF({ ...f, adresaDodania: v })} textarea />
+          <Field label="Adresa dodání (kam má dodavatel/dopravce zboží přivézt)" value={f.adresaDodania} onChange={(v) => setF({ ...f, adresaDodania: v })} textarea />
         </>
       )}
 
-      <ToggleField label="Termin dodania od dodavatela" value={f.terminDodaniaNeurcity} onChange={(v) => setF({ ...f, terminDodaniaNeurcity: v })} yesLabel="Bude upresneny dodavatelom" noLabel="Zadat datum" />
+      <ToggleField label="Termín dodání od dodavatele" value={f.terminDodaniaNeurcity} onChange={(v) => setF({ ...f, terminDodaniaNeurcity: v })} yesLabel="Bude upřesněn dodavatelem" noLabel="Zadat datum" />
       {!f.terminDodaniaNeurcity && (
-        <DateField label="Termin dodania" value={f.terminDodania} onChange={(v) => setF({ ...f, terminDodania: v })} />
+        <DateField label="Termín dodání" value={f.terminDodania} onChange={(v) => setF({ ...f, terminDodania: v })} />
       )}
 
       {f.sposobDopravy !== "dodavatel" && (
         <>
-          <ToggleField label="Termin vyzdvihnutia" value={f.vyzdvihnutieNeurcite} onChange={(v) => setF({ ...f, vyzdvihnutieNeurcite: v })} yesLabel="Bude upresneny" noLabel="Zadat datum" />
+          <ToggleField label="Termín vyzvednutí" value={f.vyzdvihnutieNeurcite} onChange={(v) => setF({ ...f, vyzdvihnutieNeurcite: v })} yesLabel="Bude upřesněn" noLabel="Zadat datum" />
           {!f.vyzdvihnutieNeurcite && (
             <div className="grid grid-cols-2 gap-x-3">
-              <DateField label="Datum vyzdvihnutia" value={f.datumVyzdvihnutia} onChange={(v) => setF({ ...f, datumVyzdvihnutia: v })} />
-              <Field label="Cas vyzdvihnutia" value={f.casVyzdvihnutia} onChange={(v) => setF({ ...f, casVyzdvihnutia: v })} />
+              <DateField label="Datum vyzvednutí" value={f.datumVyzdvihnutia} onChange={(v) => setF({ ...f, datumVyzdvihnutia: v })} />
+              <Field label="Čas vyzvednutí" value={f.casVyzdvihnutia} onChange={(v) => setF({ ...f, casVyzdvihnutia: v })} />
             </div>
           )}
         </>
       )}
 
-      <Field label="Poznamka" value={f.poznamka} onChange={(v) => setF({ ...f, poznamka: v })} textarea />
-      <div className="flex justify-end mt-2"><button onClick={() => onSave(f)} className="bg-teal-700 hover:bg-teal-800 text-white text-sm font-medium px-4 py-2 rounded-md">Ulozit</button></div>
+      <Field label="Poznámka" value={f.poznamka} onChange={(v) => setF({ ...f, poznamka: v })} textarea />
+      <div className="flex justify-end mt-2"><button onClick={() => onSave(f)} className="bg-teal-700 hover:bg-teal-800 text-white text-sm font-medium px-4 py-2 rounded-md">Uložit</button></div>
     </ModalShell>
   );
 }
@@ -4400,34 +4400,34 @@ function MaterialTransportModal({ order, carriers, suppliers, company, currentUs
       setTo(c ? c.email : "");
     }
   }
-  const [subject, setSubject] = useState(last ? last.subject : `Objednavka prepravy c. ${order.cisloObjednavkyDopravy}`);
+  const [subject, setSubject] = useState(last ? last.subject : `Objednávka přepravy č. ${order.cisloObjednavkyDopravy}`);
   const [body, setBody] = useState(
     last ? last.body :
-    `Dobry den${carrier ? " " + carrier.nazov : ""},\n\n` +
-    `objednavame prepravu ${materialTypStr} (objednavka c. ${order.cisloObjednavkyDopravy}).\n\n` +
-    `VYZDVIHNUTIE:\n${order.dodavatel || "[dodavatel]"}\n${order.adresaVyzdvihnutia || ""}\n` +
-    `Datum: ${order.vyzdvihnutieNeurcite ? "bude upresneny" : (order.datumVyzdvihnutia || "[doplnte]")}${!order.vyzdvihnutieNeurcite && order.casVyzdvihnutia ? " cas: " + order.casVyzdvihnutia : ""}\n\n` +
-    `TOVAR:\n${materialOrderItemsText(order)}\n\n` +
-    `VYKLADKA:\n${order.adresaDodaniaNazov || company.nazov || ""}\n${order.adresaDodania || company.adresa || ""}\n\n` +
-    (order.poznamka ? `Poznamka: ${order.poznamka}\n\n` : "") +
-    `Dakujeme a tesime sa na spolupracu.\n\n` +
-    `S pozdravom,\n${currentUserName || company.kontaktnaOsoba || ""}\n${company.nazov || ""}\n` +
-    `${company.ico ? "IC: " + company.ico + (company.dic ? "  DIC: " + company.dic : "") + "\n" : ""}` +
+    `Dobrý den${carrier ? " " + carrier.nazov : ""},\n\n` +
+    `objednáváme přepravu ${materialTypStr} (objednávka č. ${order.cisloObjednavkyDopravy}).\n\n` +
+    `VYZVEDNUTÍ:\n${order.dodavatel || "[dodavatel]"}\n${order.adresaVyzdvihnutia || ""}\n` +
+    `Datum: ${order.vyzdvihnutieNeurcite ? "bude upřesněn" : (order.datumVyzdvihnutia || "[doplňte]")}${!order.vyzdvihnutieNeurcite && order.casVyzdvihnutia ? " čas: " + order.casVyzdvihnutia : ""}\n\n` +
+    `ZBOŽÍ:\n${materialOrderItemsText(order)}\n\n` +
+    `VYKLÁDKA:\n${order.adresaDodaniaNazov || company.nazov || ""}\n${order.adresaDodania || company.adresa || ""}\n\n` +
+    (order.poznamka ? `Poznámka: ${order.poznamka}\n\n` : "") +
+    `Děkujeme a těšíme se na spolupráci.\n\n` +
+    `S pozdravem,\n${currentUserName || company.kontaktnaOsoba || ""}\n${company.nazov || ""}\n` +
+    `${company.ico ? "IČ: " + company.ico + (company.dic ? "  DIČ: " + company.dic : "") + "\n" : ""}` +
     `${[company.email, company.tel].filter(Boolean).join("  ")}`
   );
 
   return (
-    <ModalShell title={"Objednavka dopravy - " + order.cisloObjednavkyDopravy} onClose={onClose} extraWide>
-      {last && <div className="mb-3 bg-emerald-50 text-emerald-800 text-xs px-3 py-2 rounded-md flex items-center gap-2"><CheckCircle2 size={14} /> Naposledy odoslane {formatDateTime(last.datum)} na {last.to}</div>}
-      <SelectField label="Dopravca" value={carrierId} onChange={pickCarrier} options={carriers.map((c) => ({ value: c.id, label: `${c.nazov} (${c.email})` }))} />
+    <ModalShell title={"Objednávka dopravy - " + order.cisloObjednavkyDopravy} onClose={onClose} extraWide>
+      {last && <div className="mb-3 bg-emerald-50 text-emerald-800 text-xs px-3 py-2 rounded-md flex items-center gap-2"><CheckCircle2 size={14} /> Naposledy odesláno {formatDateTime(last.datum)} na {last.to}</div>}
+      <SelectField label="Dopravce" value={carrierId} onChange={pickCarrier} options={carriers.map((c) => ({ value: c.id, label: `${c.nazov} (${c.email})` }))} />
       <EmailQuickPicks emaily={carrier ? carrier.emaily : []} onPick={setTo} />
       <Field label="E-mail (komu)" value={to} onChange={setTo} type="email" />
-      <Field label="Predmet" value={subject} onChange={setSubject} />
-      <Field label="Text spravy" value={body} onChange={setBody} textarea rows={18} />
+      <Field label="Předmět" value={subject} onChange={setSubject} />
+      <Field label="Text zprávy" value={body} onChange={setBody} textarea rows={18} />
       <div className="flex justify-end gap-2 mt-2">
-        <button onClick={onClose} className="text-sm text-slate-500 px-3 py-2">Zrusit</button>
+        <button onClick={onClose} className="text-sm text-slate-500 px-3 py-2">Zrušit</button>
         <a href={to ? buildMailto(to, subject, body) : "#"} onClick={() => to && onSent(carrierId, { subject, body, to, datum: new Date().toISOString() })} className={"bg-teal-700 hover:bg-teal-800 text-white text-sm font-medium px-4 py-2 rounded-md flex items-center gap-1.5 " + (!to ? "opacity-50 pointer-events-none" : "")}>
-          <Truck size={16} /> Odoslat dopravcovi
+          <Truck size={16} /> Odeslat dopravci
         </a>
       </div>
     </ModalShell>
@@ -4461,7 +4461,7 @@ function MaterialSupplierOrderModal({ order, suppliers, company, currentUserName
 
   return (
     <ModalShell title={"Objednavka dodavatelovi - " + order.cisloObjednavkyDopravy} onClose={onClose} extraWide>
-      {last && <div className="mb-3 bg-emerald-50 text-emerald-800 text-xs px-3 py-2 rounded-md flex items-center gap-2"><CheckCircle2 size={14} /> Naposledy odoslane {formatDateTime(last.datum)} na {last.to}</div>}
+      {last && <div className="mb-3 bg-emerald-50 text-emerald-800 text-xs px-3 py-2 rounded-md flex items-center gap-2"><CheckCircle2 size={14} /> Naposledy odesláno {formatDateTime(last.datum)} na {last.to}</div>}
       {supplier && supplier.jazyk && supplier.jazyk !== "sk" && (
         <div className="mb-3 bg-amber-50 text-amber-800 text-xs px-3 py-2 rounded-md flex items-center gap-2">
           <AlertCircle size={14} /> Dodavatel ma nastaveny jazyk komunikacie: {(MATERIAL_JAZYK_OPTIONS.find((o) => o.value === supplier.jazyk) || {}).label}. Text nizsie je predvyplneny v tomto jazyku.
@@ -4469,12 +4469,12 @@ function MaterialSupplierOrderModal({ order, suppliers, company, currentUserName
       )}
       <EmailQuickPicks emaily={supplier ? supplier.emaily : []} onPick={setTo} />
       <Field label="E-mail (komu)" value={to} onChange={setTo} type="email" />
-      <Field label="Predmet" value={subject} onChange={setSubject} />
-      <Field label="Text spravy" value={body} onChange={setBody} textarea rows={18} />
+      <Field label="Předmět" value={subject} onChange={setSubject} />
+      <Field label="Text zprávy" value={body} onChange={setBody} textarea rows={18} />
       <div className="flex justify-end gap-2 mt-2">
-        <button onClick={onClose} className="text-sm text-slate-500 px-3 py-2">Zrusit</button>
+        <button onClick={onClose} className="text-sm text-slate-500 px-3 py-2">Zrušit</button>
         <a href={to ? buildMailto(to, subject, body) : "#"} onClick={() => to && onSent({ subject, body, to, datum: new Date().toISOString() })} className={"bg-teal-700 hover:bg-teal-800 text-white text-sm font-medium px-4 py-2 rounded-md flex items-center gap-1.5 " + (!to ? "opacity-50 pointer-events-none" : "")}>
-          <Mail size={16} /> Odoslat dodavatelovi
+          <Mail size={16} /> Odeslat dodavateli
         </a>
       </div>
     </ModalShell>
@@ -4520,7 +4520,7 @@ function InvoiceUploadModal({ receipts, company, onClose, onApply }) {
         })
       );
     } catch (err) {
-      setError(err.message || "Extrakcia zlyhala, skuste znova.");
+      setError(err.message || "Extrakce se nezdařila, zkuste to znovu.");
     }
     setBusy(false);
   }
@@ -4560,17 +4560,17 @@ function InvoiceUploadModal({ receipts, company, onClose, onApply }) {
             },
           };
         });
-      if (!updates.length) throw new Error("Nevybrali ste ziadnu zhodu s prijmom tovaru.");
+      if (!updates.length) throw new Error("Nevybrali jste žádnou shodu s příjmem zboží.");
       await onApply(updates);
       onClose();
     } catch (err) {
-      setError(err.message || "Ulozenie zlyhalo, skuste znova.");
+      setError(err.message || "Uložení se nezdařilo, zkuste to znovu.");
     }
     setBusy(false);
   }
 
   return (
-    <ModalShell title="Nahrat fakturu" onClose={onClose} extraWide>
+    <ModalShell title="Nahrát fakturu" onClose={onClose} extraWide>
       {!extracted ? (
         <>
           <p className="text-xs text-slate-500 mb-3">
@@ -4582,9 +4582,9 @@ function InvoiceUploadModal({ receipts, company, onClose, onApply }) {
           <input ref={fileInputRef} type="file" accept=".pdf,application/pdf" className="hidden" onChange={pickFile} />
           {error && <div className="mb-3 bg-red-50 text-red-700 text-xs px-3 py-2 rounded-md flex items-center gap-2"><AlertCircle size={14} /> {error}</div>}
           <div className="flex justify-end gap-2 mt-2">
-            <button onClick={onClose} className="text-sm text-slate-500 px-3 py-2">Zrusit</button>
+            <button onClick={onClose} className="text-sm text-slate-500 px-3 py-2">Zrušit</button>
             <button onClick={handleExtract} disabled={!file || busy} className="bg-teal-700 hover:bg-teal-800 disabled:opacity-50 text-white text-sm font-medium px-4 py-2 rounded-md flex items-center gap-1.5">
-              {busy ? <Loader2 size={16} className="animate-spin" /> : <FileSpreadsheet size={16} />} {busy ? "Spracovavam..." : "Extrahovat"}
+              {busy ? <Loader2 size={16} className="animate-spin" /> : <FileSpreadsheet size={16} />} {busy ? "Zpracovávám..." : "Extrahovat"}
             </button>
           </div>
         </>
@@ -4592,21 +4592,21 @@ function InvoiceUploadModal({ receipts, company, onClose, onApply }) {
         <>
           <div className="bg-slate-50 rounded-md px-3 py-2 mb-3 text-sm">
             <div><b>Dodavatel:</b> {extracted.dodavatel || "-"}</div>
-            <div><b>Cislo faktury:</b> {extracted.cisloFaktury || "-"}</div>
+            <div><b>Číslo faktury:</b> {extracted.cisloFaktury || "-"}</div>
             <div><b>Datum:</b> {extracted.datumFaktury || "-"}</div>
-            <div><b>Mena:</b> {extracted.mena}{kurz && extracted.mena !== "CZK" && ` - kurz CNB ${kurz.rate} CZK/${extracted.mena} (platny pre ${kurz.validFor})`}</div>
+            <div><b>Mena:</b> {extracted.mena}{kurz && extracted.mena !== "CZK" && ` - kurz ČNB ${kurz.rate} CZK/${extracted.mena} (platný pro ${kurz.validFor})`}</div>
           </div>
           {unpricedReceipts.length === 0 && (
-            <div className="mb-3 bg-amber-50 text-amber-800 text-xs px-3 py-2 rounded-md flex items-center gap-2"><AlertCircle size={14} /> Nenasiel sa ziadny prijem tovaru bez ceny na naparovanie. Skontrolujte, ci je prijem uz v systeme zapisany.</div>
+            <div className="mb-3 bg-amber-50 text-amber-800 text-xs px-3 py-2 rounded-md flex items-center gap-2"><AlertCircle size={14} /> Nenašel se žádný příjem zboží bez ceny k napárování. Zkontrolujte, zda je příjem už v systému zapsán.</div>
           )}
           <div className="border border-slate-200 rounded-md overflow-hidden mb-3">
             <table className="w-full text-xs">
               <thead>
                 <tr className="bg-slate-100 text-slate-600 text-left">
-                  <th className="px-2 py-1.5">Polozka na fakture</th>
-                  <th className="px-2 py-1.5 w-24">Mnozstvo</th>
+                  <th className="px-2 py-1.5">Položka na faktuře</th>
+                  <th className="px-2 py-1.5 w-24">Množství</th>
                   <th className="px-2 py-1.5 w-24">Cena/j.</th>
-                  <th className="px-2 py-1.5 w-64">Naparovat na prijem tovaru</th>
+                  <th className="px-2 py-1.5 w-64">Napárovat na příjem zboží</th>
                 </tr>
               </thead>
               <tbody>
@@ -4619,13 +4619,13 @@ function InvoiceUploadModal({ receipts, company, onClose, onApply }) {
                       <select value={m.receiptId} onChange={(e) => setMatchReceipt(i, e.target.value)} className="w-full border border-slate-200 rounded px-1.5 py-1">
                         <option value="">-- nesparovat --</option>
                         {m.suggestions.length > 0 && (
-                          <optgroup label="Navrhovana zhoda">
+                          <optgroup label="Navrhovaná shoda">
                             {m.suggestions.map((r) => (
                               <option key={r.id} value={r.id}>{r.material} - {r.mnozstvo} - {r.datumPrijatia} ({r.dodavatel})</option>
                             ))}
                           </optgroup>
                         )}
-                        <optgroup label="Vsetky neocenene prijmy">
+                        <optgroup label="Všechny neoceněné příjmy">
                           {unpricedReceipts.filter((r) => !m.suggestions.some((s) => s.id === r.id)).map((r) => (
                             <option key={r.id} value={r.id}>{r.material} - {r.mnozstvo} - {r.datumPrijatia} ({r.dodavatel})</option>
                           ))}
@@ -4639,9 +4639,9 @@ function InvoiceUploadModal({ receipts, company, onClose, onApply }) {
           </div>
           {error && <div className="mb-3 bg-red-50 text-red-700 text-xs px-3 py-2 rounded-md flex items-center gap-2"><AlertCircle size={14} /> {error}</div>}
           <div className="flex justify-end gap-2 mt-2">
-            <button onClick={onClose} className="text-sm text-slate-500 px-3 py-2">Zrusit</button>
+            <button onClick={onClose} className="text-sm text-slate-500 px-3 py-2">Zrušit</button>
             <button onClick={handleApply} disabled={busy} className="bg-teal-700 hover:bg-teal-800 disabled:opacity-50 text-white text-sm font-medium px-4 py-2 rounded-md flex items-center gap-1.5">
-              {busy ? <Loader2 size={16} className="animate-spin" /> : <CheckCircle2 size={16} />} {busy ? "Ukladam..." : "Ulozit ceny"}
+              {busy ? <Loader2 size={16} className="animate-spin" /> : <CheckCircle2 size={16} />} {busy ? "Ukládám..." : "Uložit ceny"}
             </button>
           </div>
         </>
@@ -4656,26 +4656,26 @@ function GoodsReceiptsView({ receipts, suppliers, materialOrders, onNew, onEdit,
   const [confirmDelete, setConfirmDelete] = useState(null);
   async function exportToExcel() {
     const rows = receipts.map((r) => ({
-      "Datum prijatia": r.datumPrijatia,
-      "Cas prijatia": r.casPrijatia,
+      "Datum přijetí": r.datumPrijatia,
+      "Čas přijetí": r.casPrijatia,
       "Dodavatel": r.dodavatel,
-      "Cislo objednavky": r.materialObjednavkaCislo,
-      "Material": r.material,
-      "Mnozstvo": r.mnozstvo,
-      "Cena/j. (Kc)": r.cenaJednotkovaCzk || "",
-      "Cislo faktury": r.fakturaCislo || "",
+      "Číslo objednávky": r.materialObjednavkaCislo,
+      "Materiál": r.material,
+      "Množství": r.mnozstvo,
+      "Cena/j. (Kč)": r.cenaJednotkovaCzk || "",
+      "Číslo faktury": r.fakturaCislo || "",
       "Stav": r.stavPrevzatia,
-      "Prevzal": r.prevzal,
-      "Pociatocny stav": r.pociatocnyStav ? "Ano" : "Nie",
+      "Převzal": r.prevzal,
+      "Počáteční stav": r.pociatocnyStav ? "Ano" : "Nie",
     }));
-    await exportRowsToExcel(rows, "Prijem tovaru", "Prijem_tovaru");
+    await exportRowsToExcel(rows, "Příjem zboží", "Prijem_tovaru");
   }
   return (
     <div>
       <div className="flex items-center justify-between mb-4">
-        <h1 className="text-xl font-semibold">Prijem tovaru na sklade</h1>
+        <h1 className="text-xl font-semibold">Příjem zboží na skladě</h1>
         <div className="flex gap-2">
-          <button onClick={exportToExcel} disabled={receipts.length === 0} title={receipts.length === 0 ? "Zoznam je prazdny" : "Exportovat do Excelu"} className="flex items-center gap-1.5 bg-white border border-slate-200 hover:bg-slate-50 disabled:opacity-50 disabled:cursor-not-allowed text-slate-700 text-sm font-medium px-3 py-2 rounded-md">
+          <button onClick={exportToExcel} disabled={receipts.length === 0} title={receipts.length === 0 ? "Seznam je prázdný" : "Exportovat do Excelu"} className="flex items-center gap-1.5 bg-white border border-slate-200 hover:bg-slate-50 disabled:opacity-50 disabled:cursor-not-allowed text-slate-700 text-sm font-medium px-3 py-2 rounded-md">
             <Download size={16} /> Export do Excelu
           </button>
           <button onClick={onUploadInvoice} className="flex items-center gap-1.5 bg-white border border-slate-200 hover:bg-slate-50 text-slate-700 text-sm font-medium px-3 py-2 rounded-md">
@@ -4689,19 +4689,19 @@ function GoodsReceiptsView({ receipts, suppliers, materialOrders, onNew, onEdit,
       {receipts.length === 0 ? (
         <div className="bg-white border border-slate-200 rounded-lg p-10 text-center text-slate-500">
           <PackagePlus size={28} className="mx-auto mb-3 text-slate-300" />
-          Zatial ziadne zaznamy o prijme tovaru.
+          Zatím žádné záznamy o příjmu zboží.
         </div>
       ) : (
         <div className="bg-white border border-slate-200 rounded-lg overflow-x-auto">
           <table className="w-full text-sm">
             <thead>
               <tr className="bg-slate-100 text-slate-600 text-left">
-                <th className="px-3 py-2 font-medium whitespace-nowrap">Prijate</th>
+                <th className="px-3 py-2 font-medium whitespace-nowrap">Přijato</th>
                 <th className="px-3 py-2 font-medium">Dodavatel</th>
-                <th className="px-3 py-2 font-medium">Material / mnozstvo</th>
+                <th className="px-3 py-2 font-medium">Materiál / množství</th>
                 <th className="px-3 py-2 font-medium">Stav</th>
-                <th className="px-3 py-2 font-medium">Prevzal</th>
-                <th className="px-3 py-2 font-medium text-right">Akcie</th>
+                <th className="px-3 py-2 font-medium">Převzal</th>
+                <th className="px-3 py-2 font-medium text-right">Akce</th>
               </tr>
             </thead>
             <tbody>
@@ -4713,7 +4713,7 @@ function GoodsReceiptsView({ receipts, suppliers, materialOrders, onNew, onEdit,
                   </td>
                   <td className="px-3 py-2">
                     {r.dodavatel || <span className="text-slate-400">-</span>}
-                    {r.pociatocnyStav && <span className="ml-2 text-xs font-medium px-2 py-0.5 rounded-full bg-slate-100 text-slate-600">Pociatocny stav</span>}
+                    {r.pociatocnyStav && <span className="ml-2 text-xs font-medium px-2 py-0.5 rounded-full bg-slate-100 text-slate-600">Počáteční stav</span>}
                     {r.materialObjednavkaCislo && <div className="text-xs text-slate-400">obj.: {r.materialObjednavkaCislo}</div>}
                   </td>
                   <td className="px-3 py-2">
@@ -4726,12 +4726,12 @@ function GoodsReceiptsView({ receipts, suppliers, materialOrders, onNew, onEdit,
                     <div className="flex justify-end gap-1">
                       {r.photoPath && <IconButton title="Zobrazit fotku" onClick={() => openGoodsReceiptPhoto(r.photoPath)}><Camera size={16} /></IconButton>}
                       {r.fakturaPath && (
-                        <IconButton title={`Faktura ${r.fakturaCislo || ""} - cena ${r.cenaJednotkovaCzk} Kc/j.`} sent onClick={() => openInvoiceFile(r.fakturaPath)}>
+                        <IconButton title={`Faktura ${r.fakturaCislo || ""} - cena ${r.cenaJednotkovaCzk} Kč/j.`} sent onClick={() => openInvoiceFile(r.fakturaPath)}>
                           <FileSpreadsheet size={16} />
                         </IconButton>
                       )}
                       <IconButton title="Upravit" onClick={() => onEdit(r)}><Pencil size={16} /></IconButton>
-                      <IconButton title="Zmazat" onClick={() => setConfirmDelete(r)}><Trash2 size={16} /></IconButton>
+                      <IconButton title="Smazat" onClick={() => setConfirmDelete(r)}><Trash2 size={16} /></IconButton>
                     </div>
                   </td>
                 </tr>
@@ -4741,10 +4741,10 @@ function GoodsReceiptsView({ receipts, suppliers, materialOrders, onNew, onEdit,
         </div>
       )}
       {confirmDelete && (
-        <ModalShell title="Zmazat zaznam?" onClose={() => setConfirmDelete(null)}>
-          <p className="text-sm text-slate-600 mb-4">Naozaj chcete zmazat tento zaznam o prijme tovaru? Tuto akciu nie je mozne vratit spat.</p>
+        <ModalShell title="Smazat záznam?" onClose={() => setConfirmDelete(null)}>
+          <p className="text-sm text-slate-600 mb-4">Opravdu chcete smazat tento záznam o příjmu zboží? Tuto akci nelze vrátit zpět.</p>
           <div className="flex justify-end gap-2">
-            <button onClick={() => setConfirmDelete(null)} className="text-sm text-slate-500 px-3 py-2">Zrusit</button>
+            <button onClick={() => setConfirmDelete(null)} className="text-sm text-slate-500 px-3 py-2">Zrušit</button>
             <button onClick={() => { onDelete(confirmDelete.id); setConfirmDelete(null); }} className="bg-red-600 hover:bg-red-700 text-white text-sm font-medium px-4 py-2 rounded-md flex items-center gap-1.5">
               <Trash2 size={16} /> Ano, zmazat
             </button>
@@ -4787,31 +4787,31 @@ function GoodsReceiptFormModal({ receipt, suppliers, materialOrders, existingRec
       if (error) throw error;
       setF((prev) => ({ ...prev, photoPath: path }));
     } catch (err) {
-      setPhotoError("Nahratie fotky zlyhalo, skuste znova.");
+      setPhotoError("Nahrání fotky se nezdařilo, zkuste to znovu.");
     }
     setPhotoUploading(false);
     if (e.target) e.target.value = "";
   }
 
   return (
-    <ModalShell title={receipt ? "Upravit prijem" : "Novy prijem tovaru"} onClose={onClose} wide>
+    <ModalShell title={receipt ? "Upravit příjem" : "Nový příjem zboží"} onClose={onClose} wide>
       <div className="grid grid-cols-2 gap-x-3">
-        <DateField label="Datum prijatia" value={f.datumPrijatia} onChange={(v) => setF({ ...f, datumPrijatia: v })} />
-        <Field label="Cas prijatia" value={f.casPrijatia} onChange={(v) => setF({ ...f, casPrijatia: v })} />
+        <DateField label="Datum přijetí" value={f.datumPrijatia} onChange={(v) => setF({ ...f, datumPrijatia: v })} />
+        <Field label="Čas přijetí" value={f.casPrijatia} onChange={(v) => setF({ ...f, casPrijatia: v })} />
       </div>
       <SelectField
         label="Dodavatel"
         value={f.dodavatelId}
         onChange={pickSupplier}
-        options={[{ value: "", label: "-- vyberte / doplnim rucne --" }, ...suppliers.map((s) => ({ value: s.id, label: s.nazov }))]}
+        options={[{ value: "", label: "-- vyberte / doplním ručně --" }, ...suppliers.map((s) => ({ value: s.id, label: s.nazov }))]}
       />
-      <Field label="Nazov dodavatela (zobrazenie)" value={f.dodavatel} onChange={(v) => setF({ ...f, dodavatel: v })} />
+      <Field label="Název dodavatele (zobrazení)" value={f.dodavatel} onChange={(v) => setF({ ...f, dodavatel: v })} />
       {materialOrders.length > 0 && (
         <SelectField
-          label="Suvisiaca objednavka (Objednavky surovin a obalov) - nepovinne"
+          label="Související objednávka (Objednávky surovin a obalů) - nepovinné"
           value={f.materialObjednavkaId}
           onChange={pickMaterialOrder}
-          options={[{ value: "", label: "-- ziadna --" }, ...materialOrders.map((o) => ({ value: o.id, label: `${o.cisloObjednavkyDopravy} - ${o.dodavatel || ""}` }))]}
+          options={[{ value: "", label: "-- žádná --" }, ...materialOrders.map((o) => ({ value: o.id, label: `${o.cisloObjednavkyDopravy} - ${o.dodavatel || ""}` }))]}
         />
       )}
       <div className="mb-1 flex gap-1.5 flex-wrap">
@@ -4819,9 +4819,9 @@ function GoodsReceiptFormModal({ receipt, suppliers, materialOrders, existingRec
           <button key={m} type="button" onClick={() => setF({ ...f, material: m })} className="text-xs bg-slate-100 hover:bg-slate-200 text-slate-700 px-2 py-1 rounded-md">{m}</button>
         ))}
       </div>
-      <Field label="Material / polozka" value={f.material} onChange={(v) => setF({ ...f, material: v })} />
+      <Field label="Materiál / položka" value={f.material} onChange={(v) => setF({ ...f, material: v })} />
       <div className="mb-3">
-        <span className="block text-xs font-medium text-slate-500 mb-1">Mnozstvo</span>
+        <span className="block text-xs font-medium text-slate-500 mb-1">Množství</span>
         <div className="flex gap-2 items-center flex-wrap">
           <input
             value={f.mnozstvoCislo !== undefined && f.mnozstvoCislo !== "" ? f.mnozstvoCislo : ""}
@@ -4830,7 +4830,7 @@ function GoodsReceiptFormModal({ receipt, suppliers, materialOrders, existingRec
               setF({ ...f, mnozstvoCislo: num, mnozstvo: [num, f.mnozstvoJednotka].filter(Boolean).join(" ").trim() });
             }}
             inputMode="decimal"
-            placeholder="napr. 20"
+            placeholder="např. 20"
             className="w-24 border border-slate-200 rounded-md px-2.5 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-teal-600"
           />
           <select
@@ -4845,9 +4845,9 @@ function GoodsReceiptFormModal({ receipt, suppliers, materialOrders, existingRec
           </select>
         </div>
       </div>
-      <Field label="Cislo dodacieho listu / faktury od dodavatela" value={f.cisloDokladu} onChange={(v) => setF({ ...f, cisloDokladu: v })} />
+      <Field label="Číslo dodacího listu / faktury od dodavatele" value={f.cisloDokladu} onChange={(v) => setF({ ...f, cisloDokladu: v })} />
       <SelectField
-        label="Stav pri prevzati"
+        label="Stav při převzetí"
         value={f.stavPrevzatia}
         onChange={(v) => setF({ ...f, stavPrevzatia: v })}
         options={[
@@ -4856,8 +4856,8 @@ function GoodsReceiptFormModal({ receipt, suppliers, materialOrders, existingRec
           { value: "Nekompletne", label: "Nekompletne" },
         ]}
       />
-      <Field label="Poznamka" value={f.poznamka} onChange={(v) => setF({ ...f, poznamka: v })} textarea />
-      <Field label="Prevzal" value={f.prevzal} onChange={(v) => setF({ ...f, prevzal: v })} />
+      <Field label="Poznámka" value={f.poznamka} onChange={(v) => setF({ ...f, poznamka: v })} textarea />
+      <Field label="Převzal" value={f.prevzal} onChange={(v) => setF({ ...f, prevzal: v })} />
       <div className="mb-3">
         <span className="block text-xs font-medium text-slate-500 mb-1">Fotka (nepovinne)</span>
         <div className="flex items-center gap-2 flex-wrap">
@@ -4866,13 +4866,13 @@ function GoodsReceiptFormModal({ receipt, suppliers, materialOrders, existingRec
           )}
           <label className="text-xs bg-white border border-slate-200 hover:bg-slate-50 text-slate-700 px-2.5 py-1.5 rounded-md cursor-pointer flex items-center gap-1">
             {photoUploading ? <Loader2 size={12} className="animate-spin" /> : <Upload size={12} />}
-            {f.photoPath ? "Nahradit fotku" : "Nahrat fotku"}
+            {f.photoPath ? "Nahradit fotku" : "Nahrát fotku"}
             <input type="file" accept="image/*" className="hidden" onChange={handlePhotoSelect} disabled={photoUploading} />
           </label>
         </div>
         {photoError && <div className="mt-1 text-xs text-red-700">{photoError}</div>}
       </div>
-      <div className="flex justify-end mt-2"><button onClick={() => onSave({ ...f, id: formId })} className="bg-teal-700 hover:bg-teal-800 text-white text-sm font-medium px-4 py-2 rounded-md">Ulozit</button></div>
+      <div className="flex justify-end mt-2"><button onClick={() => onSave({ ...f, id: formId })} className="bg-teal-700 hover:bg-teal-800 text-white text-sm font-medium px-4 py-2 rounded-md">Uložit</button></div>
     </ModalShell>
   );
 }
@@ -4880,7 +4880,7 @@ function GoodsReceiptFormModal({ receipt, suppliers, materialOrders, existingRec
 /* ---------------- Stav zasob ---------------- */
 
 function formatCzk(n) {
-  return Math.round(n).toLocaleString("sk-SK") + " Kc";
+  return Math.round(n).toLocaleString("sk-SK") + " Kč";
 }
 
 function StockView({ goodsReceipts, stockIssues, onNew, onEdit, onDelete }) {
@@ -4891,28 +4891,28 @@ function StockView({ goodsReceipts, stockIssues, onNew, onEdit, onDelete }) {
 
   async function exportToExcel() {
     const stockRows = stock.map((row) => ({
-      "Material": row.material,
-      "Prijate": row.prijate,
-      "Vydane": row.vydane,
-      "Aktualny stav": row.stav,
+      "Materiál": row.material,
+      "Přijato": row.prijate,
+      "Vydáno": row.vydane,
+      "Aktuální stav": row.stav,
       "Jednotka": row.unit,
-      "Priemerna cena (Kc)": row.priemernaCena !== null ? Math.round(row.priemernaCena * 100) / 100 : "",
-      "Hodnota (Kc)": row.hodnota !== null ? Math.round(row.hodnota) : "",
-      "Neocenene prijmy": row.neocenenePrijmy,
+      "Průměrná cena (Kč)": row.priemernaCena !== null ? Math.round(row.priemernaCena * 100) / 100 : "",
+      "Hodnota (Kč)": row.hodnota !== null ? Math.round(row.hodnota) : "",
+      "Neoceněné příjmy": row.neocenenePrijmy,
     }));
     const issueRows = stockIssues.map((i) => ({
       "Datum": i.datum,
-      "Cas": i.cas,
-      "Material": i.material,
-      "Mnozstvo": i.mnozstvo,
-      "Dovod": i.dovod,
-      "Zapisal": i.zapisal,
+      "Čas": i.cas,
+      "Materiál": i.material,
+      "Množství": i.mnozstvo,
+      "Důvod": i.dovod,
+      "Zapsal": i.zapisal,
       "Nad stav": i.prekroceniePotvrdene ? "Ano" : "Nie",
     }));
     await exportSheetsToExcel(
       [
-        { name: "Stav zasob", rows: stockRows },
-        { name: "Posledne vydaje", rows: issueRows },
+        { name: "Stav zásob", rows: stockRows },
+        { name: "Poslední výdeje", rows: issueRows },
       ],
       "Stav_zasob"
     );
@@ -4921,9 +4921,9 @@ function StockView({ goodsReceipts, stockIssues, onNew, onEdit, onDelete }) {
   return (
     <div>
       <div className="flex items-center justify-between mb-4">
-        <h1 className="text-xl font-semibold">Stav zasob</h1>
+        <h1 className="text-xl font-semibold">Stav zásob</h1>
         <div className="flex gap-2">
-          <button onClick={exportToExcel} disabled={stock.length === 0 && stockIssues.length === 0} title={stock.length === 0 && stockIssues.length === 0 ? "Zoznam je prazdny" : "Exportovat do Excelu"} className="flex items-center gap-1.5 bg-white border border-slate-200 hover:bg-slate-50 disabled:opacity-50 disabled:cursor-not-allowed text-slate-700 text-sm font-medium px-3 py-2 rounded-md">
+          <button onClick={exportToExcel} disabled={stock.length === 0 && stockIssues.length === 0} title={stock.length === 0 && stockIssues.length === 0 ? "Seznam je prázdný" : "Exportovat do Excelu"} className="flex items-center gap-1.5 bg-white border border-slate-200 hover:bg-slate-50 disabled:opacity-50 disabled:cursor-not-allowed text-slate-700 text-sm font-medium px-3 py-2 rounded-md">
             <Download size={16} /> Export do Excelu
           </button>
           <button onClick={onNew} className="flex items-center gap-1.5 bg-teal-700 hover:bg-teal-800 text-white text-sm font-medium px-3 py-2 rounded-md">
@@ -4935,12 +4935,12 @@ function StockView({ goodsReceipts, stockIssues, onNew, onEdit, onDelete }) {
       {stock.length === 0 ? (
         <div className="bg-white border border-slate-200 rounded-lg p-10 text-center text-slate-500 mb-6">
           <Warehouse size={28} className="mx-auto mb-3 text-slate-300" />
-          Zatial ziadne data o zasobach.
+          Zatím žádná data o zásobách.
         </div>
       ) : (
         <div className="bg-white border border-slate-200 rounded-lg overflow-x-auto mb-6">
           <div className="flex items-center justify-between px-3 py-2.5 bg-slate-50 border-b border-slate-200 flex-wrap gap-2">
-            <span className="text-sm text-slate-600">Celkova hodnota skladu: <b className="text-slate-900">{formatCzk(celkovaHodnota)}</b></span>
+            <span className="text-sm text-slate-600">Celková hodnota skladu: <b className="text-slate-900">{formatCzk(celkovaHodnota)}</b></span>
             {pocetNeocenenych > 0 && (
               <span className="text-xs text-amber-700 bg-amber-50 px-2 py-1 rounded-md flex items-center gap-1"><AlertCircle size={12} /> {pocetNeocenenych} prijem(ov) caka na fakturu - hodnota je neuplna</span>
             )}
@@ -4948,10 +4948,10 @@ function StockView({ goodsReceipts, stockIssues, onNew, onEdit, onDelete }) {
           <table className="w-full text-sm">
             <thead>
               <tr className="bg-slate-100 text-slate-600 text-left">
-                <th className="px-3 py-2 font-medium">Material</th>
-                <th className="px-3 py-2 font-medium text-right">Prijate</th>
-                <th className="px-3 py-2 font-medium text-right">Vydane</th>
-                <th className="px-3 py-2 font-medium text-right">Aktualny stav</th>
+                <th className="px-3 py-2 font-medium">Materiál</th>
+                <th className="px-3 py-2 font-medium text-right">Přijato</th>
+                <th className="px-3 py-2 font-medium text-right">Vydáno</th>
+                <th className="px-3 py-2 font-medium text-right">Aktuální stav</th>
                 <th className="px-3 py-2 font-medium text-right">Hodnota</th>
               </tr>
             </thead>
@@ -4973,19 +4973,19 @@ function StockView({ goodsReceipts, stockIssues, onNew, onEdit, onDelete }) {
         </div>
       )}
 
-      <h2 className="text-sm font-semibold text-slate-500 mb-2">Posledne vydaje</h2>
+      <h2 className="text-sm font-semibold text-slate-500 mb-2">Poslední výdeje</h2>
       {stockIssues.length === 0 ? (
-        <div className="bg-white border border-slate-200 rounded-lg p-6 text-center text-slate-400 text-sm">Zatial ziadne zaznamy.</div>
+        <div className="bg-white border border-slate-200 rounded-lg p-6 text-center text-slate-400 text-sm">Zatím žádné záznamy.</div>
       ) : (
         <div className="bg-white border border-slate-200 rounded-lg overflow-hidden">
           <table className="w-full text-sm">
             <thead>
               <tr className="bg-slate-100 text-slate-600 text-left">
                 <th className="px-3 py-2 font-medium">Datum</th>
-                <th className="px-3 py-2 font-medium">Material</th>
-                <th className="px-3 py-2 font-medium">Mnozstvo</th>
-                <th className="px-3 py-2 font-medium">Dovod</th>
-                <th className="px-3 py-2 font-medium">Zapisal</th>
+                <th className="px-3 py-2 font-medium">Materiál</th>
+                <th className="px-3 py-2 font-medium">Množství</th>
+                <th className="px-3 py-2 font-medium">Důvod</th>
+                <th className="px-3 py-2 font-medium">Zapsal</th>
                 <th className="px-3 py-2"></th>
               </tr>
             </thead>
@@ -5001,7 +5001,7 @@ function StockView({ goodsReceipts, stockIssues, onNew, onEdit, onDelete }) {
                   <td className="px-3 py-2 text-slate-500">{i.dovod}</td>
                   <td className="px-3 py-2 text-slate-500">{i.zapisal}</td>
                   <td className="px-3 py-2 text-right" onClick={(e) => e.stopPropagation()}>
-                    <IconButton title="Zmazat" onClick={() => setConfirmDelete(i)}><Trash2 size={16} /></IconButton>
+                    <IconButton title="Smazat" onClick={() => setConfirmDelete(i)}><Trash2 size={16} /></IconButton>
                   </td>
                 </tr>
               ))}
@@ -5011,10 +5011,10 @@ function StockView({ goodsReceipts, stockIssues, onNew, onEdit, onDelete }) {
       )}
 
       {confirmDelete && (
-        <ModalShell title="Zmazat vydaj?" onClose={() => setConfirmDelete(null)}>
-          <p className="text-sm text-slate-600 mb-4">Naozaj chcete zmazat tento zaznam o vydaji materialu? Tuto akciu nie je mozne vratit spat.</p>
+        <ModalShell title="Smazat výdej?" onClose={() => setConfirmDelete(null)}>
+          <p className="text-sm text-slate-600 mb-4">Opravdu chcete smazat tento záznam o výdeji materiálu? Tuto akci nelze vrátit zpět.</p>
           <div className="flex justify-end gap-2">
-            <button onClick={() => setConfirmDelete(null)} className="text-sm text-slate-500 px-3 py-2">Zrusit</button>
+            <button onClick={() => setConfirmDelete(null)} className="text-sm text-slate-500 px-3 py-2">Zrušit</button>
             <button onClick={() => { onDelete(confirmDelete.id); setConfirmDelete(null); }} className="bg-red-600 hover:bg-red-700 text-white text-sm font-medium px-4 py-2 rounded-md flex items-center gap-1.5">
               <Trash2 size={16} /> Ano, zmazat
             </button>
@@ -5036,19 +5036,19 @@ function StockIssueFormModal({ issue, existingReceipts, existingIssues, currentU
   const materialPicks = [...MATERIAL_QUICK_PICKS, ...extraKnownMaterials(existingReceipts, existingIssues, MATERIAL_QUICK_PICKS)];
 
   return (
-    <ModalShell title={issue ? "Upravit vydaj" : "Novy vydaj materialu"} onClose={onClose}>
+    <ModalShell title={issue ? "Upravit výdej" : "Nový výdej materiálu"} onClose={onClose}>
       <div className="grid grid-cols-2 gap-x-3">
         <DateField label="Datum" value={f.datum} onChange={(v) => setF({ ...f, datum: v })} />
-        <Field label="Cas" value={f.cas} onChange={(v) => setF({ ...f, cas: v })} />
+        <Field label="Čas" value={f.cas} onChange={(v) => setF({ ...f, cas: v })} />
       </div>
       <div className="mb-1 flex gap-1.5 flex-wrap">
         {materialPicks.map((m) => (
           <button key={m} type="button" onClick={() => setF({ ...f, material: m })} className="text-xs bg-slate-100 hover:bg-slate-200 text-slate-700 px-2 py-1 rounded-md">{m}</button>
         ))}
       </div>
-      <Field label="Material / polozka" value={f.material} onChange={(v) => setF({ ...f, material: v })} />
+      <Field label="Materiál / položka" value={f.material} onChange={(v) => setF({ ...f, material: v })} />
       <div className="mb-3">
-        <span className="block text-xs font-medium text-slate-500 mb-1">Mnozstvo</span>
+        <span className="block text-xs font-medium text-slate-500 mb-1">Množství</span>
         <div className="flex gap-2 items-center flex-wrap">
           <input
             value={f.mnozstvoCislo !== undefined && f.mnozstvoCislo !== "" ? f.mnozstvoCislo : ""}
@@ -5057,7 +5057,7 @@ function StockIssueFormModal({ issue, existingReceipts, existingIssues, currentU
               setF({ ...f, mnozstvoCislo: num, mnozstvo: [num, f.mnozstvoJednotka].filter(Boolean).join(" ").trim() });
             }}
             inputMode="decimal"
-            placeholder="napr. 20"
+            placeholder="např. 20"
             className="w-24 border border-slate-200 rounded-md px-2.5 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-teal-600"
           />
           <select
@@ -5073,14 +5073,14 @@ function StockIssueFormModal({ issue, existingReceipts, existingIssues, currentU
         </div>
       </div>
       <SelectField
-        label="Dovod"
+        label="Důvod"
         value={f.dovod}
         onChange={(v) => setF({ ...f, dovod: v })}
         options={STOCK_ISSUE_REASONS.map((d) => ({ value: d, label: d }))}
       />
-      <Field label="Poznamka" value={f.poznamka} onChange={(v) => setF({ ...f, poznamka: v })} textarea />
-      <Field label="Zapisal" value={f.zapisal} onChange={(v) => setF({ ...f, zapisal: v })} />
-      <div className="flex justify-end mt-2"><button onClick={() => onSave({ ...f, id: formId })} className="bg-teal-700 hover:bg-teal-800 text-white text-sm font-medium px-4 py-2 rounded-md">Ulozit</button></div>
+      <Field label="Poznámka" value={f.poznamka} onChange={(v) => setF({ ...f, poznamka: v })} textarea />
+      <Field label="Zapsal" value={f.zapisal} onChange={(v) => setF({ ...f, zapisal: v })} />
+      <div className="flex justify-end mt-2"><button onClick={() => onSave({ ...f, id: formId })} className="bg-teal-700 hover:bg-teal-800 text-white text-sm font-medium px-4 py-2 rounded-md">Uložit</button></div>
     </ModalShell>
   );
 }
@@ -5097,7 +5097,7 @@ function ProductionPlanView({ productionPlan, products, goodsReceipts, stockIssu
   const [showOlderOutputs, setShowOlderOutputs] = useState(false);
 
   // Zobrazuje sa len od vcerajska (aby sa nemuselo scrollovat cez tyzdne historie), buducnost
-  // vzdy cela viditelna. Starsie zaznamy sa schovaju pod "Zobrazit starsie" - export ostava
+  // vzdy cela viditelna. Starsie zaznamy sa schovaju pod "Zobrazit starší" - export ostava
   // nezmeneny, vzdy exportuje uplne vsetko bez ohladu na tento filter.
   const dnesCutoff = new Date();
   dnesCutoff.setHours(0, 0, 0, 0);
@@ -5129,25 +5129,25 @@ function ProductionPlanView({ productionPlan, products, goodsReceipts, stockIssu
   async function exportOutputsToExcel() {
     const exportRows = (productionOutputs || []).map((o) => ({
       "Datum": o.datum,
-      "Cas": o.cas,
+      "Čas": o.cas,
       "Linka": (PRODUCTION_LINKY.find((l) => l.value === o.linka) || {}).label || o.linka,
       "Produkt": o.produktNazov,
-      "Mnozstvo (paliet)": o.mnozstvo,
-      "Sarza": o.sarza,
-      "Zapisala": o.zapisala,
+      "Množství (palet)": o.mnozstvo,
+      "Šarže": o.sarza,
+      "Zapsala": o.zapisala,
     }));
-    await exportRowsToExcel(exportRows, "Vyrobne zaznamy", "Vyrobne_zaznamy", 16);
+    await exportRowsToExcel(exportRows, "Výrobní záznamy", "Vyrobne_zaznamy", 16);
   }
 
   async function exportPrestavkyToExcel() {
     const exportRows = (prestavky || []).map((p) => ({
-      "Meno": p.meno,
+      "Jméno": p.meno,
       "Datum": p.datum,
-      "Zaciatok": p.casZaciatku,
-      "Koniec": p.casKonca || "prebieha",
-      "Trvanie (min)": durationMinutes(p.casZaciatku, p.casKonca) ?? "",
+      "Začátek": p.casZaciatku,
+      "Konec": p.casKonca || "probíhá",
+      "Trvání (min)": durationMinutes(p.casZaciatku, p.casKonca) ?? "",
     }));
-    await exportRowsToExcel(exportRows, "Prestavky", "Prestavky", 16);
+    await exportRowsToExcel(exportRows, "Přestávky", "Přestávky", 16);
   }
 
   async function exportPlanToExcel() {
@@ -5155,16 +5155,16 @@ function ProductionPlanView({ productionPlan, products, goodsReceipts, stockIssu
       "Datum": r.datum,
       "Produkt": r.produktNazov,
       "Linka": (PRODUCTION_LINKY.find((l) => l.value === r.linka) || {}).label || r.linka,
-      "Mnozstvo": r.mnozstvo,
-      "Jednotka": r.mnozstvoJednotka === "kartonov" ? "kartonov" : "paliet",
-      "Termin dodania": r.terminDodania,
-      "Poznamka": r.poznamka,
+      "Množství": r.mnozstvo,
+      "Jednotka": r.mnozstvoJednotka === "kartonů" ? "kartonů" : "paliet",
+      "Termín dodání": r.terminDodania,
+      "Poznámka": r.poznamka,
     }));
-    await exportRowsToExcel(exportRows, "Vyrobny plan", "Vyrobny_plan", 16);
+    await exportRowsToExcel(exportRows, "Výrobní plán", "Vyrobny_plan", 16);
   }
 
   const printBody = rows
-    .map((r) => `${r.datum}  ${r.produktNazov}  -  ${r.mnozstvo} ${r.mnozstvoJednotka === "kartonov" ? "kartonov" : "paliet"}${r.poznamka ? "  (" + r.poznamka + ")" : ""}${r.terminDodania ? "  [termin: " + r.terminDodania + "]" : ""}`)
+    .map((r) => `${r.datum}  ${r.produktNazov}  -  ${r.mnozstvo} ${r.mnozstvoJednotka === "kartonov" ? "kartonů" : "palet"}${r.poznamka ? "  (" + r.poznamka + ")" : ""}${r.terminDodania ? "  [termín: " + r.terminDodania + "]" : ""}`)
     .join("\n");
 
   function handlePrint() {
@@ -5180,14 +5180,14 @@ function ProductionPlanView({ productionPlan, products, goodsReceipts, stockIssu
           {r.produktNazov}
           {shortages.length > 0 && <AlertCircle size={14} className="inline-block ml-1.5 text-red-500 align-text-bottom" />}
         </td>
-        <td className="px-3 py-2 text-slate-500 whitespace-nowrap">{r.mnozstvo} {r.mnozstvoJednotka === "kartonov" ? "kartonov" : "paliet"}</td>
+        <td className="px-3 py-2 text-slate-500 whitespace-nowrap">{r.mnozstvo} {r.mnozstvoJednotka === "kartonů" ? "kartonů" : "paliet"}</td>
         <td className="px-3 py-2 text-slate-500 whitespace-nowrap">{r.terminDodania}</td>
         <td className="px-3 py-2 text-slate-500">{r.poznamka}</td>
         <td className="px-3 py-2"><Badge text={VYROBA_STATUS_LABELS[r.stavVyroby] || VYROBA_STATUS_LABELS.caka} map={STATUS_VYROBY} /></td>
         <td className="px-3 py-2 text-right">
           <div className="flex justify-end gap-1">
             <IconButton title="Upravit" onClick={() => onEdit(r)}><Pencil size={16} /></IconButton>
-            <IconButton title="Zmazat" onClick={() => setConfirmDelete(r)}><Trash2 size={16} /></IconButton>
+            <IconButton title="Smazat" onClick={() => setConfirmDelete(r)}><Trash2 size={16} /></IconButton>
           </div>
         </td>
       </tr>
@@ -5200,7 +5200,7 @@ function ProductionPlanView({ productionPlan, products, goodsReceipts, stockIssu
         <td className="px-3 py-2 whitespace-nowrap">{o.datum} {o.cas}</td>
         <td className="px-3 py-2 font-medium">
           {o.produktNazov}
-          {o.pociatocnyStav && <span className="ml-2 text-xs font-medium px-2 py-0.5 rounded-full bg-slate-100 text-slate-600">Pociatocny stav</span>}
+          {o.pociatocnyStav && <span className="ml-2 text-xs font-medium px-2 py-0.5 rounded-full bg-slate-100 text-slate-600">Počáteční stav</span>}
         </td>
         <td className="px-3 py-2 text-slate-500">{o.mnozstvo} paliet</td>
         <td className="px-3 py-2 text-slate-500">{o.sarza}</td>
@@ -5208,7 +5208,7 @@ function ProductionPlanView({ productionPlan, products, goodsReceipts, stockIssu
         <td className="px-3 py-2 text-right">
           <div className="flex justify-end gap-1">
             <IconButton title="Upravit" onClick={() => onEditOutput(o)}><Pencil size={16} /></IconButton>
-            <IconButton title="Zmazat" onClick={() => setConfirmDeleteOutput(o)}><Trash2 size={16} /></IconButton>
+            <IconButton title="Smazat" onClick={() => setConfirmDeleteOutput(o)}><Trash2 size={16} /></IconButton>
           </div>
         </td>
       </tr>
@@ -5222,14 +5222,14 @@ function ProductionPlanView({ productionPlan, products, goodsReceipts, stockIssu
     prestavky: "bg-amber-600 border-amber-600 shadow-amber-200",
   };
   const PLAN_TABS = [
-    { key: "plan", label: "Vyrobny plan", icon: <ClipboardCheck size={18} /> },
-    { key: "zaznamy", label: "Vyrobne zaznamy", icon: <Factory size={18} /> },
-    { key: "prestavky", label: "Prestavky", icon: <Coffee size={18} />, badge: aktualnePrestavky.length || null },
+    { key: "plan", label: "Výrobní plán", icon: <ClipboardCheck size={18} /> },
+    { key: "záznamy", label: "Výrobní záznamy", icon: <Factory size={18} /> },
+    { key: "prestavky", label: "Přestávky", icon: <Coffee size={18} />, badge: aktualnePrestavky.length || null },
   ];
 
   return (
     <div>
-      <PrintDocument id="production-plan-print" title="Vyrobny plan" subtitle="Stenger Czech s.r.o." body={printBody || "Ziadne zaznamy."} fontSize="15px" lineHeight={1.7} />
+      <PrintDocument id="production-plan-print" title="Výrobní plán" subtitle="Stenger Czech s.r.o." body={printBody || "Žádné záznamy."} fontSize="15px" lineHeight={1.7} />
       <div className="flex items-center justify-between mb-4 flex-wrap gap-2">
         <h1 className="text-xl font-semibold">Vyroba</h1>
       </div>
@@ -5261,17 +5261,17 @@ function ProductionPlanView({ productionPlan, products, goodsReceipts, stockIssu
       <>
       <div className="flex items-center justify-between mb-4 flex-wrap gap-2">
         <div className="flex gap-1.5 flex-wrap">
-          {[{ value: "vsetko", label: "Vsetko" }, ...PRODUCTION_LINKY].map((l) => (
+          {[{ value: "vsetko", label: "Vše" }, ...PRODUCTION_LINKY].map((l) => (
             <button key={l.value} onClick={() => setFilterLinka(l.value)} className={"text-sm px-3 py-1.5 rounded-md border " + (filterLinka === l.value ? "bg-teal-700 text-white border-teal-700" : "bg-white text-slate-700 border-slate-200")}>{l.label}</button>
           ))}
         </div>
         <div className="flex gap-2">
-          <button onClick={exportPlanToExcel} disabled={rows.length === 0} title={rows.length === 0 ? "Plan je prazdny" : "Exportovat vyrobny plan do Excelu"} className="flex items-center gap-1.5 bg-white border border-slate-200 hover:bg-slate-50 disabled:opacity-50 disabled:cursor-not-allowed text-slate-700 text-sm font-medium px-3 py-2 rounded-md">
+          <button onClick={exportPlanToExcel} disabled={rows.length === 0} title={rows.length === 0 ? "Plán je prázdný" : "Exportovat výrobní plán do Excelu"} className="flex items-center gap-1.5 bg-white border border-slate-200 hover:bg-slate-50 disabled:opacity-50 disabled:cursor-not-allowed text-slate-700 text-sm font-medium px-3 py-2 rounded-md">
             <Download size={16} /> Export do Excelu
           </button>
-          <button onClick={handlePrint} className="bg-white border border-slate-200 hover:bg-slate-50 text-slate-700 text-sm font-medium px-3 py-2 rounded-md flex items-center gap-1.5"><Printer size={16} /> Tlacit</button>
+          <button onClick={handlePrint} className="bg-white border border-slate-200 hover:bg-slate-50 text-slate-700 text-sm font-medium px-3 py-2 rounded-md flex items-center gap-1.5"><Printer size={16} /> Tisknout</button>
           <button onClick={onNew} className="flex items-center gap-1.5 bg-teal-700 hover:bg-teal-800 text-white text-sm font-medium px-3 py-2 rounded-md">
-            <Plus size={16} /> Novy zaznam
+            <Plus size={16} /> Nový záznam
           </button>
         </div>
       </div>
@@ -5279,7 +5279,7 @@ function ProductionPlanView({ productionPlan, products, goodsReceipts, stockIssu
       {recentRows.length === 0 ? (
         <div className="bg-white border border-slate-200 rounded-lg p-10 text-center text-slate-500">
           <ClipboardCheck size={28} className="mx-auto mb-3 text-slate-300" />
-          Zatial ziadne aktualne zaznamy vyrobneho planu.
+          Zatím žádné aktuální záznamy výrobního plánu.
         </div>
       ) : (
         <div className="bg-white border border-slate-200 rounded-lg overflow-x-auto">
@@ -5288,10 +5288,10 @@ function ProductionPlanView({ productionPlan, products, goodsReceipts, stockIssu
               <tr className="bg-slate-100 text-slate-600 text-left">
                 <th className="px-3 py-2 font-medium">Datum</th>
                 <th className="px-3 py-2 font-medium">Produkt</th>
-                <th className="px-3 py-2 font-medium">Mnozstvo</th>
-                <th className="px-3 py-2 font-medium">Termin dodania</th>
-                <th className="px-3 py-2 font-medium">Poznamka</th>
-                <th className="px-3 py-2 font-medium">Stav vyroby</th>
+                <th className="px-3 py-2 font-medium">Množství</th>
+                <th className="px-3 py-2 font-medium">Termín dodání</th>
+                <th className="px-3 py-2 font-medium">Poznámka</th>
+                <th className="px-3 py-2 font-medium">Stav výroby</th>
                 <th className="px-3 py-2"></th>
               </tr>
             </thead>
@@ -5306,7 +5306,7 @@ function ProductionPlanView({ productionPlan, products, goodsReceipts, stockIssu
         <div className="mt-3">
           <button onClick={() => setShowOlderPlan((v) => !v)} className="text-xs text-slate-500 hover:text-slate-700 font-medium flex items-center gap-1">
             {showOlderPlan ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
-            {showOlderPlan ? "Skryt starsie" : "Zobrazit starsie"} ({olderRows.length})
+            {showOlderPlan ? "Skrýt starší" : "Zobrazit starší"} ({olderRows.length})
           </button>
           {showOlderPlan && (
             <div className="bg-white border border-slate-200 rounded-lg overflow-x-auto mt-2">
@@ -5315,10 +5315,10 @@ function ProductionPlanView({ productionPlan, products, goodsReceipts, stockIssu
                   <tr className="bg-slate-100 text-slate-600 text-left">
                     <th className="px-3 py-2 font-medium">Datum</th>
                     <th className="px-3 py-2 font-medium">Produkt</th>
-                    <th className="px-3 py-2 font-medium">Mnozstvo</th>
-                    <th className="px-3 py-2 font-medium">Termin dodania</th>
-                    <th className="px-3 py-2 font-medium">Poznamka</th>
-                    <th className="px-3 py-2 font-medium">Stav vyroby</th>
+                    <th className="px-3 py-2 font-medium">Množství</th>
+                    <th className="px-3 py-2 font-medium">Termín dodání</th>
+                    <th className="px-3 py-2 font-medium">Poznámka</th>
+                    <th className="px-3 py-2 font-medium">Stav výroby</th>
                     <th className="px-3 py-2"></th>
                   </tr>
                 </thead>
@@ -5332,10 +5332,10 @@ function ProductionPlanView({ productionPlan, products, goodsReceipts, stockIssu
       )}
 
       {confirmDelete && (
-        <ModalShell title="Zmazat zaznam vyroby?" onClose={() => setConfirmDelete(null)}>
-          <p className="text-sm text-slate-600 mb-4">Naozaj chcete zmazat tento zaznam vyrobneho planu? Uz zapisany vydaj materialu sa tym nezrusi.</p>
+        <ModalShell title="Smazat záznam výroby?" onClose={() => setConfirmDelete(null)}>
+          <p className="text-sm text-slate-600 mb-4">Opravdu chcete smazat tento záznam výrobního plánu? Už zapsaný výdej materiálu se tím nezruší.</p>
           <div className="flex justify-end gap-2">
-            <button onClick={() => setConfirmDelete(null)} className="text-sm text-slate-500 px-3 py-2">Zrusit</button>
+            <button onClick={() => setConfirmDelete(null)} className="text-sm text-slate-500 px-3 py-2">Zrušit</button>
             <button onClick={() => { onDelete(confirmDelete.id); setConfirmDelete(null); }} className="bg-red-600 hover:bg-red-700 text-white text-sm font-medium px-4 py-2 rounded-md flex items-center gap-1.5">
               <Trash2 size={16} /> Ano, zmazat
             </button>
@@ -5345,14 +5345,14 @@ function ProductionPlanView({ productionPlan, products, goodsReceipts, stockIssu
       </>
       )}
 
-      {tab === "zaznamy" && (
+      {tab === "záznamy" && (
       <>
       <div className="flex items-center justify-between mb-2">
-        <h2 className="text-sm font-semibold text-slate-500">Vyrobne zaznamy (skutocna vyroba)</h2>
+        <h2 className="text-sm font-semibold text-slate-500">Výrobní záznamy (skutečná výroba)</h2>
         <button onClick={exportOutputsToExcel} className="text-xs text-teal-700 hover:text-teal-900 font-medium flex items-center gap-1"><Download size={14} /> Export do Excelu</button>
       </div>
       {recentOutputs.length === 0 ? (
-        <div className="bg-white border border-slate-200 rounded-lg p-6 text-center text-slate-400 text-sm">Zatial ziadne aktualne zaznamy skutocnej vyroby.</div>
+        <div className="bg-white border border-slate-200 rounded-lg p-6 text-center text-slate-400 text-sm">Zatím žádné aktuální záznamy skutečné výroby.</div>
       ) : (
         <div className="bg-white border border-slate-200 rounded-lg overflow-hidden">
           <table className="w-full text-sm">
@@ -5360,9 +5360,9 @@ function ProductionPlanView({ productionPlan, products, goodsReceipts, stockIssu
               <tr className="bg-slate-100 text-slate-600 text-left">
                 <th className="px-3 py-2 font-medium">Datum</th>
                 <th className="px-3 py-2 font-medium">Produkt</th>
-                <th className="px-3 py-2 font-medium">Mnozstvo</th>
-                <th className="px-3 py-2 font-medium">Sarza</th>
-                <th className="px-3 py-2 font-medium">Zapisala</th>
+                <th className="px-3 py-2 font-medium">Množství</th>
+                <th className="px-3 py-2 font-medium">Šarže</th>
+                <th className="px-3 py-2 font-medium">Zapsala</th>
                 <th className="px-3 py-2"></th>
               </tr>
             </thead>
@@ -5377,7 +5377,7 @@ function ProductionPlanView({ productionPlan, products, goodsReceipts, stockIssu
         <div className="mt-3">
           <button onClick={() => setShowOlderOutputs((v) => !v)} className="text-xs text-slate-500 hover:text-slate-700 font-medium flex items-center gap-1">
             {showOlderOutputs ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
-            {showOlderOutputs ? "Skryt starsie" : "Zobrazit starsie"} ({olderOutputs.length})
+            {showOlderOutputs ? "Skrýt starší" : "Zobrazit starší"} ({olderOutputs.length})
           </button>
           {showOlderOutputs && (
             <div className="bg-white border border-slate-200 rounded-lg overflow-hidden mt-2">
@@ -5386,9 +5386,9 @@ function ProductionPlanView({ productionPlan, products, goodsReceipts, stockIssu
                   <tr className="bg-slate-100 text-slate-600 text-left">
                     <th className="px-3 py-2 font-medium">Datum</th>
                     <th className="px-3 py-2 font-medium">Produkt</th>
-                    <th className="px-3 py-2 font-medium">Mnozstvo</th>
-                    <th className="px-3 py-2 font-medium">Sarza</th>
-                    <th className="px-3 py-2 font-medium">Zapisala</th>
+                    <th className="px-3 py-2 font-medium">Množství</th>
+                    <th className="px-3 py-2 font-medium">Šarže</th>
+                    <th className="px-3 py-2 font-medium">Zapsala</th>
                     <th className="px-3 py-2"></th>
                   </tr>
                 </thead>
@@ -5401,10 +5401,10 @@ function ProductionPlanView({ productionPlan, products, goodsReceipts, stockIssu
         </div>
       )}
       {confirmDeleteOutput && (
-        <ModalShell title="Zmazat vyrobny zaznam?" onClose={() => setConfirmDeleteOutput(null)}>
-          <p className="text-sm text-slate-600 mb-4">Naozaj chcete zmazat tento zaznam skutocnej vyroby? Zarovej sa zrusia aj vydaje surovin, ktore pri jeho ulozeni vznikli (oprava zasob).</p>
+        <ModalShell title="Smazat výrobní záznam?" onClose={() => setConfirmDeleteOutput(null)}>
+          <p className="text-sm text-slate-600 mb-4">Opravdu chcete smazat tento záznam skutečné výroby? Zároveň se zruší i výdeje surovin, které při jeho uložení vznikly (oprava zásob).</p>
           <div className="flex justify-end gap-2">
-            <button onClick={() => setConfirmDeleteOutput(null)} className="text-sm text-slate-500 px-3 py-2">Zrusit</button>
+            <button onClick={() => setConfirmDeleteOutput(null)} className="text-sm text-slate-500 px-3 py-2">Zrušit</button>
             <button onClick={() => { onDeleteOutput(confirmDeleteOutput); setConfirmDeleteOutput(null); }} className="bg-red-600 hover:bg-red-700 text-white text-sm font-medium px-4 py-2 rounded-md flex items-center gap-1.5">
               <Trash2 size={16} /> Ano, zmazat
             </button>
@@ -5417,7 +5417,7 @@ function ProductionPlanView({ productionPlan, products, goodsReceipts, stockIssu
       {tab === "prestavky" && (
       <>
       <div className="flex items-center justify-between mb-2">
-        <h2 className="text-sm font-semibold text-slate-500">Prestavky</h2>
+        <h2 className="text-sm font-semibold text-slate-500">Přestávky</h2>
         <button onClick={exportPrestavkyToExcel} className="text-xs text-teal-700 hover:text-teal-900 font-medium flex items-center gap-1"><Download size={14} /> Export do Excelu</button>
       </div>
       {(() => {
@@ -5429,17 +5429,17 @@ function ProductionPlanView({ productionPlan, products, goodsReceipts, stockIssu
         );
       })()}
       {(prestavky || []).length === 0 ? (
-        <div className="bg-white border border-slate-200 rounded-lg p-6 text-center text-slate-400 text-sm">Zatial ziadne zaznamy prestavok.</div>
+        <div className="bg-white border border-slate-200 rounded-lg p-6 text-center text-slate-400 text-sm">Zatím žádné záznamy přestávek.</div>
       ) : (
         <div className="bg-white border border-slate-200 rounded-lg overflow-hidden">
           <table className="w-full text-sm">
             <thead>
               <tr className="bg-slate-100 text-slate-600 text-left">
-                <th className="px-3 py-2 font-medium">Meno</th>
+                <th className="px-3 py-2 font-medium">Jméno</th>
                 <th className="px-3 py-2 font-medium">Datum</th>
-                <th className="px-3 py-2 font-medium">Zaciatok</th>
-                <th className="px-3 py-2 font-medium">Koniec</th>
-                <th className="px-3 py-2 font-medium">Trvanie</th>
+                <th className="px-3 py-2 font-medium">Začátek</th>
+                <th className="px-3 py-2 font-medium">Konec</th>
+                <th className="px-3 py-2 font-medium">Trvání</th>
                 <th className="px-3 py-2"></th>
               </tr>
             </thead>
@@ -5451,10 +5451,10 @@ function ProductionPlanView({ productionPlan, products, goodsReceipts, stockIssu
                     <td className="px-3 py-2 font-medium">{p.meno}</td>
                     <td className="px-3 py-2 text-slate-500 whitespace-nowrap">{p.datum}</td>
                     <td className="px-3 py-2 text-slate-500 whitespace-nowrap">{p.casZaciatku}</td>
-                    <td className="px-3 py-2 text-slate-500 whitespace-nowrap">{p.casKonca || <span className="text-amber-600 font-medium">prebieha</span>}</td>
+                    <td className="px-3 py-2 text-slate-500 whitespace-nowrap">{p.casKonca || <span className="text-amber-600 font-medium">probíhá</span>}</td>
                     <td className="px-3 py-2 text-slate-500 whitespace-nowrap">{mins !== null ? mins + " min" : "-"}</td>
                     <td className="px-3 py-2 text-right">
-                      <IconButton title="Zmazat" onClick={() => setConfirmDeletePrestavka(p)}><Trash2 size={16} /></IconButton>
+                      <IconButton title="Smazat" onClick={() => setConfirmDeletePrestavka(p)}><Trash2 size={16} /></IconButton>
                     </td>
                   </tr>
                 );
@@ -5464,10 +5464,10 @@ function ProductionPlanView({ productionPlan, products, goodsReceipts, stockIssu
         </div>
       )}
       {confirmDeletePrestavka && (
-        <ModalShell title="Zmazat zaznam prestavky?" onClose={() => setConfirmDeletePrestavka(null)}>
-          <p className="text-sm text-slate-600 mb-4">Naozaj chcete zmazat zaznam prestavky pre "{confirmDeletePrestavka.meno}" ({confirmDeletePrestavka.datum})? Tuto akciu nie je mozne vratit spat.</p>
+        <ModalShell title="Smazat záznam přestávky?" onClose={() => setConfirmDeletePrestavka(null)}>
+          <p className="text-sm text-slate-600 mb-4">Opravdu chcete smazat záznam přestávky pro "{confirmDeletePrestavka.meno}" ({confirmDeletePrestavka.datum})? Tuto akci nelze vrátit zpět.</p>
           <div className="flex justify-end gap-2">
-            <button onClick={() => setConfirmDeletePrestavka(null)} className="text-sm text-slate-500 px-3 py-2">Zrusit</button>
+            <button onClick={() => setConfirmDeletePrestavka(null)} className="text-sm text-slate-500 px-3 py-2">Zrušit</button>
             <button onClick={() => { onDeletePrestavka(confirmDeletePrestavka.id); setConfirmDeletePrestavka(null); }} className="bg-red-600 hover:bg-red-700 text-white text-sm font-medium px-4 py-2 rounded-md flex items-center gap-1.5">
               <Trash2 size={16} /> Ano, zmazat
             </button>
@@ -5505,9 +5505,9 @@ function ProductionPlanFormModal({ plan, products, goodsReceipts, stockIssues, c
   });
 
   return (
-    <ModalShell title={plan ? "Upravit zaznam vyroby" : "Novy zaznam vyroby"} onClose={onClose}>
+    <ModalShell title={plan ? "Upravit záznam výroby" : "Nový záznam výroby"} onClose={onClose}>
       <div className="grid grid-cols-2 gap-x-3">
-        <DateField label="Datum vyroby" value={f.datum} onChange={(v) => setF({ ...f, datum: v })} />
+        <DateField label="Datum výroby" value={f.datum} onChange={(v) => setF({ ...f, datum: v })} />
         <SelectField label="Linka" value={f.linka} onChange={(v) => setF({ ...f, linka: v, produktId: "", produktNazov: "" })} options={PRODUCTION_LINKY.map((l) => ({ value: l.value, label: l.label }))} />
       </div>
       <SelectField
@@ -5517,34 +5517,34 @@ function ProductionPlanFormModal({ plan, products, goodsReceipts, stockIssues, c
         options={[{ value: "", label: "Vyberte produkt..." }, ...linkaProducts.map((p) => ({ value: p.id, label: productLabel(p) }))]}
       />
       <div className="mb-3">
-        <span className="block text-xs font-medium text-slate-500 mb-1">Mnozstvo</span>
+        <span className="block text-xs font-medium text-slate-500 mb-1">Množství</span>
         <div className="flex gap-2 items-center flex-wrap">
           <input
             value={f.mnozstvo}
             onChange={(e) => setF({ ...f, mnozstvo: e.target.value })}
             inputMode="decimal"
-            placeholder="napr. 30"
+            placeholder="např. 30"
             className="w-24 border border-slate-200 rounded-md px-2.5 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-teal-600"
           />
           <div className="flex gap-1.5">
-            {[{ value: "paliet", label: "paliet" }, { value: "kartonov", label: "kartonov" }].map((u) => (
+            {[{ value: "paliet", label: "paliet" }, { value: "kartonů", label: "kartonů" }].map((u) => (
               <button key={u.value} type="button" onClick={() => setF({ ...f, mnozstvoJednotka: u.value })} className={"text-xs px-2.5 py-1.5 rounded-md border " + (f.mnozstvoJednotka === u.value ? "bg-teal-700 text-white border-teal-700" : "bg-white text-slate-700 border-slate-200")}>{u.label}</button>
             ))}
           </div>
         </div>
       </div>
       <div className="grid grid-cols-2 gap-x-3">
-        <DateField label="Termin dodania (nepovinne)" value={f.terminDodania} onChange={(v) => setF({ ...f, terminDodania: v })} />
-        <Field label="Zapisal" value={f.zapisal} onChange={(v) => setF({ ...f, zapisal: v })} />
+        <DateField label="Termín dodání (nepovinné)" value={f.terminDodania} onChange={(v) => setF({ ...f, terminDodania: v })} />
+        <Field label="Zapsal" value={f.zapisal} onChange={(v) => setF({ ...f, zapisal: v })} />
       </div>
-      <Field label="Poznamka (napr. oznacit GERWISCH, pekne palety)" value={f.poznamka} onChange={(v) => setF({ ...f, poznamka: v })} textarea />
+      <Field label="Poznámka (např. označit GERWISCH, pěkné palety)" value={f.poznamka} onChange={(v) => setF({ ...f, poznamka: v })} textarea />
       {shortages.length > 0 && (
         <div className="mb-3 bg-amber-50 text-amber-800 text-xs px-3 py-2 rounded-md flex items-start gap-2">
           <AlertCircle size={14} className="mt-0.5 flex-shrink-0" />
           <span>Mozny nedostatok materialu: {shortages.map((s) => s.material + " (" + s.mnozstvo + ")").join(", ")}</span>
         </div>
       )}
-      <div className="flex justify-end mt-2"><button onClick={() => onSave({ ...f, id: formId })} className="bg-teal-700 hover:bg-teal-800 text-white text-sm font-medium px-4 py-2 rounded-md">Ulozit</button></div>
+      <div className="flex justify-end mt-2"><button onClick={() => onSave({ ...f, id: formId })} className="bg-teal-700 hover:bg-teal-800 text-white text-sm font-medium px-4 py-2 rounded-md">Uložit</button></div>
     </ModalShell>
   );
 }
@@ -5558,19 +5558,19 @@ function ProductionOutputEditModal({ output, products, onClose, onSave }) {
   }
 
   return (
-    <ModalShell title="Upravit vyrobny zaznam" onClose={onClose}>
-      <DateField label="Datum vyroby" value={f.datum} onChange={(v) => setF({ ...f, datum: v })} />
+    <ModalShell title="Upravit výrobní záznam" onClose={onClose}>
+      <DateField label="Datum výroby" value={f.datum} onChange={(v) => setF({ ...f, datum: v })} />
       <SelectField
         label="Produkt"
         value={f.produktId}
         onChange={pickProduct}
         options={products.map((p) => ({ value: p.id, label: productLabel(p) }))}
       />
-      <Field label="Mnozstvo (paliet)" value={f.mnozstvo} onChange={(v) => setF({ ...f, mnozstvo: parseFloat(String(v).replace(",", ".")) || 0 })} />
-      <Field label="Sarza" value={f.sarza} onChange={(v) => setF({ ...f, sarza: v })} />
-      <Field label="Zapisala" value={f.zapisala} onChange={(v) => setF({ ...f, zapisala: v })} />
+      <Field label="Množství (palet)" value={f.mnozstvo} onChange={(v) => setF({ ...f, mnozstvo: parseFloat(String(v).replace(",", ".")) || 0 })} />
+      <Field label="Šarže" value={f.sarza} onChange={(v) => setF({ ...f, sarza: v })} />
+      <Field label="Zapsala" value={f.zapisala} onChange={(v) => setF({ ...f, zapisala: v })} />
       <p className="text-xs text-amber-600 mb-3">Pri ulozeni sa stare vydaje surovin zrusia a nahradia novymi podla upraveneho mnozstva/produktu.</p>
-      <div className="flex justify-end mt-2"><button onClick={() => onSave(f)} className="bg-teal-700 hover:bg-teal-800 text-white text-sm font-medium px-4 py-2 rounded-md">Ulozit</button></div>
+      <div className="flex justify-end mt-2"><button onClick={() => onSave(f)} className="bg-teal-700 hover:bg-teal-800 text-white text-sm font-medium px-4 py-2 rounded-md">Uložit</button></div>
     </ModalShell>
   );
 }
@@ -5617,19 +5617,19 @@ function DashboardView({ orders, goodsReceipts, stockIssues, productionOutputs, 
 
   return (
     <div>
-      <h1 className="text-xl font-semibold mb-4">Prehlad</h1>
+      <h1 className="text-xl font-semibold mb-4">Přehled</h1>
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-6">
-        <DashboardCard icon={PackageX} label="Caka na expediciu" value={pendingExpedicia} tone="text-amber-500" onClick={onGoToRegister} />
-        <DashboardCard icon={Truck} label="Dnes / zajtra dodanie" value={dueSoon} tone="text-red-500" onClick={onGoToRegister} />
-        <DashboardCard icon={Factory} label="Dnesna vyroba (paliet)" value={todayVyroba} tone="text-teal-600" onClick={onGoToProduction} />
-        <DashboardCard icon={AlertCircle} label="Kriticke zasoby" value={criticalStock} tone="text-red-500" onClick={onGoToStock} />
+        <DashboardCard icon={PackageX} label="Čeká na expedici" value={pendingExpedicia} tone="text-amber-500" onClick={onGoToRegister} />
+        <DashboardCard icon={Truck} label="Dnes / zítra dodání" value={dueSoon} tone="text-red-500" onClick={onGoToRegister} />
+        <DashboardCard icon={Factory} label="Dnešní výroba (palet)" value={todayVyroba} tone="text-teal-600" onClick={onGoToProduction} />
+        <DashboardCard icon={AlertCircle} label="Kritické zásoby" value={criticalStock} tone="text-red-500" onClick={onGoToStock} />
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         <div>
-          <h2 className="text-sm font-semibold text-slate-500 mb-2">Najblizsie dodania</h2>
+          <h2 className="text-sm font-semibold text-slate-500 mb-2">Nejbližší dodání</h2>
           {upcoming.length === 0 ? (
-            <div className="bg-white border border-slate-200 rounded-lg p-6 text-center text-slate-400 text-sm">Ziadne nadchadzajuce dodania.</div>
+            <div className="bg-white border border-slate-200 rounded-lg p-6 text-center text-slate-400 text-sm">Žádné nadcházející dodání.</div>
           ) : (
             <div className="bg-white border border-slate-200 rounded-lg overflow-hidden">
               {upcoming.map(({ o }) => (
@@ -5646,9 +5646,9 @@ function DashboardView({ orders, goodsReceipts, stockIssues, productionOutputs, 
         </div>
 
         <div>
-          <h2 className="text-sm font-semibold text-slate-500 mb-2">Prijmy s problemom</h2>
+          <h2 className="text-sm font-semibold text-slate-500 mb-2">Příjmy s problémem</h2>
           {problemReceipts.length === 0 ? (
-            <div className="bg-white border border-slate-200 rounded-lg p-6 text-center text-slate-400 text-sm">Ziadne problemy.</div>
+            <div className="bg-white border border-slate-200 rounded-lg p-6 text-center text-slate-400 text-sm">Žádné problémy.</div>
           ) : (
             <div className="bg-white border border-slate-200 rounded-lg overflow-hidden">
               {problemReceipts.slice(0, 6).map((r) => (
@@ -5667,15 +5667,15 @@ function DashboardView({ orders, goodsReceipts, stockIssues, productionOutputs, 
 
       <div className="mt-6">
         <div className="flex items-center justify-between mb-2">
-          <h2 className="text-sm font-semibold text-slate-500">Stav zasob</h2>
-          <button onClick={onGoToStock} className="text-xs text-teal-700 hover:text-teal-900 font-medium">Zobrazit vsetko</button>
+          <h2 className="text-sm font-semibold text-slate-500">Stav zásob</h2>
+          <button onClick={onGoToStock} className="text-xs text-teal-700 hover:text-teal-900 font-medium">Zobrazit vše</button>
         </div>
         {stock.length === 0 ? (
-          <div className="bg-white border border-slate-200 rounded-lg p-6 text-center text-slate-400 text-sm">Zatial ziadne data.</div>
+          <div className="bg-white border border-slate-200 rounded-lg p-6 text-center text-slate-400 text-sm">Zatím žádná data.</div>
         ) : (
           <div className="bg-white border border-slate-200 rounded-lg overflow-x-auto">
             <table className="w-full text-sm">
-              <thead><tr className="bg-slate-100 text-slate-600 text-left"><th className="px-3 py-2 font-medium">Material</th><th className="px-3 py-2 font-medium text-right">Aktualny stav</th></tr></thead>
+              <thead><tr className="bg-slate-100 text-slate-600 text-left"><th className="px-3 py-2 font-medium">Materiál</th><th className="px-3 py-2 font-medium text-right">Aktuální stav</th></tr></thead>
               <tbody>
                 {stock.slice(0, 8).map((row) => (
                   <tr key={row.material + row.unit} className="border-t border-slate-100">
@@ -5710,19 +5710,19 @@ function CompanyView({ company, onSave }) {
   if (!editing) {
     return (
       <div>
-        <h1 className="text-xl font-semibold mb-4">Nastavenia firmy</h1>
+        <h1 className="text-xl font-semibold mb-4">Nastavení firmy</h1>
         <div className="bg-white border border-slate-200 rounded-lg p-5 max-w-lg">
           <dl className="grid grid-cols-1 gap-y-3 text-sm">
-            <CompanyInfoRow label="Nazov spolocnosti" value={company.nazov} />
-            <CompanyInfoRow label="Adresa (sklad / miesto nakladky)" value={company.adresa} pre />
+            <CompanyInfoRow label="Název společnosti" value={company.nazov} />
+            <CompanyInfoRow label="Adresa (sklad / místo nakládky)" value={company.adresa} pre />
             <CompanyInfoRow label="ICO" value={company.ico} />
             <CompanyInfoRow label="DIC" value={company.dic} />
             <CompanyInfoRow label="Telefon" value={company.tel} />
-            <CompanyInfoRow label="Kontaktna osoba" value={company.kontaktnaOsoba} />
+            <CompanyInfoRow label="Kontaktní osoba" value={company.kontaktnaOsoba} />
             <CompanyInfoRow label="E-mail" value={company.email} />
-            <CompanyInfoRow label="Anthropic API kluc" value={company.apiKey ? "•••• (nastaveny)" : ""} />
-            <CompanyInfoRow label="Posledne pouzite cislo objednavky dopravy" value={company.posledneCisloDopravy} />
-            <CompanyInfoRow label="Posledne pouzite cislo dodacieho listu" value={company.posledneCisloDodaciehoListu} />
+            <CompanyInfoRow label="Anthropic API klíč" value={company.apiKey ? "•••• (nastaven)" : ""} />
+            <CompanyInfoRow label="Poslední použité číslo objednávky dopravy" value={company.posledneCisloDopravy} />
+            <CompanyInfoRow label="Poslední použité číslo dodacího listu" value={company.posledneCisloDodaciehoListu} />
           </dl>
           {(company.nveEmaily || []).length > 0 && (
             <div className="mt-4 pt-4 border-t border-slate-100">
@@ -5744,34 +5744,34 @@ function CompanyView({ company, onSave }) {
 
   return (
     <div>
-      <h1 className="text-xl font-semibold mb-4">Nastavenia firmy</h1>
+      <h1 className="text-xl font-semibold mb-4">Nastavení firmy</h1>
       <div className="bg-white border border-slate-200 rounded-lg p-5 max-w-lg">
-        <Field label="Nazov spolocnosti" value={f.nazov} onChange={(v) => setF({ ...f, nazov: v })} />
-        <Field label="Adresa (sklad / miesto nakladky)" value={f.adresa} onChange={(v) => setF({ ...f, adresa: v })} textarea />
+        <Field label="Název společnosti" value={f.nazov} onChange={(v) => setF({ ...f, nazov: v })} />
+        <Field label="Adresa (sklad / místo nakládky)" value={f.adresa} onChange={(v) => setF({ ...f, adresa: v })} textarea />
         <Field label="ICO" value={f.ico} onChange={(v) => setF({ ...f, ico: v })} />
         <Field label="DIC" value={f.dic} onChange={(v) => setF({ ...f, dic: v })} />
         <Field label="Telefon" value={f.tel} onChange={(v) => setF({ ...f, tel: v })} />
-        <Field label="Kontaktna osoba" value={f.kontaktnaOsoba} onChange={(v) => setF({ ...f, kontaktnaOsoba: v })} />
+        <Field label="Kontaktní osoba" value={f.kontaktnaOsoba} onChange={(v) => setF({ ...f, kontaktnaOsoba: v })} />
         <Field label="E-mail" value={f.email} onChange={(v) => setF({ ...f, email: v })} />
-        <Field label="Anthropic API kluc (pre AI extrakciu z PDF, nepovinne)" value={f.apiKey || ""} onChange={(v) => setF({ ...f, apiKey: v })} type="password" />
+        <Field label="Anthropic API klíč (pro AI extrakci z PDF, nepovinné)" value={f.apiKey || ""} onChange={(v) => setF({ ...f, apiKey: v })} type="password" />
         <EmailListEditor
           emaily={f.nveEmaily}
           onChange={(list) => setF({ ...f, nveEmaily: list })}
-          caption="NVE list - preddefinovane emaily kolegom do Nemecka (napr. Sklad DE) - pri viacerych adresach naraz ich oddelte ciarkou"
+          caption="NVE list - přednastavené e-maily kolegům do Německa (např. Sklad DE) - při více adresách najednou je oddělte čárkou"
         />
         <div className="grid grid-cols-2 gap-x-3">
-          <Field label="Posledne pouzite cislo objednavky dopravy" value={String(f.posledneCisloDopravy)} onChange={(v) => setF({ ...f, posledneCisloDopravy: parseInt(v) || 0 })} />
-          <Field label="Posledne pouzite cislo dodacieho listu" value={String(f.posledneCisloDodaciehoListu)} onChange={(v) => setF({ ...f, posledneCisloDodaciehoListu: parseInt(v) || 0 })} />
+          <Field label="Poslední použité číslo objednávky dopravy" value={String(f.posledneCisloDopravy)} onChange={(v) => setF({ ...f, posledneCisloDopravy: parseInt(v) || 0 })} />
+          <Field label="Poslední použité číslo dodacího listu" value={String(f.posledneCisloDodaciehoListu)} onChange={(v) => setF({ ...f, posledneCisloDodaciehoListu: parseInt(v) || 0 })} />
         </div>
         <div className="flex gap-2 mt-2">
-          <button onClick={handleSave} disabled={saving} className="bg-teal-700 hover:bg-teal-800 text-white text-sm font-medium px-4 py-2 rounded-md disabled:opacity-60">{saving ? "Ukladam..." : "Ulozit"}</button>
+          <button onClick={handleSave} disabled={saving} className="bg-teal-700 hover:bg-teal-800 text-white text-sm font-medium px-4 py-2 rounded-md disabled:opacity-60">{saving ? "Ukládám..." : "Uložit"}</button>
           {company.nazov && (
-            <button onClick={() => { setF(company); setEditing(false); }} className="bg-white border border-slate-200 hover:bg-slate-50 text-slate-700 text-sm font-medium px-4 py-2 rounded-md">Zrusit</button>
+            <button onClick={() => { setF(company); setEditing(false); }} className="bg-white border border-slate-200 hover:bg-slate-50 text-slate-700 text-sm font-medium px-4 py-2 rounded-md">Zrušit</button>
           )}
         </div>
       </div>
       <p className="text-xs text-slate-400 mt-3 max-w-lg">
-        Cisla objednavky dopravy a dodacieho listu sa pri kazdej novej objednavke automaticky zvysia o 1 a pripoji sa k nim datum dodania (format cislo/DDMM). Ak potrebujete pokracovat v existujucom rade cisiel, nastavte tu posledne pouzite cislo.
+        Čísla objednávky dopravy a dodacího listu se při každé nové objednávce automaticky zvýší o 1 a připojí se k nim datum dodání (formát číslo/DDMM). Pokud potřebujete pokračovat v existující řadě čísel, nastavte zde poslední použité číslo.
       </p>
       <p className="text-xs text-slate-400 mt-2 max-w-lg">
         API kluc ziskate na <a href="https://console.anthropic.com" target="_blank" rel="noreferrer" className="underline">console.anthropic.com</a> (zalozka API Keys). Je to samostatna platba od Claude Pro/Code predplatneho, ale spracovanie objednavok stoji len halierove sumy. Kluc je viditelny len pouzivatelom s rolou office, nikam inam sa neposiela okrem priamo do Anthropic API.
@@ -5795,7 +5795,7 @@ function PricelistTable({ pricelist }) {
     return (
       <div className="bg-white border border-slate-200 rounded-lg p-10 text-center text-slate-500">
         <Euro size={28} className="mx-auto mb-3 text-slate-300" />
-        Cennik zatial nie je nahraty.
+        Ceník zatím není nahrán.
       </div>
     );
   }
@@ -5809,7 +5809,7 @@ function PricelistTable({ pricelist }) {
         <table className="text-xs w-full">
           <thead>
             <tr className="bg-slate-100 text-slate-600 text-left">
-              <th className="px-2 py-1.5 whitespace-nowrap">Mesto</th>
+              <th className="px-2 py-1.5 whitespace-nowrap">Město</th>
               {pricelist.buckets.map((b) => (
                 <th key={b.label} className="px-2 py-1.5 whitespace-nowrap">{b.label}</th>
               ))}
@@ -5845,11 +5845,11 @@ function TransportPriceCalculator({ pricelist }) {
 
   return (
     <div className="bg-white border border-slate-200 rounded-lg p-4 mb-4 max-w-2xl">
-      <h2 className="text-sm font-semibold mb-3">Rychly vypocet ceny dopravy</h2>
+      <h2 className="text-sm font-semibold mb-3">Rychlý výpočet ceny dopravy</h2>
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-x-4">
-        <Field label="Mesto dodania" value={mesto} onChange={setMesto} />
-        <Field label="Pocet paletovych miest" value={pocet} onChange={setPocet} />
-        <ToggleField label="Paletova vymena" value={vymena} onChange={setVymena} yesLabel="Ano" noLabel="Nie" />
+        <Field label="Město dodání" value={mesto} onChange={setMesto} />
+        <Field label="Počet paletových míst" value={pocet} onChange={setPocet} />
+        <ToggleField label="Paletová výměna" value={vymena} onChange={setVymena} yesLabel="Ano" noLabel="Nie" />
       </div>
       {result && (
         result.matched ? (
@@ -5870,7 +5870,7 @@ function PricelistArchiveSection({ pricelistArchive, onRestore, onDeleteEntry })
       <h2 className="text-sm font-semibold mb-2 text-slate-700">Archiv cennikov (neaktualne)</h2>
       <div className="bg-white border border-slate-200 rounded-lg overflow-hidden">
         <table className="w-full text-sm">
-          <thead><tr className="bg-slate-100 text-slate-600 text-left"><th className="px-3 py-2 font-medium">Subor</th><th className="px-3 py-2 font-medium">Archivovane</th><th className="px-3 py-2"></th></tr></thead>
+          <thead><tr className="bg-slate-100 text-slate-600 text-left"><th className="px-3 py-2 font-medium">Soubor</th><th className="px-3 py-2 font-medium">Archivováno</th><th className="px-3 py-2"></th></tr></thead>
           <tbody>
             {pricelistArchive.map((entry) => (
               <tr key={entry.id} className="border-t border-slate-100">
@@ -5879,8 +5879,8 @@ function PricelistArchiveSection({ pricelistArchive, onRestore, onDeleteEntry })
                 <td className="px-3 py-2 text-right">
                   <div className="flex justify-end gap-1">
                     <IconButton title="Zobrazit" onClick={() => setViewing(entry)}><ClipboardList size={16} /></IconButton>
-                    <IconButton title="Obnovit ako aktualny" onClick={() => onRestore(entry)}><CheckCircle2 size={16} /></IconButton>
-                    <IconButton title="Zmazat natrvalo" onClick={() => onDeleteEntry(entry.id)}><Trash2 size={16} /></IconButton>
+                    <IconButton title="Obnovit jako aktuální" onClick={() => onRestore(entry)}><CheckCircle2 size={16} /></IconButton>
+                    <IconButton title="Smazat natrvalo" onClick={() => onDeleteEntry(entry.id)}><Trash2 size={16} /></IconButton>
                   </div>
                 </td>
               </tr>
@@ -5889,10 +5889,10 @@ function PricelistArchiveSection({ pricelistArchive, onRestore, onDeleteEntry })
         </table>
       </div>
       {viewing && (
-        <ModalShell title={"Archivovany cennik - " + (viewing.file_name || viewing.data.fileName || "")} onClose={() => setViewing(null)} wide>
+        <ModalShell title={"Archivovaný ceník - " + (viewing.file_name || viewing.data.fileName || "")} onClose={() => setViewing(null)} wide>
           <PricelistTable pricelist={viewing.data} />
           <div className="flex justify-end mt-3">
-            <button onClick={() => { onRestore(viewing); setViewing(null); }} className="bg-teal-700 hover:bg-teal-800 text-white text-sm font-medium px-4 py-2 rounded-md">Obnovit ako aktualny</button>
+            <button onClick={() => { onRestore(viewing); setViewing(null); }} className="bg-teal-700 hover:bg-teal-800 text-white text-sm font-medium px-4 py-2 rounded-md">Obnovit jako aktuální</button>
           </div>
         </ModalShell>
       )}
@@ -5916,7 +5916,7 @@ function PricelistView({ pricelist, pricelistArchive, onUpload, onDelete, onRest
       const parsed = await parsePricelistFile(buf);
       await onUpload({ ...parsed, fileName: file.name, uploadedAt: new Date().toISOString() });
     } catch (err) {
-      setError(err.message || "Nepodarilo sa spracovat subor.");
+      setError(err.message || "Nepodařilo se zpracovat soubor.");
     }
     setBusy(false);
     if (fileInputRef.current) fileInputRef.current.value = "";
@@ -5925,7 +5925,7 @@ function PricelistView({ pricelist, pricelistArchive, onUpload, onDelete, onRest
   return (
     <div>
       <div className="flex items-center justify-between mb-4">
-        <h1 className="text-xl font-semibold">Cennik doprav</h1>
+        <h1 className="text-xl font-semibold">Ceník dopravy</h1>
         <div className="flex gap-2">
           {hasPricelist && (
             <button onClick={onDelete} className="flex items-center gap-1.5 bg-white border border-slate-200 hover:bg-slate-50 text-slate-700 text-sm font-medium px-3 py-2 rounded-md">

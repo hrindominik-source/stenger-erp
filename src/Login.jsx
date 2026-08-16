@@ -16,7 +16,7 @@ export default function Login({ onSignIn, onSwitchApp }) {
     if (signInError) {
       setError(
         signInError.message === "Invalid login credentials"
-          ? "Nespravny e-mail alebo heslo."
+          ? "Nesprávný e-mail nebo heslo."
           : signInError.message
       );
     }
@@ -28,7 +28,7 @@ export default function Login({ onSignIn, onSwitchApp }) {
         <div className="text-center mb-6">
           <img src="/stenger-logo.png" alt="Stenger" className="h-16 w-auto mx-auto mb-3" />
           <div className="text-xs tracking-wider text-slate-400 mb-1">Stenger Czech s.r.o.</div>
-          <h1 className="text-lg font-semibold text-slate-900">Prihlasenie</h1>
+          <h1 className="text-lg font-semibold text-slate-900">Přihlášení</h1>
         </div>
         <form onSubmit={handleSubmit}>
           <label className="block mb-3">
@@ -63,12 +63,12 @@ export default function Login({ onSignIn, onSwitchApp }) {
             className="w-full flex items-center justify-center gap-1.5 bg-teal-700 hover:bg-teal-800 disabled:opacity-60 text-white text-sm font-medium px-3 py-2 rounded-md"
           >
             {busy ? <Loader2 size={16} className="animate-spin" /> : <LogIn size={16} />}
-            Prihlasit sa
+            Přihlásit se
           </button>
         </form>
         {onSwitchApp && (
           <button onClick={onSwitchApp} className="block w-full text-center text-xs text-slate-400 hover:text-slate-600 mt-4">
-            &larr; Ina aplikacia
+            &larr; Jiná aplikace
           </button>
         )}
       </div>

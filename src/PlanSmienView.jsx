@@ -29,20 +29,20 @@ function syncEmployeesWithOffice(existing, officeWorkers) {
 }
 
 const PRODUCTS = {
-  sacky:   { label: 'Vrecká (sáčky)', total: 4 },
-  kybliky: { label: 'Kýbliky',        total: 6 },
+  sacky:   { label: 'Sáčky',          total: 4 },
+  kybliky: { label: 'Kbelíky',        total: 6 },
   bulk:    { label: 'Bulk popcorn',   total: 5 },
 };
 const SANITATION_TOTAL = 5;
-const ROLE_LABEL = { pos1: 'Hrncová', 'pos1-backup': 'Hrncová (záskok)', pos3: 'Pozícia 3', general: 'Ostatné' };
+const ROLE_LABEL = { pos1: 'Hrncová', 'pos1-backup': 'Hrncová (záskok)', pos3: 'Pozice 3', general: 'Ostatní' };
 
 const TABS = [
-  { key: 'prehlad',   label: 'Prehľad',        icon: <LayoutDashboard className="w-[18px] h-[18px]" />, color: 'indigo' },
-  { key: 'planner',   label: 'Plán týždňa',    icon: <CalendarDays className="w-[18px] h-[18px]" />, color: 'amber' },
-  { key: 'employees', label: 'Zamestnanci',    icon: <Users2 className="w-[18px] h-[18px]" />,        color: 'blue' },
-  { key: 'absences',  label: 'Neprítomnosti',  icon: <CalendarOff className="w-[18px] h-[18px]" />,   color: 'rose' },
-  { key: 'history',   label: 'História',       icon: <HistoryIcon className="w-[18px] h-[18px]" />,   color: 'violet' },
-  { key: 'import',    label: 'Import histórie', icon: <Upload className="w-[18px] h-[18px]" />,       color: 'emerald' },
+  { key: 'prehlad',   label: 'Přehled',        icon: <LayoutDashboard className="w-[18px] h-[18px]" />, color: 'indigo' },
+  { key: 'planner',   label: 'Plán týdne',     icon: <CalendarDays className="w-[18px] h-[18px]" />, color: 'amber' },
+  { key: 'employees', label: 'Zaměstnanci',    icon: <Users2 className="w-[18px] h-[18px]" />,        color: 'blue' },
+  { key: 'absences',  label: 'Nepřítomnosti',  icon: <CalendarOff className="w-[18px] h-[18px]" />,   color: 'rose' },
+  { key: 'history',   label: 'Historie',       icon: <HistoryIcon className="w-[18px] h-[18px]" />,   color: 'violet' },
+  { key: 'import',    label: 'Import historie', icon: <Upload className="w-[18px] h-[18px]" />,       color: 'emerald' },
   { key: 'balance',   label: 'Rovnováha',      icon: <BarChart3 className="w-[18px] h-[18px]" />,     color: 'teal' },
 ];
 
@@ -85,8 +85,8 @@ const toISO = d => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate(
 const parseISO = s => { const [y, m, d] = s.split('-').map(Number); return new Date(y, m - 1, d); };
 const addDays = (iso, n) => { const d = parseISO(iso); d.setDate(d.getDate() + n); return toISO(d); };
 const mondayOf = iso => { const d = parseISO(iso); const day = d.getDay(); const diff = day === 0 ? -6 : 1 - day; d.setDate(d.getDate() + diff); return toISO(d); };
-const DAY_NAMES = ['Nedeľa', 'Pondelok', 'Utorok', 'Streda', 'Štvrtok', 'Piatok', 'Sobota'];
-const DAY_SHORT = ['Ne', 'Po', 'Ut', 'St', 'Št', 'Pi', 'So'];
+const DAY_NAMES = ['Neděle', 'Pondělí', 'Úterý', 'Středa', 'Čtvrtek', 'Pátek', 'Sobota'];
+const DAY_SHORT = ['Ne', 'Po', 'Út', 'St', 'Čt', 'Pá', 'So'];
 const dayShort = iso => DAY_SHORT[parseISO(iso).getDay()];
 const dayLong = iso => DAY_NAMES[parseISO(iso).getDay()];
 const formatSk = iso => { const d = parseISO(iso); return `${d.getDate()}.${d.getMonth() + 1}.${d.getFullYear()}`; };
@@ -140,7 +140,7 @@ function globalStats(weeks, empId) {
   }));
   return { total, day, night, sanitation };
 }
-function getEmpNameFrom(employees, id) { const e = employees.find(x => x.id === id); return e ? e.name : '(neznáma)'; }
+function getEmpNameFrom(employees, id) { const e = employees.find(x => x.id === id); return e ? e.name : '(neznámá)'; }
 
 /* Pomocne funkcie pre planovanie so snahou o suvisle bloky (rovnaka osoba viac zmien rovnakeho typu za sebou) */
 function neighborIdsFor(w, shiftId) {
@@ -277,9 +277,9 @@ function parseImportText(text, employees) {
 
   lines.forEach((line, idx) => {
     const parts = line.split(/[;,]/).map(p => p.trim());
-    if (parts.length < 2) { errors.push(`Riadok ${idx + 1}: príliš málo údajov`); return; }
+    if (parts.length < 2) { errors.push(`Řádek ${idx + 1}: příliš málo údajů`); return; }
     const [dateStr, typRaw, prodRaw, hrncova, pozicia3, ...rest] = parts;
-    if (!/^\d{4}-\d{2}-\d{2}$/.test(dateStr)) { errors.push(`Riadok ${idx + 1}: neplatný dátum "${dateStr}" (očakáva sa RRRR-MM-DD)`); return; }
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(dateStr)) { errors.push(`Řádek ${idx + 1}: neplatné datum "${dateStr}" (očekává se RRRR-MM-DD)`); return; }
     const typ = (typRaw || '').toLowerCase();
     const type = typ.includes('noc') ? 'night' : typ.includes('san') ? 'sanitation' : 'day';
     const weekStart = mondayOf(dateStr);
@@ -376,17 +376,17 @@ function ShiftRow({ week, shift, employees, absences, onSetProduct, onSetPos, on
   const anyOptions = activeEmp.filter(e => !usedIds.has(e.id));
 
   const typeMeta = shift.type === 'day'
-    ? { icon: Sun, label: 'Denná', time: '6:00–18:00', badge: 'bg-amber-100 text-amber-800 border-amber-300' }
+    ? { icon: Sun, label: 'Denní', time: '6:00–18:00', badge: 'bg-amber-100 text-amber-800 border-amber-300' }
     : shift.type === 'night'
-    ? { icon: Moon, label: 'Nočná', time: '18:00–6:00', badge: 'bg-indigo-100 text-indigo-800 border-indigo-300' }
-    : { icon: Droplets, label: 'Sanitácia', time: '6:00–18:00', badge: 'bg-teal-100 text-teal-800 border-teal-300' };
+    ? { icon: Moon, label: 'Noční', time: '18:00–6:00', badge: 'bg-indigo-100 text-indigo-800 border-indigo-300' }
+    : { icon: Droplets, label: 'Sanitace', time: '6:00–18:00', badge: 'bg-teal-100 text-teal-800 border-teal-300' };
   const Icon = typeMeta.icon;
 
   function warn(empId) {
     const emp = employees.find(e => e.id === empId);
     if (!emp) return null;
-    if (isOnAbsence(empId, shift.date, absences)) return 'Neprítomná (dovolenka/PN/iné) v tento deň';
-    if (weekShiftCount(week, empId) > emp.weeklyMax) return `Nad rámec limitu (${emp.weeklyMax} zmien/týždeň)`;
+    if (isOnAbsence(empId, shift.date, absences)) return 'Nepřítomná (dovolená/PN/jiné) v tento den';
+    if (weekShiftCount(week, empId) > emp.weeklyMax) return `Nad rámec limitu (${emp.weeklyMax} směn/týden)`;
     return null;
   }
 
@@ -404,17 +404,17 @@ function ShiftRow({ week, shift, employees, absences, onSetProduct, onSetPos, on
         {shift.type !== 'sanitation' ? (
           <select value={shift.product || ''} onChange={e => onSetProduct(week.id, shift.id, e.target.value || null)}
             className="ml-auto text-sm border border-slate-300 rounded px-2 py-1">
-            <option value="">— zvoliť produkt —</option>
-            {Object.entries(PRODUCTS).map(([k, v]) => <option key={k} value={k}>{v.label} ({v.total} ľudí)</option>)}
+            <option value="">— zvolit produkt —</option>
+            {Object.entries(PRODUCTS).map(([k, v]) => <option key={k} value={k}>{v.label} ({v.total} lidí)</option>)}
           </select>
         ) : (
-          <span className="ml-auto text-sm text-slate-500">Sanitácia linky ({SANITATION_TOTAL} ľudí)</span>
+          <span className="ml-auto text-sm text-slate-500">Sanitace linky ({SANITATION_TOTAL} lidí)</span>
         )}
 
         <span className={`text-xs font-mono px-2 py-1 rounded ${filledCount === total && total > 0 ? 'bg-emerald-100 text-emerald-700' : filledCount < total ? 'bg-amber-50 text-amber-700' : 'bg-blue-50 text-blue-700'}`}>
           {filledCount}/{total || '–'}
         </span>
-        <button onClick={() => onClear(week.id, shift.id)} className="text-slate-400 hover:text-rose-600" title="Vyčistiť priradenia">
+        <button onClick={() => onClear(week.id, shift.id)} className="text-slate-400 hover:text-rose-600" title="Vyčistit přiřazení">
           <Trash2 className="w-4 h-4" />
         </button>
       </div>
@@ -427,24 +427,24 @@ function ShiftRow({ week, shift, employees, absences, onSetProduct, onSetPos, on
               <PersonChip name={getEmpNameFrom(employees, shift.assigned.pos1)} warning={warn(shift.assigned.pos1)} onRemove={() => onSetPos(week.id, shift.id, 'pos1', null)} />
             ) : (
               <select onChange={e => onSetPos(week.id, shift.id, 'pos1', e.target.value || null)} value="" className="text-sm border border-dashed border-slate-300 rounded px-2 py-1 w-full text-slate-400">
-                <option value="">+ priradiť</option>
+                <option value="">+ přiřadit</option>
                 {pos1Options.map(e => <option key={e.id} value={e.id}>{e.name}</option>)}
               </select>
             )}
           </div>
           <div>
-            <div className="text-xs uppercase tracking-wide text-slate-400 mb-1">Pozícia 3</div>
+            <div className="text-xs uppercase tracking-wide text-slate-400 mb-1">Pozice 3</div>
             {shift.assigned.pos3 ? (
               <PersonChip name={getEmpNameFrom(employees, shift.assigned.pos3)} warning={warn(shift.assigned.pos3)} onRemove={() => onSetPos(week.id, shift.id, 'pos3', null)} />
             ) : (
               <select onChange={e => onSetPos(week.id, shift.id, 'pos3', e.target.value || null)} value="" className="text-sm border border-dashed border-slate-300 rounded px-2 py-1 w-full text-slate-400">
-                <option value="">+ priradiť</option>
+                <option value="">+ přiřadit</option>
                 {pos3Options.map(e => <option key={e.id} value={e.id}>{e.name}</option>)}
               </select>
             )}
           </div>
           <div>
-            <div className="text-xs uppercase tracking-wide text-slate-400 mb-1">Ostatné pozície</div>
+            <div className="text-xs uppercase tracking-wide text-slate-400 mb-1">Ostatní pozice</div>
             <div className="flex flex-wrap gap-1 mb-1">
               {shift.assigned.general.map(id => (
                 <PersonChip key={id} name={getEmpNameFrom(employees, id)} warning={warn(id)} onRemove={() => onRemoveGeneral(week.id, shift.id, id)} />
@@ -452,7 +452,7 @@ function ShiftRow({ week, shift, employees, absences, onSetProduct, onSetPos, on
             </div>
             {shift.assigned.general.length < neededGeneral && (
               <select onChange={e => { if (e.target.value) onAddGeneral(week.id, shift.id, e.target.value); }} value="" className="text-sm border border-dashed border-slate-300 rounded px-2 py-1 w-full text-slate-400">
-                <option value="">+ priradiť</option>
+                <option value="">+ přiřadit</option>
                 {generalOptions.map(e => <option key={e.id} value={e.id}>{e.name}</option>)}
               </select>
             )}
@@ -462,10 +462,10 @@ function ShiftRow({ week, shift, employees, absences, onSetProduct, onSetPos, on
 
       {total > 0 && (
         <div className="mt-2 pt-2 border-t border-dashed border-slate-200 flex flex-wrap items-center gap-1">
-          <span className="text-xs uppercase tracking-wide text-slate-400 mr-1">Navyše (napr. na zaučenie):</span>
+          <span className="text-xs uppercase tracking-wide text-slate-400 mr-1">Navíc (např. na zaučení):</span>
           {shift.extra.map(id => <PersonChip key={id} name={getEmpNameFrom(employees, id)} warning={warn(id)} onRemove={() => onRemoveExtra(week.id, shift.id, id)} />)}
           <select onChange={e => { if (e.target.value) onAddExtra(week.id, shift.id, e.target.value); }} value="" className="text-xs border border-dashed border-slate-300 rounded px-1.5 py-1 text-slate-400">
-            <option value="">+ pridať navyše</option>
+            <option value="">+ přidat navíc</option>
             {anyOptions.map(e => <option key={e.id} value={e.id}>{e.name}</option>)}
           </select>
         </div>
@@ -479,7 +479,7 @@ function shiftPeopleDetailed(shift, employees) {
   if (shift.assigned.pos1) list.push({ name: getEmpNameFrom(employees, shift.assigned.pos1), tag: 'Hrncová' });
   if (shift.assigned.pos3) list.push({ name: getEmpNameFrom(employees, shift.assigned.pos3), tag: 'Poz. 3' });
   shift.assigned.general.forEach(id => list.push({ name: getEmpNameFrom(employees, id), tag: null }));
-  shift.extra.forEach(id => list.push({ name: getEmpNameFrom(employees, id), tag: 'navyše' }));
+  shift.extra.forEach(id => list.push({ name: getEmpNameFrom(employees, id), tag: 'navíc' }));
   return list;
 }
 
@@ -487,9 +487,9 @@ function PrintPreviewModal({ week, employees, onClose }) {
   const [viewMode, setViewMode] = useState('cards');
 
   const shiftTypeMeta = {
-    day: { icon: Sun, label: 'Denná', time: '6:00–18:00', bar: 'bg-amber-400', bg: 'bg-amber-50' },
-    night: { icon: Moon, label: 'Nočná', time: '18:00–6:00', bar: 'bg-indigo-500', bg: 'bg-indigo-50' },
-    sanitation: { icon: Droplets, label: 'Sanitácia', time: '6:00–18:00', bar: 'bg-teal-500', bg: 'bg-teal-50' },
+    day: { icon: Sun, label: 'Denní', time: '6:00–18:00', bar: 'bg-amber-400', bg: 'bg-amber-50' },
+    night: { icon: Moon, label: 'Noční', time: '18:00–6:00', bar: 'bg-indigo-500', bg: 'bg-indigo-50' },
+    sanitation: { icon: Droplets, label: 'Sanitace', time: '6:00–18:00', bar: 'bg-teal-500', bg: 'bg-teal-50' },
   };
   const order = { day: 0, night: 1, sanitation: 2 };
   const dateMap = new Map();
@@ -515,24 +515,24 @@ function PrintPreviewModal({ week, employees, onClose }) {
 
       <div className="no-print sticky top-2 flex gap-2 mb-2 z-10 flex-wrap">
         <div className="flex rounded border border-slate-300 overflow-hidden shadow bg-white">
-          <button onClick={() => setViewMode('cards')} className={`px-3 py-2 text-sm font-medium ${viewMode === 'cards' ? 'bg-slate-900 text-white' : 'hover:bg-slate-100'}`}>Karty podľa dní</button>
-          <button onClick={() => setViewMode('matrix')} className={`px-3 py-2 text-sm font-medium ${viewMode === 'matrix' ? 'bg-slate-900 text-white' : 'hover:bg-slate-100'}`}>Matica podľa mien</button>
+          <button onClick={() => setViewMode('cards')} className={`px-3 py-2 text-sm font-medium ${viewMode === 'cards' ? 'bg-slate-900 text-white' : 'hover:bg-slate-100'}`}>Karty podle dnů</button>
+          <button onClick={() => setViewMode('matrix')} className={`px-3 py-2 text-sm font-medium ${viewMode === 'matrix' ? 'bg-slate-900 text-white' : 'hover:bg-slate-100'}`}>Matice podle jmen</button>
         </div>
         <button onClick={() => window.print()} className="px-3 py-2 text-sm rounded bg-slate-900 text-white hover:bg-slate-800 flex items-center gap-1 shadow">
-          <Printer className="w-4 h-4" />Tlačiť / Uložiť ako PDF
+          <Printer className="w-4 h-4" />Tisknout / Uložit jako PDF
         </button>
         <button onClick={onClose} className="px-3 py-2 text-sm rounded bg-white border border-slate-300 hover:bg-slate-100 shadow flex items-center gap-1">
-          <X className="w-4 h-4" />Zavrieť
+          <X className="w-4 h-4" />Zavřít
         </button>
       </div>
 
       <div id="print-sheet" className="bg-white shadow-2xl" style={{ width: '297mm', minHeight: '210mm', padding: '10mm', boxSizing: 'border-box' }}>
         <div className="flex items-start justify-between border-b-4 border-slate-900 pb-3 mb-3">
           <div>
-            <h1 className="text-2xl font-bold tracking-tight text-slate-900">Rozpis zmien — výroba</h1>
-            <p className="text-sm text-slate-500 mt-0.5">Týždeň od {formatSk(week.startDate)}</p>
+            <h1 className="text-2xl font-bold tracking-tight text-slate-900">Rozpis směn — výroba</h1>
+            <p className="text-sm text-slate-500 mt-0.5">Týden od {formatSk(week.startDate)}</p>
           </div>
-          <div className="text-right text-xs text-slate-400 pt-1">Vygenerované {formatSk(toISO(new Date()))}</div>
+          <div className="text-right text-xs text-slate-400 pt-1">Vygenerováno {formatSk(toISO(new Date()))}</div>
         </div>
 
         {viewMode === 'cards' ? (
@@ -548,7 +548,7 @@ function PrintPreviewModal({ week, employees, onClose }) {
                     {day.shifts.map(s => {
                       const meta = shiftTypeMeta[s.type];
                       const Icon = meta.icon;
-                      const prodLabel = s.type === 'sanitation' ? 'Sanitácia linky' : (s.product ? PRODUCTS[s.product].label : '—');
+                      const prodLabel = s.type === 'sanitation' ? 'Sanitace linky' : (s.product ? PRODUCTS[s.product].label : '—');
                       const people = shiftPeopleDetailed(s, employees);
                       return (
                         <div key={s.id} className={`p-2 border-t border-slate-200 ${meta.bg} flex-1`}>
@@ -575,9 +575,9 @@ function PrintPreviewModal({ week, employees, onClose }) {
             </div>
 
             <div className="mt-4 pt-3 border-t border-slate-200 flex gap-5 text-xs text-slate-500">
-              <span className="flex items-center gap-1"><span className="w-3 h-3 bg-amber-400 rounded-sm inline-block" />Denná</span>
-              <span className="flex items-center gap-1"><span className="w-3 h-3 bg-indigo-500 rounded-sm inline-block" />Nočná</span>
-              <span className="flex items-center gap-1"><span className="w-3 h-3 bg-teal-500 rounded-sm inline-block" />Sanitácia</span>
+              <span className="flex items-center gap-1"><span className="w-3 h-3 bg-amber-400 rounded-sm inline-block" />Denní</span>
+              <span className="flex items-center gap-1"><span className="w-3 h-3 bg-indigo-500 rounded-sm inline-block" />Noční</span>
+              <span className="flex items-center gap-1"><span className="w-3 h-3 bg-teal-500 rounded-sm inline-block" />Sanitace</span>
             </div>
           </>
         ) : (
@@ -596,12 +596,12 @@ function LoginGate({ employees, onAdminLogin, onEmployeeLogin, onBack }) {
   const [error, setError] = useState('');
 
   function submitAdmin() {
-    if (!onAdminLogin(pin)) { setError('Nesprávny PIN.'); setPin(''); }
+    if (!onAdminLogin(pin)) { setError('Nesprávný PIN.'); setPin(''); }
   }
   function submitEmployee() {
-    if (!empId) { setError('Vyberte svoje meno.'); return; }
+    if (!empId) { setError('Vyberte své jméno.'); return; }
     const res = onEmployeeLogin(empId, pin);
-    if (!res.success) { setError(res.message || 'Nesprávny PIN.'); setPin(''); }
+    if (!res.success) { setError(res.message || 'Nesprávný PIN.'); setPin(''); }
   }
 
   if (!mode) {
@@ -611,12 +611,12 @@ function LoginGate({ employees, onAdminLogin, onEmployeeLogin, onBack }) {
           <div>
             <img src="/stenger-logo.png" alt="Stenger" className="h-14 w-auto mx-auto mb-3" />
             <div className="text-xs tracking-wider text-slate-400 mb-1">Stenger Czech s.r.o.</div>
-            <h1 className="text-lg font-bold text-slate-900">Plán zmien — výroba</h1>
+            <h1 className="text-lg font-bold text-slate-900">Plán směn — výroba</h1>
           </div>
-          <p className="text-sm text-slate-500">Kto sa prihlasuje?</p>
-          <button onClick={() => setMode('admin')} className="w-full px-4 py-3 rounded-md bg-amber-600 text-white font-medium hover:bg-amber-700">Vedúci / vedúca výroby</button>
-          <button onClick={() => setMode('employee')} className="w-full px-4 py-3 rounded-md border border-slate-200 text-slate-700 font-medium hover:bg-slate-50">Zamestnanec</button>
-          {onBack && <button onClick={onBack} className="text-xs text-slate-400 hover:text-slate-600 mt-2">&larr; Iná aplikácia</button>}
+          <p className="text-sm text-slate-500">Kdo se přihlašuje?</p>
+          <button onClick={() => setMode('admin')} className="w-full px-4 py-3 rounded-md bg-amber-600 text-white font-medium hover:bg-amber-700">Vedoucí výroby</button>
+          <button onClick={() => setMode('employee')} className="w-full px-4 py-3 rounded-md border border-slate-200 text-slate-700 font-medium hover:bg-slate-50">Zaměstnanec</button>
+          {onBack && <button onClick={onBack} className="text-xs text-slate-400 hover:text-slate-600 mt-2">&larr; Jiná aplikace</button>}
         </div>
       </div>
     );
@@ -625,30 +625,30 @@ function LoginGate({ employees, onAdminLogin, onEmployeeLogin, onBack }) {
   return (
     <div className="min-h-screen bg-slate-50 flex items-center justify-center p-4" style={{ fontFamily: "system-ui, -apple-system, Segoe UI, sans-serif" }}>
       <div className="bg-white border border-slate-200 rounded-xl shadow-sm p-8 max-w-sm w-full space-y-4">
-        <button onClick={() => { setMode(null); setError(''); setPin(''); }} className="text-xs text-slate-400 hover:text-slate-600">&larr; Späť</button>
+        <button onClick={() => { setMode(null); setError(''); setPin(''); }} className="text-xs text-slate-400 hover:text-slate-600">&larr; Zpět</button>
         <img src="/stenger-logo.png" alt="Stenger" className="h-10 w-auto mx-auto" />
         {mode === 'admin' ? (
           <>
-            <h2 className="font-semibold text-slate-900 text-center">Prihlásenie vedúceho</h2>
+            <h2 className="font-semibold text-slate-900 text-center">Přihlášení vedoucího</h2>
             <input type="password" inputMode="numeric" placeholder="PIN" value={pin} onChange={e => setPin(e.target.value)}
               onKeyDown={e => e.key === 'Enter' && submitAdmin()}
               className="w-full border border-slate-200 rounded-md px-3 py-2 text-sm text-center tracking-widest focus:outline-none focus:ring-2 focus:ring-amber-600" />
             {error && <p className="text-xs text-rose-600">{error}</p>}
-            <button onClick={submitAdmin} className="w-full px-4 py-2 rounded-md bg-amber-600 text-white font-medium hover:bg-amber-700">Prihlásiť sa</button>
+            <button onClick={submitAdmin} className="w-full px-4 py-2 rounded-md bg-amber-600 text-white font-medium hover:bg-amber-700">Přihlásit se</button>
           </>
         ) : (
           <>
-            <h2 className="font-semibold text-slate-900 text-center">Prihlásenie zamestnanca</h2>
+            <h2 className="font-semibold text-slate-900 text-center">Přihlášení zaměstnance</h2>
             <select value={empId} onChange={e => { setEmpId(e.target.value); setError(''); }} className="w-full border border-slate-200 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-600">
-              <option value="">— vyberte svoje meno —</option>
+              <option value="">— vyberte své jméno —</option>
               {employees.filter(e => e.active).map(e => <option key={e.id} value={e.id}>{e.name}</option>)}
             </select>
-            <input type="password" inputMode="numeric" placeholder="PIN (min. 4 čísla)" value={pin} onChange={e => setPin(e.target.value)}
+            <input type="password" inputMode="numeric" placeholder="PIN (min. 4 číslice)" value={pin} onChange={e => setPin(e.target.value)}
               onKeyDown={e => e.key === 'Enter' && submitEmployee()}
               className="w-full border border-slate-200 rounded-md px-3 py-2 text-sm text-center tracking-widest focus:outline-none focus:ring-2 focus:ring-amber-600" />
-            <p className="text-xs text-slate-400">Ak sa prihlasujete prvýkrát, zadaný PIN sa vám nastaví natrvalo — zapamätajte si ho. Ak ste ho zabudli, požiadajte vedúceho o reset.</p>
+            <p className="text-xs text-slate-400">Pokud se přihlašujete poprvé, zadaný PIN se vám nastaví natrvalo — zapamatujte si ho. Pokud jste ho zapomněli, požádejte vedoucího o reset.</p>
             {error && <p className="text-xs text-rose-600">{error}</p>}
-            <button onClick={submitEmployee} className="w-full px-4 py-2 rounded-md bg-amber-600 text-white font-medium hover:bg-amber-700">Prihlásiť sa</button>
+            <button onClick={submitEmployee} className="w-full px-4 py-2 rounded-md bg-amber-600 text-white font-medium hover:bg-amber-700">Přihlásit se</button>
           </>
         )}
       </div>
@@ -663,7 +663,7 @@ function EmployeePortal({ employee, weeks, requests, onSubmitRequest, onLogout }
   [...weeks].sort((a, b) => a.startDate.localeCompare(b.startDate)).forEach(w => {
     w.shifts.forEach(s => {
       if (shiftPeopleIds(s).includes(employee.id) && s.date >= today) {
-        const label = s.type === 'day' ? 'Denná (6:00–18:00)' : s.type === 'night' ? 'Nočná (18:00–6:00)' : 'Sanitácia (6:00–18:00)';
+        const label = s.type === 'day' ? 'Denní (6:00–18:00)' : s.type === 'night' ? 'Noční (18:00–6:00)' : 'Sanitace (6:00–18:00)';
         myShifts.push({ id: s.id, date: s.date, label });
       }
     });
@@ -677,7 +677,7 @@ function EmployeePortal({ employee, weeks, requests, onSubmitRequest, onLogout }
   }
 
   const myRequests = requests.filter(r => r.employeeId === employee.id).sort((a, b) => b.from.localeCompare(a.from));
-  const statusLabel = { pending: 'Čaká na schválenie', approved: 'Schválené', rejected: 'Zamietnuté' };
+  const statusLabel = { pending: 'Čeká na schválení', approved: 'Schváleno', rejected: 'Zamítnuto' };
   const statusColor = { pending: 'bg-amber-100 text-amber-700', approved: 'bg-emerald-100 text-emerald-700', rejected: 'bg-rose-100 text-rose-700' };
 
   return (
@@ -687,15 +687,15 @@ function EmployeePortal({ employee, weeks, requests, onSubmitRequest, onLogout }
           <img src="/stenger-logo.png" alt="Stenger" className="h-9 w-auto" />
           <div>
             <h1 className="text-lg font-bold">Ahoj, {employee.name}</h1>
-            <p className="text-xs text-slate-400">Vaše zmeny a žiadosti o voľno</p>
+            <p className="text-xs text-slate-400">Vaše směny a žádosti o volno</p>
           </div>
         </div>
-        <button onClick={onLogout} className="flex items-center gap-1.5 px-3 h-9 rounded-md text-sm text-slate-300 hover:bg-slate-800"><LogOut size={16} /> Odhlásiť sa</button>
+        <button onClick={onLogout} className="flex items-center gap-1.5 px-3 h-9 rounded-md text-sm text-slate-300 hover:bg-slate-800"><LogOut size={16} /> Odhlásit se</button>
       </header>
       <main className="p-4 md:p-6 max-w-2xl mx-auto space-y-6">
         <div className="bg-white border border-slate-200 rounded-lg p-4">
-          <h3 className="font-semibold mb-3">Moje najbližšie zmeny</h3>
-          {myShifts.length === 0 && <p className="text-sm text-slate-400">Zatiaľ nemáte naplánované žiadne nadchádzajúce zmeny.</p>}
+          <h3 className="font-semibold mb-3">Moje nejbližší směny</h3>
+          {myShifts.length === 0 && <p className="text-sm text-slate-400">Zatím nemáte naplánované žádné nadcházející směny.</p>}
           <div className="space-y-1.5">
             {myShifts.slice(0, 20).map(s => (
               <div key={s.id} className="flex justify-between text-sm border-b border-slate-100 pb-1.5 last:border-0">
@@ -707,7 +707,7 @@ function EmployeePortal({ employee, weeks, requests, onSubmitRequest, onLogout }
         </div>
 
         <div className="bg-white border border-slate-200 rounded-lg p-4">
-          <h3 className="font-semibold mb-3">Nahlásiť neprítomnosť (dovolenka, lekár, iné)</h3>
+          <h3 className="font-semibold mb-3">Nahlásit nepřítomnost (dovolená, lékař, jiné)</h3>
           <div className="grid sm:grid-cols-2 gap-3 mb-3">
             <div>
               <label className="block text-xs text-slate-500 mb-1">Od</label>
@@ -719,13 +719,13 @@ function EmployeePortal({ employee, weeks, requests, onSubmitRequest, onLogout }
             </div>
           </div>
           <label className="block text-xs text-slate-500 mb-1">Poznámka</label>
-          <input value={form.reason} onChange={e => setForm(f => ({ ...f, reason: e.target.value }))} placeholder="napr. dovolenka / lekár" className="w-full border border-slate-300 rounded px-2 py-1.5 text-sm mb-3" />
-          <button onClick={submit} className="px-4 py-2 rounded-md bg-amber-600 text-white text-sm font-medium hover:bg-amber-700">Odoslať žiadosť nadriadenému</button>
+          <input value={form.reason} onChange={e => setForm(f => ({ ...f, reason: e.target.value }))} placeholder="např. dovolená / lékař" className="w-full border border-slate-300 rounded px-2 py-1.5 text-sm mb-3" />
+          <button onClick={submit} className="px-4 py-2 rounded-md bg-amber-600 text-white text-sm font-medium hover:bg-amber-700">Odeslat žádost nadřízenému</button>
         </div>
 
         <div className="bg-white border border-slate-200 rounded-lg p-4">
-          <h3 className="font-semibold mb-3">Moje žiadosti</h3>
-          {myRequests.length === 0 && <p className="text-sm text-slate-400">Zatiaľ ste nepodali žiadnu žiadosť.</p>}
+          <h3 className="font-semibold mb-3">Moje žádosti</h3>
+          {myRequests.length === 0 && <p className="text-sm text-slate-400">Zatím jste nepodali žádnou žádost.</p>}
           <div className="space-y-2">
             {myRequests.map(r => (
               <div key={r.id} className="flex items-center justify-between text-sm border-b border-slate-100 pb-2 last:border-0">
@@ -758,12 +758,12 @@ function WeekCalendarPicker({ weeks, activeWeekId, onSelectDate }) {
   const totalCells = Math.ceil((startOffset + daysInMonth) / 7) * 7;
   const cells = [];
   for (let i = 0; i < totalCells; i++) cells.push(new Date(year, month, i - startOffset + 1));
-  const monthLabel = viewMonth.toLocaleDateString('sk-SK', { month: 'long', year: 'numeric' });
+  const monthLabel = viewMonth.toLocaleDateString('cs-CZ', { month: 'long', year: 'numeric' });
   const todayIso = toISO(new Date());
 
   return (
     <div className="relative">
-      <button type="button" onClick={() => setOpen(o => !o)} title="Kalendar" className={'p-2 rounded border ' + (open ? 'bg-amber-50 border-amber-300 text-amber-700' : 'border-slate-300 hover:bg-slate-100')}>
+      <button type="button" onClick={() => setOpen(o => !o)} title="Kalendář" className={'p-2 rounded border ' + (open ? 'bg-amber-50 border-amber-300 text-amber-700' : 'border-slate-300 hover:bg-slate-100')}>
         <CalendarDays className="w-4 h-4" />
       </button>
       {open && (
@@ -776,7 +776,7 @@ function WeekCalendarPicker({ weeks, activeWeekId, onSelectDate }) {
               <button type="button" onClick={() => setViewMonth(m => new Date(m.getFullYear(), m.getMonth() + 1, 1))} className="p-1 rounded hover:bg-slate-100"><ChevronRight className="w-4 h-4" /></button>
             </div>
             <div className="grid grid-cols-7 gap-0.5 text-center text-[11px]">
-              {['Po', 'Ut', 'St', 'Št', 'Pi', 'So', 'Ne'].map(d => <div key={d} className="text-slate-400 font-medium py-1">{d}</div>)}
+              {['Po', 'Út', 'St', 'Čt', 'Pá', 'So', 'Ne'].map(d => <div key={d} className="text-slate-400 font-medium py-1">{d}</div>)}
               {cells.map((date) => {
                 const iso = toISO(date);
                 const mondayIso = mondayOf(iso);
@@ -789,7 +789,7 @@ function WeekCalendarPicker({ weeks, activeWeekId, onSelectDate }) {
                     type="button"
                     key={iso}
                     onClick={() => { onSelectDate(mondayIso); setOpen(false); }}
-                    title={'Týždeň od ' + formatSk(mondayIso)}
+                    title={'Týden od ' + formatSk(mondayIso)}
                     className={
                       'py-1.5 rounded-md relative ' +
                       (isActiveWeek ? 'bg-amber-600 text-white font-semibold' : inMonth ? 'text-slate-700 hover:bg-amber-50' : 'text-slate-300 hover:bg-slate-50') +
@@ -802,7 +802,7 @@ function WeekCalendarPicker({ weeks, activeWeekId, onSelectDate }) {
                 );
               })}
             </div>
-            <p className="text-[11px] text-slate-400 mt-2">Bodka = už existujúci naplánovaný týždeň. Kliknutím na ktorýkoľvek deň prejdete na jeho týždeň (ak neexistuje, vytvorí sa).</p>
+            <p className="text-[11px] text-slate-400 mt-2">Tečka = již existující naplánovaný týden. Kliknutím na kterýkoli den přejdete na jeho týden (pokud neexistuje, vytvoří se).</p>
           </div>
         </>
       )}
@@ -831,7 +831,7 @@ function WeekMatrixTable({ week, employees }) {
   const colWidth = Math.max(24, Math.floor((297 - 20 - 60) / Math.max(1, activeEmployees.length)));
 
   if (activeEmployees.length === 0) {
-    return <div className="text-sm text-slate-400 text-center py-10">Zatiaľ žiadny aktívny zamestnanec.</div>;
+    return <div className="text-sm text-slate-400 text-center py-10">Zatím žádný aktivní zaměstnanec.</div>;
   }
 
   return (
@@ -891,11 +891,11 @@ function WeekMatrixTable({ week, employees }) {
 
       <div className="mt-3 pt-2 border-t border-slate-200 flex gap-5 text-xs text-slate-500 flex-wrap">
         <span className="flex items-center gap-1"><span className="w-2.5 h-2.5 rounded-full bg-amber-600 inline-block" />Hrncová</span>
-        <span className="flex items-center gap-1"><span className="w-2.5 h-2.5 rounded-full bg-purple-600 inline-block" />Pozícia 3</span>
-        <span className="flex items-center gap-1"><span className="w-2.5 h-2.5 rounded-full bg-teal-600 inline-block" />Ostatné</span>
-        <span className="flex items-center gap-1"><Sun className="w-3.5 h-3.5" />Denná</span>
-        <span className="flex items-center gap-1"><Moon className="w-3.5 h-3.5" />Nočná</span>
-        <span className="flex items-center gap-1"><Droplets className="w-3.5 h-3.5" />Sanitácia</span>
+        <span className="flex items-center gap-1"><span className="w-2.5 h-2.5 rounded-full bg-purple-600 inline-block" />Pozice 3</span>
+        <span className="flex items-center gap-1"><span className="w-2.5 h-2.5 rounded-full bg-teal-600 inline-block" />Ostatní</span>
+        <span className="flex items-center gap-1"><Sun className="w-3.5 h-3.5" />Denní</span>
+        <span className="flex items-center gap-1"><Moon className="w-3.5 h-3.5" />Noční</span>
+        <span className="flex items-center gap-1"><Droplets className="w-3.5 h-3.5" />Sanitace</span>
       </div>
     </>
   );
@@ -905,10 +905,10 @@ function WeekMatrixSheet({ week }) {
   return (
     <div className="flex items-start justify-between border-b-4 border-slate-900 pb-3 mb-3">
       <div>
-        <h1 className="text-2xl font-bold tracking-tight text-slate-900">Rozpis zmien — výroba</h1>
-        <p className="text-sm text-slate-500 mt-0.5">Týždeň od {formatSk(week.startDate)}</p>
+        <h1 className="text-2xl font-bold tracking-tight text-slate-900">Rozpis směn — výroba</h1>
+        <p className="text-sm text-slate-500 mt-0.5">Týden od {formatSk(week.startDate)}</p>
       </div>
-      <div className="text-right text-xs text-slate-400 pt-1">Vygenerované {formatSk(toISO(new Date()))}</div>
+      <div className="text-right text-xs text-slate-400 pt-1">Vygenerováno {formatSk(toISO(new Date()))}</div>
     </div>
   );
 }
@@ -922,17 +922,17 @@ function PrehladTab({ weeks, employees, onGotoWeek }) {
     <div className="space-y-4">
       <div className="flex items-center gap-2 flex-wrap">
         <button onClick={() => setWeekStart(addDays(weekStart, -7))} className="p-2 rounded border border-slate-300 hover:bg-slate-100"><ChevronLeft className="w-4 h-4" /></button>
-        <span className="text-sm font-semibold text-slate-700">Týždeň od {formatSk(weekStart)}</span>
+        <span className="text-sm font-semibold text-slate-700">Týden od {formatSk(weekStart)}</span>
         <button onClick={() => setWeekStart(addDays(weekStart, 7))} className="p-2 rounded border border-slate-300 hover:bg-slate-100"><ChevronRight className="w-4 h-4" /></button>
         {!isCurrentWeek && (
-          <button onClick={() => setWeekStart(mondayOf(toISO(new Date())))} className="text-xs px-2.5 py-1.5 rounded-md border border-slate-300 hover:bg-slate-100 text-slate-600">Aktuálny týždeň</button>
+          <button onClick={() => setWeekStart(mondayOf(toISO(new Date())))} className="text-xs px-2.5 py-1.5 rounded-md border border-slate-300 hover:bg-slate-100 text-slate-600">Aktuální týden</button>
         )}
       </div>
 
       {!week ? (
         <div className="bg-white border border-slate-200 rounded-lg p-10 text-center text-slate-500">
-          Pre tento týždeň zatiaľ nie je vytvorený plán.
-          <div className="mt-3"><button onClick={() => onGotoWeek(weekStart)} className="px-3 py-2 text-sm rounded-md bg-indigo-600 text-white hover:bg-indigo-700">Vytvoriť tento týždeň</button></div>
+          Pro tento týden zatím není vytvořen plán.
+          <div className="mt-3"><button onClick={() => onGotoWeek(weekStart)} className="px-3 py-2 text-sm rounded-md bg-indigo-600 text-white hover:bg-indigo-700">Vytvořit tento týden</button></div>
         </div>
       ) : (
         <div className="bg-white border border-slate-200 rounded-lg shadow-sm overflow-x-auto p-4">
@@ -950,8 +950,8 @@ function PlannerTab({ weeks, activeWeek, employees, absences, setActiveWeekId, o
   if (!activeWeek) {
     return (
       <div className="text-center py-10 text-slate-500">
-        Zatiaľ žiadny týždeň.
-        <div className="mt-3"><button onClick={onCreateWeek} className="px-3 py-2 text-sm rounded-md bg-amber-600 text-white hover:bg-amber-700">Vytvoriť prvý týždeň</button></div>
+        Zatím žádný týden.
+        <div className="mt-3"><button onClick={onCreateWeek} className="px-3 py-2 text-sm rounded-md bg-amber-600 text-white hover:bg-amber-700">Vytvořit první týden</button></div>
       </div>
     );
   }
@@ -965,31 +965,31 @@ function PlannerTab({ weeks, activeWeek, employees, absences, setActiveWeekId, o
       <div className="flex flex-wrap items-center gap-2">
         <button onClick={() => onNav(-1)} className="p-2 rounded border border-slate-300 hover:bg-slate-100"><ChevronLeft className="w-4 h-4" /></button>
         <select value={activeWeek.id} onChange={e => setActiveWeekId(e.target.value)} className="border border-slate-300 rounded px-2 py-2 text-sm font-medium">
-          {sortedWeeks.map(w => <option key={w.id} value={w.id}>Týždeň od {formatSk(w.startDate)}</option>)}
+          {sortedWeeks.map(w => <option key={w.id} value={w.id}>Týden od {formatSk(w.startDate)}</option>)}
         </select>
         <button onClick={() => onNav(1)} className="p-2 rounded border border-slate-300 hover:bg-slate-100"><ChevronRight className="w-4 h-4" /></button>
         <WeekCalendarPicker weeks={weeks} activeWeekId={activeWeek.id} onSelectDate={onGotoWeek} />
-        <button onClick={onCreateWeek} className="px-3 py-2 text-sm rounded border border-slate-300 hover:bg-slate-100 flex items-center gap-1"><Plus className="w-4 h-4" />Nový týždeň</button>
+        <button onClick={onCreateWeek} className="px-3 py-2 text-sm rounded border border-slate-300 hover:bg-slate-100 flex items-center gap-1"><Plus className="w-4 h-4" />Nový týden</button>
 
         <label className="ml-2 flex items-center gap-1.5 text-sm text-slate-600">
           <input type="checkbox" checked={activeWeek.extraSundayNight} onChange={onToggleSunday} />
-          Mimoriadny štart: nočná už v nedeľu 18:00
+          Mimořádný start: noční už v neděli 18:00
         </label>
-        <label className="flex items-center gap-1.5 text-sm text-slate-600" title="Vynimocne, napr. par krat do roka - zobrazi aj nasledujuci tyzden pod tymto naraz">
+        <label className="flex items-center gap-1.5 text-sm text-slate-600" title="Výjimečně, např. párkrát do roka - zobrazí i následující týden pod tímto najednou">
           <input type="checkbox" checked={planTwoWeeks} onChange={e => setPlanTwoWeeks(e.target.checked)} />
-          Plánovať aj nasledujúci týždeň naraz
+          Plánovat i následující týden najednou
         </label>
 
         <div className="ml-auto flex gap-2">
-          <button onClick={() => onAutoFill(activeWeek.id)} className="px-3 py-2 text-sm rounded-md bg-amber-600 text-white hover:bg-amber-700">Doplniť prázdne miesta</button>
-          <button onClick={onShowPreview} className="px-3 py-2 text-sm rounded border border-slate-300 hover:bg-slate-100 flex items-center gap-1"><Printer className="w-4 h-4" />Ukázať/exportovať náhľad</button>
-          <button onClick={() => onClearRefill(activeWeek.id)} className="px-3 py-2 text-sm rounded border border-slate-300 hover:bg-slate-100">Vyčistiť a preplánovať</button>
+          <button onClick={() => onAutoFill(activeWeek.id)} className="px-3 py-2 text-sm rounded-md bg-amber-600 text-white hover:bg-amber-700">Doplnit prázdná místa</button>
+          <button onClick={onShowPreview} className="px-3 py-2 text-sm rounded border border-slate-300 hover:bg-slate-100 flex items-center gap-1"><Printer className="w-4 h-4" />Ukázat/exportovat náhled</button>
+          <button onClick={() => onClearRefill(activeWeek.id)} className="px-3 py-2 text-sm rounded border border-slate-300 hover:bg-slate-100">Vyčistit a přeplánovat</button>
           <button onClick={onExport} className="px-3 py-2 text-sm rounded border border-slate-300 hover:bg-slate-100 flex items-center gap-1"><Copy className="w-4 h-4" />Export (text)</button>
         </div>
       </div>
 
       <TimelineStrip week={activeWeek} />
-      <p className="text-xs text-slate-400 -mt-2">Predpoklad rozdelenia počtu ľudí: 1× hrncová + 1× pozícia 3 + zvyšok ostatné pozície, podľa zvoleného produktu. Ak to má byť inak, daj vedieť.</p>
+      <p className="text-xs text-slate-400 -mt-2">Předpoklad rozdělení počtu lidí: 1× hrncová + 1× pozice 3 + zbytek ostatní pozice, podle zvoleného produktu. Pokud to má být jinak, dej vědět.</p>
 
       <div className="space-y-2">
         {activeWeek.shifts.map(s => (
@@ -1002,15 +1002,15 @@ function PlannerTab({ weeks, activeWeek, employees, absences, setActiveWeekId, o
       {planTwoWeeks && (
         <div className="pt-4 mt-2 border-t-2 border-dashed border-amber-200">
           <div className="flex flex-wrap items-center gap-2 mb-3">
-            <h3 className="text-sm font-semibold text-slate-700">Nasledujúci týždeň — od {formatSk(secondWeekStart)}</h3>
+            <h3 className="text-sm font-semibold text-slate-700">Následující týden — od {formatSk(secondWeekStart)}</h3>
             {secondWeek ? (
               <div className="ml-auto flex gap-2">
-                <button onClick={() => onAutoFill(secondWeek.id)} className="px-3 py-1.5 text-xs rounded-md bg-amber-600 text-white hover:bg-amber-700">Doplniť prázdne miesta</button>
-                <button onClick={() => onClearRefill(secondWeek.id)} className="px-3 py-1.5 text-xs rounded border border-slate-300 hover:bg-slate-100">Vyčistiť a preplánovať</button>
+                <button onClick={() => onAutoFill(secondWeek.id)} className="px-3 py-1.5 text-xs rounded-md bg-amber-600 text-white hover:bg-amber-700">Doplnit prázdná místa</button>
+                <button onClick={() => onClearRefill(secondWeek.id)} className="px-3 py-1.5 text-xs rounded border border-slate-300 hover:bg-slate-100">Vyčistit a přeplánovat</button>
               </div>
             ) : (
               <button onClick={() => onGotoWeek(secondWeekStart)} className="ml-auto px-3 py-1.5 text-xs rounded-md bg-amber-600 text-white hover:bg-amber-700 flex items-center gap-1">
-                <Plus className="w-3.5 h-3.5" /> Vytvoriť tento týždeň
+                <Plus className="w-3.5 h-3.5" /> Vytvořit tento týden
               </button>
             )}
           </div>
@@ -1036,8 +1036,8 @@ function EmployeesTab({ employees, onToggleActive, onUpdateMax, onUpdateRoles, a
   const ROLE_OPTIONS = [
     { key: 'pos1', label: 'Hrncová' },
     { key: 'pos1-backup', label: 'Hrncová – záskok' },
-    { key: 'pos3', label: 'Pozícia 3' },
-    { key: 'general', label: 'Ostatné pozície' },
+    { key: 'pos3', label: 'Pozice 3' },
+    { key: 'general', label: 'Ostatní pozice' },
   ];
   function toggleRole(emp, k) {
     const roles = (emp.roles || []).includes(k) ? emp.roles.filter(r => r !== k) : [...(emp.roles || []), k];
@@ -1048,13 +1048,13 @@ function EmployeesTab({ employees, onToggleActive, onUpdateMax, onUpdateRoles, a
   return (
     <div className="space-y-6">
       <div className="bg-amber-50 border border-amber-200 text-amber-800 text-xs px-3 py-2 rounded-md">
-        Zoznam mien (kto všetko existuje) sa preberá z ERP → Pracovníci (typ „Vyroba“) — pridávanie, premenovanie aj mazanie robte tam, automaticky sa prejaví aj vo Výrobe, Prestávkach aj tu. Tu nastavíte len ich rolu, maximálny počet zmien za týždeň a PIN.
+        Seznam jmen (kdo všechno existuje) se přebírá z ERP → Pracovníci (typ „Výroba“) — přidávání, přejmenování i mazání dělejte tam, automaticky se projeví i ve Výrobě, Přestávkách i tu. Tady nastavíte jen jejich roli, maximální počet směn za týden a PIN.
       </div>
 
       <div className="bg-white border border-slate-200 rounded-lg overflow-hidden overflow-x-auto">
         <table className="w-full text-sm">
           <thead className="bg-slate-50 text-slate-500 text-xs uppercase">
-            <tr><th className="text-left px-3 py-2">Meno</th><th className="text-left px-3 py-2">Pozície</th><th className="text-left px-3 py-2">Max/týždeň</th><th className="text-left px-3 py-2">Stav</th><th></th></tr>
+            <tr><th className="text-left px-3 py-2">Jméno</th><th className="text-left px-3 py-2">Pozice</th><th className="text-left px-3 py-2">Max/týden</th><th className="text-left px-3 py-2">Stav</th><th></th></tr>
           </thead>
           <tbody>
             {employees.map(e => (
@@ -1072,12 +1072,12 @@ function EmployeesTab({ employees, onToggleActive, onUpdateMax, onUpdateRoles, a
                 <td className="px-3 py-2"><input type="number" min="1" max="10" value={e.weeklyMax} onChange={ev => onUpdateMax(e.id, ev.target.value)} className="w-16 border border-slate-300 rounded px-1.5 py-1" /></td>
                 <td className="px-3 py-2">
                   <button onClick={() => onToggleActive(e.id)} className={`px-2 py-1 rounded text-xs font-medium ${e.active ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-200 text-slate-500'}`}>
-                    {e.active ? 'Aktívny' : 'Neaktívny'}
+                    {e.active ? 'Aktivní' : 'Neaktivní'}
                   </button>
                 </td>
                 <td className="px-3 py-2 text-right whitespace-nowrap">
                   {e.pin && (
-                    <button onClick={() => onResetPin(e.id)} title="Resetovať PIN (zabudnutý) — nastaví si nový pri ďalšom prihlásení" className="p-1 rounded text-slate-400 hover:text-amber-600">
+                    <button onClick={() => onResetPin(e.id)} title="Resetovat PIN (zapomenutý) — nastaví si nový při dalším přihlášení" className="p-1 rounded text-slate-400 hover:text-amber-600">
                       <KeyRound className="w-4 h-4" />
                     </button>
                   )}
@@ -1085,22 +1085,22 @@ function EmployeesTab({ employees, onToggleActive, onUpdateMax, onUpdateRoles, a
               </tr>
             ))}
             {employees.length === 0 && (
-              <tr><td colSpan={5} className="px-3 py-6 text-center text-slate-400">Zatiaľ žiadny zamestnanec. Pridajte ho v ERP → Pracovníci (typ „Vyroba“).</td></tr>
+              <tr><td colSpan={5} className="px-3 py-6 text-center text-slate-400">Zatím žádný zaměstnanec. Přidejte ho v ERP → Pracovníci (typ „Výroba“).</td></tr>
             )}
           </tbody>
         </table>
       </div>
 
       <div className="bg-white border border-slate-200 rounded-lg p-4">
-        <h3 className="font-semibold mb-2">PIN pre prihlásenie vedúceho</h3>
+        <h3 className="font-semibold mb-2">PIN pro přihlášení vedoucího</h3>
         <div className="flex gap-2 items-end flex-wrap">
           <div>
             <label className="block text-xs text-slate-500 mb-1">Nový PIN (min. 4 znaky)</label>
-            <input value={adminPinInput} onChange={e => setAdminPinInput(e.target.value)} className="border border-slate-300 rounded px-2 py-1.5 text-sm w-32" placeholder="napr. 4521" />
+            <input value={adminPinInput} onChange={e => setAdminPinInput(e.target.value)} className="border border-slate-300 rounded px-2 py-1.5 text-sm w-32" placeholder="např. 4521" />
           </div>
-          <button onClick={() => { onChangeAdminPin(adminPinInput); setAdminPinInput(''); }} className="px-3 py-1.5 text-sm rounded-md bg-amber-600 text-white hover:bg-amber-700">Uložiť</button>
+          <button onClick={() => { onChangeAdminPin(adminPinInput); setAdminPinInput(''); }} className="px-3 py-1.5 text-sm rounded-md bg-amber-600 text-white hover:bg-amber-700">Uložit</button>
         </div>
-        <p className="text-xs text-slate-400 mt-1">Tento PIN slúži na vstup do celej appky (mimo zamestnaneckej sekcie). Aktuálny PIN: <span className="font-mono">{adminPin}</span></p>
+        <p className="text-xs text-slate-400 mt-1">Tento PIN slouží ke vstupu do celé appky (mimo zaměstnanecké sekce). Aktuální PIN: <span className="font-mono">{adminPin}</span></p>
       </div>
     </div>
   );
@@ -1111,8 +1111,8 @@ function AbsencesTab({ employees, absences, absForm, setAbsForm, onAdd, onRemove
   return (
     <div className="space-y-6">
       <div className="bg-white border border-slate-200 rounded-lg p-4">
-        <h3 className="font-semibold mb-3">Žiadosti od zamestnankýň na schválenie</h3>
-        {pending.length === 0 && <p className="text-sm text-slate-400">Žiadne čakajúce žiadosti.</p>}
+        <h3 className="font-semibold mb-3">Žádosti od zaměstnankyň ke schválení</h3>
+        {pending.length === 0 && <p className="text-sm text-slate-400">Žádné čekající žádosti.</p>}
         <div className="space-y-2">
           {pending.map(r => (
             <div key={r.id} className="flex items-center justify-between text-sm border-b border-slate-100 pb-2 last:border-0">
@@ -1121,8 +1121,8 @@ function AbsencesTab({ employees, absences, absForm, setAbsForm, onAdd, onRemove
                 <div className="text-xs text-slate-500">{formatSk(r.from)} – {formatSk(r.to)}{r.reason ? ` · ${r.reason}` : ''}</div>
               </div>
               <div className="flex gap-2">
-                <button onClick={() => onApprove(r.id)} className="px-2 py-1 text-xs rounded bg-emerald-600 text-white hover:bg-emerald-700">Schváliť</button>
-                <button onClick={() => onReject(r.id)} className="px-2 py-1 text-xs rounded bg-rose-100 text-rose-700 hover:bg-rose-200">Zamietnuť</button>
+                <button onClick={() => onApprove(r.id)} className="px-2 py-1 text-xs rounded bg-emerald-600 text-white hover:bg-emerald-700">Schválit</button>
+                <button onClick={() => onReject(r.id)} className="px-2 py-1 text-xs rounded bg-rose-100 text-rose-700 hover:bg-rose-200">Zamítnout</button>
               </div>
             </div>
           ))}
@@ -1130,12 +1130,12 @@ function AbsencesTab({ employees, absences, absForm, setAbsForm, onAdd, onRemove
       </div>
 
       <div className="bg-white border border-slate-200 rounded-lg p-4">
-        <h3 className="font-semibold mb-3">Nahlásiť neprítomnosť ručne (dovolenka, lekár, iné)</h3>
+        <h3 className="font-semibold mb-3">Nahlásit nepřítomnost ručně (dovolená, lékař, jiné)</h3>
         <div className="flex flex-wrap gap-3 items-end">
           <div>
-            <label className="block text-xs text-slate-500 mb-1">Zamestnanec</label>
+            <label className="block text-xs text-slate-500 mb-1">Zaměstnanec</label>
             <select value={absForm.employeeId} onChange={e => setAbsForm(f => ({ ...f, employeeId: e.target.value }))} className="border border-slate-300 rounded px-2 py-1.5 text-sm">
-              <option value="">— vybrať —</option>
+              <option value="">— vybrat —</option>
               {employees.filter(e => e.active).map(e => <option key={e.id} value={e.id}>{e.name}</option>)}
             </select>
           </div>
@@ -1149,15 +1149,15 @@ function AbsencesTab({ employees, absences, absForm, setAbsForm, onAdd, onRemove
           </div>
           <div>
             <label className="block text-xs text-slate-500 mb-1">Poznámka</label>
-            <input value={absForm.reason} onChange={e => setAbsForm(f => ({ ...f, reason: e.target.value }))} placeholder="dovolenka / lekár / ..." className="border border-slate-300 rounded px-2 py-1.5 text-sm" />
+            <input value={absForm.reason} onChange={e => setAbsForm(f => ({ ...f, reason: e.target.value }))} placeholder="dovolená / lékař / ..." className="border border-slate-300 rounded px-2 py-1.5 text-sm" />
           </div>
-          <button onClick={onAdd} className="px-3 py-1.5 text-sm rounded-md bg-amber-600 text-white hover:bg-amber-700">Pridať</button>
+          <button onClick={onAdd} className="px-3 py-1.5 text-sm rounded-md bg-amber-600 text-white hover:bg-amber-700">Přidat</button>
         </div>
       </div>
       <div className="bg-white border border-slate-200 rounded-lg overflow-hidden">
         <table className="w-full text-sm">
           <thead className="bg-slate-50 text-slate-500 text-xs uppercase">
-            <tr><th className="text-left px-3 py-2">Zamestnanec</th><th className="text-left px-3 py-2">Od</th><th className="text-left px-3 py-2">Do</th><th className="text-left px-3 py-2">Poznámka</th><th></th></tr>
+            <tr><th className="text-left px-3 py-2">Zaměstnanec</th><th className="text-left px-3 py-2">Od</th><th className="text-left px-3 py-2">Do</th><th className="text-left px-3 py-2">Poznámka</th><th></th></tr>
           </thead>
           <tbody>
             {absences.slice().sort((a, b) => a.from.localeCompare(b.from)).map(a => (
@@ -1169,7 +1169,7 @@ function AbsencesTab({ employees, absences, absForm, setAbsForm, onAdd, onRemove
                 <td className="px-3 py-2 text-right"><button onClick={() => onRemove(a.id)} className="text-slate-400 hover:text-rose-600"><Trash2 className="w-4 h-4" /></button></td>
               </tr>
             ))}
-            {absences.length === 0 && <tr><td colSpan={5} className="px-3 py-6 text-center text-slate-400">Žiadne nahlásené neprítomnosti.</td></tr>}
+            {absences.length === 0 && <tr><td colSpan={5} className="px-3 py-6 text-center text-slate-400">Žádné nahlášené nepřítomnosti.</td></tr>}
           </tbody>
         </table>
       </div>
@@ -1181,9 +1181,9 @@ function ImportTab({ employees, onImport }) {
   const [text, setText] = useState('');
   const [result, setResult] = useState(null);
 
-  const example = `# jeden riadok = jedna zmena
-# formát: DATUM;TYP;PRODUKT;HRNCOVA;POZICIA3;OSTATNI,OSTATNI,...
-# TYP: den / noc / sanitacia   PRODUKT: sacky / kybliky / bulk (voliteľné)
+  const example = `# jeden řádek = jedna směna
+# formát: DATUM;TYP;PRODUKT;HRNCOVA;POZICE3;OSTATNI,OSTATNI,...
+# TYP: den / noc / sanitacia   PRODUKT: sacky / kybliky / bulk (volitelné)
 2026-06-01;den;sacky;Jana Dragounová;Milena Jechová;Bohdana Matejková,Kvetoslava Buchová
 2026-06-01;noc;sacky;Martina Vávrová;Petra Achačová;Lucie Fišerová,Lucie Melicharová
 2026-06-05;sanitacia;;Mašková Lenka;Yvetta Cafourková;Monika Mandíková,Vendula Svobodová`;
@@ -1197,9 +1197,9 @@ function ImportTab({ employees, onImport }) {
   return (
     <div className="space-y-6">
       <div className="bg-white border border-slate-200 rounded-lg p-4">
-        <h3 className="font-semibold mb-2">Import starších týždňov (2-3 mesiace histórie)</h3>
+        <h3 className="font-semibold mb-2">Import starších týdnů (2-3 měsíce historie)</h3>
         <p className="text-sm text-slate-500 mb-3">
-          Vložte údaje v jednoduchom textovom formáte nižšie — jeden riadok na jednu zmenu. Mená sa musia zhodovať s menami v záložke „Zamestnanci“ (inak sa zobrazia ako nespárované). Importované týždne sa započítajú do histórie aj do rovnováhy zmien.
+          Vložte údaje v jednoduchém textovém formátu níže — jeden řádek na jednu směnu. Jména se musí shodovat se jmény v záložce „Zaměstnanci“ (jinak se zobrazí jako nespárovaná). Importované týdny se započítají do historie i do rovnováhy směn.
         </p>
         <textarea
           value={text}
@@ -1208,16 +1208,16 @@ function ImportTab({ employees, onImport }) {
           className="w-full h-64 text-xs font-mono border border-slate-300 rounded p-2"
         />
         <button onClick={runImport} disabled={!text.trim()} className={`mt-3 px-4 py-2 text-sm rounded-md font-medium ${text.trim() ? 'bg-amber-600 text-white hover:bg-amber-700' : 'bg-slate-200 text-slate-400 cursor-not-allowed'}`}>
-          Importovať
+          Importovat
         </button>
       </div>
 
       {result && (
         <div className="bg-white border border-slate-200 rounded-lg p-4 space-y-2 text-sm">
-          <p className="text-emerald-700 font-medium">Naimportovaných {result.weeks.length} týždňov ({result.lineCount} riadkov spracovaných).</p>
+          <p className="text-emerald-700 font-medium">Naimportováno {result.weeks.length} týdnů ({result.lineCount} řádků zpracováno).</p>
           {result.errors.length > 0 && (
             <div>
-              <p className="text-rose-600 font-medium mb-1">Chyby v {result.errors.length} riadkoch:</p>
+              <p className="text-rose-600 font-medium mb-1">Chyby v {result.errors.length} řádcích:</p>
               <ul className="list-disc list-inside text-rose-600 text-xs space-y-0.5">
                 {result.errors.map((e, i) => <li key={i}>{e}</li>)}
               </ul>
@@ -1225,7 +1225,7 @@ function ImportTab({ employees, onImport }) {
           )}
           {result.unmatched.length > 0 && (
             <div>
-              <p className="text-amber-600 font-medium mb-1">Nespárované mená (neboli priradené, skontrolujte pravopis alebo pridajte zamestnanca v ERP → Pracovníci):</p>
+              <p className="text-amber-600 font-medium mb-1">Nespárovaná jména (nebyla přiřazena, zkontrolujte pravopis nebo přidejte zaměstnance v ERP → Pracovníci):</p>
               <p className="text-amber-600 text-xs">{result.unmatched.join(', ')}</p>
             </div>
           )}
@@ -1241,7 +1241,7 @@ function HistoryTab({ weeks, onOpen }) {
     <div className="bg-white border border-slate-200 rounded-lg overflow-hidden">
       <table className="w-full text-sm">
         <thead className="bg-slate-50 text-slate-500 text-xs uppercase">
-          <tr><th className="text-left px-3 py-2">Týždeň od</th><th className="text-left px-3 py-2">Zmeny</th><th className="text-left px-3 py-2">Obsadenosť</th><th></th></tr>
+          <tr><th className="text-left px-3 py-2">Týden od</th><th className="text-left px-3 py-2">Směny</th><th className="text-left px-3 py-2">Obsazenost</th><th></th></tr>
         </thead>
         <tbody>
           {sorted.map(w => {
@@ -1250,15 +1250,15 @@ function HistoryTab({ weeks, onOpen }) {
             return (
               <tr key={w.id} className="border-t border-slate-100">
                 <td className="px-3 py-2 font-medium">{formatSk(w.startDate)}</td>
-                <td className="px-3 py-2 text-slate-500">{w.shifts.length} zmien{w.extraSundayNight ? ' (+ nedeľná)' : ''}</td>
+                <td className="px-3 py-2 text-slate-500">{w.shifts.length} směn{w.extraSundayNight ? ' (+ nedělní)' : ''}</td>
                 <td className="px-3 py-2">
                   <span className={`text-xs font-mono px-2 py-1 rounded ${totalFilled >= totalNeeded && totalNeeded > 0 ? 'bg-emerald-100 text-emerald-700' : 'bg-amber-50 text-amber-700'}`}>{totalFilled}/{totalNeeded}</span>
                 </td>
-                <td className="px-3 py-2 text-right"><button onClick={() => onOpen(w.id)} className="text-sm text-slate-600 hover:text-slate-900 underline">Otvoriť</button></td>
+                <td className="px-3 py-2 text-right"><button onClick={() => onOpen(w.id)} className="text-sm text-slate-600 hover:text-slate-900 underline">Otevřít</button></td>
               </tr>
             );
           })}
-          {sorted.length === 0 && <tr><td colSpan={4} className="px-3 py-6 text-center text-slate-400">Zatiaľ žiadne týždne.</td></tr>}
+          {sorted.length === 0 && <tr><td colSpan={4} className="px-3 py-6 text-center text-slate-400">Zatím žádné týdny.</td></tr>}
         </tbody>
       </table>
     </div>
@@ -1270,22 +1270,22 @@ function BalanceTab({ employees, weeks }) {
   const maxTotal = Math.max(1, ...rows.map(r => r.stats.total));
   return (
     <div className="bg-white border border-slate-200 rounded-lg p-4 space-y-3">
-      <h3 className="font-semibold mb-1">Rovnováha zmien (od začiatku plánovania v tejto appke)</h3>
+      <h3 className="font-semibold mb-1">Rovnováha směn (od začátku plánování v této appce)</h3>
       {rows.map(({ e, stats }) => (
         <div key={e.id} className="flex items-center gap-3 flex-wrap">
           <div className="w-40 text-sm font-medium truncate">{e.name}</div>
           <div className="flex-1 min-w-[120px] h-4 bg-slate-100 rounded overflow-hidden flex">
-            <div className="bg-amber-400 h-full" style={{ width: `${(stats.day / maxTotal) * 100}%` }} title={`Denné: ${stats.day}`} />
-            <div className="bg-indigo-500 h-full" style={{ width: `${(stats.night / maxTotal) * 100}%` }} title={`Nočné: ${stats.night}`} />
-            <div className="bg-teal-500 h-full" style={{ width: `${(stats.sanitation / maxTotal) * 100}%` }} title={`Sanitácia: ${stats.sanitation}`} />
+            <div className="bg-amber-400 h-full" style={{ width: `${(stats.day / maxTotal) * 100}%` }} title={`Denní: ${stats.day}`} />
+            <div className="bg-indigo-500 h-full" style={{ width: `${(stats.night / maxTotal) * 100}%` }} title={`Noční: ${stats.night}`} />
+            <div className="bg-teal-500 h-full" style={{ width: `${(stats.sanitation / maxTotal) * 100}%` }} title={`Sanitace: ${stats.sanitation}`} />
           </div>
           <div className="w-48 text-xs text-slate-500 font-mono">Σ{stats.total} · D{stats.day} N{stats.night} S{stats.sanitation}</div>
         </div>
       ))}
       <div className="flex gap-4 text-xs text-slate-500 pt-2 border-t border-slate-100">
-        <span className="flex items-center gap-1"><span className="w-3 h-3 bg-amber-400 rounded-sm inline-block" />Denná</span>
-        <span className="flex items-center gap-1"><span className="w-3 h-3 bg-indigo-500 rounded-sm inline-block" />Nočná</span>
-        <span className="flex items-center gap-1"><span className="w-3 h-3 bg-teal-500 rounded-sm inline-block" />Sanitácia</span>
+        <span className="flex items-center gap-1"><span className="w-3 h-3 bg-amber-400 rounded-sm inline-block" />Denní</span>
+        <span className="flex items-center gap-1"><span className="w-3 h-3 bg-indigo-500 rounded-sm inline-block" />Noční</span>
+        <span className="flex items-center gap-1"><span className="w-3 h-3 bg-teal-500 rounded-sm inline-block" />Sanitace</span>
       </div>
     </div>
   );
@@ -1300,7 +1300,7 @@ function ExportModal({ text, onClose }) {
           <button onClick={onClose}><X className="w-4 h-4" /></button>
         </div>
         <textarea readOnly value={text} className="w-full h-72 text-xs font-mono border border-slate-200 rounded p-2" onFocus={e => e.target.select()} />
-        <p className="text-xs text-slate-400">Text bol skopírovaný do schránky (ak to prehliadač povolil). Prípadne ho označte v poli vyššie a skopírujte manuálne.</p>
+        <p className="text-xs text-slate-400">Text byl zkopírován do schránky (pokud to prohlížeč povolil). Případně ho označte v poli výše a zkopírujte ručně.</p>
       </div>
     </div>
   );
@@ -1470,16 +1470,16 @@ export default function PlanSmienView({ onBack }) {
   }
   function attemptEmployeeLogin(employeeId, pin) {
     const emp = employees.find(e => e.id === employeeId);
-    if (!emp) return { success: false, message: 'Neznámy zamestnanec.' };
+    if (!emp) return { success: false, message: 'Neznámý zaměstnanec.' };
     if (!emp.pin) {
-      if (!pin || pin.length < 4) return { success: false, message: 'Zvoľte si PIN, aspoň 4 znaky.' };
+      if (!pin || pin.length < 4) return { success: false, message: 'Zvolte si PIN, alespoň 4 znaky.' };
       setEmployees(es => es.map(x => (x.id === employeeId ? { ...x, pin } : x)));
       setLoginRole('employee');
       setLoginEmployeeId(employeeId);
       return { success: true };
     }
     if (emp.pin === pin) { setLoginRole('employee'); setLoginEmployeeId(employeeId); return { success: true }; }
-    return { success: false, message: 'Nesprávny PIN.' };
+    return { success: false, message: 'Nesprávný PIN.' };
   }
   function logout() { setLoginRole(null); setLoginEmployeeId(null); }
   function resetEmployeePin(id) { setEmployees(es => es.map(e => (e.id === id ? { ...e, pin: null } : e))); }
@@ -1498,26 +1498,26 @@ export default function PlanSmienView({ onBack }) {
   function generateExportText(week) {
     if (!week) return '';
     const lines = [];
-    lines.push(`ROZPIS SMIEN — týždeň od ${formatSk(week.startDate)}`);
+    lines.push(`ROZPIS SMĚN — týden od ${formatSk(week.startDate)}`);
     lines.push('');
     week.shifts.forEach(s => {
-      const label = s.type === 'day' ? 'Denná (6:00–18:00)' : s.type === 'night' ? 'Nočná (18:00–6:00)' : 'Sanitácia (6:00–18:00)';
-      const prodLabel = s.type === 'sanitation' ? 'Sanitácia linky' : (s.product ? PRODUCTS[s.product].label : '— produkt nezvolený —');
+      const label = s.type === 'day' ? 'Denní (6:00–18:00)' : s.type === 'night' ? 'Noční (18:00–6:00)' : 'Sanitace (6:00–18:00)';
+      const prodLabel = s.type === 'sanitation' ? 'Sanitace linky' : (s.product ? PRODUCTS[s.product].label : '— produkt nezvolen —');
       const names = [];
       if (s.assigned.pos1) names.push(`${getEmpNameFrom(employees, s.assigned.pos1)} (Hrncová)`);
       if (s.assigned.pos3) names.push(`${getEmpNameFrom(employees, s.assigned.pos3)} (Poz. 3)`);
       s.assigned.general.forEach(id => names.push(getEmpNameFrom(employees, id)));
-      s.extra.forEach(id => names.push(`${getEmpNameFrom(employees, id)} (navyše)`));
+      s.extra.forEach(id => names.push(`${getEmpNameFrom(employees, id)} (navíc)`));
       lines.push(`${dayLong(s.date)} ${formatSk(s.date)} — ${label} — ${prodLabel}`);
-      lines.push(names.length ? names.map(n => `  • ${n}`).join('\n') : '  (nikto priradený)');
+      lines.push(names.length ? names.map(n => `  • ${n}`).join('\n') : '  (nikdo přiřazen)');
       lines.push('');
     });
-    lines.push('--- Podľa zamestnankýň ---');
+    lines.push('--- Podle zaměstnankyň ---');
     employees.filter(e => e.active).forEach(e => {
       const mine = [];
       week.shifts.forEach(s => {
         if (shiftPeopleIds(s).includes(e.id)) {
-          const label = s.type === 'day' ? 'Denná' : s.type === 'night' ? 'Nočná' : 'Sanitácia';
+          const label = s.type === 'day' ? 'Denní' : s.type === 'night' ? 'Noční' : 'Sanitace';
           mine.push(`${dayShort(s.date)} ${label}`);
         }
       });
@@ -1531,7 +1531,7 @@ export default function PlanSmienView({ onBack }) {
     try { await navigator.clipboard.writeText(text); } catch (e) {}
   }
 
-  if (!loaded) return <div className="p-8 text-center text-slate-500">Načítavam…</div>;
+  if (!loaded) return <div className="p-8 text-center text-slate-500">Načítám…</div>;
 
   if (!loginRole) {
     return <LoginGate employees={employees} onAdminLogin={attemptAdminLogin} onEmployeeLogin={attemptEmployeeLogin} onBack={onBack} />;
@@ -1551,17 +1551,17 @@ export default function PlanSmienView({ onBack }) {
             <img src="/stenger-logo.png" alt="Stenger" className="h-10 w-auto" />
             <div>
               <div className="text-xs uppercase tracking-wider text-slate-400">Stenger Czech s.r.o.</div>
-              <div className="text-lg font-semibold">Plán zmien — výroba</div>
+              <div className="text-lg font-semibold">Plán směn — výroba</div>
             </div>
           </div>
           <div className="flex items-center gap-2">
             {onBack && (
-              <button onClick={onBack} title="Ina aplikacia" className="flex items-center gap-1.5 px-3 h-9 rounded-md text-sm text-slate-300 hover:bg-slate-800">
-                <ArrowLeftRight size={16} /> Iná aplikácia
+              <button onClick={onBack} title="Jiná aplikace" className="flex items-center gap-1.5 px-3 h-9 rounded-md text-sm text-slate-300 hover:bg-slate-800">
+                <ArrowLeftRight size={16} /> Jiná aplikace
               </button>
             )}
-            <button onClick={logout} title="Odhlasit" className="flex items-center gap-1.5 px-3 h-9 rounded-md text-sm text-slate-300 hover:bg-slate-800">
-              <LogOut size={16} /> Odhlásiť sa
+            <button onClick={logout} title="Odhlásit" className="flex items-center gap-1.5 px-3 h-9 rounded-md text-sm text-slate-300 hover:bg-slate-800">
+              <LogOut size={16} /> Odhlásit se
             </button>
           </div>
         </div>

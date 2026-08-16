@@ -5,15 +5,15 @@ import { todayStr, nowTimeStr, uid, isoFromSkDateStr, skDateStrFromIso, parseSkD
 import { computeProductionIssues, computeStockLevels, materialShortages } from "./lib/inventory.js";
 
 const PRODUCTION_LINKY = [
-  { value: "sacky", label: "Sacky" },
-  { value: "kyble", label: "Kyble" },
+  { value: "sacky", label: "Sáčky" },
+  { value: "kyble", label: "Kbelíky" },
   { value: "bulk", label: "Bulk" },
 ];
 
 const VYROBA_STATUS_OPTIONS = [
-  { value: "caka", label: "Caka" },
-  { value: "prebieha", label: "Prebieha" },
-  { value: "hotovo", label: "Ukoncene" },
+  { value: "caka", label: "Čeká" },
+  { value: "prebieha", label: "Probíhá" },
+  { value: "hotovo", label: "Ukončeno" },
 ];
 const VYROBA_TAB_COLORS = {
   prehlad: { badge: "from-teal-400 to-teal-600", shadow: "shadow-teal-500/40" },
@@ -46,8 +46,8 @@ function productLabel(p) {
   return [p.znacka, [p.gramaz, p.ksVKartone, p.kartonovNaPalete].filter(Boolean).join("/")].filter(Boolean).join(" ");
 }
 
-// Ulozeny format ostava text "DD.MM.RRRR" ako doteraz - kalendar je len
-// doplnkovy sposob zadania, pisanie funguje rovnako ako predtym.
+// Uložený formát zůstává text "DD.MM.RRRR" jako doteď - kalendář je jen
+// doplňkový způsob zadání, psaní funguje stejně jako předtím.
 function DateFieldBig({ value, onChange }) {
   const nativeRef = useRef(null);
   return (
@@ -62,7 +62,7 @@ function DateFieldBig({ value, onChange }) {
         type="button"
         onClick={() => { const el = nativeRef.current; if (el && el.showPicker) el.showPicker(); }}
         className="flex items-center justify-center w-14 border-2 border-slate-200 rounded-xl text-slate-500 hover:bg-slate-50"
-        title="Vybrat z kalendara"
+        title="Vybrat z kalendáře"
       >
         <Calendar size={22} />
       </button>
@@ -108,7 +108,7 @@ function VyrobaFormTab({ fullName }) {
       supabase.from("stock_issues").select("*"),
     ]);
     if (productsRes.error || outputsRes.error || workersRes.error) {
-      setError("Nepodarilo sa nacitat data.");
+      setError("Nepodařilo se načíst data.");
       return;
     }
     setError("");
@@ -174,7 +174,7 @@ function VyrobaFormTab({ fullName }) {
 
   async function handleSave() {
     if (!zapisala) {
-      setError("Vyberte, kto zapisuje.");
+      setError("Vyberte, kdo zapisuje.");
       return;
     }
     if (!selectedProduct) {
@@ -182,11 +182,11 @@ function VyrobaFormTab({ fullName }) {
       return;
     }
     if (!paliet.trim()) {
-      setError("Zadajte pocet paliet.");
+      setError("Zadejte počet palet.");
       return;
     }
     if (maSurovinovyProblem && !potvrdenyNedostatok) {
-      setError("Potvrdte, ze vyroba napriek nedostatku surovin je zamer (zaskrtavacie policko nizsie).");
+      setError("Potvrďte, že výroba i přes nedostatek surovin je záměr (zaškrtávací políčko níže).");
       return;
     }
     setError("");
@@ -215,7 +215,7 @@ function VyrobaFormTab({ fullName }) {
             mnozstvoCislo: issue.mnozstvoCislo,
             mnozstvoJednotka: issue.mnozstvoJednotka,
             dovod: "Vyroba",
-            poznamka: "Sarza " + sarza.trim() + " - " + productLabel(selectedProduct),
+            poznamka: "Šarže " + sarza.trim() + " - " + productLabel(selectedProduct),
             zapisal: zapisala,
           },
         });
@@ -246,11 +246,11 @@ function VyrobaFormTab({ fullName }) {
         if (outErr) throw outErr;
       }
 
-      setFlash(editingOutput ? "Zaznam upraveny" : "Ulozene");
+      setFlash(editingOutput ? "Záznam upraven" : "Uloženo");
       resetEntryFields();
       await fetchAll();
     } catch (e) {
-      setError("Ulozenie zlyhalo, skuste znova.");
+      setError("Uložení se nezdařilo, zkuste to znovu.");
     }
     setSaving(false);
   }
@@ -261,7 +261,7 @@ function VyrobaFormTab({ fullName }) {
   if (loading) {
     return (
       <div className="text-center text-slate-400 py-10">
-        <Loader2 className="animate-spin mx-auto mb-2" size={24} /> Nacitavam...
+        <Loader2 className="animate-spin mx-auto mb-2" size={24} /> Načítám...
       </div>
     );
   }
@@ -282,18 +282,18 @@ function VyrobaFormTab({ fullName }) {
         <div className="bg-white border border-slate-200 rounded-xl p-4 mb-5">
           {editingId ? (
             <div className="flex items-center justify-between mb-3">
-              <div className="text-lg font-semibold text-amber-700">Upravujete zaznam</div>
+              <div className="text-lg font-semibold text-amber-700">Upravujete záznam</div>
               <button onClick={resetEntryFields} className="flex items-center gap-1 text-sm text-slate-500 hover:text-slate-800">
-                <X size={16} /> Zrusit upravu
+                <X size={16} /> Zrušit úpravu
               </button>
             </div>
           ) : (
-            <div className="text-lg font-semibold mb-3">Zapisat vyrobenu davku</div>
+            <div className="text-lg font-semibold mb-3">Zapsat vyrobenou dávku</div>
           )}
 
-          <div className="mb-1 text-sm font-medium text-slate-500">Kto zapisuje</div>
+          <div className="mb-1 text-sm font-medium text-slate-500">Kdo zapisuje</div>
           {workers.length === 0 ? (
-            <div className="text-sm text-slate-400 mb-3">Zatial ziadni pracovnici (doplni office v Pracovnikoch).</div>
+            <div className="text-sm text-slate-400 mb-3">Zatím žádní pracovníci (doplní office v Pracovnících).</div>
           ) : (
             <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 mb-3">
               {workers.map((w) => (
@@ -304,11 +304,11 @@ function VyrobaFormTab({ fullName }) {
             </div>
           )}
 
-          <div className="mb-1 text-sm font-medium text-slate-500">Datum vyroby</div>
+          <div className="mb-1 text-sm font-medium text-slate-500">Datum výroby</div>
           <div className="mb-3">
             <DateFieldBig value={datum} onChange={setDatum} />
           </div>
-          <p className="text-xs text-slate-400 -mt-2 mb-3">Predvyplnene dnesnym datumom - ak zapisujete davku z minula, zmente na spravny den.</p>
+          <p className="text-xs text-slate-400 -mt-2 mb-3">Předvyplněno dnešním datem - pokud zapisujete dávku zpětně, změňte na správný den.</p>
 
           <div className="mb-1 text-sm font-medium text-slate-500">Linka</div>
           <div className="grid grid-cols-3 gap-2 mb-3">
@@ -321,7 +321,7 @@ function VyrobaFormTab({ fullName }) {
 
           <div className="mb-1 text-sm font-medium text-slate-500">Produkt</div>
           {linkaProducts.length === 0 ? (
-            <div className="text-sm text-slate-400 mb-3">Ziadne produkty pre tuto linku (doplni office v Produktoch).</div>
+            <div className="text-sm text-slate-400 mb-3">Žádné produkty pro tuto linku (doplní office v Produktech).</div>
           ) : (
             <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 mb-3">
               {linkaProducts.map((p) => (
@@ -332,31 +332,31 @@ function VyrobaFormTab({ fullName }) {
             </div>
           )}
 
-          <div className="mb-1 mt-3 text-sm font-medium text-slate-500">Pocet paliet</div>
+          <div className="mb-1 mt-3 text-sm font-medium text-slate-500">Počet palet</div>
           <input
             value={paliet}
             onChange={(e) => { setPaliet(e.target.value); setPotvrdenyNedostatok(false); }}
             inputMode="decimal"
-            placeholder="napr. 12"
+            placeholder="např. 12"
             className={"w-full border-2 rounded-xl px-3 py-3 text-base text-center mb-2 focus:outline-none focus:ring-2 " + (maSurovinovyProblem ? "border-red-400 focus:ring-red-500" : "border-slate-200 focus:ring-teal-600")}
           />
           {maSurovinovyProblem && (
             <>
               <div className="text-xs text-red-600 mb-2">
-                Nedostatok surovin: {nedostatokSurovin.map((n) => `${n.material} (na sklade ${n.dostupne}, treba ${n.mnozstvoCislo} ${n.mnozstvoJednotka})`).join(", ")}
+                Nedostatek surovin: {nedostatokSurovin.map((n) => `${n.material} (na skladě ${n.dostupne}, potřeba ${n.mnozstvoCislo} ${n.mnozstvoJednotka})`).join(", ")}
               </div>
               <label className="mb-3 flex items-start gap-2 bg-red-50 border border-red-200 rounded-lg px-2.5 py-2 text-xs text-red-700 cursor-pointer">
                 <input type="checkbox" checked={potvrdenyNedostatok} onChange={(e) => setPotvrdenyNedostatok(e.target.checked)} className="mt-0.5" />
-                Potvrdzujem, ze vyroba napriek nedostatku surovin je zamer a chcem napriek tomu ulozit.
+                Potvrzuji, že výroba i přes nedostatek surovin je záměr a chci přesto uložit.
               </label>
             </>
           )}
 
-          <div className="mb-1 text-sm font-medium text-slate-500">Sarza</div>
+          <div className="mb-1 text-sm font-medium text-slate-500">Šarže</div>
           <input
             value={sarza}
             onChange={(e) => setSarza(e.target.value)}
-            placeholder="napr. 2607A"
+            placeholder="např. 2607A"
             className="w-full border-2 border-slate-200 rounded-xl px-3 py-3 text-base mb-2 focus:outline-none focus:ring-2 focus:ring-teal-600"
           />
 
@@ -366,13 +366,13 @@ function VyrobaFormTab({ fullName }) {
             className="w-full mt-3 bg-teal-700 hover:bg-teal-800 disabled:opacity-60 text-white text-lg font-semibold px-4 py-4 rounded-xl flex items-center justify-center gap-2"
           >
             {saving ? <Loader2 size={20} className="animate-spin" /> : <CheckCircle2 size={20} />}
-            {editingId ? "Ulozit zmenu" : "Ulozit vyrobu"}
+            {editingId ? "Uložit změnu" : "Uložit výrobu"}
           </button>
         </div>
 
-        <div className="text-sm font-semibold text-slate-500 mb-2">Posledne zaznamy (kliknutim upravite)</div>
+        <div className="text-sm font-semibold text-slate-500 mb-2">Poslední záznamy (kliknutím upravíte)</div>
         {recentOutputs.length === 0 ? (
-          <div className="bg-white border border-slate-200 rounded-lg p-6 text-center text-slate-400 text-sm">Zatial ziadne zaznamy.</div>
+          <div className="bg-white border border-slate-200 rounded-lg p-6 text-center text-slate-400 text-sm">Zatím žádné záznamy.</div>
         ) : (
           <div className="space-y-2">
             {recentOutputs.map((o) => (
@@ -383,11 +383,11 @@ function VyrobaFormTab({ fullName }) {
                 className={"w-full text-left bg-white border rounded-lg p-3 " + (o.pociatocnyStav ? "border-slate-200 cursor-default opacity-80" : "hover:border-teal-300 " + (editingId === o.id ? "border-teal-500 ring-1 ring-teal-500" : "border-slate-200"))}
               >
                 <div className="font-medium">
-                  {o.produktNazov} <span className="text-slate-400 font-normal">- {o.mnozstvo} paliet</span>
-                  {o.prekroceniePotvrdene && <span className="ml-2 text-xs font-medium px-2 py-0.5 rounded-full bg-amber-100 text-amber-700">nedostatok surovin</span>}
-                  {o.pociatocnyStav && <span className="ml-2 text-xs font-medium px-2 py-0.5 rounded-full bg-slate-100 text-slate-600">Pociatocny stav (uprava v Office - Vyrobny plan)</span>}
+                  {o.produktNazov} <span className="text-slate-400 font-normal">- {o.mnozstvo} palet</span>
+                  {o.prekroceniePotvrdene && <span className="ml-2 text-xs font-medium px-2 py-0.5 rounded-full bg-amber-100 text-amber-700">nedostatek surovin</span>}
+                  {o.pociatocnyStav && <span className="ml-2 text-xs font-medium px-2 py-0.5 rounded-full bg-slate-100 text-slate-600">Počáteční stav (úprava v Office - Výrobní plán)</span>}
                 </div>
-                <div className="text-xs text-slate-500">Sarza {o.sarza || "-"} - {o.datum} {o.cas} - {o.zapisala}</div>
+                <div className="text-xs text-slate-500">Šarže {o.sarza || "-"} - {o.datum} {o.cas} - {o.zapisala}</div>
               </button>
             ))}
           </div>
@@ -396,7 +396,7 @@ function VyrobaFormTab({ fullName }) {
   );
 }
 
-/* ---------------- Prehlad (vyrobny plan) ---------------- */
+/* ---------------- Přehled (výrobní plán) ---------------- */
 
 function PrehladTab() {
   const [plan, setPlan] = useState([]);
@@ -408,7 +408,7 @@ function PrehladTab() {
   const fetchPlan = useCallback(async () => {
     const { data, error: fetchError } = await supabase.from("production_plan").select("*");
     if (fetchError) {
-      setError("Nepodarilo sa nacitat vyrobny plan.");
+      setError("Nepodařilo se načíst výrobní plán.");
       return;
     }
     setError("");
@@ -435,7 +435,7 @@ function PrehladTab() {
     const { error: updateError } = await supabase.from("production_plan").update({ data: next }).eq("id", row.id);
     setSavingId(null);
     if (updateError) {
-      setError("Zmena stavu sa nepodarila, skuste znova.");
+      setError("Změna stavu se nezdařila, zkuste to znovu.");
       await fetchPlan();
     }
   }
@@ -443,7 +443,7 @@ function PrehladTab() {
   if (loading) {
     return (
       <div className="text-center text-slate-400 py-10">
-        <Loader2 className="animate-spin mx-auto mb-2" size={24} /> Nacitavam...
+        <Loader2 className="animate-spin mx-auto mb-2" size={24} /> Načítám...
       </div>
     );
   }
@@ -458,7 +458,7 @@ function PrehladTab() {
         </div>
       )}
       {sortedPlan.length === 0 ? (
-        <div className="bg-white border border-slate-200 rounded-lg p-10 text-center text-slate-400 text-sm">Zatial ziadne polozky vo vyrobnom plane.</div>
+        <div className="bg-white border border-slate-200 rounded-lg p-10 text-center text-slate-400 text-sm">Zatím žádné položky ve výrobním plánu.</div>
       ) : (
         <div className="space-y-3">
           {sortedPlan.map((r) => {
@@ -470,8 +470,8 @@ function PrehladTab() {
                   <div className="text-sm text-slate-500 whitespace-nowrap">{r.datum}</div>
                 </div>
                 <div className="text-sm text-slate-500 mb-3">
-                  {r.mnozstvo} {r.mnozstvoJednotka === "kartonov" ? "kartonov" : "paliet"}
-                  {r.terminDodania ? " - termin: " + r.terminDodania : ""}
+                  {r.mnozstvo} {r.mnozstvoJednotka === "kartonov" ? "kartonů" : "palet"}
+                  {r.terminDodania ? " - termín: " + r.terminDodania : ""}
                   {r.poznamka ? " - " + r.poznamka : ""}
                 </div>
                 <div className="grid grid-cols-3 gap-2">
@@ -504,7 +504,7 @@ function PrehladTab() {
   );
 }
 
-/* ---------------- Prestavky ---------------- */
+/* ---------------- Přestávky ---------------- */
 
 function PrestavkyTab() {
   const [workers, setWorkers] = useState([]);
@@ -520,7 +520,7 @@ function PrestavkyTab() {
       supabase.from("prestavky").select("*").order("created_at", { ascending: false }),
     ]);
     if (workersRes.error || prestavkyRes.error) {
-      setError("Nepodarilo sa nacitat data.");
+      setError("Nepodařilo se načíst data.");
       return;
     }
     setError("");
@@ -546,14 +546,14 @@ function PrestavkyTab() {
   }
 
   async function deleteBreak(id) {
-    if (!window.confirm("Naozaj zmazat tento zaznam prestavky? (napr. omylom tuknute meno)")) return;
+    if (!window.confirm("Opravdu smazat tento záznam přestávky? (např. omylem ťuknuté jméno)")) return;
     setError("");
     try {
       const { error: delErr } = await supabase.from("prestavky").delete().eq("id", id);
       if (delErr) throw delErr;
       await fetchAll();
     } catch (e) {
-      setError("Zmazanie zlyhalo, skuste znova.");
+      setError("Smazání se nezdařilo, zkuste to znovu.");
     }
   }
 
@@ -574,7 +574,7 @@ function PrestavkyTab() {
       }
       await fetchAll();
     } catch (e) {
-      setError("Nepodarilo sa ulozit, skuste znova.");
+      setError("Nepodařilo se uložit, zkuste to znovu.");
     }
     setBusyMeno("");
   }
@@ -582,7 +582,7 @@ function PrestavkyTab() {
   if (loading) {
     return (
       <div className="text-center text-slate-400 py-10">
-        <Loader2 className="animate-spin mx-auto mb-2" size={24} /> Nacitavam...
+        <Loader2 className="animate-spin mx-auto mb-2" size={24} /> Načítám...
       </div>
     );
   }
@@ -599,9 +599,9 @@ function PrestavkyTab() {
         </div>
       )}
 
-      <div className="mb-1 text-sm font-medium text-slate-500">Tuknite na svoje meno - zacne alebo skonci vasu prestavku</div>
+      <div className="mb-1 text-sm font-medium text-slate-500">Ťukněte na své jméno - začne nebo skončí vaše přestávka</div>
       {workers.length === 0 ? (
-        <div className="text-sm text-slate-400 mb-5">Zatial ziadni pracovnici (doplni office v Pracovnikoch).</div>
+        <div className="text-sm text-slate-400 mb-5">Zatím žádní pracovníci (doplní office v Pracovnících).</div>
       ) : (
         <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 mb-5">
           {workers.map((w) => {
@@ -617,7 +617,7 @@ function PrestavkyTab() {
                 }
               >
                 {w.meno}
-                {isActive && <div className="text-xs font-normal mt-0.5">na prestavke</div>}
+                {isActive && <div className="text-xs font-normal mt-0.5">na přestávce</div>}
               </button>
             );
           })}
@@ -626,14 +626,14 @@ function PrestavkyTab() {
 
       {active.length > 0 && (
         <div className="mb-5">
-          <h2 className="text-sm font-semibold text-slate-500 mb-2">Prave na prestavke</h2>
+          <h2 className="text-sm font-semibold text-slate-500 mb-2">Právě na přestávce</h2>
           <div className="bg-amber-50 border border-amber-200 rounded-lg overflow-hidden">
             {active.map((p) => (
               <div key={p.id} className="px-4 py-2.5 border-t border-amber-100 first:border-t-0 flex items-center justify-between gap-2">
                 <div className="font-medium text-sm">{p.meno}</div>
                 <div className="flex items-center gap-2">
                   <div className="text-sm text-amber-700">od {p.casZaciatku}</div>
-                  <button onClick={() => deleteBreak(p.id)} title="Zrusit (omylom tuknute)" className="text-amber-700 hover:text-red-600 p-1">
+                  <button onClick={() => deleteBreak(p.id)} title="Zrušit (omylem ťuknuté)" className="text-amber-700 hover:text-red-600 p-1">
                     <X size={16} />
                   </button>
                 </div>
@@ -644,9 +644,9 @@ function PrestavkyTab() {
       )}
 
       <div>
-        <h2 className="text-sm font-semibold text-slate-500 mb-2">Dnesne prestavky</h2>
+        <h2 className="text-sm font-semibold text-slate-500 mb-2">Dnešní přestávky</h2>
         {todayPrestavky.length === 0 ? (
-          <div className="bg-white border border-slate-200 rounded-lg p-6 text-center text-slate-400 text-sm">Dnes zatial ziadne prestavky.</div>
+          <div className="bg-white border border-slate-200 rounded-lg p-6 text-center text-slate-400 text-sm">Dnes zatím žádné přestávky.</div>
         ) : (
           <div className="bg-white border border-slate-200 rounded-lg overflow-hidden">
             {todayPrestavky.map((p) => {
@@ -656,10 +656,10 @@ function PrestavkyTab() {
                   <div className="font-medium text-sm">{p.meno}</div>
                   <div className="flex items-center gap-2">
                     <div className="text-sm text-slate-500">
-                      {p.casZaciatku} - {p.casKonca || <span className="text-amber-600 font-medium">prebieha</span>}
+                      {p.casZaciatku} - {p.casKonca || <span className="text-amber-600 font-medium">probíhá</span>}
                       {mins !== null && <span className="text-slate-400"> ({mins} min)</span>}
                     </div>
-                    <button onClick={() => deleteBreak(p.id)} title="Zmazat zaznam" className="text-slate-400 hover:text-red-600 p-1">
+                    <button onClick={() => deleteBreak(p.id)} title="Smazat záznam" className="text-slate-400 hover:text-red-600 p-1">
                       <X size={16} />
                     </button>
                   </div>
@@ -673,7 +673,7 @@ function PrestavkyTab() {
   );
 }
 
-/* ---------------- Hlavny obal (hlavicka + taby) ---------------- */
+/* ---------------- Hlavní obal (hlavička + taby) ---------------- */
 
 export default function VyrobaView({ fullName, onSignOut }) {
   const [tab, setTab] = useState("prehlad");
@@ -686,7 +686,7 @@ export default function VyrobaView({ fullName, onSignOut }) {
             <img src="/stenger-logo.png" alt="Stenger" className="h-10 w-auto" />
             <div>
               <div className="text-xs tracking-wider text-slate-400">Stenger Czech s.r.o.</div>
-              <div className="text-lg font-semibold">Vyroba</div>
+              <div className="text-lg font-semibold">Výroba</div>
             </div>
           </div>
           <div className="flex items-center gap-3">
@@ -695,15 +695,15 @@ export default function VyrobaView({ fullName, onSignOut }) {
               onClick={onSignOut}
               className="flex items-center gap-1.5 text-slate-300 hover:bg-slate-800 px-3 py-1.5 rounded-md text-sm"
             >
-              <LogOut size={16} /> Odhlasit
+              <LogOut size={16} /> Odhlásit
             </button>
           </div>
         </div>
         <div className="max-w-2xl mx-auto px-4 pb-4">
           <nav className="flex items-stretch gap-2 mt-1 bg-white/5 backdrop-blur-sm border border-white/10 rounded-2xl p-2 shadow-inner">
-            <VyrobaTabButton active={tab === "prehlad"} onClick={() => setTab("prehlad")} color="prehlad" icon={<LayoutDashboard size={20} />} label="Vyrobny plan" />
-            <VyrobaTabButton active={tab === "vyroba"} onClick={() => setTab("vyroba")} color="vyroba" icon={<ClipboardList size={20} />} label="Zapisat davku" />
-            <VyrobaTabButton active={tab === "prestavky"} onClick={() => setTab("prestavky")} color="prestavky" icon={<Coffee size={20} />} label="Prestavky" />
+            <VyrobaTabButton active={tab === "prehlad"} onClick={() => setTab("prehlad")} color="prehlad" icon={<LayoutDashboard size={20} />} label="Výrobní plán" />
+            <VyrobaTabButton active={tab === "vyroba"} onClick={() => setTab("vyroba")} color="vyroba" icon={<ClipboardList size={20} />} label="Zapsat dávku" />
+            <VyrobaTabButton active={tab === "prestavky"} onClick={() => setTab("prestavky")} color="prestavky" icon={<Coffee size={20} />} label="Přestávky" />
           </nav>
         </div>
       </header>

@@ -5,13 +5,13 @@ import { extractCityFromAddress, todayStr, nowTimeStr, formatDateTime, uid, pars
 import { computeStockLevels, computeFinishedGoodsStock, wouldExceed, extraKnownMaterials, UNIT_QUICK_PICKS } from "./lib/inventory.js";
 
 const POLL_MS = 4000;
-const MATERIAL_QUICK_PICKS = ["Kukurica Mushroom Yellow", "Cukor Tereos krystal", "Sol SUPERFINE", "Tuk AKOSNAC NT MB", "Kartony", "Kbeliky", "Folie", "Strecove folie", "Pasky"];
+const MATERIAL_QUICK_PICKS = ["Kukuřice Mushroom Yellow", "Cukr Tereos krystal", "Sůl SUPERFINE", "Tuk AKOSNAC NT MB", "Kartony", "Kbelíky", "Fólie", "Střešní fólie", "Pásky"];
 const STOCK_ISSUE_REASONS = ["Vyroba", "Testovanie/vzorky", "Znehodnotene", "Ine"];
 const GOODS_RECEIPT_PHOTOS_BUCKET = "goods-receipt-photos";
 const EXPEDICIA_PHOTOS_BUCKET = "expedicia-photos";
 const PRODUCTION_LINKY = [
-  { value: "sacky", label: "Sacky" },
-  { value: "kyble", label: "Kyble" },
+  { value: "sacky", label: "Sáčky" },
+  { value: "kyble", label: "Kbelíky" },
   { value: "bulk", label: "Bulk" },
 ];
 
@@ -30,7 +30,7 @@ function backdatedNote(createdAt, businessDate) {
     created.getMonth() + 1 === parseInt(m[2], 10) &&
     created.getFullYear() === parseInt(m[3], 10);
   if (sameDay) return "";
-  return " (zapisane dodatocne " + formatDateTime(createdAt) + ")";
+  return " (zapsáno dodatečně " + formatDateTime(createdAt) + ")";
 }
 
 async function openBucketPhoto(bucket, path) {
@@ -89,16 +89,16 @@ export default function SkladView({ fullName, onSignOut }) {
               onClick={onSignOut}
               className="flex items-center gap-1.5 text-slate-300 hover:bg-slate-800 px-3 py-1.5 rounded-md text-sm"
             >
-              <LogOut size={16} /> Odhlasit
+              <LogOut size={16} /> Odhlásit
             </button>
           </div>
         </div>
         <div className="max-w-4xl mx-auto px-4 pb-4">
           <nav className="flex items-stretch gap-2 mt-1 bg-white/5 backdrop-blur-sm border border-white/10 rounded-2xl p-2 shadow-inner">
-            <SkladTabButton active={tab === "prehlad"} onClick={() => setTab("prehlad")} color="prehlad" icon={<LayoutDashboard size={20} />} label="Prehlad" />
-            <SkladTabButton active={tab === "expedicia"} onClick={() => setTab("expedicia")} color="expedicia" icon={<Truck size={20} />} label="Expedicia" />
-            <SkladTabButton active={tab === "prijem"} onClick={() => setTab("prijem")} color="prijem" icon={<PackagePlus size={20} />} label="Prijem tovaru" />
-            <SkladTabButton active={tab === "zasoby"} onClick={() => setTab("zasoby")} color="zasoby" icon={<Warehouse size={20} />} label="Zasoby" />
+            <SkladTabButton active={tab === "prehlad"} onClick={() => setTab("prehlad")} color="prehlad" icon={<LayoutDashboard size={20} />} label="Přehled" />
+            <SkladTabButton active={tab === "expedicia"} onClick={() => setTab("expedicia")} color="expedicia" icon={<Truck size={20} />} label="Expedice" />
+            <SkladTabButton active={tab === "prijem"} onClick={() => setTab("prijem")} color="prijem" icon={<PackagePlus size={20} />} label="Příjem zboží" />
+            <SkladTabButton active={tab === "zasoby"} onClick={() => setTab("zasoby")} color="zasoby" icon={<Warehouse size={20} />} label="Zásoby" />
           </nav>
         </div>
       </header>
@@ -106,7 +106,7 @@ export default function SkladView({ fullName, onSignOut }) {
       {tab !== "prehlad" && skladWorkers.length > 0 && (
         <div className="max-w-4xl mx-auto px-4 pt-4">
           <div className="bg-white border border-slate-200 rounded-xl p-3">
-            <div className="text-xs font-medium text-slate-500 mb-2">Kto pracuje</div>
+            <div className="text-xs font-medium text-slate-500 mb-2">Kdo pracuje</div>
             <div className="flex gap-2 flex-wrap">
               {skladWorkers.map((w) => (
                 <button
@@ -173,7 +173,7 @@ function PrehladTab() {
       supabase.from("production_plan").select("*"),
     ]);
     if (ordersRes.error || planRes.error) {
-      setError("Nepodarilo sa nacitat data.");
+      setError("Nepodařilo se načíst data.");
       return;
     }
     setError("");
@@ -197,7 +197,7 @@ function PrehladTab() {
   if (loading) {
     return (
       <div className="text-center text-slate-400 py-10">
-        <Loader2 className="animate-spin mx-auto mb-2" size={24} /> Nacitavam...
+        <Loader2 className="animate-spin mx-auto mb-2" size={24} /> Načítám...
       </div>
     );
   }
@@ -213,30 +213,30 @@ function PrehladTab() {
 
       <div className="grid grid-cols-2 gap-3 mb-6">
         <div className="bg-white border border-slate-200 rounded-xl p-4">
-          <div className="text-xs font-medium text-slate-500 mb-1">Caka na expediciu</div>
+          <div className="text-xs font-medium text-slate-500 mb-1">Čeká na expedici</div>
           <div className="text-3xl font-bold text-amber-600">{pending.length}</div>
         </div>
         <div className="bg-white border border-slate-200 rounded-xl p-4">
-          <div className="text-xs font-medium text-slate-500 mb-1">Polozky vo vyrobnom plane</div>
+          <div className="text-xs font-medium text-slate-500 mb-1">Položky ve výrobním plánu</div>
           <div className="text-3xl font-bold text-teal-700">{plan.length}</div>
         </div>
       </div>
 
       <div className="mb-6">
-        <h2 className="text-sm font-semibold text-slate-500 mb-2">Vyrobny plan</h2>
+        <h2 className="text-sm font-semibold text-slate-500 mb-2">Výrobní plán</h2>
         {sortedPlan.length === 0 ? (
-          <div className="bg-white border border-slate-200 rounded-lg p-6 text-center text-slate-400 text-sm">Ziadne polozky vo vyrobnom plane.</div>
+          <div className="bg-white border border-slate-200 rounded-lg p-6 text-center text-slate-400 text-sm">Žádné položky ve výrobním plánu.</div>
         ) : (
           <div className="bg-white border border-slate-200 rounded-lg overflow-hidden">
             {sortedPlan.map((r) => {
               const stav = r.stavVyroby || "caka";
-              const stavLabel = stav === "hotovo" ? "Ukoncene" : stav === "prebieha" ? "Prebieha" : "Caka";
+              const stavLabel = stav === "hotovo" ? "Ukončeno" : stav === "prebieha" ? "Probíhá" : "Čeká";
               const stavClass = stav === "hotovo" ? "bg-emerald-100 text-emerald-700" : stav === "prebieha" ? "bg-blue-100 text-blue-700" : "bg-slate-100 text-slate-700";
               return (
                 <div key={r.id} className="px-4 py-2.5 border-t border-slate-100 first:border-t-0 flex items-center justify-between gap-3">
                   <div className="min-w-0">
                     <div className="font-medium text-sm truncate">{r.produktNazov}</div>
-                    <div className="text-xs text-slate-400">{r.mnozstvo} {r.mnozstvoJednotka === "kartonov" ? "kartonov" : "paliet"}{r.poznamka ? " - " + r.poznamka : ""}</div>
+                    <div className="text-xs text-slate-400">{r.mnozstvo} {r.mnozstvoJednotka === "kartonov" ? "kartonů" : "palet"}{r.poznamka ? " - " + r.poznamka : ""}</div>
                   </div>
                   <div className="flex items-center gap-2 whitespace-nowrap">
                     <span className={"text-xs font-medium px-2 py-0.5 rounded-full " + stavClass}>{stavLabel}</span>
@@ -250,9 +250,9 @@ function PrehladTab() {
       </div>
 
       <div>
-        <h2 className="text-sm font-semibold text-slate-500 mb-2">Expedicie - caka na vybavenie</h2>
+        <h2 className="text-sm font-semibold text-slate-500 mb-2">Expedice - čeká na vyřízení</h2>
         {pending.length === 0 ? (
-          <div className="bg-white border border-slate-200 rounded-lg p-6 text-center text-slate-400 text-sm">Vsetko vybavene.</div>
+          <div className="bg-white border border-slate-200 rounded-lg p-6 text-center text-slate-400 text-sm">Vše vyřízeno.</div>
         ) : (
           <div className="bg-white border border-slate-200 rounded-lg overflow-hidden">
             {pending.map((o) => (
@@ -294,7 +294,7 @@ function ExpediciaTab({ fullName }) {
       supabase.from("carriers").select("*"),
     ]);
     if (ordersRes.error) {
-      setError("Nepodarilo sa nacitat objednavky.");
+      setError("Nepodařilo se načíst objednávky.");
       return;
     }
     setError("");
@@ -324,7 +324,7 @@ function ExpediciaTab({ fullName }) {
     const { error: rpcError } = await supabase.rpc("set_expedovana", { p_id: order.id, p_val: next });
     setUpdatingId(null);
     if (rpcError) {
-      setError("Zmena sa nepodarila, skuste znova.");
+      setError("Změna se nepodařila, zkuste to znovu.");
       return;
     }
     await fetchAll();
@@ -355,24 +355,24 @@ function ExpediciaTab({ fullName }) {
       )}
       {loading ? (
         <div className="flex items-center justify-center h-40 text-slate-500">
-          <Loader2 className="animate-spin mr-2" size={20} /> Nacitavam...
+          <Loader2 className="animate-spin mr-2" size={20} /> Načítám...
         </div>
       ) : orders.length === 0 ? (
         <div className="bg-white border border-slate-200 rounded-lg p-10 text-center text-slate-500">
-          Zatial ziadne objednavky.
+          Zatím žádné objednávky.
         </div>
       ) : (
         <div className="bg-white border border-slate-200 rounded-lg overflow-x-auto">
           <table className="w-full text-sm">
             <thead>
               <tr className="bg-slate-100 text-slate-600 text-left">
-                <th className="px-3 py-2 font-medium">Zakaznik</th>
-                <th className="px-3 py-2 font-medium">Mesto</th>
-                <th className="px-3 py-2 font-medium whitespace-nowrap">Cislo objednavky</th>
-                <th className="px-3 py-2 font-medium whitespace-nowrap">Cislo LS</th>
-                <th className="px-3 py-2 font-medium whitespace-nowrap">LS zakaznika</th>
-                <th className="px-3 py-2 font-medium text-right whitespace-nowrap">Pal. miesta</th>
-                <th className="px-3 py-2 font-medium text-right whitespace-nowrap">Paliet</th>
+                <th className="px-3 py-2 font-medium">Zákazník</th>
+                <th className="px-3 py-2 font-medium">Město</th>
+                <th className="px-3 py-2 font-medium whitespace-nowrap">Číslo objednávky</th>
+                <th className="px-3 py-2 font-medium whitespace-nowrap">Číslo LS</th>
+                <th className="px-3 py-2 font-medium whitespace-nowrap">LS zákazníka</th>
+                <th className="px-3 py-2 font-medium text-right whitespace-nowrap">Pal. místa</th>
+                <th className="px-3 py-2 font-medium text-right whitespace-nowrap">Palet</th>
                 <th className="px-3 py-2 font-medium text-right">Stav</th>
                 <th className="px-3 py-2"></th>
               </tr>
@@ -407,7 +407,7 @@ function ExpediciaTab({ fullName }) {
                         ) : (
                           <PackageX size={12} />
                         )}
-                        {expedovana ? "Expedovana" : "Neexpedovana"}
+                        {expedovana ? "Expedováno" : "Neexpedováno"}
                       </button>
                     </td>
                     <td className="px-3 py-2 text-slate-300"><ChevronRight size={16} /></td>
@@ -493,7 +493,7 @@ function OrderDetailModal({ order, products, carriers, dispatches, finishedStock
       setPhotoPath(await uploadExpediciaPhoto(order.id, photoFormId, file));
       setPhotoPreview(URL.createObjectURL(file));
     } catch (err) {
-      setPhotoError("Nahratie fotky zlyhalo, skuste znova.");
+      setPhotoError("Nahrání fotky se nezdařilo, zkuste to znovu.");
     }
     setPhotoUploading(false);
     if (e.target) e.target.value = "";
@@ -513,7 +513,7 @@ function OrderDetailModal({ order, products, carriers, dispatches, finishedStock
       setOverallPhotoPath(await uploadExpediciaPhoto(order.id, overallPhotoFormId, file));
       setOverallPhotoPreview(URL.createObjectURL(file));
     } catch (err) {
-      setOverallPhotoError("Nahratie fotky zlyhalo, skuste znova.");
+      setOverallPhotoError("Nahrání fotky se nezdařilo, zkuste to znovu.");
     }
     setOverallPhotoUploading(false);
     if (e.target) e.target.value = "";
@@ -525,7 +525,7 @@ function OrderDetailModal({ order, products, carriers, dispatches, finishedStock
   }
 
   async function handleSaveOverallPhoto() {
-    if (!overallPhotoPath) { setOverallPhotoError("Najprv odfotte celkovu nakladku."); return; }
+    if (!overallPhotoPath) { setOverallPhotoError("Nejprve vyfoťte celkovou nakládku."); return; }
     setOverallPhotoError("");
     setOverallSaving(true);
     try {
@@ -538,16 +538,16 @@ function OrderDetailModal({ order, products, carriers, dispatches, finishedStock
       });
       setOverallPhotoPath(""); setOverallPhotoPreview(""); setOverallPhotoFormId(uid());
     } catch (e) {
-      setOverallPhotoError("Ulozenie zlyhalo, skuste znova.");
+      setOverallPhotoError("Uložení se nezdařilo, zkuste to znovu.");
     }
     setOverallSaving(false);
   }
 
   async function handleAdd() {
     if (!selectedProduct) { setFormError("Vyberte produkt."); return; }
-    if (!paliet.trim()) { setFormError("Zadajte pocet paliet."); return; }
+    if (!paliet.trim()) { setFormError("Zadejte počet palet."); return; }
     if (maPrekrocenie && !potvrdenePrekrocenie) {
-      setFormError("Potvrdte, ze prekrocenie planu je zamer (zaskrtavacie policko nizsie).");
+      setFormError("Potvrďte, že překročení plánu je záměr (zaškrtávací políčko níže).");
       return;
     }
     setFormError("");
@@ -569,14 +569,14 @@ function OrderDetailModal({ order, products, carriers, dispatches, finishedStock
       setPhotoPath(""); setPhotoPreview(""); setPhotoError(""); setPhotoFormId(uid());
       setPotvrdenePrekrocenie(false);
     } catch (e) {
-      setFormError("Ulozenie zlyhalo, skuste znova.");
+      setFormError("Uložení se nezdařilo, zkuste to znovu.");
     }
     setSaving(false);
   }
 
   async function handleSaveCarrier() {
     const name = customCarrier ? carrierName.trim() : ((carriers.find((c) => c.id === carrierId) || {}).nazov || "");
-    if (!name) { setCarrierError("Vyberte alebo zadajte dopravcu."); return; }
+    if (!name) { setCarrierError("Vyberte nebo zadejte dopravce."); return; }
     setCarrierError("");
     setCarrierSaving(true);
     try {
@@ -591,7 +591,7 @@ function OrderDetailModal({ order, products, carriers, dispatches, finishedStock
       });
       setCarrierId(""); setCustomCarrier(false); setCarrierName(""); setVodic("");
     } catch (e) {
-      setCarrierError("Ulozenie zlyhalo, skuste znova.");
+      setCarrierError("Uložení se nezdařilo, zkuste to znovu.");
     }
     setCarrierSaving(false);
   }
@@ -602,7 +602,7 @@ function OrderDetailModal({ order, products, carriers, dispatches, finishedStock
         <div className="flex items-center justify-between px-5 py-4 border-b border-slate-100">
           <div>
             <div className="text-lg font-semibold">{order.zakaznik}</div>
-            <div className="text-xs text-slate-500">{order.cislo_objednavky_dopravy} - LS {order.cislo_dodacieho_listu}{order.cislo_objednavky_zakaznika ? " - LS zakaznika " + order.cislo_objednavky_zakaznika : ""}</div>
+            <div className="text-xs text-slate-500">{order.cislo_objednavky_dopravy} - LS {order.cislo_dodacieho_listu}{order.cislo_objednavky_zakaznika ? " - LS zákazníka " + order.cislo_objednavky_zakaznika : ""}</div>
           </div>
           <button onClick={onClose} className="text-slate-400 hover:text-slate-700"><X size={20} /></button>
         </div>
@@ -613,7 +613,7 @@ function OrderDetailModal({ order, products, carriers, dispatches, finishedStock
           </div>
 
           <div className="mb-4">
-            <div className="text-xs text-slate-500 mb-1">Datum nakladky (ak sa zapisuje s odstupom, zmente na povodny den)</div>
+            <div className="text-xs text-slate-500 mb-1">Datum nakládky (pokud se zapisuje s odstupem, změňte na původní den)</div>
             <input
               value={datum}
               onChange={(e) => setDatum(e.target.value)}
@@ -624,23 +624,23 @@ function OrderDetailModal({ order, products, carriers, dispatches, finishedStock
 
           <div className="grid grid-cols-3 gap-2 mb-4 text-center">
             <div className="bg-slate-50 rounded-lg p-2.5">
-              <div className="text-xs text-slate-500">Pal. miesta</div>
+              <div className="text-xs text-slate-500">Pal. místa</div>
               <div className="text-base font-semibold">{order.pocet_paletovych_miest || "-"}</div>
             </div>
             <div className="bg-slate-50 rounded-lg p-2.5">
-              <div className="text-xs text-slate-500">Planovane paliet</div>
+              <div className="text-xs text-slate-500">Plánované palety</div>
               <div className="text-base font-semibold">{order.pocet_paliet || "-"}</div>
             </div>
             <div className="bg-slate-50 rounded-lg p-2.5">
-              <div className="text-xs text-slate-500">Nalozene spolu</div>
+              <div className="text-xs text-slate-500">Naloženo celkem</div>
               <div className={"text-base font-semibold " + (planovanePaliet && nalozeneSpolu >= planovanePaliet ? "text-emerald-600" : "")}>{nalozeneSpolu} {planovanePaliet ? "/ " + planovanePaliet : ""}</div>
             </div>
           </div>
 
-          <div className="text-xs font-semibold text-slate-500 mb-1.5">Doprava - kto vyzdvihuje</div>
+          <div className="text-xs font-semibold text-slate-500 mb-1.5">Doprava - kdo vyzvedává</div>
           <div className="border border-slate-200 rounded-lg p-3 mb-4">
             {carriers.length === 0 ? (
-              <div className="text-xs text-slate-400 mb-2">Ziadni dopravcovia v ciselniku.</div>
+              <div className="text-xs text-slate-400 mb-2">Žádní dopravci v číselníku.</div>
             ) : (
               <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 mb-2">
                 {carriers.map((c) => (
@@ -649,7 +649,7 @@ function OrderDetailModal({ order, products, carriers, dispatches, finishedStock
                   </button>
                 ))}
                 <button onClick={() => { setCustomCarrier(true); setCarrierId(""); }} className={bigBtn + " " + (customCarrier ? "bg-teal-700 text-white border-teal-700" : "bg-white text-slate-700 border-slate-200 border-dashed")}>
-                  Iny dopravca
+                  Jiný dopravce
                 </button>
               </div>
             )}
@@ -658,22 +658,22 @@ function OrderDetailModal({ order, products, carriers, dispatches, finishedStock
                 autoFocus
                 value={carrierName}
                 onChange={(e) => setCarrierName(e.target.value)}
-                placeholder="Nazov dopravcu"
+                placeholder="Název dopravce"
                 className="w-full border-2 border-slate-200 rounded-lg px-2.5 py-2 text-sm mb-2 focus:outline-none focus:ring-2 focus:ring-teal-600"
               />
             )}
             <div className="mb-2">
-              <div className="text-xs text-slate-500 mb-1">Meno vodica (nepovinne)</div>
+              <div className="text-xs text-slate-500 mb-1">Jméno řidiče (nepovinné)</div>
               <input
                 value={vodic}
                 onChange={(e) => setVodic(e.target.value)}
-                placeholder="napr. Jan Novak"
+                placeholder="např. Jan Novák"
                 className="w-full border-2 border-slate-200 rounded-lg px-2.5 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-teal-600"
               />
             </div>
             {carrierError && <div className="mb-2 text-xs text-red-700 flex items-center gap-1.5"><AlertCircle size={12} /> {carrierError}</div>}
             <button onClick={handleSaveCarrier} disabled={carrierSaving} className="w-full bg-teal-700 hover:bg-teal-800 disabled:opacity-60 text-white text-sm font-semibold px-4 py-2.5 rounded-lg flex items-center justify-center gap-1.5">
-              {carrierSaving ? <Loader2 size={16} className="animate-spin" /> : <CheckCircle2 size={16} />} Ulozit dopravcu
+              {carrierSaving ? <Loader2 size={16} className="animate-spin" /> : <CheckCircle2 size={16} />} Uložit dopravce
             </button>
           </div>
           {dopravaZaznamy.length > 0 && (
@@ -681,7 +681,7 @@ function OrderDetailModal({ order, products, carriers, dispatches, finishedStock
               {dopravaZaznamy.map((d) => (
                 <div key={d.id} className="flex items-center justify-between bg-slate-50 rounded-lg px-3 py-2">
                   <div>
-                    <div className="text-sm font-medium">{d.dopravca || "-"}{d.vodic ? " - vodic: " + d.vodic : ""}</div>
+                    <div className="text-sm font-medium">{d.dopravca || "-"}{d.vodic ? " - řidič: " + d.vodic : ""}</div>
                     <div className="text-xs text-slate-500">{d.datum} {d.cas} - {d.zapisal}{backdatedNote(d.createdAt, d.datum)}</div>
                   </div>
                   <button onClick={() => onDeleteDispatch(d.id)} className="text-slate-400 hover:text-red-600 p-1"><Trash2 size={16} /></button>
@@ -692,10 +692,10 @@ function OrderDetailModal({ order, products, carriers, dispatches, finishedStock
 
           {Array.isArray(order.polozky) && order.polozky.length > 0 && (
             <div className="mb-4">
-              <div className="text-xs font-semibold text-slate-500 mb-1.5">Rozlozenie podla produktov (z objednavky)</div>
+              <div className="text-xs font-semibold text-slate-500 mb-1.5">Rozložení podle produktů (z objednávky)</div>
               <div className="border border-slate-200 rounded-lg overflow-hidden">
                 <table className="w-full text-xs">
-                  <thead><tr className="bg-slate-50 text-slate-500 text-left"><th className="px-2.5 py-1.5 font-medium">Popis</th><th className="px-2.5 py-1.5 font-medium">Artikel</th><th className="px-2.5 py-1.5 font-medium text-right">Palet</th><th className="px-2.5 py-1.5 font-medium text-right">Karton</th></tr></thead>
+                  <thead><tr className="bg-slate-50 text-slate-500 text-left"><th className="px-2.5 py-1.5 font-medium">Popis</th><th className="px-2.5 py-1.5 font-medium">Artikl</th><th className="px-2.5 py-1.5 font-medium text-right">Palet</th><th className="px-2.5 py-1.5 font-medium text-right">Karton</th></tr></thead>
                   <tbody>
                     {order.polozky.map((it, i) => (
                       <tr key={i} className="border-t border-slate-100">
@@ -711,7 +711,7 @@ function OrderDetailModal({ order, products, carriers, dispatches, finishedStock
             </div>
           )}
 
-          <div className="text-xs font-semibold text-slate-500 mb-1.5">Zapisat nalozenu davku</div>
+          <div className="text-xs font-semibold text-slate-500 mb-1.5">Zapsat naloženou dávku</div>
           <div className="border border-slate-200 rounded-lg p-3 mb-4">
             <div className="grid grid-cols-3 gap-2 mb-2">
               {PRODUCTION_LINKY.map((l) => (
@@ -721,7 +721,7 @@ function OrderDetailModal({ order, products, carriers, dispatches, finishedStock
               ))}
             </div>
             {linkaProducts.length === 0 ? (
-              <div className="text-xs text-slate-400 mb-2">Ziadne produkty pre tuto linku.</div>
+              <div className="text-xs text-slate-400 mb-2">Žádné produkty pro tuto linku.</div>
             ) : (
               <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 mb-2">
                 {linkaProducts.map((p) => (
@@ -732,42 +732,42 @@ function OrderDetailModal({ order, products, carriers, dispatches, finishedStock
               </div>
             )}
             {stockRow && (
-              <div className="text-xs text-slate-500 mb-2">Na sklade hotovych: <b>{stockRow.stav} paliet</b></div>
+              <div className="text-xs text-slate-500 mb-2">Na skladě hotových: <b>{stockRow.stav} palet</b></div>
             )}
             <div className="grid grid-cols-2 gap-2 mb-2">
               <div>
-                <div className="text-xs text-slate-500 mb-1">Pocet paliet</div>
+                <div className="text-xs text-slate-500 mb-1">Počet palet</div>
                 <input
                   value={paliet}
                   onChange={(e) => { setPaliet(e.target.value); setPotvrdenePrekrocenie(false); }}
                   inputMode="decimal"
-                  placeholder="napr. 4"
+                  placeholder="např. 4"
                   className={"w-full border-2 rounded-lg px-2.5 py-2 text-sm text-center focus:outline-none focus:ring-2 " + (prekrocenaPlanovanaPaleta ? "border-red-400 focus:ring-red-500" : "border-slate-200 focus:ring-teal-600")}
                 />
                 {prekrocenaPlanovanaPaleta && (
-                  <div className="text-xs text-red-600 mt-1">Prekrocenie planu ({nalozeneSpolu + paletyNaEnter} / {planovanePaliet})</div>
+                  <div className="text-xs text-red-600 mt-1">Překročení plánu ({nalozeneSpolu + paletyNaEnter} / {planovanePaliet})</div>
                 )}
               </div>
               <div>
-                <div className="text-xs text-slate-500 mb-1">Pocet kartonov (nepovinne)</div>
+                <div className="text-xs text-slate-500 mb-1">Počet kartonů (nepovinné)</div>
                 <input
                   value={kartonov}
                   onChange={(e) => { setKartonov(e.target.value); setPotvrdenePrekrocenie(false); }}
                   inputMode="decimal"
-                  placeholder="napr. 20"
+                  placeholder="např. 20"
                   className={"w-full border-2 rounded-lg px-2.5 py-2 text-sm text-center focus:outline-none focus:ring-2 " + (prekrocenePlanovaneKartony ? "border-red-400 focus:ring-red-500" : "border-slate-200 focus:ring-teal-600")}
                 />
                 {prekrocenePlanovaneKartony && (
-                  <div className="text-xs text-red-600 mt-1">Prekrocenie planu ({nalozeneKartonovSpolu + kartonovNaEnter} / {planovaneKartonov})</div>
+                  <div className="text-xs text-red-600 mt-1">Překročení plánu ({nalozeneKartonovSpolu + kartonovNaEnter} / {planovaneKartonov})</div>
                 )}
               </div>
             </div>
             <div className="mb-2">
-              <div className="text-xs text-slate-500 mb-1">Sarza</div>
-              <input value={sarza} onChange={(e) => setSarza(e.target.value)} placeholder="napr. 2607A" className="w-full border-2 border-slate-200 rounded-lg px-2.5 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-teal-600" />
+              <div className="text-xs text-slate-500 mb-1">Šarže</div>
+              <input value={sarza} onChange={(e) => setSarza(e.target.value)} placeholder="např. 2607A" className="w-full border-2 border-slate-200 rounded-lg px-2.5 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-teal-600" />
             </div>
             <div className="mb-2">
-              <div className="text-xs text-slate-500 mb-1">Fotka nalozenej davky (nepovinne)</div>
+              <div className="text-xs text-slate-500 mb-1">Fotka naložené dávky (nepovinné)</div>
               <PhotoControl
                 photoPath={photoPath}
                 photoPreview={photoPreview}
@@ -782,28 +782,28 @@ function OrderDetailModal({ order, products, carriers, dispatches, finishedStock
             {maPrekrocenie && (
               <label className="mb-2 flex items-start gap-2 bg-red-50 border border-red-200 rounded-lg px-2.5 py-2 text-xs text-red-700 cursor-pointer">
                 <input type="checkbox" checked={potvrdenePrekrocenie} onChange={(e) => setPotvrdenePrekrocenie(e.target.checked)} className="mt-0.5" />
-                Potvrdzujem, ze prekrocenie planovaneho poctu je zamer (napr. zakaznik dodatocne pridal tovar) a chcem napriek tomu ulozit.
+                Potvrzuji, že překročení plánovaného počtu je záměr (např. zákazník dodatečně přidal zboží) a chci to přesto uložit.
               </label>
             )}
             {formError && <div className="mb-2 text-xs text-red-700 flex items-center gap-1.5"><AlertCircle size={12} /> {formError}</div>}
             <button onClick={handleAdd} disabled={saving || (maPrekrocenie && !potvrdenePrekrocenie)} className="w-full bg-teal-700 hover:bg-teal-800 disabled:opacity-60 text-white text-sm font-semibold px-4 py-2.5 rounded-lg flex items-center justify-center gap-1.5">
-              {saving ? <Loader2 size={16} className="animate-spin" /> : <CheckCircle2 size={16} />} Pridat davku
+              {saving ? <Loader2 size={16} className="animate-spin" /> : <CheckCircle2 size={16} />} Přidat dávku
             </button>
           </div>
 
-          <div className="text-xs font-semibold text-slate-500 mb-1.5">Nalozene davky</div>
+          <div className="text-xs font-semibold text-slate-500 mb-1.5">Naložené dávky</div>
           {batchDispatches.length === 0 ? (
-            <div className="text-sm text-slate-400 text-center py-4">Zatial ziadne zaznamenane davky.</div>
+            <div className="text-sm text-slate-400 text-center py-4">Zatím žádné zaznamenané dávky.</div>
           ) : (
             <div className="space-y-1.5 mb-4">
               {batchDispatches.map((d) => (
                 <div key={d.id} className="flex items-center justify-between bg-slate-50 rounded-lg px-3 py-2">
                   <div>
                     <div className="text-sm font-medium">
-                      {d.produktNazov} <span className="text-slate-400 font-normal">- {d.pocetPaliet} paliet{d.pocetKartonov ? " / " + d.pocetKartonov + " kartonov" : ""}</span>
-                      {d.prekroceniePotvrdene && <span className="ml-2 text-xs font-medium px-2 py-0.5 rounded-full bg-amber-100 text-amber-700">nad plan</span>}
+                      {d.produktNazov} <span className="text-slate-400 font-normal">- {d.pocetPaliet} palet{d.pocetKartonov ? " / " + d.pocetKartonov + " kartonů" : ""}</span>
+                      {d.prekroceniePotvrdene && <span className="ml-2 text-xs font-medium px-2 py-0.5 rounded-full bg-amber-100 text-amber-700">nad plán</span>}
                     </div>
-                    <div className="text-xs text-slate-500">Sarza {d.sarza || "-"} - {d.datum} {d.cas} - {d.zapisal}{backdatedNote(d.createdAt, d.datum)}</div>
+                    <div className="text-xs text-slate-500">Šarže {d.sarza || "-"} - {d.datum} {d.cas} - {d.zapisal}{backdatedNote(d.createdAt, d.datum)}</div>
                   </div>
                   {d.photoPath && (
                     <button onClick={() => openExpediciaPhoto(d.photoPath)} className="text-slate-400 hover:text-teal-700 p-1"><Camera size={16} /></button>
@@ -814,7 +814,7 @@ function OrderDetailModal({ order, products, carriers, dispatches, finishedStock
             </div>
           )}
 
-          <div className="text-xs font-semibold text-slate-500 mb-1.5">Fotka celkovej nakladky (ked je vsetko nalozene)</div>
+          <div className="text-xs font-semibold text-slate-500 mb-1.5">Fotka celkové nakládky (když je vše naloženo)</div>
           <div className="border border-slate-200 rounded-lg p-3 mb-4">
             <PhotoControl
               photoPath={overallPhotoPath}
@@ -827,7 +827,7 @@ function OrderDetailModal({ order, products, carriers, dispatches, finishedStock
               onView={openExpediciaPhoto}
             />
             <button onClick={handleSaveOverallPhoto} disabled={overallSaving} className="w-full mt-2 bg-teal-700 hover:bg-teal-800 disabled:opacity-60 text-white text-sm font-semibold px-4 py-2.5 rounded-lg flex items-center justify-center gap-1.5">
-              {overallSaving ? <Loader2 size={16} className="animate-spin" /> : <CheckCircle2 size={16} />} Ulozit fotku nakladky
+              {overallSaving ? <Loader2 size={16} className="animate-spin" /> : <CheckCircle2 size={16} />} Uložit fotku nakládky
             </button>
           </div>
 
@@ -836,7 +836,7 @@ function OrderDetailModal({ order, products, carriers, dispatches, finishedStock
               {overallPhotos.map((d) => (
                 <div key={d.id} className="flex items-center justify-between bg-slate-50 rounded-lg px-3 py-2">
                   <button onClick={() => openExpediciaPhoto(d.photoPath)} className="flex items-center gap-2 text-sm text-slate-700 hover:text-teal-700">
-                    <Camera size={16} /> Fotka nakladky - {d.datum} {d.cas} - {d.zapisal}{backdatedNote(d.createdAt, d.datum)}
+                    <Camera size={16} /> Fotka nakládky - {d.datum} {d.cas} - {d.zapisal}{backdatedNote(d.createdAt, d.datum)}
                   </button>
                   <button onClick={() => onDeleteDispatch(d.id)} className="text-slate-400 hover:text-red-600 p-1"><Trash2 size={16} /></button>
                 </div>
@@ -877,7 +877,7 @@ function emptyReceiptForm() {
 function PhotoControl({ photoPath, photoPreview, uploading, error, highlight, onSelect, onRemove, onView }) {
   return (
     <div className={"rounded-xl p-3 " + (highlight ? "bg-red-50 border-2 border-red-200" : "border-2 border-slate-200")}>
-      {highlight && <div className="text-sm font-semibold text-red-700 mb-2">Odporucame prilozit fotku poskodenia</div>}
+      {highlight && <div className="text-sm font-semibold text-red-700 mb-2">Doporučujeme přiložit fotku poškození</div>}
       {photoPreview ? (
         <div className="flex items-center gap-3">
           <img src={photoPreview} alt="Fotka" className="w-20 h-20 object-cover rounded-lg border border-slate-200" />
@@ -895,7 +895,7 @@ function PhotoControl({ photoPath, photoPreview, uploading, error, highlight, on
       ) : (
         <label className={"inline-flex items-center gap-2 px-4 py-3 rounded-xl text-base font-semibold cursor-pointer " + (highlight ? "bg-red-600 text-white" : "bg-white border-2 border-slate-200 text-slate-700")}>
           {uploading ? <Loader2 size={18} className="animate-spin" /> : <Camera size={18} />}
-          Odfotit
+          Vyfotit
           <input type="file" accept="image/*" capture="environment" className="hidden" onChange={onSelect} disabled={uploading} />
         </label>
       )}
@@ -930,7 +930,7 @@ function PrijemTab({ fullName }) {
       supabase.from("material_orders").select("*"),
     ]);
     if (suppliersRes.error || receiptsRes.error) {
-      setError("Nepodarilo sa nacitat data.");
+      setError("Nepodařilo se načíst data.");
       return;
     }
     setError("");
@@ -1049,7 +1049,7 @@ function PrijemTab({ fullName }) {
       setF((prev) => ({ ...prev, photoPath: path }));
       setPhotoPreview(URL.createObjectURL(file));
     } catch (err) {
-      setPhotoError("Nahratie fotky zlyhalo, skuste znova.");
+      setPhotoError("Nahrání fotky se nezdařilo, zkuste to znovu.");
     }
     setPhotoUploading(false);
     if (e.target) e.target.value = "";
@@ -1062,15 +1062,15 @@ function PrijemTab({ fullName }) {
 
   async function handleSave() {
     if (!fullName) {
-      setError("Hore v \"Kto pracuje\" vyberte, kto tovar prevzal.");
+      setError("Nahoře v \"Kdo pracuje\" vyberte, kdo zboží převzal.");
       return;
     }
     if (!f.dodavatel.trim()) {
-      setError("Vyberte alebo zadajte dodavatela.");
+      setError("Vyberte nebo zadejte dodavatele.");
       return;
     }
     if (!f.material.trim()) {
-      setError("Vyberte alebo zadajte material.");
+      setError("Vyberte nebo zadejte materiál.");
       return;
     }
     setError("");
@@ -1100,11 +1100,11 @@ function PrijemTab({ fullName }) {
         const { error: insErr } = await supabase.from("goods_receipts").insert({ id: formId, data: { ...record, id: formId } });
         if (insErr) throw insErr;
       }
-      setFlash("Ulozene");
+      setFlash("Uloženo");
       await fetchAll();
       resetForm(true);
     } catch (e) {
-      setError("Ulozenie zlyhalo, skuste znova.");
+      setError("Uložení se nezdařilo, zkuste to znovu.");
     }
     setSaving(false);
   }
@@ -1117,7 +1117,7 @@ function PrijemTab({ fullName }) {
       if (editingId === id) resetForm(false);
       await fetchAll();
     } catch (e) {
-      setError("Zmazanie zlyhalo, skuste znova.");
+      setError("Smazání se nezdařilo, zkuste to znovu.");
     }
   }
 
@@ -1128,7 +1128,7 @@ function PrijemTab({ fullName }) {
   if (loading) {
     return (
       <div className="flex items-center justify-center h-40 text-slate-500">
-        <Loader2 className="animate-spin mr-2" size={20} /> Nacitavam...
+        <Loader2 className="animate-spin mr-2" size={20} /> Načítám...
       </div>
     );
   }
@@ -1148,7 +1148,7 @@ function PrijemTab({ fullName }) {
 
       {pendingOrders.length > 0 && (
         <div className="bg-white border border-slate-200 rounded-xl p-4 mb-5">
-          <div className="text-sm font-semibold text-slate-500 mb-2">Cakajuce objednavky surovin/obalov (klikom nacitate do formulara)</div>
+          <div className="text-sm font-semibold text-slate-500 mb-2">Čekající objednávky surovin/obalů (kliknutím načtete do formuláře)</div>
           <div className="space-y-1.5">
             {pendingOrders.map((o) => (
               <button key={o.id} onClick={() => pickMaterialOrder(o)} className={"w-full text-left rounded-lg px-3 py-2.5 border-2 " + (f.materialObjednavkaId === o.id ? "border-teal-700 bg-teal-50" : "border-slate-200 bg-slate-50")}>
@@ -1161,16 +1161,16 @@ function PrijemTab({ fullName }) {
       )}
 
       <div className="bg-white border border-slate-200 rounded-xl p-4 mb-5">
-        <div className="text-lg font-semibold mb-3">{editingId ? "Upravit prijem" : "Novy prijem tovaru"}</div>
+        <div className="text-lg font-semibold mb-3">{editingId ? "Upravit příjem" : "Nový příjem zboží"}</div>
 
         {f.materialObjednavkaId && (
           <div className="mb-3 bg-teal-50 text-teal-800 text-sm px-3 py-2 rounded-lg flex items-center justify-between gap-2">
-            <span>Viazane na objednavku <b>{f.materialObjednavkaCislo}</b></span>
-            <button onClick={unlinkMaterialOrder} className="text-xs text-teal-700 hover:text-teal-900 underline">Zrusit prepojenie</button>
+            <span>Vázáno na objednávku <b>{f.materialObjednavkaCislo}</b></span>
+            <button onClick={unlinkMaterialOrder} className="text-xs text-teal-700 hover:text-teal-900 underline">Zrušit propojení</button>
           </div>
         )}
 
-        <div className="mb-1 text-sm font-medium text-slate-500">Datum prijatia (ak sa zapisuje s odstupom, zmente na povodny den)</div>
+        <div className="mb-1 text-sm font-medium text-slate-500">Datum přijetí (pokud se zapisuje s odstupem, změňte na původní den)</div>
         <input
           value={f.datumPrijatia}
           onChange={(e) => setF({ ...f, datumPrijatia: e.target.value })}
@@ -1186,7 +1186,7 @@ function PrijemTab({ fullName }) {
             </button>
           ))}
           <button onClick={() => { setCustomSupplier(true); setF((p) => ({ ...p, dodavatelId: "", dodavatel: "" })); }} className={bigBtn + " " + (customSupplier ? "bg-teal-700 text-white border-teal-700" : "bg-white text-slate-700 border-slate-200 border-dashed")}>
-            Iny dodavatel
+            Jiný dodavatel
           </button>
         </div>
         {customSupplier && (
@@ -1194,12 +1194,12 @@ function PrijemTab({ fullName }) {
             autoFocus
             value={f.dodavatel}
             onChange={(e) => setF({ ...f, dodavatel: e.target.value })}
-            placeholder="Nazov dodavatela"
+            placeholder="Název dodavatele"
             className="w-full border-2 border-slate-200 rounded-xl px-3 py-3 text-base mb-3 focus:outline-none focus:ring-2 focus:ring-teal-600"
           />
         )}
 
-        <div className="mb-1 mt-3 text-sm font-medium text-slate-500">Material</div>
+        <div className="mb-1 mt-3 text-sm font-medium text-slate-500">Materiál</div>
         <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 mb-2">
           {[...MATERIAL_QUICK_PICKS, ...extraKnownMaterials(receipts, [], MATERIAL_QUICK_PICKS)].map((m) => (
             <button key={m} onClick={() => pickMaterial(m)} className={bigBtn + " " + (!customMaterial && f.material === m ? "bg-teal-700 text-white border-teal-700" : "bg-white text-slate-700 border-slate-200")}>
@@ -1207,7 +1207,7 @@ function PrijemTab({ fullName }) {
             </button>
           ))}
           <button onClick={() => { setCustomMaterial(true); setF((p) => ({ ...p, material: "" })); }} className={bigBtn + " " + (customMaterial ? "bg-teal-700 text-white border-teal-700" : "bg-white text-slate-700 border-slate-200 border-dashed")}>
-            Iny material
+            Jiný materiál
           </button>
         </div>
         {customMaterial && (
@@ -1215,18 +1215,18 @@ function PrijemTab({ fullName }) {
             autoFocus
             value={f.material}
             onChange={(e) => setF({ ...f, material: e.target.value })}
-            placeholder="Nazov materialu"
+            placeholder="Název materiálu"
             className="w-full border-2 border-slate-200 rounded-xl px-3 py-3 text-base mb-3 focus:outline-none focus:ring-2 focus:ring-teal-600"
           />
         )}
 
-        <div className="mb-1 mt-3 text-sm font-medium text-slate-500">Mnozstvo</div>
+        <div className="mb-1 mt-3 text-sm font-medium text-slate-500">Množství</div>
         <div className="flex gap-2 mb-2">
           <input
             value={f.mnozstvoNum}
             onChange={(e) => setF({ ...f, mnozstvoNum: e.target.value })}
             inputMode="decimal"
-            placeholder="napr. 20"
+            placeholder="např. 20"
             className="w-28 border-2 border-slate-200 rounded-xl px-3 py-3 text-base text-center focus:outline-none focus:ring-2 focus:ring-teal-600"
           />
           <div className="flex gap-2 flex-wrap flex-1">
@@ -1238,7 +1238,7 @@ function PrijemTab({ fullName }) {
           </div>
         </div>
 
-        <div className="mb-1 mt-3 text-sm font-medium text-slate-500">Stav pri prevzati</div>
+        <div className="mb-1 mt-3 text-sm font-medium text-slate-500">Stav při převzetí</div>
         <div className="grid grid-cols-3 gap-2 mb-2">
           {STAV_OPTIONS.map((opt) => {
             const Icon = opt.icon;
@@ -1268,7 +1268,7 @@ function PrijemTab({ fullName }) {
 
         {!showDetails ? (
           <button onClick={() => setShowDetails(true)} className="mt-2 text-sm text-teal-700 font-medium">
-            + Fotka, cislo dokladu, poznamka (nepovinne)
+            + Fotka, číslo dokladu, poznámka (nepovinné)
           </button>
         ) : (
           <div className="mt-3 space-y-2">
@@ -1286,13 +1286,13 @@ function PrijemTab({ fullName }) {
             <input
               value={f.cisloDokladu}
               onChange={(e) => setF({ ...f, cisloDokladu: e.target.value })}
-              placeholder="Cislo dodacieho listu / faktury"
+              placeholder="Číslo dodacího listu / faktury"
               className="w-full border-2 border-slate-200 rounded-xl px-3 py-3 text-base focus:outline-none focus:ring-2 focus:ring-teal-600"
             />
             <textarea
               value={f.poznamka}
               onChange={(e) => setF({ ...f, poznamka: e.target.value })}
-              placeholder="Poznamka"
+              placeholder="Poznámka"
               rows={2}
               className="w-full border-2 border-slate-200 rounded-xl px-3 py-3 text-base focus:outline-none focus:ring-2 focus:ring-teal-600"
             />
@@ -1302,7 +1302,7 @@ function PrijemTab({ fullName }) {
         <div className="flex gap-2 mt-4">
           {editingId && (
             <button onClick={() => resetForm(true)} className="px-4 py-3.5 rounded-xl text-base font-semibold border-2 border-slate-200 text-slate-600">
-              Zrusit
+              Zrušit
             </button>
           )}
           <button
@@ -1311,14 +1311,14 @@ function PrijemTab({ fullName }) {
             className="flex-1 bg-teal-700 hover:bg-teal-800 disabled:opacity-60 text-white text-lg font-semibold px-4 py-4 rounded-xl flex items-center justify-center gap-2"
           >
             {saving ? <Loader2 size={20} className="animate-spin" /> : <CheckCircle2 size={20} />}
-            {editingId ? "Ulozit zmeny" : "Ulozit prijem"}
+            {editingId ? "Uložit změny" : "Uložit příjem"}
           </button>
         </div>
       </div>
 
-      <div className="text-sm font-semibold text-slate-500 mb-2">Posledne prijmy</div>
+      <div className="text-sm font-semibold text-slate-500 mb-2">Poslední příjmy</div>
       {receipts.length === 0 ? (
-        <div className="bg-white border border-slate-200 rounded-lg p-6 text-center text-slate-400 text-sm">Zatial ziadne zaznamy.</div>
+        <div className="bg-white border border-slate-200 rounded-lg p-6 text-center text-slate-400 text-sm">Zatím žádné záznamy.</div>
       ) : (
         <div className="space-y-2">
           {receipts.map((r) => {
@@ -1328,7 +1328,7 @@ function PrijemTab({ fullName }) {
                 <button onClick={() => loadForEdit(r)} className="flex-1 text-left">
                   <div className="font-medium">
                     {r.dodavatel} <span className="text-slate-400 font-normal">- {r.material}</span>
-                    {r.pociatocnyStav && <span className="ml-2 text-xs font-medium px-2 py-0.5 rounded-full bg-slate-100 text-slate-600">Pociatocny stav</span>}
+                    {r.pociatocnyStav && <span className="ml-2 text-xs font-medium px-2 py-0.5 rounded-full bg-slate-100 text-slate-600">Počáteční stav</span>}
                   </div>
                   <div className="text-xs text-slate-500">{r.mnozstvo} - {r.datumPrijatia} {r.casPrijatia} - {r.prevzal}{r.materialObjednavkaCislo ? " - obj.: " + r.materialObjednavkaCislo : ""}{backdatedNote(r.createdAt, r.datumPrijatia)}</div>
                 </button>
@@ -1348,10 +1348,10 @@ function PrijemTab({ fullName }) {
       {confirmDelete && (
         <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
           <div className="bg-white rounded-xl shadow-xl w-full max-w-sm p-5">
-            <p className="text-base text-slate-700 mb-4">Naozaj zmazat zaznam "{confirmDelete.dodavatel} - {confirmDelete.material}"?</p>
+            <p className="text-base text-slate-700 mb-4">Opravdu smazat záznam "{confirmDelete.dodavatel} - {confirmDelete.material}"?</p>
             <div className="flex justify-end gap-2">
-              <button onClick={() => setConfirmDelete(null)} className="px-4 py-2.5 text-base text-slate-500">Zrusit</button>
-              <button onClick={() => handleDelete(confirmDelete.id)} className="bg-red-600 hover:bg-red-700 text-white text-base font-medium px-4 py-2.5 rounded-lg">Zmazat</button>
+              <button onClick={() => setConfirmDelete(null)} className="px-4 py-2.5 text-base text-slate-500">Zrušit</button>
+              <button onClick={() => handleDelete(confirmDelete.id)} className="bg-red-600 hover:bg-red-700 text-white text-base font-medium px-4 py-2.5 rounded-lg">Smazat</button>
             </div>
           </div>
         </div>
@@ -1420,7 +1420,7 @@ function ZasobyTab({ fullName }) {
       supabase.from("expedicia_zaznamy").select("*"),
     ]);
     if (receiptsRes.error || issuesRes.error) {
-      setError("Nepodarilo sa nacitat data.");
+      setError("Nepodařilo se načíst data.");
       return;
     }
     setError("");
@@ -1467,8 +1467,8 @@ function ZasobyTab({ fullName }) {
   }
 
   async function handleSaveOpening() {
-    if (!of.material.trim()) { setOpeningError("Vyberte alebo zadajte material."); return; }
-    if (!of.mnozstvoNum.trim()) { setOpeningError("Zadajte mnozstvo."); return; }
+    if (!of.material.trim()) { setOpeningError("Vyberte nebo zadejte materiál."); return; }
+    if (!of.mnozstvoNum.trim()) { setOpeningError("Zadejte množství."); return; }
     setOpeningError("");
     setOpeningSaving(true);
     const id = uid();
@@ -1477,14 +1477,14 @@ function ZasobyTab({ fullName }) {
       datumPrijatia: of.datum.trim() || todayStr(),
       casPrijatia: nowTimeStr(),
       dodavatelId: "",
-      dodavatel: "Pociatocny stav",
+      dodavatel: "Počáteční stav",
       material: of.material.trim(),
       mnozstvo: [of.mnozstvoNum.trim(), of.mnozstvoUnit].filter(Boolean).join(" ").trim(),
       mnozstvoCislo: parseFloat(String(of.mnozstvoNum).replace(",", ".")) || 0,
       mnozstvoJednotka: of.mnozstvoUnit,
       cisloDokladu: "",
       stavPrevzatia: "V poriadku",
-      poznamka: "Pociatocny stav zasob pri zavedeni evidencie",
+      poznamka: "Počáteční stav zásob při zavedení evidence",
       prevzal: fullName || "",
       materialObjednavkaId: "",
       materialObjednavkaCislo: "",
@@ -1494,12 +1494,12 @@ function ZasobyTab({ fullName }) {
     try {
       const { error: insErr } = await supabase.from("goods_receipts").insert({ id, data: record });
       if (insErr) throw insErr;
-      setFlash("Pociatocny stav ulozeny");
+      setFlash("Počáteční stav uložen");
       await fetchAll();
       setOf(emptyOpeningForm());
       setCustomOpeningMaterial(false);
     } catch (e) {
-      setOpeningError("Ulozenie zlyhalo, skuste znova.");
+      setOpeningError("Uložení se nezdařilo, zkuste to znovu.");
     }
     setOpeningSaving(false);
   }
@@ -1507,7 +1507,7 @@ function ZasobyTab({ fullName }) {
   async function handleSaveOpeningFinished() {
     const product = products.find((p) => p.id === openingProduktId);
     if (!product) { setOpeningFinishedError("Vyberte produkt."); return; }
-    if (!openingPaliet.trim()) { setOpeningFinishedError("Zadajte pocet paliet."); return; }
+    if (!openingPaliet.trim()) { setOpeningFinishedError("Zadejte počet palet."); return; }
     setOpeningFinishedError("");
     setOpeningFinishedSaving(true);
     const id = uid();
@@ -1527,12 +1527,12 @@ function ZasobyTab({ fullName }) {
     try {
       const { error: insErr } = await supabase.from("production_outputs").insert({ id, data: record });
       if (insErr) throw insErr;
-      setFlash("Pociatocny stav hotovych vyrobkov ulozeny");
+      setFlash("Počáteční stav hotových výrobků uložen");
       await fetchAll();
       setOpeningProduktId("");
       setOpeningPaliet("");
     } catch (e) {
-      setOpeningFinishedError("Ulozenie zlyhalo, skuste znova.");
+      setOpeningFinishedError("Uložení se nezdařilo, zkuste to znovu.");
     }
     setOpeningFinishedSaving(false);
   }
@@ -1552,15 +1552,15 @@ function ZasobyTab({ fullName }) {
 
   async function handleSave() {
     if (!f.material.trim()) {
-      setError("Vyberte alebo zadajte material.");
+      setError("Vyberte nebo zadejte materiál.");
       return;
     }
     if (!f.mnozstvoNum.trim()) {
-      setError("Zadajte mnozstvo.");
+      setError("Zadejte množství.");
       return;
     }
     if (presahujeStock && !potvrdenyMinus) {
-      setError("Potvrdte, ze prekrocenie stavu zasob je zamer (zaskrtavacie policko nizsie).");
+      setError("Potvrďte, že překročení stavu zásob je záměr (zaškrtávací políčko níže).");
       return;
     }
     setError("");
@@ -1581,13 +1581,13 @@ function ZasobyTab({ fullName }) {
       const id = uid();
       const { error: insErr } = await supabase.from("stock_issues").insert({ id, data: { ...record, id } });
       if (insErr) throw insErr;
-      setFlash("Ulozene");
+      setFlash("Uloženo");
       await fetchAll();
       setF(emptyIssueForm());
       setCustomMaterial(false);
       setPotvrdenyMinus(false);
     } catch (e) {
-      setError("Ulozenie zlyhalo, skuste znova.");
+      setError("Uložení se nezdařilo, zkuste to znovu.");
     }
     setSaving(false);
   }
@@ -1599,7 +1599,7 @@ function ZasobyTab({ fullName }) {
       if (delErr) throw delErr;
       await fetchAll();
     } catch (e) {
-      setError("Zmazanie zlyhalo, skuste znova.");
+      setError("Smazání se nezdařilo, zkuste to znovu.");
     }
   }
 
@@ -1608,7 +1608,7 @@ function ZasobyTab({ fullName }) {
   if (loading) {
     return (
       <div className="flex items-center justify-center h-40 text-slate-500">
-        <Loader2 className="animate-spin mr-2" size={20} /> Nacitavam...
+        <Loader2 className="animate-spin mr-2" size={20} /> Načítám...
       </div>
     );
   }
@@ -1629,17 +1629,17 @@ function ZasobyTab({ fullName }) {
       <div className="mb-5">
         {!showOpening ? (
           <button onClick={() => setShowOpening(true)} className="text-sm text-teal-700 font-medium">
-            + Nastavit pociatocny stav zasob
+            + Nastavit počáteční stav zásob
           </button>
         ) : (
           <div className="bg-white border border-slate-200 rounded-xl p-4">
             <div className="flex items-center justify-between mb-3">
-              <div className="text-lg font-semibold">Pociatocny stav zasob</div>
+              <div className="text-lg font-semibold">Počáteční stav zásob</div>
               <button onClick={() => setShowOpening(false)} className="text-slate-400 hover:text-slate-700"><X size={18} /></button>
             </div>
-            <p className="text-xs text-slate-400 mb-3">Jednorazovo zadajte, kolko daneho materialu realne mate na sklade, aby dalsie prijmy/vydaje pocitali zo spravneho zakladu.</p>
+            <p className="text-xs text-slate-400 mb-3">Jednorázově zadejte, kolik daného materiálu skutečně máte na skladě, aby další příjmy/výdeje počítaly ze správného základu.</p>
 
-            <div className="mb-1 text-sm font-medium text-slate-500">Material</div>
+            <div className="mb-1 text-sm font-medium text-slate-500">Materiál</div>
             <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 mb-2">
               {[...MATERIAL_QUICK_PICKS, ...extraMaterialy].map((m) => (
                 <button key={m} onClick={() => pickOpeningMaterial(m)} className={bigBtn + " " + (!customOpeningMaterial && of.material === m ? "bg-teal-700 text-white border-teal-700" : "bg-white text-slate-700 border-slate-200")}>
@@ -1647,7 +1647,7 @@ function ZasobyTab({ fullName }) {
                 </button>
               ))}
               <button onClick={() => { setCustomOpeningMaterial(true); setOf((p) => ({ ...p, material: "" })); }} className={bigBtn + " " + (customOpeningMaterial ? "bg-teal-700 text-white border-teal-700" : "bg-white text-slate-700 border-slate-200 border-dashed")}>
-                Iny material
+                Jiný materiál
               </button>
             </div>
             {customOpeningMaterial && (
@@ -1655,18 +1655,18 @@ function ZasobyTab({ fullName }) {
                 autoFocus
                 value={of.material}
                 onChange={(e) => setOf({ ...of, material: e.target.value })}
-                placeholder="Nazov materialu"
+                placeholder="Název materiálu"
                 className="w-full border-2 border-slate-200 rounded-xl px-3 py-3 text-base mb-3 focus:outline-none focus:ring-2 focus:ring-teal-600"
               />
             )}
 
-            <div className="mb-1 mt-3 text-sm font-medium text-slate-500">Mnozstvo</div>
+            <div className="mb-1 mt-3 text-sm font-medium text-slate-500">Množství</div>
             <div className="flex gap-2 mb-2">
               <input
                 value={of.mnozstvoNum}
                 onChange={(e) => setOf({ ...of, mnozstvoNum: e.target.value })}
                 inputMode="decimal"
-                placeholder="napr. 500"
+                placeholder="např. 500"
                 className="w-28 border-2 border-slate-200 rounded-xl px-3 py-3 text-base text-center focus:outline-none focus:ring-2 focus:ring-teal-600"
               />
               <div className="flex gap-2 flex-wrap flex-1">
@@ -1688,7 +1688,7 @@ function ZasobyTab({ fullName }) {
 
             {openingError && <div className="mb-2 text-xs text-red-700 flex items-center gap-1.5"><AlertCircle size={12} /> {openingError}</div>}
             <button onClick={handleSaveOpening} disabled={openingSaving} className="w-full mt-1 bg-teal-700 hover:bg-teal-800 disabled:opacity-60 text-white text-base font-semibold px-4 py-3 rounded-xl flex items-center justify-center gap-2">
-              {openingSaving ? <Loader2 size={18} className="animate-spin" /> : <CheckCircle2 size={18} />} Ulozit pociatocny stav
+              {openingSaving ? <Loader2 size={18} className="animate-spin" /> : <CheckCircle2 size={18} />} Uložit počáteční stav
             </button>
           </div>
         )}
@@ -1697,15 +1697,15 @@ function ZasobyTab({ fullName }) {
       <div className="mb-5">
         {!showOpeningFinished ? (
           <button onClick={() => setShowOpeningFinished(true)} className="text-sm text-teal-700 font-medium">
-            + Nastavit pociatocny stav hotovych vyrobkov
+            + Nastavit počáteční stav hotových výrobků
           </button>
         ) : (
           <div className="bg-white border border-slate-200 rounded-xl p-4">
             <div className="flex items-center justify-between mb-3">
-              <div className="text-lg font-semibold">Pociatocny stav hotovych vyrobkov</div>
+              <div className="text-lg font-semibold">Počáteční stav hotových výrobků</div>
               <button onClick={() => setShowOpeningFinished(false)} className="text-slate-400 hover:text-slate-700"><X size={18} /></button>
             </div>
-            <p className="text-xs text-slate-400 mb-3">Jednorazovo zadajte, kolko hotovych paliet daneho produktu uz mate na sklade, aby dalsia vyroba/expedicia pocitala zo spravneho zakladu.</p>
+            <p className="text-xs text-slate-400 mb-3">Jednorázově zadejte, kolik hotových palet daného produktu už máte na skladě, aby další výroba/expedice počítala ze správného základu.</p>
 
             <div className="mb-1 text-sm font-medium text-slate-500">Linka</div>
             <div className="grid grid-cols-3 gap-2 mb-2">
@@ -1718,7 +1718,7 @@ function ZasobyTab({ fullName }) {
 
             <div className="mb-1 mt-2 text-sm font-medium text-slate-500">Produkt</div>
             {products.filter((p) => p.linka === openingLinka).length === 0 ? (
-              <div className="text-xs text-slate-400 mb-2">Ziadne produkty pre tuto linku.</div>
+              <div className="text-xs text-slate-400 mb-2">Žádné produkty pro tuto linku.</div>
             ) : (
               <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 mb-2">
                 {products.filter((p) => p.linka === openingLinka).map((p) => (
@@ -1729,12 +1729,12 @@ function ZasobyTab({ fullName }) {
               </div>
             )}
 
-            <div className="mb-1 mt-3 text-sm font-medium text-slate-500">Pocet paliet</div>
+            <div className="mb-1 mt-3 text-sm font-medium text-slate-500">Počet palet</div>
             <input
               value={openingPaliet}
               onChange={(e) => setOpeningPaliet(e.target.value)}
               inputMode="decimal"
-              placeholder="napr. 12"
+              placeholder="např. 12"
               className="w-full border-2 border-slate-200 rounded-xl px-3 py-3 text-base text-center mb-2 focus:outline-none focus:ring-2 focus:ring-teal-600"
             />
 
@@ -1748,16 +1748,16 @@ function ZasobyTab({ fullName }) {
 
             {openingFinishedError && <div className="mb-2 text-xs text-red-700 flex items-center gap-1.5"><AlertCircle size={12} /> {openingFinishedError}</div>}
             <button onClick={handleSaveOpeningFinished} disabled={openingFinishedSaving} className="w-full mt-1 bg-teal-700 hover:bg-teal-800 disabled:opacity-60 text-white text-base font-semibold px-4 py-3 rounded-xl flex items-center justify-center gap-2">
-              {openingFinishedSaving ? <Loader2 size={18} className="animate-spin" /> : <CheckCircle2 size={18} />} Ulozit pociatocny stav
+              {openingFinishedSaving ? <Loader2 size={18} className="animate-spin" /> : <CheckCircle2 size={18} />} Uložit počáteční stav
             </button>
           </div>
         )}
       </div>
 
       <div className="bg-white border border-slate-200 rounded-xl p-4 mb-5">
-        <div className="text-lg font-semibold mb-3">Zapisat vydaj materialu</div>
+        <div className="text-lg font-semibold mb-3">Zapsat výdej materiálu</div>
 
-        <div className="mb-1 text-sm font-medium text-slate-500">Material</div>
+        <div className="mb-1 text-sm font-medium text-slate-500">Materiál</div>
         <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 mb-2">
           {[...MATERIAL_QUICK_PICKS, ...extraMaterialy].map((m) => (
             <button key={m} onClick={() => pickMaterial(m)} className={bigBtn + " " + (!customMaterial && f.material === m ? "bg-teal-700 text-white border-teal-700" : "bg-white text-slate-700 border-slate-200")}>
@@ -1765,7 +1765,7 @@ function ZasobyTab({ fullName }) {
             </button>
           ))}
           <button onClick={() => { setCustomMaterial(true); setF((p) => ({ ...p, material: "" })); setPotvrdenyMinus(false); }} className={bigBtn + " " + (customMaterial ? "bg-teal-700 text-white border-teal-700" : "bg-white text-slate-700 border-slate-200 border-dashed")}>
-            Iny material
+            Jiný materiál
           </button>
         </div>
         {customMaterial && (
@@ -1773,18 +1773,18 @@ function ZasobyTab({ fullName }) {
             autoFocus
             value={f.material}
             onChange={(e) => { setF({ ...f, material: e.target.value }); setPotvrdenyMinus(false); }}
-            placeholder="Nazov materialu"
+            placeholder="Název materiálu"
             className="w-full border-2 border-slate-200 rounded-xl px-3 py-3 text-base mb-3 focus:outline-none focus:ring-2 focus:ring-teal-600"
           />
         )}
 
-        <div className="mb-1 mt-3 text-sm font-medium text-slate-500">Mnozstvo{stockRow ? " (na sklade: " + dostupneMnozstvo + " " + stockRow.unit + ")" : ""}</div>
+        <div className="mb-1 mt-3 text-sm font-medium text-slate-500">Množství{stockRow ? " (na skladě: " + dostupneMnozstvo + " " + stockRow.unit + ")" : ""}</div>
         <div className="flex gap-2 mb-2">
           <input
             value={f.mnozstvoNum}
             onChange={(e) => { setF({ ...f, mnozstvoNum: e.target.value }); setPotvrdenyMinus(false); }}
             inputMode="decimal"
-            placeholder="napr. 20"
+            placeholder="např. 20"
             className={"w-28 border-2 rounded-xl px-3 py-3 text-base text-center focus:outline-none focus:ring-2 " + (presahujeStock ? "border-red-400 focus:ring-red-500" : "border-slate-200 focus:ring-teal-600")}
           />
           <div className="flex gap-2 flex-wrap flex-1">
@@ -1797,15 +1797,15 @@ function ZasobyTab({ fullName }) {
         </div>
         {presahujeStock && (
           <>
-            <div className="text-xs text-red-600 mb-2">Prekrocenie stavu zasob (na sklade {dostupneMnozstvo} {f.mnozstvoUnit}, zadavate {mnozstvoNaEnter})</div>
+            <div className="text-xs text-red-600 mb-2">Překročení stavu zásob (na skladě {dostupneMnozstvo} {f.mnozstvoUnit}, zadáváte {mnozstvoNaEnter})</div>
             <label className="mb-2 flex items-start gap-2 bg-red-50 border border-red-200 rounded-lg px-2.5 py-2 text-xs text-red-700 cursor-pointer">
               <input type="checkbox" checked={potvrdenyMinus} onChange={(e) => setPotvrdenyMinus(e.target.checked)} className="mt-0.5" />
-              Potvrdzujem, ze vydaj nad stav zasob je zamer a chcem napriek tomu ulozit.
+              Potvrzuji, že výdej nad stav zásob je záměr a chci to přesto uložit.
             </label>
           </>
         )}
 
-        <div className="mb-1 mt-3 text-sm font-medium text-slate-500">Dovod</div>
+        <div className="mb-1 mt-3 text-sm font-medium text-slate-500">Důvod</div>
         <div className="grid grid-cols-2 gap-2 mb-2">
           {STOCK_ISSUE_REASONS.map((d) => (
             <button key={d} onClick={() => pickDovod(d)} className={bigBtn + " " + (f.dovod === d ? "bg-teal-700 text-white border-teal-700" : "bg-white text-slate-700 border-slate-200")}>
@@ -1817,7 +1817,7 @@ function ZasobyTab({ fullName }) {
         <textarea
           value={f.poznamka}
           onChange={(e) => setF({ ...f, poznamka: e.target.value })}
-          placeholder="Poznamka (nepovinne)"
+          placeholder="Poznámka (nepovinné)"
           rows={2}
           className="w-full border-2 border-slate-200 rounded-xl px-3 py-3 text-base mt-2 focus:outline-none focus:ring-2 focus:ring-teal-600"
         />
@@ -1828,21 +1828,21 @@ function ZasobyTab({ fullName }) {
           className="w-full mt-4 bg-teal-700 hover:bg-teal-800 disabled:opacity-60 text-white text-lg font-semibold px-4 py-4 rounded-xl flex items-center justify-center gap-2"
         >
           {saving ? <Loader2 size={20} className="animate-spin" /> : <CheckCircle2 size={20} />}
-          Ulozit vydaj
+          Uložit výdej
         </button>
       </div>
 
-      <div className="text-sm font-semibold text-slate-500 mb-2">Aktualny stav zasob</div>
+      <div className="text-sm font-semibold text-slate-500 mb-2">Aktuální stav zásob</div>
       {stock.length === 0 ? (
-        <div className="bg-white border border-slate-200 rounded-lg p-6 text-center text-slate-400 text-sm mb-5">Zatial ziadne data.</div>
+        <div className="bg-white border border-slate-200 rounded-lg p-6 text-center text-slate-400 text-sm mb-5">Zatím žádná data.</div>
       ) : (
         <div className="bg-white border border-slate-200 rounded-lg overflow-x-auto mb-5">
           <table className="w-full text-sm">
             <thead>
               <tr className="bg-slate-100 text-slate-600 text-left">
-                <th className="px-3 py-2 font-medium">Material</th>
-                <th className="px-3 py-2 font-medium text-right">Prijate</th>
-                <th className="px-3 py-2 font-medium text-right">Vydane</th>
+                <th className="px-3 py-2 font-medium">Materiál</th>
+                <th className="px-3 py-2 font-medium text-right">Přijato</th>
+                <th className="px-3 py-2 font-medium text-right">Vydáno</th>
                 <th className="px-3 py-2 font-medium text-right">Stav</th>
               </tr>
             </thead>
@@ -1860,18 +1860,18 @@ function ZasobyTab({ fullName }) {
         </div>
       )}
 
-      <div className="text-sm font-semibold text-slate-500 mb-2">Hotove vyrobky na sklade</div>
+      <div className="text-sm font-semibold text-slate-500 mb-2">Hotové výrobky na skladě</div>
       {finishedStock.length === 0 ? (
-        <div className="bg-white border border-slate-200 rounded-lg p-6 text-center text-slate-400 text-sm mb-5">Zatial ziadne data.</div>
+        <div className="bg-white border border-slate-200 rounded-lg p-6 text-center text-slate-400 text-sm mb-5">Zatím žádná data.</div>
       ) : (
         <div className="bg-white border border-slate-200 rounded-lg overflow-x-auto mb-5">
           <table className="w-full text-sm">
             <thead>
               <tr className="bg-slate-100 text-slate-600 text-left">
                 <th className="px-3 py-2 font-medium">Produkt</th>
-                <th className="px-3 py-2 font-medium text-right">Vyrobene</th>
-                <th className="px-3 py-2 font-medium text-right">Expedovane</th>
-                <th className="px-3 py-2 font-medium text-right">Stav (paliet)</th>
+                <th className="px-3 py-2 font-medium text-right">Vyrobeno</th>
+                <th className="px-3 py-2 font-medium text-right">Expedováno</th>
+                <th className="px-3 py-2 font-medium text-right">Stav (palet)</th>
               </tr>
             </thead>
             <tbody>
@@ -1888,9 +1888,9 @@ function ZasobyTab({ fullName }) {
         </div>
       )}
 
-      <div className="text-sm font-semibold text-slate-500 mb-2">Posledne vydaje</div>
+      <div className="text-sm font-semibold text-slate-500 mb-2">Poslední výdeje</div>
       {issues.length === 0 ? (
-        <div className="bg-white border border-slate-200 rounded-lg p-6 text-center text-slate-400 text-sm">Zatial ziadne zaznamy.</div>
+        <div className="bg-white border border-slate-200 rounded-lg p-6 text-center text-slate-400 text-sm">Zatím žádné záznamy.</div>
       ) : (
         <div className="space-y-2">
           {issues.slice(0, 20).map((i) => (
@@ -1898,7 +1898,7 @@ function ZasobyTab({ fullName }) {
               <div className="flex-1">
                 <div className="font-medium">
                   {i.material} <span className="text-slate-400 font-normal">- {i.mnozstvo}</span>
-                  {i.prekroceniePotvrdene && <span className="ml-2 text-xs font-medium px-2 py-0.5 rounded-full bg-amber-100 text-amber-700">nad stav zasob</span>}
+                  {i.prekroceniePotvrdene && <span className="ml-2 text-xs font-medium px-2 py-0.5 rounded-full bg-amber-100 text-amber-700">nad stav zásob</span>}
                 </div>
                 <div className="text-xs text-slate-500">{i.dovod} - {i.datum} {i.cas} - {i.zapisal}</div>
               </div>
@@ -1911,10 +1911,10 @@ function ZasobyTab({ fullName }) {
       {confirmDelete && (
         <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
           <div className="bg-white rounded-xl shadow-xl w-full max-w-sm p-5">
-            <p className="text-base text-slate-700 mb-4">Naozaj zmazat vydaj "{confirmDelete.material} - {confirmDelete.mnozstvo}"?</p>
+            <p className="text-base text-slate-700 mb-4">Opravdu smazat výdej "{confirmDelete.material} - {confirmDelete.mnozstvo}"?</p>
             <div className="flex justify-end gap-2">
-              <button onClick={() => setConfirmDelete(null)} className="px-4 py-2.5 text-base text-slate-500">Zrusit</button>
-              <button onClick={() => handleDelete(confirmDelete.id)} className="bg-red-600 hover:bg-red-700 text-white text-base font-medium px-4 py-2.5 rounded-lg">Zmazat</button>
+              <button onClick={() => setConfirmDelete(null)} className="px-4 py-2.5 text-base text-slate-500">Zrušit</button>
+              <button onClick={() => handleDelete(confirmDelete.id)} className="bg-red-600 hover:bg-red-700 text-white text-base font-medium px-4 py-2.5 rounded-lg">Smazat</button>
             </div>
           </div>
         </div>
