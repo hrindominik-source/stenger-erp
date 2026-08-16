@@ -501,23 +501,6 @@ function PrintPreviewModal({ week, employees, onClose }) {
     .sort((a, b) => a[0].localeCompare(b[0]))
     .map(([date, shifts]) => ({ date, shifts: [...shifts].sort((a, b) => order[a.type] - order[b.type]) }));
 
-  const activeEmployees = employees.filter(e => e.active);
-  const shiftsSorted = [...week.shifts].sort((a, b) => (a.date === b.date ? order[a.type] - order[b.type] : a.date.localeCompare(b.date)));
-  const dateFirstIndex = {};
-  const dateCount = {};
-  shiftsSorted.forEach((s, i) => {
-    dateCount[s.date] = (dateCount[s.date] || 0) + 1;
-    if (dateFirstIndex[s.date] === undefined) dateFirstIndex[s.date] = i;
-  });
-  function roleOf(shift, empId) {
-    if (shift.assigned.pos1 === empId) return 'pos1';
-    if (shift.assigned.pos3 === empId) return 'pos3';
-    if (shift.assigned.general.includes(empId) || shift.extra.includes(empId)) return 'gen';
-    return null;
-  }
-  const dotClass = { pos1: 'bg-amber-600', pos3: 'bg-purple-600', gen: 'bg-teal-600' };
-  const colWidth = Math.max(24, Math.floor((297 - 20 - 60) / Math.max(1, activeEmployees.length)));
-
   return (
     <div className="fixed inset-0 bg-black/50 flex items-start justify-center overflow-auto p-4 z-50 print:p-0 print:bg-white">
       <style>{`
@@ -598,69 +581,7 @@ function PrintPreviewModal({ week, employees, onClose }) {
             </div>
           </>
         ) : (
-          <>
-            <table className="w-full border-collapse" style={{ tableLayout: 'fixed' }}>
-              <colgroup>
-                <col style={{ width: '34px' }} />
-                <col style={{ width: '26px' }} />
-                {activeEmployees.map(e => <col key={e.id} style={{ width: `${colWidth}px` }} />)}
-              </colgroup>
-              <thead>
-                <tr>
-                  <td colSpan={2}></td>
-                  {activeEmployees.map(e => (
-                    <td key={e.id} style={{ height: '125px', position: 'relative' }}>
-                      <div style={{ transform: 'rotate(-55deg)', transformOrigin: 'left bottom', whiteSpace: 'nowrap', position: 'absolute', bottom: '4px', left: '24px' }}>
-                        <span className="bg-amber-100 text-amber-900 px-2 py-0.5 font-medium text-[11px]">{e.name}</span>
-                      </div>
-                    </td>
-                  ))}
-                </tr>
-              </thead>
-              <tbody>
-                {shiftsSorted.map((s, i) => {
-                  const Icon = shiftTypeMeta[s.type].icon;
-                  const nightBg = s.type === 'night' ? 'bg-slate-50' : '';
-                  const isFirstOfDate = dateFirstIndex[s.date] === i;
-                  const rowSpan = dateCount[s.date];
-                  return (
-                    <tr key={s.id}>
-                      {isFirstOfDate && (
-                        <td rowSpan={rowSpan} className="bg-amber-100 text-amber-900 text-center font-medium border border-slate-200 text-xs">
-                          {dayShort(s.date).toUpperCase()}
-                        </td>
-                      )}
-                      <td className={`text-center border border-slate-200 ${nightBg}`}>
-                        <Icon className="w-3.5 h-3.5 text-slate-400 inline-block" />
-                      </td>
-                      {activeEmployees.map(e => {
-                        const role = roleOf(s, e.id);
-                        return (
-                          <td key={e.id} className={`text-center border border-slate-200 ${nightBg}`}>
-                            {role && (
-                              <span className="relative inline-block">
-                                <span className={`inline-block w-3 h-3 rounded-full ${dotClass[role]}`} />
-                                {role === 'pos3' && <sup className="text-[9px] text-purple-600 ml-0.5">3</sup>}
-                              </span>
-                            )}
-                          </td>
-                        );
-                      })}
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-
-            <div className="mt-3 pt-2 border-t border-slate-200 flex gap-5 text-xs text-slate-500 flex-wrap">
-              <span className="flex items-center gap-1"><span className="w-2.5 h-2.5 rounded-full bg-amber-600 inline-block" />Hrncová</span>
-              <span className="flex items-center gap-1"><span className="w-2.5 h-2.5 rounded-full bg-purple-600 inline-block" />Pozícia 3</span>
-              <span className="flex items-center gap-1"><span className="w-2.5 h-2.5 rounded-full bg-teal-600 inline-block" />Ostatné</span>
-              <span className="flex items-center gap-1"><Sun className="w-3.5 h-3.5" />Denná</span>
-              <span className="flex items-center gap-1"><Moon className="w-3.5 h-3.5" />Nočná</span>
-              <span className="flex items-center gap-1"><Droplets className="w-3.5 h-3.5" />Sanitácia</span>
-            </div>
-          </>
+          <WeekMatrixTable week={week} employees={employees} />
         )}
       </div>
     </div>
@@ -893,49 +814,72 @@ function WeekMatrixTable({ week, employees }) {
   const activeEmployees = employees.filter((e) => e.active);
   const order = { day: 0, night: 1, sanitation: 2 };
   const shiftsSorted = [...week.shifts].sort((a, b) => (a.date === b.date ? order[a.type] - order[b.type] : a.date.localeCompare(b.date)));
-  const typeMeta = {
-    day: { icon: Sun, label: 'D' },
-    night: { icon: Moon, label: 'N' },
-    sanitation: { icon: Droplets, label: 'S' },
-  };
+  const dateFirstIndex = {};
+  const dateCount = {};
+  shiftsSorted.forEach((s, i) => {
+    dateCount[s.date] = (dateCount[s.date] || 0) + 1;
+    if (dateFirstIndex[s.date] === undefined) dateFirstIndex[s.date] = i;
+  });
   function roleOf(shift, empId) {
     if (shift.assigned.pos1 === empId) return 'pos1';
     if (shift.assigned.pos3 === empId) return 'pos3';
     if (shift.assigned.general.includes(empId) || shift.extra.includes(empId)) return 'gen';
     return null;
   }
+  const shiftTypeIcon = { day: Sun, night: Moon, sanitation: Droplets };
   const dotClass = { pos1: 'bg-amber-600', pos3: 'bg-purple-600', gen: 'bg-teal-600' };
-  const roleLabel = { pos1: 'Hrncová', pos3: 'Pozícia 3', gen: 'Ostatné' };
+  const colWidth = Math.max(24, Math.floor((297 - 20 - 60) / Math.max(1, activeEmployees.length)));
 
   if (activeEmployees.length === 0) {
-    return <div className="bg-white border border-slate-200 rounded-lg p-6 text-center text-slate-400 text-sm">Zatiaľ žiadny aktívny zamestnanec.</div>;
+    return <div className="text-sm text-slate-400 text-center py-10">Zatiaľ žiadny aktívny zamestnanec.</div>;
   }
 
   return (
-    <div className="bg-white border border-slate-200 rounded-lg overflow-x-auto">
-      <table className="text-xs border-collapse w-full">
+    <>
+      <table className="w-full border-collapse" style={{ tableLayout: 'fixed' }}>
+        <colgroup>
+          <col style={{ width: '34px' }} />
+          <col style={{ width: '26px' }} />
+          {activeEmployees.map((e) => <col key={e.id} style={{ width: `${colWidth}px` }} />)}
+        </colgroup>
         <thead>
           <tr>
-            <th className="sticky left-0 bg-slate-100 px-2 py-2 text-left border-b border-slate-200 whitespace-nowrap z-10">Zmena</th>
+            <td colSpan={2}></td>
             {activeEmployees.map((e) => (
-              <th key={e.id} className="px-2 py-2 border-b border-l border-slate-100 text-slate-600 font-medium whitespace-nowrap">{e.name}</th>
+              <td key={e.id} style={{ height: '125px', position: 'relative' }}>
+                <div style={{ transform: 'rotate(-55deg)', transformOrigin: 'left bottom', whiteSpace: 'nowrap', position: 'absolute', bottom: '4px', left: '24px' }}>
+                  <span className="bg-amber-100 text-amber-900 px-2 py-0.5 font-medium text-[11px]">{e.name}</span>
+                </div>
+              </td>
             ))}
           </tr>
         </thead>
         <tbody>
-          {shiftsSorted.map((s) => {
-            const meta = typeMeta[s.type];
-            const Icon = meta.icon;
+          {shiftsSorted.map((s, i) => {
+            const Icon = shiftTypeIcon[s.type];
+            const nightBg = s.type === 'night' ? 'bg-slate-50' : '';
+            const isFirstOfDate = dateFirstIndex[s.date] === i;
+            const rowSpan = dateCount[s.date];
             return (
-              <tr key={s.id} className="border-t border-slate-100">
-                <td className="sticky left-0 bg-white px-2 py-1.5 whitespace-nowrap font-medium text-slate-700">
-                  <span className="inline-flex items-center gap-1"><Icon className="w-3 h-3" />{dayShort(s.date)} {formatSk(s.date)} {meta.label}</span>
+              <tr key={s.id}>
+                {isFirstOfDate && (
+                  <td rowSpan={rowSpan} className="bg-amber-100 text-amber-900 text-center font-medium border border-slate-200 text-xs">
+                    {dayShort(s.date).toUpperCase()}
+                  </td>
+                )}
+                <td className={`text-center border border-slate-200 ${nightBg}`}>
+                  <Icon className="w-3.5 h-3.5 text-slate-400 inline-block" />
                 </td>
                 {activeEmployees.map((e) => {
                   const role = roleOf(s, e.id);
                   return (
-                    <td key={e.id} className="px-2 py-1.5 border-l border-slate-50 text-center">
-                      {role && <span className={'inline-block w-2.5 h-2.5 rounded-full ' + dotClass[role]} title={roleLabel[role]} />}
+                    <td key={e.id} className={`text-center border border-slate-200 ${nightBg}`}>
+                      {role && (
+                        <span className="relative inline-block">
+                          <span className={`inline-block w-3 h-3 rounded-full ${dotClass[role]}`} />
+                          {role === 'pos3' && <sup className="text-[9px] text-purple-600 ml-0.5">3</sup>}
+                        </span>
+                      )}
                     </td>
                   );
                 })}
@@ -944,11 +888,27 @@ function WeekMatrixTable({ week, employees }) {
           })}
         </tbody>
       </table>
-      <div className="flex gap-4 text-xs text-slate-500 px-2 py-2 border-t border-slate-100 flex-wrap">
+
+      <div className="mt-3 pt-2 border-t border-slate-200 flex gap-5 text-xs text-slate-500 flex-wrap">
         <span className="flex items-center gap-1"><span className="w-2.5 h-2.5 rounded-full bg-amber-600 inline-block" />Hrncová</span>
         <span className="flex items-center gap-1"><span className="w-2.5 h-2.5 rounded-full bg-purple-600 inline-block" />Pozícia 3</span>
         <span className="flex items-center gap-1"><span className="w-2.5 h-2.5 rounded-full bg-teal-600 inline-block" />Ostatné</span>
+        <span className="flex items-center gap-1"><Sun className="w-3.5 h-3.5" />Denná</span>
+        <span className="flex items-center gap-1"><Moon className="w-3.5 h-3.5" />Nočná</span>
+        <span className="flex items-center gap-1"><Droplets className="w-3.5 h-3.5" />Sanitácia</span>
       </div>
+    </>
+  );
+}
+
+function WeekMatrixSheet({ week }) {
+  return (
+    <div className="flex items-start justify-between border-b-4 border-slate-900 pb-3 mb-3">
+      <div>
+        <h1 className="text-2xl font-bold tracking-tight text-slate-900">Rozpis zmien — výroba</h1>
+        <p className="text-sm text-slate-500 mt-0.5">Týždeň od {formatSk(week.startDate)}</p>
+      </div>
+      <div className="text-right text-xs text-slate-400 pt-1">Vygenerované {formatSk(toISO(new Date()))}</div>
     </div>
   );
 }
@@ -975,10 +935,12 @@ function PrehladTab({ weeks, employees, onGotoWeek }) {
           <div className="mt-3"><button onClick={() => onGotoWeek(weekStart)} className="px-3 py-2 text-sm rounded-md bg-indigo-600 text-white hover:bg-indigo-700">Vytvoriť tento týždeň</button></div>
         </div>
       ) : (
-        <>
-          <TimelineStrip week={week} />
-          <WeekMatrixTable week={week} employees={employees} />
-        </>
+        <div className="bg-white border border-slate-200 rounded-lg shadow-sm overflow-x-auto p-4">
+          <div style={{ minWidth: '900px' }}>
+            <WeekMatrixSheet week={week} />
+            <WeekMatrixTable week={week} employees={employees} />
+          </div>
+        </div>
       )}
     </div>
   );
