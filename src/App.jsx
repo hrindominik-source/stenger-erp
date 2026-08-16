@@ -5,7 +5,7 @@ import {
   Clipboard, CheckCircle2, Building2, Users, Loader2, AlertCircle,
   ClipboardList, ArrowLeft, Download, Layers, FileSignature, Printer, Package,
   LogOut, PackageCheck, PackageX, Euro, Factory, Boxes, PackagePlus, Camera,
-  LayoutDashboard, Warehouse, MinusCircle, FlaskConical, ClipboardCheck, UserCheck, Menu, Mail, Calendar, FileSpreadsheet,
+  LayoutDashboard, Warehouse, MinusCircle, FlaskConical, ClipboardCheck, UserCheck, Menu, Mail, Calendar, FileSpreadsheet, Receipt,
   Recycle, Calculator, Image, Construction, BookOpen, ListChecks, CalendarClock, Coffee, ChevronDown, ChevronUp
 } from "lucide-react";
 import { supabase } from "./supabaseClient.js";
@@ -1382,6 +1382,7 @@ function OfficeApp({ userFullName, userEmail, onSignOut }) {
         {view === "suppliers" && (
           <SuppliersView suppliers={suppliers} onSave={persistSuppliers} onEdit={(s) => setEditingSupplier(s)} />
         )}
+        {view === "waffelnpricelist" && <PlaceholderView title="Pricelist Stenger Waffeln GmbH" />}
         {view === "ekokom" && <PlaceholderView title="EKO-KOM" />}
         {view === "cenotvorba" && (
           CENOTVORBA_ALLOWED_EMAILS.includes(userEmail)
@@ -1791,6 +1792,7 @@ const HEADER_MENU_ITEMS = [
   { icon: <Package size={16} />, label: "Zákazníci", v: "customers" },
   { icon: <Building2 size={16} />, label: "Nastavení firmy", v: "company" },
   { icon: <Euro size={16} />, label: "Ceník dopravy", v: "pricelist" },
+  { icon: <Receipt size={16} />, label: "Pricelist Stenger Waffeln GmbH", v: "waffelnpricelist" },
   { icon: <Factory size={16} />, label: "Dodavatelé", v: "suppliers" },
   { icon: <Recycle size={16} />, label: "EKO-KOM", v: "ekokom" },
   { icon: <Calculator size={16} />, label: "Tvorba cen", v: "cenotvorba" },
