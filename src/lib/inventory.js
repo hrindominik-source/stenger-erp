@@ -1,4 +1,4 @@
-export const UNIT_QUICK_PICKS = ["ks", "kg", "kartonov", "balikov", "paliet", "m"];
+export const UNIT_QUICK_PICKS = ["ks", "kg", "kartonov", "balikov", "paliet", "m", "l", "sudov"];
 
 function parseQty(record) {
   if (typeof record.mnozstvoCislo === "number" && !isNaN(record.mnozstvoCislo)) {
