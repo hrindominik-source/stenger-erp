@@ -6,7 +6,7 @@ import {
   ClipboardList, ArrowLeft, Download, Layers, FileSignature, Printer, Package,
   LogOut, PackageCheck, PackageX, Euro, Factory, Boxes, PackagePlus, Camera,
   LayoutDashboard, Warehouse, MinusCircle, FlaskConical, ClipboardCheck, UserCheck, Menu, Mail, Calendar, FileSpreadsheet,
-  Recycle, Calculator, Image, Construction, BookOpen, ListChecks, CalendarClock, Coffee
+  Recycle, Calculator, Image, Construction, BookOpen, ListChecks, CalendarClock, Coffee, ChevronDown, ChevronUp
 } from "lucide-react";
 import { supabase } from "./supabaseClient.js";
 import { useAuth } from "./lib/auth.js";
@@ -5092,6 +5092,19 @@ function ProductionPlanView({ productionPlan, products, goodsReceipts, stockIssu
   const [confirmDeletePrestavka, setConfirmDeletePrestavka] = useState(null);
   const [filterLinka, setFilterLinka] = useState("vsetko");
   const [tab, setTab] = useState("plan");
+  const [showOlderPlan, setShowOlderPlan] = useState(false);
+  const [showOlderOutputs, setShowOlderOutputs] = useState(false);
+
+  // Zobrazuje sa len od vcerajska (aby sa nemuselo scrollovat cez tyzdne historie), buducnost
+  // vzdy cela viditelna. Starsie zaznamy sa schovaju pod "Zobrazit starsie" - export ostava
+  // nezmeneny, vzdy exportuje uplne vsetko bez ohladu na tento filter.
+  const dnesCutoff = new Date();
+  dnesCutoff.setHours(0, 0, 0, 0);
+  dnesCutoff.setDate(dnesCutoff.getDate() - 1);
+  function jeStarsie(datumStr) {
+    const d = parseSkDate(datumStr);
+    return d ? d < dnesCutoff : false;
+  }
 
   const stock = computeStockLevels(goodsReceipts, stockIssues);
   function shortagesFor(row) {
@@ -5107,6 +5120,10 @@ function ProductionPlanView({ productionPlan, products, goodsReceipts, stockIssu
     .filter((r) => filterLinka === "vsetko" || r.linka === filterLinka)
     .slice()
     .sort((a, b) => (parseSkDate(a.datum) || 0) - (parseSkDate(b.datum) || 0));
+  const recentRows = rows.filter((r) => !jeStarsie(r.datum));
+  const olderRows = rows.filter((r) => jeStarsie(r.datum));
+  const recentOutputs = (productionOutputs || []).filter((o) => !jeStarsie(o.datum));
+  const olderOutputs = (productionOutputs || []).filter((o) => jeStarsie(o.datum));
 
   async function exportOutputsToExcel() {
     const exportRows = (productionOutputs || []).map((o) => ({
@@ -5151,6 +5168,50 @@ function ProductionPlanView({ productionPlan, products, goodsReceipts, stockIssu
 
   function handlePrint() {
     setTimeout(() => window.print(), 50);
+  }
+
+  function renderPlanRow(r) {
+    const shortages = shortagesFor(r);
+    return (
+      <tr key={r.id} className="border-t border-slate-100">
+        <td className="px-3 py-2 whitespace-nowrap">{r.datum}</td>
+        <td className="px-3 py-2 font-medium">
+          {r.produktNazov}
+          {shortages.length > 0 && <AlertCircle size={14} className="inline-block ml-1.5 text-red-500 align-text-bottom" />}
+        </td>
+        <td className="px-3 py-2 text-slate-500 whitespace-nowrap">{r.mnozstvo} {r.mnozstvoJednotka === "kartonov" ? "kartonov" : "paliet"}</td>
+        <td className="px-3 py-2 text-slate-500 whitespace-nowrap">{r.terminDodania}</td>
+        <td className="px-3 py-2 text-slate-500">{r.poznamka}</td>
+        <td className="px-3 py-2"><Badge text={VYROBA_STATUS_LABELS[r.stavVyroby] || VYROBA_STATUS_LABELS.caka} map={STATUS_VYROBY} /></td>
+        <td className="px-3 py-2 text-right">
+          <div className="flex justify-end gap-1">
+            <IconButton title="Upravit" onClick={() => onEdit(r)}><Pencil size={16} /></IconButton>
+            <IconButton title="Zmazat" onClick={() => setConfirmDelete(r)}><Trash2 size={16} /></IconButton>
+          </div>
+        </td>
+      </tr>
+    );
+  }
+
+  function renderOutputRow(o) {
+    return (
+      <tr key={o.id} className="border-t border-slate-100">
+        <td className="px-3 py-2 whitespace-nowrap">{o.datum} {o.cas}</td>
+        <td className="px-3 py-2 font-medium">
+          {o.produktNazov}
+          {o.pociatocnyStav && <span className="ml-2 text-xs font-medium px-2 py-0.5 rounded-full bg-slate-100 text-slate-600">Pociatocny stav</span>}
+        </td>
+        <td className="px-3 py-2 text-slate-500">{o.mnozstvo} paliet</td>
+        <td className="px-3 py-2 text-slate-500">{o.sarza}</td>
+        <td className="px-3 py-2 text-slate-500">{o.zapisala}</td>
+        <td className="px-3 py-2 text-right">
+          <div className="flex justify-end gap-1">
+            <IconButton title="Upravit" onClick={() => onEditOutput(o)}><Pencil size={16} /></IconButton>
+            <IconButton title="Zmazat" onClick={() => setConfirmDeleteOutput(o)}><Trash2 size={16} /></IconButton>
+          </div>
+        </td>
+      </tr>
+    );
   }
 
   const aktualnePrestavky = (prestavky || []).filter((p) => !p.casKonca);
@@ -5214,10 +5275,10 @@ function ProductionPlanView({ productionPlan, products, goodsReceipts, stockIssu
         </div>
       </div>
 
-      {rows.length === 0 ? (
+      {recentRows.length === 0 ? (
         <div className="bg-white border border-slate-200 rounded-lg p-10 text-center text-slate-500">
           <ClipboardCheck size={28} className="mx-auto mb-3 text-slate-300" />
-          Zatial ziadne zaznamy vyrobneho planu.
+          Zatial ziadne aktualne zaznamy vyrobneho planu.
         </div>
       ) : (
         <div className="bg-white border border-slate-200 rounded-lg overflow-x-auto">
@@ -5234,30 +5295,38 @@ function ProductionPlanView({ productionPlan, products, goodsReceipts, stockIssu
               </tr>
             </thead>
             <tbody>
-              {rows.map((r) => {
-                const shortages = shortagesFor(r);
-                return (
-                  <tr key={r.id} className="border-t border-slate-100">
-                    <td className="px-3 py-2 whitespace-nowrap">{r.datum}</td>
-                    <td className="px-3 py-2 font-medium">
-                      {r.produktNazov}
-                      {shortages.length > 0 && <AlertCircle size={14} className="inline-block ml-1.5 text-red-500 align-text-bottom" />}
-                    </td>
-                    <td className="px-3 py-2 text-slate-500 whitespace-nowrap">{r.mnozstvo} {r.mnozstvoJednotka === "kartonov" ? "kartonov" : "paliet"}</td>
-                    <td className="px-3 py-2 text-slate-500 whitespace-nowrap">{r.terminDodania}</td>
-                    <td className="px-3 py-2 text-slate-500">{r.poznamka}</td>
-                    <td className="px-3 py-2"><Badge text={VYROBA_STATUS_LABELS[r.stavVyroby] || VYROBA_STATUS_LABELS.caka} map={STATUS_VYROBY} /></td>
-                    <td className="px-3 py-2 text-right">
-                      <div className="flex justify-end gap-1">
-                        <IconButton title="Upravit" onClick={() => onEdit(r)}><Pencil size={16} /></IconButton>
-                        <IconButton title="Zmazat" onClick={() => setConfirmDelete(r)}><Trash2 size={16} /></IconButton>
-                      </div>
-                    </td>
-                  </tr>
-                );
-              })}
+              {recentRows.map(renderPlanRow)}
             </tbody>
           </table>
+        </div>
+      )}
+
+      {olderRows.length > 0 && (
+        <div className="mt-3">
+          <button onClick={() => setShowOlderPlan((v) => !v)} className="text-xs text-slate-500 hover:text-slate-700 font-medium flex items-center gap-1">
+            {showOlderPlan ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
+            {showOlderPlan ? "Skryt starsie" : "Zobrazit starsie"} ({olderRows.length})
+          </button>
+          {showOlderPlan && (
+            <div className="bg-white border border-slate-200 rounded-lg overflow-x-auto mt-2">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="bg-slate-100 text-slate-600 text-left">
+                    <th className="px-3 py-2 font-medium">Datum</th>
+                    <th className="px-3 py-2 font-medium">Produkt</th>
+                    <th className="px-3 py-2 font-medium">Mnozstvo</th>
+                    <th className="px-3 py-2 font-medium">Termin dodania</th>
+                    <th className="px-3 py-2 font-medium">Poznamka</th>
+                    <th className="px-3 py-2 font-medium">Stav vyroby</th>
+                    <th className="px-3 py-2"></th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {olderRows.map(renderPlanRow)}
+                </tbody>
+              </table>
+            </div>
+          )}
         </div>
       )}
 
@@ -5281,8 +5350,8 @@ function ProductionPlanView({ productionPlan, products, goodsReceipts, stockIssu
         <h2 className="text-sm font-semibold text-slate-500">Vyrobne zaznamy (skutocna vyroba)</h2>
         <button onClick={exportOutputsToExcel} className="text-xs text-teal-700 hover:text-teal-900 font-medium flex items-center gap-1"><Download size={14} /> Export do Excelu</button>
       </div>
-      {(productionOutputs || []).length === 0 ? (
-        <div className="bg-white border border-slate-200 rounded-lg p-6 text-center text-slate-400 text-sm">Zatial ziadne zaznamy skutocnej vyroby.</div>
+      {recentOutputs.length === 0 ? (
+        <div className="bg-white border border-slate-200 rounded-lg p-6 text-center text-slate-400 text-sm">Zatial ziadne aktualne zaznamy skutocnej vyroby.</div>
       ) : (
         <div className="bg-white border border-slate-200 rounded-lg overflow-hidden">
           <table className="w-full text-sm">
@@ -5297,26 +5366,37 @@ function ProductionPlanView({ productionPlan, products, goodsReceipts, stockIssu
               </tr>
             </thead>
             <tbody>
-              {productionOutputs.map((o) => (
-                <tr key={o.id} className="border-t border-slate-100">
-                  <td className="px-3 py-2 whitespace-nowrap">{o.datum} {o.cas}</td>
-                  <td className="px-3 py-2 font-medium">
-                    {o.produktNazov}
-                    {o.pociatocnyStav && <span className="ml-2 text-xs font-medium px-2 py-0.5 rounded-full bg-slate-100 text-slate-600">Pociatocny stav</span>}
-                  </td>
-                  <td className="px-3 py-2 text-slate-500">{o.mnozstvo} paliet</td>
-                  <td className="px-3 py-2 text-slate-500">{o.sarza}</td>
-                  <td className="px-3 py-2 text-slate-500">{o.zapisala}</td>
-                  <td className="px-3 py-2 text-right">
-                    <div className="flex justify-end gap-1">
-                      <IconButton title="Upravit" onClick={() => onEditOutput(o)}><Pencil size={16} /></IconButton>
-                      <IconButton title="Zmazat" onClick={() => setConfirmDeleteOutput(o)}><Trash2 size={16} /></IconButton>
-                    </div>
-                  </td>
-                </tr>
-              ))}
+              {recentOutputs.map(renderOutputRow)}
             </tbody>
           </table>
+        </div>
+      )}
+
+      {olderOutputs.length > 0 && (
+        <div className="mt-3">
+          <button onClick={() => setShowOlderOutputs((v) => !v)} className="text-xs text-slate-500 hover:text-slate-700 font-medium flex items-center gap-1">
+            {showOlderOutputs ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
+            {showOlderOutputs ? "Skryt starsie" : "Zobrazit starsie"} ({olderOutputs.length})
+          </button>
+          {showOlderOutputs && (
+            <div className="bg-white border border-slate-200 rounded-lg overflow-hidden mt-2">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="bg-slate-100 text-slate-600 text-left">
+                    <th className="px-3 py-2 font-medium">Datum</th>
+                    <th className="px-3 py-2 font-medium">Produkt</th>
+                    <th className="px-3 py-2 font-medium">Mnozstvo</th>
+                    <th className="px-3 py-2 font-medium">Sarza</th>
+                    <th className="px-3 py-2 font-medium">Zapisala</th>
+                    <th className="px-3 py-2"></th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {olderOutputs.map(renderOutputRow)}
+                </tbody>
+              </table>
+            </div>
+          )}
         </div>
       )}
       {confirmDeleteOutput && (
