@@ -1724,12 +1724,13 @@ function PrintStyles() {
   );
 }
 
-function PrintDocument({ id, title, body }) {
+function PrintDocument({ id, title, subtitle, body, fontSize, lineHeight }) {
   return (
     <div id={id} className="print-only-content">
-      <div style={{ fontFamily: "Arial, sans-serif", fontSize: "12px", color: "#111" }}>
-        <div style={{ fontWeight: "bold", fontSize: "18px", textAlign: "center", marginBottom: "14px" }}>{title}</div>
-        <div style={{ whiteSpace: "pre-wrap", lineHeight: 1.5 }}>{body}</div>
+      <div style={{ fontFamily: "Arial, sans-serif", fontSize: fontSize || "12px", color: "#111" }}>
+        {subtitle && <div style={{ textAlign: "center", fontSize: "0.75em", color: "#555", marginBottom: "2px", textTransform: "uppercase", letterSpacing: "0.05em" }}>{subtitle}</div>}
+        <div style={{ fontWeight: "bold", fontSize: "1.5em", textAlign: "center", marginBottom: "14px" }}>{title}</div>
+        <div style={{ whiteSpace: "pre-wrap", lineHeight: lineHeight || 1.5 }}>{body}</div>
       </div>
     </div>
   );
@@ -5228,7 +5229,7 @@ function ProductionPlanView({ productionPlan, products, goodsReceipts, stockIssu
 
   return (
     <div>
-      <PrintDocument id="production-plan-print" title="Vyrobny plan" body={printBody || "Ziadne zaznamy."} />
+      <PrintDocument id="production-plan-print" title="Vyrobny plan" subtitle="Stenger Czech s.r.o." body={printBody || "Ziadne zaznamy."} fontSize="15px" lineHeight={1.7} />
       <div className="flex items-center justify-between mb-4 flex-wrap gap-2">
         <h1 className="text-xl font-semibold">Vyroba</h1>
       </div>
