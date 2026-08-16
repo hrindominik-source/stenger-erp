@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Sun, Moon, Droplets, Plus, X, AlertTriangle, Trash2, Copy, ChevronLeft, ChevronRight, Printer, KeyRound, CalendarDays, Users2, CalendarOff, History as HistoryIcon, Upload, BarChart3, LogOut, ArrowLeftRight } from 'lucide-react';
+import { Sun, Moon, Droplets, Plus, X, AlertTriangle, Trash2, Copy, ChevronLeft, ChevronRight, Printer, KeyRound, CalendarDays, Users2, CalendarOff, History as HistoryIcon, Upload, BarChart3, LogOut, ArrowLeftRight, LayoutDashboard } from 'lucide-react';
 import { supabase } from './supabaseClient.js';
 
 /* =========================================================================
@@ -37,6 +37,7 @@ const SANITATION_TOTAL = 5;
 const ROLE_LABEL = { pos1: 'Hrncová', 'pos1-backup': 'Hrncová (záskok)', pos3: 'Pozícia 3', general: 'Ostatné' };
 
 const TABS = [
+  { key: 'prehlad',   label: 'Prehľad',        icon: <LayoutDashboard className="w-[18px] h-[18px]" />, color: 'indigo' },
   { key: 'planner',   label: 'Plán týždňa',    icon: <CalendarDays className="w-[18px] h-[18px]" />, color: 'amber' },
   { key: 'employees', label: 'Zamestnanci',    icon: <Users2 className="w-[18px] h-[18px]" />,        color: 'blue' },
   { key: 'absences',  label: 'Neprítomnosti',  icon: <CalendarOff className="w-[18px] h-[18px]" />,   color: 'rose' },
@@ -47,6 +48,7 @@ const TABS = [
 
 /* Rovnaky "gradientovy odznak" styl navigacie ako v hlavnej ERP appke (NavButton/NAV_COLORS v App.jsx). */
 const TAB_COLORS = {
+  indigo:  { badge: 'from-indigo-400 to-indigo-600', shadow: 'shadow-indigo-500/40' },
   amber:   { badge: 'from-amber-400 to-amber-600',   shadow: 'shadow-amber-500/40' },
   blue:    { badge: 'from-blue-400 to-blue-600',     shadow: 'shadow-blue-500/40' },
   rose:    { badge: 'from-rose-400 to-rose-600',     shadow: 'shadow-rose-500/40' },
@@ -887,6 +889,101 @@ function WeekCalendarPicker({ weeks, activeWeekId, onSelectDate }) {
   );
 }
 
+function WeekMatrixTable({ week, employees }) {
+  const activeEmployees = employees.filter((e) => e.active);
+  const order = { day: 0, night: 1, sanitation: 2 };
+  const shiftsSorted = [...week.shifts].sort((a, b) => (a.date === b.date ? order[a.type] - order[b.type] : a.date.localeCompare(b.date)));
+  const typeMeta = {
+    day: { icon: Sun, label: 'D' },
+    night: { icon: Moon, label: 'N' },
+    sanitation: { icon: Droplets, label: 'S' },
+  };
+  function roleOf(shift, empId) {
+    if (shift.assigned.pos1 === empId) return 'pos1';
+    if (shift.assigned.pos3 === empId) return 'pos3';
+    if (shift.assigned.general.includes(empId) || shift.extra.includes(empId)) return 'gen';
+    return null;
+  }
+  const dotClass = { pos1: 'bg-amber-600', pos3: 'bg-purple-600', gen: 'bg-teal-600' };
+  const roleLabel = { pos1: 'Hrncová', pos3: 'Pozícia 3', gen: 'Ostatné' };
+
+  if (activeEmployees.length === 0) {
+    return <div className="bg-white border border-slate-200 rounded-lg p-6 text-center text-slate-400 text-sm">Zatiaľ žiadny aktívny zamestnanec.</div>;
+  }
+
+  return (
+    <div className="bg-white border border-slate-200 rounded-lg overflow-x-auto">
+      <table className="text-xs border-collapse w-full">
+        <thead>
+          <tr>
+            <th className="sticky left-0 bg-slate-100 px-2 py-2 text-left border-b border-slate-200 whitespace-nowrap z-10">Zmena</th>
+            {activeEmployees.map((e) => (
+              <th key={e.id} className="px-2 py-2 border-b border-l border-slate-100 text-slate-600 font-medium whitespace-nowrap">{e.name}</th>
+            ))}
+          </tr>
+        </thead>
+        <tbody>
+          {shiftsSorted.map((s) => {
+            const meta = typeMeta[s.type];
+            const Icon = meta.icon;
+            return (
+              <tr key={s.id} className="border-t border-slate-100">
+                <td className="sticky left-0 bg-white px-2 py-1.5 whitespace-nowrap font-medium text-slate-700">
+                  <span className="inline-flex items-center gap-1"><Icon className="w-3 h-3" />{dayShort(s.date)} {formatSk(s.date)} {meta.label}</span>
+                </td>
+                {activeEmployees.map((e) => {
+                  const role = roleOf(s, e.id);
+                  return (
+                    <td key={e.id} className="px-2 py-1.5 border-l border-slate-50 text-center">
+                      {role && <span className={'inline-block w-2.5 h-2.5 rounded-full ' + dotClass[role]} title={roleLabel[role]} />}
+                    </td>
+                  );
+                })}
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
+      <div className="flex gap-4 text-xs text-slate-500 px-2 py-2 border-t border-slate-100 flex-wrap">
+        <span className="flex items-center gap-1"><span className="w-2.5 h-2.5 rounded-full bg-amber-600 inline-block" />Hrncová</span>
+        <span className="flex items-center gap-1"><span className="w-2.5 h-2.5 rounded-full bg-purple-600 inline-block" />Pozícia 3</span>
+        <span className="flex items-center gap-1"><span className="w-2.5 h-2.5 rounded-full bg-teal-600 inline-block" />Ostatné</span>
+      </div>
+    </div>
+  );
+}
+
+function PrehladTab({ weeks, employees, onGotoWeek }) {
+  const [weekStart, setWeekStart] = useState(() => mondayOf(toISO(new Date())));
+  const week = weeks.find((w) => w.id === weekStart) || null;
+  const isCurrentWeek = weekStart === mondayOf(toISO(new Date()));
+
+  return (
+    <div className="space-y-4">
+      <div className="flex items-center gap-2 flex-wrap">
+        <button onClick={() => setWeekStart(addDays(weekStart, -7))} className="p-2 rounded border border-slate-300 hover:bg-slate-100"><ChevronLeft className="w-4 h-4" /></button>
+        <span className="text-sm font-semibold text-slate-700">Týždeň od {formatSk(weekStart)}</span>
+        <button onClick={() => setWeekStart(addDays(weekStart, 7))} className="p-2 rounded border border-slate-300 hover:bg-slate-100"><ChevronRight className="w-4 h-4" /></button>
+        {!isCurrentWeek && (
+          <button onClick={() => setWeekStart(mondayOf(toISO(new Date())))} className="text-xs px-2.5 py-1.5 rounded-md border border-slate-300 hover:bg-slate-100 text-slate-600">Aktuálny týždeň</button>
+        )}
+      </div>
+
+      {!week ? (
+        <div className="bg-white border border-slate-200 rounded-lg p-10 text-center text-slate-500">
+          Pre tento týždeň zatiaľ nie je vytvorený plán.
+          <div className="mt-3"><button onClick={() => onGotoWeek(weekStart)} className="px-3 py-2 text-sm rounded-md bg-indigo-600 text-white hover:bg-indigo-700">Vytvoriť tento týždeň</button></div>
+        </div>
+      ) : (
+        <>
+          <TimelineStrip week={week} />
+          <WeekMatrixTable week={week} employees={employees} />
+        </>
+      )}
+    </div>
+  );
+}
+
 function PlannerTab({ weeks, activeWeek, employees, absences, setActiveWeekId, onNav, onCreateWeek, onGotoWeek, onToggleSunday, onAutoFill, onClearRefill, onSetProduct, onSetPos, onAddGeneral, onRemoveGeneral, onAddExtra, onRemoveExtra, onClearShift, onExport, onShowPreview }) {
   if (!activeWeek) {
     return (
@@ -1263,7 +1360,7 @@ export default function PlanSmienView({ onBack }) {
   const [loginEmployeeId, setLoginEmployeeId] = useState(null);
   const [weeks, setWeeks] = useState([]);
   const [activeWeekId, setActiveWeekId] = useState(null);
-  const [tab, setTab] = useState('planner');
+  const [tab, setTab] = useState('prehlad');
   const [loaded, setLoaded] = useState(false);
   const [exportText, setExportText] = useState(null);
   const [showPreview, setShowPreview] = useState(false);
@@ -1515,6 +1612,9 @@ export default function PlanSmienView({ onBack }) {
         </div>
       </header>
       <main className="p-4 md:p-6 max-w-6xl mx-auto">
+        {tab === 'prehlad' && (
+          <PrehladTab weeks={weeks} employees={employees} onGotoWeek={gotoWeekContaining} />
+        )}
         {tab === 'planner' && (
           <PlannerTab
             weeks={weeks} activeWeek={activeWeek} employees={employees} absences={absences}
