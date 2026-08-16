@@ -1826,7 +1826,7 @@ function Header({ view, setView, company, userFullName, userEmail, onSignOut }) 
             <div className="text-xs uppercase tracking-wider text-slate-400">
               {company.nazov ? company.nazov : "Firma nenastavena"}
             </div>
-            <div className="text-lg font-semibold">Objednavky Stenger Czech</div>
+            <div className="text-lg font-semibold">Stenger ONE</div>
           </div>
         </div>
         <div className="flex flex-col items-end gap-1.5 relative">
