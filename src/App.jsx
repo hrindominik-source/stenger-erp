@@ -5154,10 +5154,15 @@ function ProductionPlanView({ productionPlan, products, goodsReceipts, stockIssu
   }
 
   const aktualnePrestavky = (prestavky || []).filter((p) => !p.casKonca);
+  const PLAN_TAB_COLORS = {
+    plan: "bg-rose-600 border-rose-600 shadow-rose-200",
+    zaznamy: "bg-teal-600 border-teal-600 shadow-teal-200",
+    prestavky: "bg-amber-600 border-amber-600 shadow-amber-200",
+  };
   const PLAN_TABS = [
-    { key: "plan", label: "Vyrobny plan", icon: <ClipboardCheck size={16} /> },
-    { key: "zaznamy", label: "Vyrobne zaznamy", icon: <Factory size={16} /> },
-    { key: "prestavky", label: "Prestavky", icon: <Coffee size={16} />, badge: aktualnePrestavky.length || null },
+    { key: "plan", label: "Vyrobny plan", icon: <ClipboardCheck size={18} /> },
+    { key: "zaznamy", label: "Vyrobne zaznamy", icon: <Factory size={18} /> },
+    { key: "prestavky", label: "Prestavky", icon: <Coffee size={18} />, badge: aktualnePrestavky.length || null },
   ];
 
   return (
@@ -5167,16 +5172,24 @@ function ProductionPlanView({ productionPlan, products, goodsReceipts, stockIssu
         <h1 className="text-xl font-semibold">Vyroba</h1>
       </div>
 
-      <div className="flex gap-1.5 mb-4">
+      <div className="flex justify-center gap-3 mb-6">
         {PLAN_TABS.map((t) => (
           <button
             key={t.key}
             onClick={() => setTab(t.key)}
-            className={"flex items-center gap-1.5 text-sm font-medium px-3 py-2 rounded-md border " + (tab === t.key ? "bg-teal-700 text-white border-teal-700" : "bg-white text-slate-700 border-slate-200 hover:bg-slate-50")}
+            className={
+              "flex items-center gap-2 px-5 py-3 rounded-xl text-sm font-semibold border-2 transition-all duration-150 " +
+              (tab === t.key
+                ? PLAN_TAB_COLORS[t.key] + " text-white shadow-lg -translate-y-0.5"
+                : "bg-white text-slate-500 border-slate-200 hover:border-slate-300 hover:text-slate-700")
+            }
           >
-            {t.icon} {t.label}
+            <span className={"flex items-center justify-center w-8 h-8 rounded-lg " + (tab === t.key ? "bg-white/20" : "bg-slate-100")}>
+              {t.icon}
+            </span>
+            {t.label}
             {t.badge ? (
-              <span className={"text-xs font-semibold px-1.5 rounded-full " + (tab === t.key ? "bg-white/25 text-white" : "bg-amber-100 text-amber-700")}>{t.badge}</span>
+              <span className={"text-xs font-bold px-1.5 py-0.5 rounded-full " + (tab === t.key ? "bg-white text-slate-900" : "bg-amber-100 text-amber-700")}>{t.badge}</span>
             ) : null}
           </button>
         ))}
