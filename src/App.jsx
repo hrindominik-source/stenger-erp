@@ -227,7 +227,7 @@ const INVOICES_BUCKET = "invoices";
 const DESIGNS_BUCKET = "designs";
 const DESIGN_KATEGORIE = [
   { value: "kbelik", label: "Kbelíky (IML)" },
-  { value: "sacky", label: "Sáčky (fólie)" },
+  { value: "sacky", label: "Pytlíky (fólie)" },
   { value: "ine", label: "Iné" },
 ];
 const EMPTY_DESIGN = { nazov: "", kategoria: "kbelik", tlacoveDataPath: "", tlacoveDataNazov: "", nahladPath: "", fotkaPath: "" };
