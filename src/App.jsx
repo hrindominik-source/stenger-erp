@@ -4038,6 +4038,12 @@ function DesignFormModal({ design, onClose, onSave }) {
   );
 }
 
+const DESIGN_KATEGORIA_COLORS = {
+  kbelik: { dot: "bg-amber-500", head: "border-amber-300 text-amber-700", top: "border-t-amber-400" },
+  sacky: { dot: "bg-teal-500", head: "border-teal-300 text-teal-700", top: "border-t-teal-400" },
+  ine: { dot: "bg-slate-400", head: "border-slate-300 text-slate-600", top: "border-t-slate-400" },
+};
+
 function DesignsView({ designs, onSave, onUpdate, onDelete }) {
   const [showNew, setShowNew] = useState(false);
   const [editingDesign, setEditingDesign] = useState(null);
@@ -4061,36 +4067,43 @@ function DesignsView({ designs, onSave, onUpdate, onDelete }) {
           Zatím žádné designy.
         </div>
       ) : (
-        <div className="space-y-6">
-          {grouped.filter((g) => g.items.length > 0).map((g) => (
-            <div key={g.value}>
-              <h2 className="text-sm font-semibold text-slate-500 mb-2">{g.label}</h2>
-              <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-3">
-                {g.items.map((d) => (
-                  <div key={d.id} className="bg-white border border-slate-200 rounded-lg p-4">
-                    <div className="flex items-start justify-between mb-2">
-                      <div className="font-medium">{d.nazov}</div>
-                      <div className="flex gap-1">
-                        <IconButton title="Upravit" onClick={() => setEditingDesign(d)}><Pencil size={16} /></IconButton>
-                        <IconButton title="Smazat" onClick={() => setConfirmDelete(d)}><Trash2 size={16} /></IconButton>
+        <div className="space-y-8">
+          {grouped.filter((g) => g.items.length > 0).map((g) => {
+            const c = DESIGN_KATEGORIA_COLORS[g.value] || DESIGN_KATEGORIA_COLORS.ine;
+            return (
+              <div key={g.value}>
+                <div className={"flex items-center gap-2 mb-3 pb-2 border-b-2 " + c.head}>
+                  <span className={"w-2.5 h-2.5 rounded-full " + c.dot} />
+                  <h2 className="text-sm font-bold uppercase tracking-wide">{g.label}</h2>
+                  <span className="text-xs font-normal text-slate-400">({g.items.length})</span>
+                </div>
+                <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-3">
+                  {g.items.map((d) => (
+                    <div key={d.id} className={"bg-white border-x border-b border-t-4 border-slate-200 rounded-lg p-4 " + c.top}>
+                      <div className="flex items-start justify-between mb-2">
+                        <div className="font-medium">{d.nazov}</div>
+                        <div className="flex gap-1">
+                          <IconButton title="Upravit" onClick={() => setEditingDesign(d)}><Pencil size={16} /></IconButton>
+                          <IconButton title="Smazat" onClick={() => setConfirmDelete(d)}><Trash2 size={16} /></IconButton>
+                        </div>
+                      </div>
+                      <div className="flex flex-col gap-1 text-sm">
+                        <button disabled={!d.tlacoveDataPath} onClick={() => openDesignFile(d.tlacoveDataPath)} className="text-left flex items-center gap-1.5 text-teal-700 hover:text-teal-900 disabled:text-slate-300 disabled:cursor-not-allowed">
+                          <FileText size={14} /> Tisková data {d.tlacoveDataPath ? "" : "(chybí)"}
+                        </button>
+                        <button disabled={!d.nahladPath} onClick={() => openDesignFile(d.nahladPath)} className="text-left flex items-center gap-1.5 text-teal-700 hover:text-teal-900 disabled:text-slate-300 disabled:cursor-not-allowed">
+                          <Image size={14} /> Náhled {d.nahladPath ? "" : "(chybí)"}
+                        </button>
+                        <button disabled={!d.fotkaPath} onClick={() => openDesignFile(d.fotkaPath)} className="text-left flex items-center gap-1.5 text-teal-700 hover:text-teal-900 disabled:text-slate-300 disabled:cursor-not-allowed">
+                          <Camera size={14} /> Fotka {d.fotkaPath ? "" : "(chybí)"}
+                        </button>
                       </div>
                     </div>
-                    <div className="flex flex-col gap-1 text-sm">
-                      <button disabled={!d.tlacoveDataPath} onClick={() => openDesignFile(d.tlacoveDataPath)} className="text-left flex items-center gap-1.5 text-teal-700 hover:text-teal-900 disabled:text-slate-300 disabled:cursor-not-allowed">
-                        <FileText size={14} /> Tisková data {d.tlacoveDataPath ? "" : "(chybí)"}
-                      </button>
-                      <button disabled={!d.nahladPath} onClick={() => openDesignFile(d.nahladPath)} className="text-left flex items-center gap-1.5 text-teal-700 hover:text-teal-900 disabled:text-slate-300 disabled:cursor-not-allowed">
-                        <Image size={14} /> Náhled {d.nahladPath ? "" : "(chybí)"}
-                      </button>
-                      <button disabled={!d.fotkaPath} onClick={() => openDesignFile(d.fotkaPath)} className="text-left flex items-center gap-1.5 text-teal-700 hover:text-teal-900 disabled:text-slate-300 disabled:cursor-not-allowed">
-                        <Camera size={14} /> Fotka {d.fotkaPath ? "" : "(chybí)"}
-                      </button>
-                    </div>
-                  </div>
-                ))}
+                  ))}
+                </div>
               </div>
-            </div>
-          ))}
+            );
+          })}
         </div>
       )}
 
