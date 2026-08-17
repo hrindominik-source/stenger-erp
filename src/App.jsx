@@ -224,6 +224,13 @@ const EMPTY_GOODS_RECEIPT = {
 const GOODS_RECEIPT_PHOTOS_BUCKET = "goods-receipt-photos";
 const NVE_LISTS_BUCKET = "nve-lists";
 const INVOICES_BUCKET = "invoices";
+const DESIGNS_BUCKET = "designs";
+const DESIGN_KATEGORIE = [
+  { value: "kbelik", label: "Kbelíky (IML)" },
+  { value: "sacky", label: "Sáčky (fólie)" },
+  { value: "ine", label: "Iné" },
+];
+const EMPTY_DESIGN = { nazov: "", kategoria: "kbelik", tlacoveDataPath: "", tlacoveDataNazov: "", nahladPath: "", fotkaPath: "" };
 const STOCK_ISSUE_REASONS = ["Vyroba", "Testovanie/vzorky", "Znehodnotene", "Ine"];
 const EMPTY_STOCK_ISSUE = {
   datum: "",
@@ -260,6 +267,7 @@ const EMPTY_PRODUCT = {
   kartonovNaPalete: "",
   linka: "sacky",
   receptura: [],
+  designId: "",
 };
 const EMPTY_PRODUCTION_PLAN = {
   datum: "",
@@ -568,6 +576,7 @@ function OfficeApp({ userFullName, userEmail, onSignOut }) {
   const [workers, setWorkers] = useState([]);
   const [ulohy, setUlohy] = useState([]);
   const [expedicniaZaznamy, setExpedicniaZaznamy] = useState([]);
+  const [designs, setDesigns] = useState([]);
   const [ready, setReady] = useState(false);
   const [loadError, setLoadError] = useState("");
 
@@ -614,7 +623,7 @@ function OfficeApp({ userFullName, userEmail, onSignOut }) {
   useEffect(() => {
     (async () => {
       try {
-        const [ordersRes, carriersRes, customersRes, companyRes, pricelistRes, suppliersRes, materialOrdersRes, pricelistArchiveRes, goodsReceiptsRes, stockIssuesRes, productsRes, productionPlanRes, productionOutputsRes, prestavkyRes, workersRes, ulohyRes, expedicniaZaznamyRes] = await Promise.all([
+        const [ordersRes, carriersRes, customersRes, companyRes, pricelistRes, suppliersRes, materialOrdersRes, pricelistArchiveRes, goodsReceiptsRes, stockIssuesRes, productsRes, productionPlanRes, productionOutputsRes, prestavkyRes, workersRes, ulohyRes, expedicniaZaznamyRes, designsRes] = await Promise.all([
           supabase.from("orders").select("*").order("created_at", { ascending: false }),
           supabase.from("carriers").select("*"),
           supabase.from("customers").select("*"),
@@ -632,6 +641,7 @@ function OfficeApp({ userFullName, userEmail, onSignOut }) {
           supabase.from("workers").select("*"),
           supabase.from("ulohy").select("*").order("created_at", { ascending: false }),
           supabase.from("expedicia_zaznamy").select("*").order("created_at", { ascending: false }),
+          supabase.from("designs").select("*").order("created_at", { ascending: false }),
         ]);
         if (ordersRes.error || carriersRes.error || customersRes.error || companyRes.error) {
           setLoadError("Nepodařilo se načíst uložená data.");
@@ -663,6 +673,7 @@ function OfficeApp({ userFullName, userEmail, onSignOut }) {
           if (!workersRes.error) setWorkers((workersRes.data || []).map((row) => row.data));
           if (!ulohyRes.error) setUlohy((ulohyRes.data || []).map((row) => row.data));
           if (!expedicniaZaznamyRes.error) setExpedicniaZaznamy((expedicniaZaznamyRes.data || []).map((row) => ({ ...row.data, orderId: row.order_id })));
+          if (!designsRes.error) setDesigns((designsRes.data || []).map((row) => row.data));
         }
       } catch (e) {
         setLoadError("Nepodařilo se načíst uložená data.");
@@ -961,6 +972,41 @@ function OfficeApp({ userFullName, userEmail, onSignOut }) {
     setExpedicniaZaznamy((prev) => prev.filter((z) => z.id !== id));
     try {
       const { error } = await supabase.from("expedicia_zaznamy").delete().eq("id", id);
+      if (error) throw error;
+    } catch (e) {
+      setLoadError("Uložení se nezdařilo, zkuste to znovu.");
+    }
+  }
+
+  async function saveNewDesign(fields) {
+    const design = { ...EMPTY_DESIGN, ...fields, id: fields.id || uid() };
+    setDesigns((prev) => [design, ...prev]);
+    try {
+      const { error } = await supabase.from("designs").insert({ id: design.id, data: design });
+      if (error) throw error;
+    } catch (e) {
+      setLoadError("Uložení se nezdařilo, zkuste to znovu.");
+    }
+    return design;
+  }
+
+  async function updateDesign(id, patch) {
+    const current = designs.find((d) => d.id === id);
+    if (!current) return;
+    const merged = { ...current, ...patch };
+    setDesigns((prev) => prev.map((d) => (d.id === id ? merged : d)));
+    try {
+      const { error } = await supabase.from("designs").update({ data: merged }).eq("id", id);
+      if (error) throw error;
+    } catch (e) {
+      setLoadError("Uložení se nezdařilo, zkuste to znovu.");
+    }
+  }
+
+  async function deleteDesign(id) {
+    setDesigns((prev) => prev.filter((d) => d.id !== id));
+    try {
+      const { error } = await supabase.from("designs").delete().eq("id", id);
       if (error) throw error;
     } catch (e) {
       setLoadError("Uložení se nezdařilo, zkuste to znovu.");
@@ -1402,7 +1448,9 @@ function OfficeApp({ userFullName, userEmail, onSignOut }) {
               </div>
             )
         )}
-        {view === "designs" && <PlaceholderView title="Dizajny a fotky" />}
+        {view === "designs" && (
+          <DesignsView designs={designs} onSave={saveNewDesign} onUpdate={updateDesign} onDelete={deleteDesign} />
+        )}
         {view === "navody" && <PlaceholderView title="Navody" />}
         {view === "materials" && (
           <MaterialOrdersView
@@ -1437,7 +1485,7 @@ function OfficeApp({ userFullName, userEmail, onSignOut }) {
           />
         )}
         {view === "products" && (
-          <ProductsView products={products} onSave={persistProducts} onEdit={(p) => setEditingProduct(p)} />
+          <ProductsView products={products} designs={designs} onSave={persistProducts} onEdit={(p) => setEditingProduct(p)} />
         )}
         {view === "productionplan" && (
           <ProductionPlanView
@@ -1764,6 +1812,12 @@ async function openNveListFile(path) {
 async function openInvoiceFile(path) {
   if (!path) return;
   const { data, error } = await supabase.storage.from(INVOICES_BUCKET).createSignedUrl(path, 3600, { download: true });
+  if (!error && data) window.open(data.signedUrl, "_blank");
+}
+
+async function openDesignFile(path) {
+  if (!path) return;
+  const { data, error } = await supabase.storage.from(DESIGNS_BUCKET).createSignedUrl(path, 3600);
   if (!error && data) window.open(data.signedUrl, "_blank");
 }
 
@@ -3920,9 +3974,146 @@ function SupplierModal({ supplier, onClose, onSave }) {
   );
 }
 
+/* ---------------- Designy a fotky ---------------- */
+
+function DesignFormModal({ design, onClose, onSave }) {
+  const [f, setF] = useState(() => ({ ...EMPTY_DESIGN, ...design, id: (design && design.id) || uid() }));
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+
+  async function uploadTo(field, file) {
+    if (!file) return;
+    setBusy(true);
+    setError("");
+    try {
+      const ext = (file.name.split(".").pop() || "dat").toLowerCase();
+      const path = `${f.id}/${field}-${uid()}.${ext}`;
+      const { error: uploadError } = await supabase.storage.from(DESIGNS_BUCKET).upload(path, file, { contentType: file.type });
+      if (uploadError) throw uploadError;
+      setF((prev) => ({ ...prev, [field]: path, ...(field === "tlacoveDataPath" ? { tlacoveDataNazov: file.name } : {}) }));
+    } catch (e) {
+      setError("Nahrání souboru se nezdařilo, zkuste to znovu.");
+    }
+    setBusy(false);
+  }
+
+  function save() {
+    if (!f.nazov.trim()) { setError("Vyplňte název designu."); return; }
+    setError("");
+    onSave({ ...f, nazov: f.nazov.trim() });
+  }
+
+  return (
+    <ModalShell title={design ? "Upravit design" : "Nový design"} onClose={onClose}>
+      <Field label="Název" value={f.nazov} onChange={(v) => setF({ ...f, nazov: v })} />
+      <SelectField label="Kategorie" value={f.kategoria} onChange={(v) => setF({ ...f, kategoria: v })} options={DESIGN_KATEGORIE} />
+
+      <label className="block mb-3">
+        <span className="block text-xs font-medium text-slate-500 mb-1">Tisková data (PDF/AI)</span>
+        <input type="file" disabled={busy} onChange={(e) => uploadTo("tlacoveDataPath", e.target.files[0])} className="w-full text-sm" />
+        {f.tlacoveDataPath && (
+          <button type="button" onClick={() => openDesignFile(f.tlacoveDataPath)} className="text-xs text-teal-700 hover:text-teal-900 mt-1">
+            Nahráno{f.tlacoveDataNazov ? ": " + f.tlacoveDataNazov : ""} - otevřít
+          </button>
+        )}
+      </label>
+      <label className="block mb-3">
+        <span className="block text-xs font-medium text-slate-500 mb-1">Náhled (obrázek)</span>
+        <input type="file" accept="image/*" disabled={busy} onChange={(e) => uploadTo("nahladPath", e.target.files[0])} className="w-full text-sm" />
+        {f.nahladPath && <button type="button" onClick={() => openDesignFile(f.nahladPath)} className="text-xs text-teal-700 hover:text-teal-900 mt-1">Nahráno - otevřít</button>}
+      </label>
+      <label className="block mb-3">
+        <span className="block text-xs font-medium text-slate-500 mb-1">Fotka</span>
+        <input type="file" accept="image/*" disabled={busy} onChange={(e) => uploadTo("fotkaPath", e.target.files[0])} className="w-full text-sm" />
+        {f.fotkaPath && <button type="button" onClick={() => openDesignFile(f.fotkaPath)} className="text-xs text-teal-700 hover:text-teal-900 mt-1">Nahráno - otevřít</button>}
+      </label>
+
+      {error && <div className="mb-3 bg-red-50 text-red-700 text-xs px-3 py-2 rounded-md flex items-center gap-2"><AlertCircle size={14} /> {error}</div>}
+      <div className="flex justify-end mt-2">
+        <button onClick={save} disabled={busy} className="bg-teal-700 hover:bg-teal-800 disabled:opacity-60 text-white text-sm font-medium px-4 py-2 rounded-md">
+          {busy ? "Nahrávám..." : "Uložit"}
+        </button>
+      </div>
+    </ModalShell>
+  );
+}
+
+function DesignsView({ designs, onSave, onUpdate, onDelete }) {
+  const [showNew, setShowNew] = useState(false);
+  const [editingDesign, setEditingDesign] = useState(null);
+  const [confirmDelete, setConfirmDelete] = useState(null);
+
+  const grouped = DESIGN_KATEGORIE.map((k) => ({ ...k, items: designs.filter((d) => (d.kategoria || "kbelik") === k.value) }));
+
+  return (
+    <div>
+      <div className="flex items-center justify-between mb-4">
+        <h1 className="text-xl font-semibold">Designy a fotky</h1>
+        <button onClick={() => setShowNew(true)} className="flex items-center gap-1.5 bg-teal-700 hover:bg-teal-800 text-white text-sm font-medium px-3 py-2 rounded-md">
+          <Plus size={16} /> Nový design
+        </button>
+      </div>
+      <p className="text-xs text-slate-400 mb-4">Design (IML kbelíku nebo tisková data fólie sáčku) přiřaďte k produktům v sekci Produkty - jeden design může mít víc produktů (stejný obal, jiný karton/paleta).</p>
+
+      {designs.length === 0 ? (
+        <div className="bg-white border border-slate-200 rounded-lg p-10 text-center text-slate-500">
+          <Image size={28} className="mx-auto mb-3 text-slate-300" />
+          Zatím žádné designy.
+        </div>
+      ) : (
+        <div className="space-y-6">
+          {grouped.filter((g) => g.items.length > 0).map((g) => (
+            <div key={g.value}>
+              <h2 className="text-sm font-semibold text-slate-500 mb-2">{g.label}</h2>
+              <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-3">
+                {g.items.map((d) => (
+                  <div key={d.id} className="bg-white border border-slate-200 rounded-lg p-4">
+                    <div className="flex items-start justify-between mb-2">
+                      <div className="font-medium">{d.nazov}</div>
+                      <div className="flex gap-1">
+                        <IconButton title="Upravit" onClick={() => setEditingDesign(d)}><Pencil size={16} /></IconButton>
+                        <IconButton title="Smazat" onClick={() => setConfirmDelete(d)}><Trash2 size={16} /></IconButton>
+                      </div>
+                    </div>
+                    <div className="flex flex-col gap-1 text-sm">
+                      <button disabled={!d.tlacoveDataPath} onClick={() => openDesignFile(d.tlacoveDataPath)} className="text-left flex items-center gap-1.5 text-teal-700 hover:text-teal-900 disabled:text-slate-300 disabled:cursor-not-allowed">
+                        <FileText size={14} /> Tisková data {d.tlacoveDataPath ? "" : "(chybí)"}
+                      </button>
+                      <button disabled={!d.nahladPath} onClick={() => openDesignFile(d.nahladPath)} className="text-left flex items-center gap-1.5 text-teal-700 hover:text-teal-900 disabled:text-slate-300 disabled:cursor-not-allowed">
+                        <Image size={14} /> Náhled {d.nahladPath ? "" : "(chybí)"}
+                      </button>
+                      <button disabled={!d.fotkaPath} onClick={() => openDesignFile(d.fotkaPath)} className="text-left flex items-center gap-1.5 text-teal-700 hover:text-teal-900 disabled:text-slate-300 disabled:cursor-not-allowed">
+                        <Camera size={14} /> Fotka {d.fotkaPath ? "" : "(chybí)"}
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {showNew && <DesignFormModal onClose={() => setShowNew(false)} onSave={async (fields) => { await onSave(fields); setShowNew(false); }} />}
+      {editingDesign && <DesignFormModal design={editingDesign} onClose={() => setEditingDesign(null)} onSave={async (fields) => { await onUpdate(editingDesign.id, fields); setEditingDesign(null); }} />}
+      {confirmDelete && (
+        <ModalShell title="Smazat design?" onClose={() => setConfirmDelete(null)}>
+          <p className="text-sm text-slate-600 mb-4">Opravdu chcete smazat design "{confirmDelete.nazov}"? Produkty, které na něj odkazují, o přiřazení přijdou.</p>
+          <div className="flex justify-end gap-2">
+            <button onClick={() => setConfirmDelete(null)} className="text-sm text-slate-500 px-3 py-2">Zrušit</button>
+            <button onClick={() => { onDelete(confirmDelete.id); setConfirmDelete(null); }} className="bg-red-600 hover:bg-red-700 text-white text-sm font-medium px-4 py-2 rounded-md flex items-center gap-1.5">
+              <Trash2 size={16} /> Ano, smazat
+            </button>
+          </div>
+        </ModalShell>
+      )}
+    </div>
+  );
+}
+
 /* ---------------- Produkty ---------------- */
 
-function ProductsView({ products, onSave, onEdit }) {
+function ProductsView({ products, designs, onSave, onEdit }) {
   const [f, setF] = useState({ znacka: "", gramaz: "", ksVKartone: "", kartonovNaPalete: "", linka: "sacky" });
   const [formError, setFormError] = useState("");
 
@@ -3933,6 +4124,9 @@ function ProductsView({ products, onSave, onEdit }) {
     setF({ znacka: "", gramaz: "", ksVKartone: "", kartonovNaPalete: "", linka: "sacky" });
   }
   function remove(id) { onSave(products.filter((p) => p.id !== id)); }
+  function changeDesign(id, designId) {
+    onSave(products.map((p) => (p.id === id ? { ...p, designId } : p)));
+  }
   async function exportToExcel() {
     const rows = products.map((p) => ({
       "Produkt": productLabel(p),
@@ -3940,6 +4134,7 @@ function ProductsView({ products, onSave, onEdit }) {
       "Gramáž": p.gramaz,
       "Ks v kartonu": p.ksVKartone,
       "Kartonů na paletě": p.kartonovNaPalete,
+      "Design": (designs || []).find((d) => d.id === p.designId)?.nazov || "",
       "Položky v receptuře": (p.receptura || []).length,
     }));
     await exportRowsToExcel(rows, "Produkty", "Produkty");
@@ -3974,12 +4169,18 @@ function ProductsView({ products, onSave, onEdit }) {
       ) : (
         <div className="bg-white border border-slate-200 rounded-lg overflow-hidden">
           <table className="w-full text-sm">
-            <thead><tr className="bg-slate-100 text-slate-600 text-left"><th className="px-3 py-2 font-medium">Produkt</th><th className="px-3 py-2 font-medium">Linka</th><th className="px-3 py-2 font-medium">Receptura</th><th className="px-3 py-2"></th></tr></thead>
+            <thead><tr className="bg-slate-100 text-slate-600 text-left"><th className="px-3 py-2 font-medium">Produkt</th><th className="px-3 py-2 font-medium">Linka</th><th className="px-3 py-2 font-medium">Design</th><th className="px-3 py-2 font-medium">Receptura</th><th className="px-3 py-2"></th></tr></thead>
             <tbody>
               {products.map((p) => (
                 <tr key={p.id} className="border-t border-slate-100">
                   <td className="px-3 py-2 font-medium">{productLabel(p)}</td>
                   <td className="px-3 py-2 text-slate-500">{(PRODUCTION_LINKY.find((l) => l.value === p.linka) || {}).label || p.linka}</td>
+                  <td className="px-3 py-2">
+                    <select value={p.designId || ""} onChange={(e) => changeDesign(p.id, e.target.value)} className="border border-slate-200 rounded-md px-2 py-1 text-xs max-w-[180px]">
+                      <option value="">— žádný —</option>
+                      {(designs || []).map((d) => <option key={d.id} value={d.id}>{d.nazov}</option>)}
+                    </select>
+                  </td>
                   <td className="px-3 py-2 text-slate-500">{(p.receptura || []).length} polozka(y)</td>
                   <td className="px-3 py-2 text-right">
                     <div className="flex justify-end gap-1">

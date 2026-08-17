@@ -692,3 +692,31 @@ drop policy if exists "workers_planovanie_public_select" on public.workers;
 create policy "workers_planovanie_public_select" on public.workers
   for select
   using (data->>'typ' = 'vyroba');
+
+-- ============================================================
+-- 29. designs - IML dizajny (kbelíky) a tlačové dáta fólií (sáčky), priradené
+--     k viacerym produktom naraz (rovnaky fyzicky dizajn, ina paletizacia/karton).
+-- ============================================================
+create table if not exists public.designs (
+  id text primary key,
+  data jsonb not null,
+  created_at timestamptz not null default now()
+);
+
+alter table public.designs enable row level security;
+
+drop policy if exists "designs_office_all" on public.designs;
+create policy "designs_office_all" on public.designs
+  for all
+  using (public.current_role() = 'office')
+  with check (public.current_role() = 'office');
+
+insert into storage.buckets (id, name, public)
+values ('designs', 'designs', false)
+on conflict (id) do nothing;
+
+drop policy if exists "designs_files_office" on storage.objects;
+create policy "designs_files_office" on storage.objects
+  for all
+  using (bucket_id = 'designs' and public.current_role() = 'office')
+  with check (bucket_id = 'designs' and public.current_role() = 'office');
