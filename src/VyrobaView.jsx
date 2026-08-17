@@ -463,16 +463,22 @@ function PrehladTab() {
         <div className="space-y-3">
           {sortedPlan.map((r) => {
             const stav = r.stavVyroby || "caka";
+            const zmenene = new Set(r.zmenenePolia || []);
+            const jeZmenene = zmenene.size > 0 && r.zmeneneKedy && (Date.now() - new Date(r.zmeneneKedy).getTime()) < 24 * 60 * 60 * 1000;
+            const zmCls = (pole) => (jeZmenene && zmenene.has(pole) ? "text-red-600 font-semibold" : "");
             return (
-              <div key={r.id} className="bg-white border border-slate-200 rounded-xl p-4">
+              <div key={r.id} className={"bg-white border rounded-xl p-4 " + (jeZmenene ? "border-red-400 border-2" : "border-slate-200")}>
                 <div className="flex items-start justify-between gap-2 mb-1">
-                  <div className="font-semibold text-base">{r.produktNazov}</div>
-                  <div className="text-sm text-slate-500 whitespace-nowrap">{r.datum}</div>
+                  <div className="flex items-center gap-2">
+                    <div className={"font-semibold text-base " + zmCls("produktNazov")}>{r.produktNazov}</div>
+                    {jeZmenene && <span className="text-xs font-bold px-2 py-0.5 rounded-full bg-red-100 text-red-700 whitespace-nowrap">Změněno</span>}
+                  </div>
+                  <div className={"text-sm whitespace-nowrap " + (zmCls("datum") || "text-slate-500")}>{r.datum}</div>
                 </div>
-                <div className="text-sm text-slate-500 mb-3">
-                  {r.mnozstvo} {r.mnozstvoJednotka === "kartonov" ? "kartonů" : "palet"}
-                  {r.terminDodania ? " - termín: " + r.terminDodania : ""}
-                  {r.poznamka ? " - " + r.poznamka : ""}
+                <div className="text-sm text-slate-500 mb-3 flex flex-wrap gap-x-1">
+                  <span className={zmCls("mnozstvo") || zmCls("mnozstvoJednotka")}>{r.mnozstvo} {r.mnozstvoJednotka === "kartonov" ? "kartonů" : "palet"}</span>
+                  {r.terminDodania && <span className={zmCls("terminDodania")}>{" - termín: " + r.terminDodania}</span>}
+                  {r.poznamka && <span className={zmCls("poznamka")}>{" - " + r.poznamka}</span>}
                 </div>
                 <div className="grid grid-cols-3 gap-2">
                   {VYROBA_STATUS_OPTIONS.map((opt) => (

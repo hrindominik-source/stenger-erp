@@ -276,6 +276,8 @@ const EMPTY_PRODUCTION_PLAN = {
   vyrobeneAt: null,
   zapisal: "",
 };
+// Polia, ktorych zmenu office pri uprave planu oznaci Vyrobe/Skladu cervenym zvyraznenim.
+const PLAN_ZMENA_POLIA = ["datum", "linka", "produktNazov", "mnozstvo", "mnozstvoJednotka", "terminDodania", "poznamka"];
 function productLabel(p) {
   if (!p) return "";
   return [p.znacka, [p.gramaz, p.ksVKartone, p.kartonovNaPalete].filter(Boolean).join("/")].filter(Boolean).join(" ");
@@ -1053,7 +1055,13 @@ function OfficeApp({ userFullName, userEmail, onSignOut }) {
   async function updateProductionPlan(id, patch) {
     const current = productionPlan.find((p) => p.id === id);
     if (!current) return;
-    const merged = { ...current, ...patch };
+    let merged = { ...current, ...patch };
+    // Oznaci, ktore konkretne polia planu office prave zmenil, aby to Vyroba/Sklad
+    // videli cervenou (24 hodin) - zmena stavVyroby samotnou vyrobou sa nepocita.
+    const zmenene = PLAN_ZMENA_POLIA.filter((key) => String(current[key] ?? "") !== String(patch[key] ?? current[key] ?? ""));
+    if (zmenene.length > 0) {
+      merged = { ...merged, zmenenePolia: zmenene, zmeneneKedy: new Date().toISOString() };
+    }
     setProductionPlan((prev) => prev.map((p) => (p.id === id ? merged : p)));
     try {
       const { error } = await supabase.from("production_plan").update({ data: merged }).eq("id", id);
