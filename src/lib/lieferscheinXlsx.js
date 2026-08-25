@@ -1,19 +1,17 @@
 // Generuje skutocny .xlsx subor pre Lieferschein/dodaci list, presne podla
 // realnej sablony zakaznika (GERWISCH.xlsx - Stenger Waffeln GmbH) - rovnake
-// bunky, popisky (vratane preklepu "AKRTIKEL LIEF.NUM."), zluceni aj poradie
-// riadkov ako v origináli. Kazda polozka objednavky zabera 4 riadky (nazov,
-// inhlt, EAN, RSPO), max MAX_ITEMS poloziek sa zmesti do sablony.
+// bunky, zluceni, orámování aj popisky (vratane preklepu "AKRTIKEL LIEF.NUM.")
+// ako v origináli. Kazda polozka objednavky zabera 4 riadky (nazov, inhlt,
+// EAN, RSPO), max MAX_ITEMS poloziek sa zmesti do sablony.
+// Pouziva exceljs (nie xlsx/SheetJS) - SheetJS free verzia nevie zapisovat
+// styly bunky (oramovanie, tucne pismo) do .xlsx suboru, exceljs ano.
 
 const MAX_ITEMS = 6;
-const ITEMS_START_ROW = 16; // 1-indexovany Excel riadok prvej polozky
+const ITEMS_START_ROW = 16;
+const THIN = { style: "thin" };
 
-function addr(col, row) {
-  return col + row;
-}
-
-function setCell(ws, a, value) {
-  if (value === undefined || value === null || value === "") return;
-  ws[a] = { t: typeof value === "number" ? "n" : "s", v: value };
+function col(letter) {
+  return letter.charCodeAt(0) - 64;
 }
 
 function addressLines(text, max) {
@@ -23,61 +21,96 @@ function addressLines(text, max) {
 }
 
 export async function buildLieferscheinXlsx({ order, company, customer, carrierName, transportPrice, products }) {
-  const XLSX = await import("xlsx");
-  const ws = {};
-  const merges = [];
+  const ExcelJSModule = await import("exceljs");
+  const ExcelJS = ExcelJSModule.default || ExcelJSModule;
+  const wb = new ExcelJS.Workbook();
+  const ws = wb.addWorksheet("List1");
 
+  ws.getColumn(1).width = 9.4;
+  ws.getColumn(2).width = 7.4;
+  ws.getColumn(3).width = 10.1;
+  ws.getColumn(5).width = 8;
+  ws.getColumn(6).width = 10.6;
+  ws.getColumn(7).width = 12.6;
+
+  function set(a, value, opts = {}) {
+    const cell = ws.getCell(a);
+    if (value !== undefined && value !== null && value !== "") cell.value = value;
+    if (opts.bold || opts.size) cell.font = { bold: !!opts.bold, size: opts.size || 11 };
+    if (opts.align) cell.alignment = opts.align;
+    return cell;
+  }
   function merge(a1, a2) {
-    merges.push({ s: XLSX.utils.decode_cell(a1), e: XLSX.utils.decode_cell(a2) });
+    ws.mergeCells(`${a1}:${a2}`);
+  }
+  // pridá thin border na dany okraj vsetkych buniek v obdlzniku a1:a2 (top/bottom/left/right)
+  function borderRect(colFrom, rowFrom, colTo, rowTo, sides) {
+    for (let r = rowFrom; r <= rowTo; r++) {
+      for (let c = colFrom; c <= colTo; c++) {
+        const cell = ws.getCell(r, c);
+        const b = { ...(cell.border || {}) };
+        if (sides.top && r === rowFrom) b.top = THIN;
+        if (sides.bottom && r === rowTo) b.bottom = THIN;
+        if (sides.left && c === colFrom) b.left = THIN;
+        if (sides.right && c === colTo) b.right = THIN;
+        cell.border = b;
+      }
+    }
   }
 
   // hlavicka
-  setCell(ws, "G1", order.cisloObjednavkyDopravy);
-  if (transportPrice && transportPrice.matched) setCell(ws, "I1", transportPrice.total);
-  setCell(ws, "A2", company.nazov);
-  setCell(ws, "D2", "LIEFERSCHEIN ");
+  set("G1", order.cisloObjednavkyDopravy, { size: 10 });
+  if (transportPrice && transportPrice.matched) set("I1", transportPrice.total);
+  set("A2", company.nazov, { bold: true, size: 14 });
+  set("D2", "LIEFERSCHEIN ", { bold: true, size: 18 });
   merge("D2", "F2");
-  setCell(ws, "G2", "Nr:");
-  setCell(ws, "H2", order.cisloDodaciehoListu);
+  set("G2", "Nr:", { bold: true });
+  set("H2", order.cisloDodaciehoListu, { bold: true });
   merge("H2", "I2");
 
-  setCell(ws, "D3", "Lieferadresse/adresa dodání");
+  set("D3", "Lieferadresse/adresa dodání", { size: 10 });
   merge("D3", "F3");
-  setCell(ws, "D4", order.adresaDodaniaNazov);
+  set("D4", order.adresaDodaniaNazov, { bold: true, size: 10 });
   const dodaciaAdresa = addressLines(order.adresaDodania, 2);
-  setCell(ws, "D5", dodaciaAdresa[0]);
-  setCell(ws, "D6", dodaciaAdresa[1]);
+  set("D5", dodaciaAdresa[0], { bold: true, size: 10 });
+  set("D6", dodaciaAdresa[1], { bold: true, size: 10 });
 
-  setCell(ws, "A6", "LIEFERANT:");
-  setCell(ws, "G6", "ABNEHMER/ODBĚRATEL");
-  setCell(ws, "A7", company.nazov);
-  setCell(ws, "G7", customer ? customer.nazov : (order.zakaznik || ""));
+  set("A6", "LIEFERANT:", { size: 12 });
+  set("G6", "ABNEHMER/ODBĚRATEL");
+  set("A7", company.nazov, { bold: true, size: 12 });
+  set("G7", customer ? customer.nazov : (order.zakaznik || ""), { bold: true });
   const dodavatelAdresa = addressLines(company.adresa, 2);
-  setCell(ws, "A8", dodavatelAdresa[0]);
-  setCell(ws, "A9", dodavatelAdresa[1]);
+  set("A8", dodavatelAdresa[0], { size: 12 });
+  set("A9", dodavatelAdresa[1], { size: 12 });
   const odberatelAdresa = addressLines(customer ? customer.adresa : "", 2);
-  setCell(ws, "G8", odberatelAdresa[0]);
-  setCell(ws, "G9", odberatelAdresa[1]);
-  setCell(ws, "A10", "IČO:" + (company.ico || ""));
+  set("G8", odberatelAdresa[0]);
+  set("G9", odberatelAdresa[1]);
+  set("A10", "IČO:" + (company.ico || ""), { size: 12 });
   merge("A10", "B10");
-  setCell(ws, "G10", customer && customer.dic ? "Ust.-Id Nr." + customer.dic : "");
-  setCell(ws, "A11", "DIČ:" + (company.dic || ""));
+  set("G10", customer && customer.dic ? "Ust.-Id Nr." + customer.dic : "");
+  set("A11", "DIČ:" + (company.dic || ""), { size: 12 });
   merge("A11", "B11");
+  borderRect(col("A"), 6, col("I"), 11, { bottom: true }); // zavrie LIEFERANT/ABNEHMER blok
 
-  setCell(ws, "A13", "Lieferungstag:");
+  set("A13", "Lieferungstag:", { bold: true });
   merge("A13", "B13");
-  setCell(ws, "C13", order.datumDodania);
-  setCell(ws, "F13", "Bestellung:");
+  set("C13", order.datumDodania, { bold: true });
+  set("F13", "Bestellung:", { bold: true });
   merge("F13", "G13");
-  setCell(ws, "H13", order.cisloObjednavkyZakaznika);
+  set("H13", order.cisloObjednavkyZakaznika, { bold: true });
   merge("H13", "I13");
+  borderRect(col("A"), 13, col("I"), 14, { top: true, bottom: true });
 
-  setCell(ws, "A15", "Palet");
-  setCell(ws, "B15", "Karton");
-  setCell(ws, "C15", "BEZEICHNUNG");
+  set("A15", "Palet", { bold: true });
+  set("B15", "Karton", { bold: true });
+  set("C15", "BEZEICHNUNG", { bold: true });
   merge("C15", "F15");
-  setCell(ws, "G15", "STK");
-  setCell(ws, "H15", "AKRTIKEL LIEF.NUM.");
+  set("G15", "STK", { bold: true });
+  set("H15", "AKRTIKEL LIEF.NUM.", { bold: true });
+  borderRect(col("A"), 15, col("I"), 15, { top: true, bottom: true });
+  [col("A"), col("B"), col("F"), col("G"), col("H")].forEach((c) => {
+    ws.getCell(15, c).border = { ...ws.getCell(15, c).border, right: THIN };
+  });
 
   // polozky - 4 riadky na kazdu (nazov, inhlt, EAN, RSPO)
   const items = ((order.polozky && order.polozky.length > 0) ? order.polozky : [{ popis: order.popisTovaru || "", artikel: "", palet: order.pocetPaliet || "", karton: order.pocetKartonov || "" }])
@@ -91,52 +124,66 @@ export async function buildLieferscheinXlsx({ order, company, customer, carrierN
   items.forEach((it, i) => {
     const r0 = ITEMS_START_ROW + i * 4;
     const r3 = r0 + 3;
-    setCell(ws, addr("A", r0), it.palet);
-    merge(addr("A", r0), addr("A", r3));
-    setCell(ws, addr("B", r0), it.karton);
-    merge(addr("B", r0), addr("B", r3));
-    setCell(ws, addr("C", r0), it.popis);
-    if (it.produkt && it.produkt.inhlt) setCell(ws, addr("C", r0 + 1), it.produkt.inhlt);
+    set(`A${r0}`, it.palet, { bold: true });
+    merge(`A${r0}`, `A${r3}`);
+    set(`B${r0}`, it.karton, { bold: true });
+    merge(`B${r0}`, `B${r3}`);
+    set(`C${r0}`, it.popis, { bold: true });
+    if (it.produkt && it.produkt.inhlt) set(`C${r0 + 1}`, it.produkt.inhlt);
     const eanLine = it.produkt ? [it.produkt.eanKarton && `EAN karton: ${it.produkt.eanKarton}`, it.produkt.eanUnit && `EAN kus: ${it.produkt.eanUnit}`].filter(Boolean).join("   ") : "";
-    if (eanLine) setCell(ws, addr("C", r0 + 2), eanLine);
-    if (it.produkt && it.produkt.rspo) setCell(ws, addr("C", r0 + 3), "BVC-RSPO-CZ009581");
-    merge(addr("G", r0), addr("G", r3));
-    setCell(ws, addr("H", r0), it.artikel);
-    merge(addr("H", r0), addr("I", r3));
+    if (eanLine) set(`C${r0 + 2}`, eanLine, { size: 9 });
+    if (it.produkt && it.produkt.rspo) set(`C${r0 + 3}`, "BVC-RSPO-CZ009581");
+    merge(`G${r0}`, `G${r3}`);
+    set(`H${r0}`, it.artikel, { bold: true });
+    merge(`H${r0}`, `I${r3}`);
+    borderRect(col("A"), r0, col("I"), r3, { top: true, bottom: true, left: true, right: true });
+    [col("A"), col("B"), col("F"), col("G"), col("H")].forEach((c) => {
+      for (let r = r0; r <= r3; r++) ws.getCell(r, c).border = { ...ws.getCell(r, c).border, right: THIN };
+    });
   });
 
   const itemsUsed = items.length || 1;
   const lastRow = ITEMS_START_ROW + itemsUsed * 4 - 1;
+  // vonkajsi ramik dokumentu (od hlavicky po posledny riadok pred suctom) - lavy/pravy okraj
+  borderRect(col("A"), 2, col("I"), lastRow, { left: true, right: true });
+
   const summaryRow = lastRow + 2;
   const sumPaliet = items.reduce((s, it) => s + (parseFloat(it.palet) || 0), 0);
   const totalPaliet = sumPaliet > 0 ? sumPaliet : (order.pocetPaliet || 0);
-  setCell(ws, addr("A", summaryRow), order.pocetPaletovychMiest || 0);
-  setCell(ws, addr("B", summaryRow), "Doppelstockpal. =");
-  setCell(ws, addr("D", summaryRow), totalPaliet);
-  setCell(ws, addr("E", summaryRow), "europaletten =");
-  setCell(ws, addr("G", summaryRow), order.pocetPaletovychMiest || 0);
-  setCell(ws, addr("H", summaryRow), "stallplätze");
+  set(`A${summaryRow}`, order.pocetPaletovychMiest || 0, { bold: true, size: 12 });
+  set(`B${summaryRow}`, "Doppelstockpal. =", { bold: true, size: 12 });
+  set(`D${summaryRow}`, totalPaliet, { bold: true, size: 12 });
+  set(`E${summaryRow}`, "europaletten =", { bold: true, size: 12 });
+  set(`G${summaryRow}`, order.pocetPaletovychMiest || 0, { bold: true, size: 12 });
+  set(`H${summaryRow}`, "stallplätze", { bold: true, size: 12 });
 
   const footerRow = summaryRow + 3;
-  setCell(ws, addr("A", footerRow), "vystavil/ausgestellt von:");
-  merge(addr("A", footerRow), addr("C", footerRow));
-  setCell(ws, addr("D", footerRow), "TRANSPORT: " + (carrierName || ""));
-  setCell(ws, addr("G", footerRow), "odběratel / abnehmer:");
-  merge(addr("G", footerRow), addr("I", footerRow));
-  setCell(ws, addr("A", footerRow + 1), company.email);
-  merge(addr("A", footerRow + 1), addr("C", footerRow + 1));
-  setCell(ws, addr("D", footerRow + 1), "NUMBER TRUCK:");
-  setCell(ws, addr("D", footerRow + 2), "EUROPALETTEN");
-  setCell(ws, addr("D", footerRow + 3), "ACCEPTED:");
-  setCell(ws, addr("D", footerRow + 4), "RELEASSED:");
-  setCell(ws, addr("D", footerRow + 5), "DEBT:");
+  borderRect(col("A"), summaryRow, col("I"), footerRow - 1, { left: true, right: true, bottom: true });
 
-  ws["!merges"] = merges;
-  ws["!ref"] = `A1:I${footerRow + 5}`;
-  ws["!cols"] = [{ wch: 8 }, { wch: 8 }, { wch: 24 }, { wch: 10 }, { wch: 10 }, { wch: 6 }, { wch: 14 }, { wch: 16 }, { wch: 8 }];
+  set(`A${footerRow}`, "vystavil/ausgestellt von:", { bold: true });
+  merge(`A${footerRow}`, `C${footerRow}`);
+  set(`D${footerRow}`, "TRANSPORT: " + (carrierName || ""));
+  set(`G${footerRow}`, "odběratel / abnehmer:", { bold: true });
+  merge(`G${footerRow}`, `I${footerRow}`);
+  set(`A${footerRow + 1}`, company.email);
+  merge(`A${footerRow + 1}`, `C${footerRow + 1}`);
+  set(`D${footerRow + 1}`, "NUMBER TRUCK:");
+  set(`D${footerRow + 2}`, "EUROPALETTEN");
+  set(`D${footerRow + 3}`, "ACCEPTED:");
+  set(`D${footerRow + 4}`, "RELEASSED:");
+  set(`D${footerRow + 5}`, "DEBT:");
+  borderRect(col("A"), footerRow, col("C"), footerRow + 5, { top: true, bottom: true, left: true, right: true });
+  borderRect(col("G"), footerRow, col("I"), footerRow + 5, { top: true, bottom: true, left: true, right: true });
 
-  const wb = XLSX.utils.book_new();
-  XLSX.utils.book_append_sheet(wb, ws, "List1");
   const fname = `Lieferschein_${String(order.cisloDodaciehoListu || order.id).replace(/\//g, "-")}.xlsx`;
-  XLSX.writeFile(wb, fname);
+  const buf = await wb.xlsx.writeBuffer();
+  const blob = new Blob([buf], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = fname;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
 }
