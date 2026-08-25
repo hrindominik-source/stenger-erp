@@ -1749,6 +1749,7 @@ function OfficeApp({ userFullName, userEmail, onSignOut }) {
             onSave={saveNewOrder}
             defaultAdresaNakladky={company.adresa || ""}
             customers={customers}
+            products={products}
             company={company}
           />
         )}
@@ -1756,6 +1757,7 @@ function OfficeApp({ userFullName, userEmail, onSignOut }) {
           <EditOrderPage
             order={editingOrder}
             customers={customers}
+            products={products}
             onClose={() => setEditingOrder(null)}
             onSave={(patch) => { updateOrder(editingOrder.id, patch); setEditingOrder(null); }}
           />
@@ -2600,10 +2602,14 @@ function MultiCheckField({ label, value, onChange, options }) {
   );
 }
 
-function ItemsTable({ items, setItems }) {
+function ItemsTable({ items, setItems, customer, products }) {
   function update(i, key, val) {
     const next = items.slice();
     next[i] = { ...next[i], [key]: val };
+    if (key === "karton" || key === "artikel") {
+      const computed = computePaletFromKarton(next[i].karton, next[i].artikel, customer, products);
+      if (computed) next[i].palet = computed;
+    }
     setItems(next);
   }
   function remove(i) {
@@ -2997,7 +3003,7 @@ function PageShell({ title, onBack, children }) {
   );
 }
 
-function NewOrderPage({ onClose, onSave, defaultAdresaNakladky, customers, company }) {
+function NewOrderPage({ onClose, onSave, defaultAdresaNakladky, customers, products, company }) {
   const [mode, setMode] = useState("text");
   const [text, setText] = useState("");
   const [file, setFile] = useState(null);
@@ -3064,6 +3070,11 @@ function NewOrderPage({ onClose, onSave, defaultAdresaNakladky, customers, compa
           console.error(itemsErr);
         }
       }
+      // Ak polozka nema vyplnene palety, dopocitaj ich z kartonov + "Kartonů na paletě"
+      // u prepojeneho Produktu (ak sa da najst podla artiklu).
+      polozky = polozky.map((it) => (
+        it.palet ? it : { ...it, palet: computePaletFromKarton(it.karton, it.artikel, matchedCustomer, products) || it.palet }
+      ));
       setExtracted({
         ...EMPTY_ORDER,
         datumPrijatia: todayStr(),
@@ -3137,7 +3148,7 @@ function NewOrderPage({ onClose, onSave, defaultAdresaNakladky, customers, compa
             {busyItems ? "Přiřazuji..." : "Přiřadit položky z katalogu (AI)"}
           </button>
         )}
-        <ItemsTable items={extracted.polozky} setItems={(items) => setExtracted({ ...extracted, polozky: items })} />
+        <ItemsTable items={extracted.polozky} setItems={(items) => setExtracted({ ...extracted, polozky: items })} customer={customer} products={products} />
 
         {error && <div className="mb-3 bg-red-50 text-red-700 text-sm px-3 py-2 rounded-md flex items-center gap-2"><AlertCircle size={16} /> {error}</div>}
 
@@ -3284,8 +3295,9 @@ function DocumentPreview({ zdrojDokument }) {
   );
 }
 
-function EditOrderPage({ order, customers, onClose, onSave }) {
+function EditOrderPage({ order, customers, products, onClose, onSave }) {
   const [f, setF] = useState({ ...order });
+  const customer = customers.find((c) => c.id === f.zakaznikId);
   return (
     <PageShell title={"Upravit objednávku " + order.cisloObjednavkyDopravy} onBack={onClose}>
       <div className="flex flex-col lg:flex-row gap-6">
@@ -3313,7 +3325,7 @@ function EditOrderPage({ order, customers, onClose, onSave }) {
           <ToggleField label="Palety zpět" value={f.paletyZpat} onChange={(v) => setF({ ...f, paletyZpat: v })} yesLabel="Ano" noLabel="Nie" />
           <Field label="Popis zboží (volný text)" value={f.popisTovaru} onChange={(v) => setF({ ...f, popisTovaru: v })} textarea />
           <Field label="Poznámka" value={f.poznamka} onChange={(v) => setF({ ...f, poznamka: v })} textarea />
-          <ItemsTable items={f.polozky || []} setItems={(items) => setF({ ...f, polozky: items })} />
+          <ItemsTable items={f.polozky || []} setItems={(items) => setF({ ...f, polozky: items })} customer={customer} products={products} />
           <div className="flex justify-between mt-2 pb-2">
             <button onClick={onClose} className="text-sm text-slate-500 px-3 py-2">Zrušit</button>
             <button onClick={() => onSave(f)} className="bg-teal-700 hover:bg-teal-800 text-white text-sm font-medium px-4 py-2 rounded-md">Uložit změny</button>
@@ -3466,13 +3478,39 @@ function findProduktForItem(it, customer, products) {
   return (products || []).find((p) => p.cisloArtiklu === it.artikel || p.cisloArtikluSW === it.artikel) || null;
 }
 
+// Automaticky navrhne pocet paliet z poctu kartonov + "Kartonů na paletě" u
+// prepojeneho Produktu (zaokruhlene nahor - nedokoncena paleta sa stale
+// pocita ako cela paletova pozicia). Vracia "" ak sa neda spocitat
+// (chyba produkt, artikel, alebo pocet kartonov na palete).
+function computePaletFromKarton(karton, artikel, customer, products) {
+  const k = parseFloat(String(karton || "").replace(",", "."));
+  if (!k || k <= 0) return "";
+  const produkt = findProduktForItem({ artikel }, customer, products);
+  const perPallet = produkt && parseFloat(produkt.kartonovNaPalete);
+  if (!perPallet) return "";
+  return String(Math.ceil(k / perPallet));
+}
+
+// Pocet kusov (STK) na dodacom liste = pocet kartonov * "Ks v kartonu" u
+// prepojeneho Produktu. Vracia null ak sa neda spocitat.
+function computeKusyFromKarton(karton, produkt) {
+  const k = parseFloat(String(karton || "").replace(",", "."));
+  const perKarton = produkt && parseFloat(produkt.ksVKartone);
+  if (!k || !perKarton) return null;
+  return Math.round(k * perKarton);
+}
+
 function LieferscheinPrintTable({ id, company, customer, order, carrierName, transportPrice, products }) {
   const row = { display: "flex", borderBottom: "1px solid #ddd", padding: "2px 0" };
   const left = { width: "50%", paddingRight: "8px" };
   const right = { width: "50%" };
   const items = ((order.polozky && order.polozky.length > 0) ? order.polozky : [{ popis: order.popisTovaru || "", artikel: "", palet: order.pocetPaliet || "", karton: order.pocetKartonov || "" }])
-    .map((it) => ({ ...it, produkt: findProduktForItem(it, customer, products) }));
-  const sumPaliet = items.reduce((s, it) => s + (parseFloat(it.palet) || 0), 0);
+    .map((it) => {
+      const produkt = findProduktForItem(it, customer, products);
+      const paletEffective = it.palet || computePaletFromKarton(it.karton, it.artikel, customer, products) || "";
+      return { ...it, produkt, paletEffective };
+    });
+  const sumPaliet = items.reduce((s, it) => s + (parseFloat(it.paletEffective) || 0), 0);
   const totalPaliet = sumPaliet > 0 ? sumPaliet : (order.pocetPaliet || 0);
   return (
     <div id={id} className="print-only-content">
@@ -3526,7 +3564,7 @@ function LieferscheinPrintTable({ id, company, customer, order, carrierName, tra
           <tbody>
             {items.map((it, i) => (
               <tr key={i} style={{ borderBottom: "1px solid #eee", verticalAlign: "top" }}>
-                <td style={{ padding: "3px" }}>{it.palet}</td>
+                <td style={{ padding: "3px" }}>{it.paletEffective}</td>
                 <td style={{ padding: "3px" }}>{it.karton}</td>
                 <td style={{ padding: "3px" }}>
                   <div>{it.popis}</div>
@@ -3538,7 +3576,7 @@ function LieferscheinPrintTable({ id, company, customer, order, carrierName, tra
                   )}
                   {it.produkt?.rspo && <div style={{ fontSize: "9px", color: "#555" }}>{RSPO_CERT_CODE}</div>}
                 </td>
-                <td style={{ padding: "3px" }}></td>
+                <td style={{ padding: "3px" }}>{computeKusyFromKarton(it.karton, it.produkt)}</td>
                 <td style={{ padding: "3px" }}>{it.artikel}</td>
               </tr>
             ))}
@@ -3572,15 +3610,19 @@ function LieferscheinPrintTable({ id, company, customer, order, carrierName, tra
 }
 function buildLieferscheinHtml({ company, customer, order, carrierName, transportPrice, products }) {
   const items = ((order.polozky && order.polozky.length > 0) ? order.polozky : [{ popis: order.popisTovaru || "", artikel: "", palet: order.pocetPaliet || "", karton: order.pocetKartonov || "" }])
-    .map((it) => ({ ...it, produkt: findProduktForItem(it, customer, products) }));
-  const sumPaliet = items.reduce((s, it) => s + (parseFloat(it.palet) || 0), 0);
+    .map((it) => {
+      const produkt = findProduktForItem(it, customer, products);
+      const paletEffective = it.palet || computePaletFromKarton(it.karton, it.artikel, customer, products) || "";
+      return { ...it, produkt, paletEffective };
+    });
+  const sumPaliet = items.reduce((s, it) => s + (parseFloat(it.paletEffective) || 0), 0);
   const totalPaliet = sumPaliet > 0 ? sumPaliet : (order.pocetPaliet || 0);
   const itemRows = items.map((it) => {
     const p = it.produkt;
     const eanLine = p ? [p.eanKarton && `EAN karton: ${p.eanKarton}`, p.eanUnit && `EAN kus: ${p.eanUnit}`].filter(Boolean).join("   ") : "";
     return `
     <tr style="border-bottom:1px solid #eee;vertical-align:top;">
-      <td style="padding:3px;">${it.palet || ""}</td>
+      <td style="padding:3px;">${it.paletEffective || ""}</td>
       <td style="padding:3px;">${it.karton || ""}</td>
       <td style="padding:3px;">
         <div>${it.popis || ""}</div>
@@ -3588,7 +3630,7 @@ function buildLieferscheinHtml({ company, customer, order, carrierName, transpor
         ${eanLine ? `<div style="font-size:9px;color:#555;">${eanLine}</div>` : ""}
         ${p && p.rspo ? `<div style="font-size:9px;color:#555;">${RSPO_CERT_CODE}</div>` : ""}
       </td>
-      <td style="padding:3px;"></td>
+      <td style="padding:3px;">${computeKusyFromKarton(it.karton, p) ?? ""}</td>
       <td style="padding:3px;">${it.artikel || ""}</td>
     </tr>`;
   }).join("");

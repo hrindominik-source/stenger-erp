@@ -33,6 +33,25 @@ function findProduktForItem(it, customer, products) {
   return (products || []).find((p) => p.cisloArtiklu === it.artikel || p.cisloArtikluSW === it.artikel) || null;
 }
 
+// Automaticky navrhne pocet paliet z poctu kartonov + "Kartonů na paletě" u
+// prepojeneho Produktu (zaokruhlene nahor).
+function computePaletFromKarton(karton, artikel, customer, products) {
+  const k = parseFloat(String(karton || "").replace(",", "."));
+  if (!k || k <= 0) return "";
+  const produkt = findProduktForItem({ artikel }, customer, products);
+  const perPallet = produkt && parseFloat(produkt.kartonovNaPalete);
+  if (!perPallet) return "";
+  return String(Math.ceil(k / perPallet));
+}
+
+// Pocet kusov (STK) = pocet kartonov * "Ks v kartonu" u prepojeneho Produktu.
+function computeKusyFromKarton(karton, produkt) {
+  const k = parseFloat(String(karton || "").replace(",", "."));
+  const perKarton = produkt && parseFloat(produkt.ksVKartone);
+  if (!k || !perKarton) return null;
+  return Math.round(k * perKarton);
+}
+
 export async function buildLieferscheinXlsx({ order, company, customer, carrierName, transportPrice, products, mesto }) {
   const ExcelJSModule = await import("exceljs");
   const ExcelJS = ExcelJSModule.default || ExcelJSModule;
@@ -128,12 +147,16 @@ export async function buildLieferscheinXlsx({ order, company, customer, carrierN
   // polozky - 4 riadky na kazdu (nazov, inhlt, EAN, RSPO)
   const items = ((order.polozky && order.polozky.length > 0) ? order.polozky : [{ popis: order.popisTovaru || "", artikel: "", palet: order.pocetPaliet || "", karton: order.pocetKartonov || "" }])
     .slice(0, MAX_ITEMS)
-    .map((it) => ({ ...it, produkt: findProduktForItem(it, customer, products) }));
+    .map((it) => {
+      const produkt = findProduktForItem(it, customer, products);
+      const paletEffective = it.palet || computePaletFromKarton(it.karton, it.artikel, customer, products) || "";
+      return { ...it, produkt, paletEffective };
+    });
 
   items.forEach((it, i) => {
     const r0 = ITEMS_START_ROW + i * 4;
     const r3 = r0 + 3;
-    set(`A${r0}`, it.palet, { bold: true });
+    set(`A${r0}`, it.paletEffective, { bold: true });
     merge(`A${r0}`, `A${r3}`);
     set(`B${r0}`, it.karton, { bold: true });
     merge(`B${r0}`, `B${r3}`);
@@ -142,6 +165,7 @@ export async function buildLieferscheinXlsx({ order, company, customer, carrierN
     const eanLine = it.produkt ? [it.produkt.eanKarton && `EAN karton: ${it.produkt.eanKarton}`, it.produkt.eanUnit && `EAN kus: ${it.produkt.eanUnit}`].filter(Boolean).join("   ") : "";
     if (eanLine) set(`C${r0 + 2}`, eanLine, { size: 9 });
     if (it.produkt && it.produkt.rspo) set(`C${r0 + 3}`, "BVC-RSPO-CZ009581");
+    set(`G${r0}`, computeKusyFromKarton(it.karton, it.produkt), { bold: true });
     merge(`G${r0}`, `G${r3}`);
     set(`H${r0}`, it.artikel, { bold: true });
     merge(`H${r0}`, `I${r3}`);
@@ -157,7 +181,7 @@ export async function buildLieferscheinXlsx({ order, company, customer, carrierN
   borderRect(col("A"), 2, col("I"), lastRow, { left: true, right: true });
 
   const summaryRow = lastRow + 2;
-  const sumPaliet = items.reduce((s, it) => s + (parseFloat(it.palet) || 0), 0);
+  const sumPaliet = items.reduce((s, it) => s + (parseFloat(it.paletEffective) || 0), 0);
   const totalPaliet = sumPaliet > 0 ? sumPaliet : (order.pocetPaliet || 0);
   set(`A${summaryRow}`, order.pocetPaletovychMiest || 0, { bold: true, size: 12 });
   set(`B${summaryRow}`, "Doppelstockpal. =", { bold: true, size: 12 });
