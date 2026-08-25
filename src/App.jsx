@@ -620,7 +620,7 @@ function OfficeApp({ userFullName, userEmail, onSignOut }) {
   const [customers, setCustomers] = useState([]);
   const [company, setCompany] = useState({
     nazov: "", adresa: "", ico: "", dic: "", tel: "", kontaktnaOsoba: "", email: "", apiKey: "",
-    posledneCisloDopravy: 60400, posledneCisloDodaciehoListu: 60400,
+    posledneCisloDopravy: 60400, posledneCisloDodaciehoListu: 60400, posledneCisloObjednavky: 0,
     nveEmaily: [], nveEmailyExport: [],
   });
   const [pricelist, setPricelist] = useState(null);
@@ -739,6 +739,7 @@ function OfficeApp({ userFullName, userEmail, onSignOut }) {
               ...companyRes.data.data,
               posledneCisloDopravy: companyRes.data.posledne_cislo_dopravy,
               posledneCisloDodaciehoListu: companyRes.data.posledne_cislo_dodacieho_listu,
+              posledneCisloObjednavky: companyRes.data.posledne_cislo_objednavky,
               posledneCisloObjednavkyMaterial: companyRes.data.posledne_cislo_objednavky_material,
             }));
           }
@@ -859,7 +860,7 @@ function OfficeApp({ userFullName, userEmail, onSignOut }) {
   }
   async function persistCompany(next) {
     setCompany(next);
-    const { posledneCisloDopravy, posledneCisloDodaciehoListu, ...rest } = next;
+    const { posledneCisloDopravy, posledneCisloDodaciehoListu, posledneCisloObjednavky, ...rest } = next;
     try {
       const { error } = await supabase
         .from("company")
@@ -867,6 +868,7 @@ function OfficeApp({ userFullName, userEmail, onSignOut }) {
           data: rest,
           posledne_cislo_dopravy: posledneCisloDopravy,
           posledne_cislo_dodacieho_listu: posledneCisloDodaciehoListu,
+          posledne_cislo_objednavky: posledneCisloObjednavky,
         })
         .eq("id", 1);
       if (error) throw error;
@@ -7896,6 +7898,7 @@ function CompanyView({ company, onSave }) {
             <CompanyInfoRow label="Kontaktní osoba" value={company.kontaktnaOsoba} />
             <CompanyInfoRow label="E-mail" value={company.email} />
             <CompanyInfoRow label="Anthropic API klíč" value={company.apiKey ? "•••• (nastaven)" : ""} />
+            <CompanyInfoRow label="Poslední použité číslo objednávky" value={company.posledneCisloObjednavky} />
             <CompanyInfoRow label="Poslední použité číslo objednávky dopravy" value={company.posledneCisloDopravy} />
             <CompanyInfoRow label="Poslední použité číslo dodacího listu" value={company.posledneCisloDodaciehoListu} />
           </dl>
@@ -7949,6 +7952,7 @@ function CompanyView({ company, onSave }) {
           onChange={(list) => setF({ ...f, nveEmailyExport: list })}
           caption="NVE list - přednastavené e-maily pro export mimo Německo - při více adresách najednou je oddělte čárkou"
         />
+        <Field label="Poslední použité číslo objednávky (bez tečky/data - jen pořadové číslo)" value={String(f.posledneCisloObjednavky)} onChange={(v) => setF({ ...f, posledneCisloObjednavky: parseInt(v) || 0 })} />
         <div className="grid grid-cols-2 gap-x-3">
           <Field label="Poslední použité číslo objednávky dopravy" value={String(f.posledneCisloDopravy)} onChange={(v) => setF({ ...f, posledneCisloDopravy: parseInt(v) || 0 })} />
           <Field label="Poslední použité číslo dodacího listu" value={String(f.posledneCisloDodaciehoListu)} onChange={(v) => setF({ ...f, posledneCisloDodaciehoListu: parseInt(v) || 0 })} />
