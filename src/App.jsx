@@ -2759,7 +2759,10 @@ function RegisterView({ orders, carriers, customers, expedicniaZaznamy, products
                   <tr key={o.id} onClick={() => onEdit(o)} className={"border-t-2 border-slate-300 hover:brightness-95 cursor-pointer " + rowTint}>
                     <td className="px-3 py-2 font-medium whitespace-nowrap">{o.cisloObjednavky}</td>
                     <td className="px-3 py-2">
-                      <div className="font-medium">{o.adresaDodaniaNazov || <span className="text-slate-400 font-normal">-</span>}</div>
+                      <div className="font-medium">
+                        {extractCityFromAddress(o.adresaDodania) && <span>{extractCityFromAddress(o.adresaDodania)}{o.adresaDodaniaNazov ? " - " : ""}</span>}
+                        {o.adresaDodaniaNazov || (!extractCityFromAddress(o.adresaDodania) && <span className="text-slate-400 font-normal">-</span>)}
+                      </div>
                       <div className="text-xs text-slate-400">{o.zakaznik}{o.zakaznik && o.adresaDodania ? " - " : ""}{o.adresaDodania}</div>
                     </td>
                     <td className="px-3 py-2 whitespace-nowrap">
