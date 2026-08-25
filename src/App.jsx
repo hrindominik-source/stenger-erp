@@ -3649,10 +3649,11 @@ function DeliveryModal({ order, customers, carriers, company, pricelist, product
   }
   function handleDownload() {
     const html = buildLieferscheinHtml({ company, customer, order, carrierName: carrier ? carrier.nazov : "", transportPrice, products });
-    downloadHtml(`Lieferschein_${order.cisloDodaciehoListu.replace("/", "-")}.html`, html);
+    const mestoSuffix = mesto ? `_${mesto.replace(/[^\p{L}\p{N}]+/gu, "_")}` : "";
+    downloadHtml(`Lieferschein_${order.cisloDodaciehoListu.replace("/", "-")}${mestoSuffix}.html`, html);
   }
   function handleDownloadXlsx() {
-    buildLieferscheinXlsx({ order, company, customer, carrierName: carrier ? carrier.nazov : "", transportPrice, products });
+    buildLieferscheinXlsx({ order, company, customer, carrierName: carrier ? carrier.nazov : "", transportPrice, products, mesto });
   }
 
   return (

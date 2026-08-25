@@ -20,7 +20,7 @@ function addressLines(text, max) {
   return [...lines.slice(0, max - 1), lines.slice(max - 1).join(", ")];
 }
 
-export async function buildLieferscheinXlsx({ order, company, customer, carrierName, transportPrice, products }) {
+export async function buildLieferscheinXlsx({ order, company, customer, carrierName, transportPrice, products, mesto }) {
   const ExcelJSModule = await import("exceljs");
   const ExcelJS = ExcelJSModule.default || ExcelJSModule;
   const wb = new ExcelJS.Workbook();
@@ -175,7 +175,8 @@ export async function buildLieferscheinXlsx({ order, company, customer, carrierN
   borderRect(col("A"), footerRow, col("C"), footerRow + 5, { top: true, bottom: true, left: true, right: true });
   borderRect(col("G"), footerRow, col("I"), footerRow + 5, { top: true, bottom: true, left: true, right: true });
 
-  const fname = `Lieferschein_${String(order.cisloDodaciehoListu || order.id).replace(/\//g, "-")}.xlsx`;
+  const mestoSuffix = mesto ? `_${mesto.replace(/[^\p{L}\p{N}]+/gu, "_")}` : "";
+  const fname = `Lieferschein_${String(order.cisloDodaciehoListu || order.id).replace(/\//g, "-")}${mestoSuffix}.xlsx`;
   const buf = await wb.xlsx.writeBuffer();
   const blob = new Blob([buf], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" });
   const url = URL.createObjectURL(blob);
