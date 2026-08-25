@@ -3312,6 +3312,20 @@ function EditOrderPage({ order, customers, onClose, onSave }) {
 
 /* ---------------- Transport order (email) ---------------- */
 
+// Vseobecny email (napr. dopravcu/dodavatela) sa pri odosielani objednavky
+// NEMA automaticky predvyplnat spolu s ucelovymi emaily - je len jednou z volieb,
+// co si user musi vybrat kliknutim (spolu s ucelovymi v EmailQuickPicks).
+function defaultEmailFor(entity) {
+  if (!entity) return "";
+  if (entity.emaily && entity.emaily.length > 0) return "";
+  return entity.email || "";
+}
+function generalPlusPurposeEmails(entity) {
+  const purpose = (entity && entity.emaily) || [];
+  if (!entity || !entity.email) return purpose;
+  return [{ label: "Obecný", email: entity.email }, ...purpose];
+}
+
 function EmailQuickPicks({ emaily, value, onPick }) {
   if (!emaily || emaily.length === 0) return null;
   function add(email) {
@@ -3336,13 +3350,13 @@ function TransportModal({ order, carriers, company, onClose, onSent, onUpdateCar
   const last = order.dopravaOdoslanaInfo;
   const [carrierId, setCarrierId] = useState(order.dopravcaId || (carriers[0] ? carriers[0].id : ""));
   const carrier = carriers.find((c) => c.id === carrierId);
-  const [to, setTo] = useState(last ? last.to : (carrier ? carrier.email : ""));
+  const [to, setTo] = useState(last ? last.to : defaultEmailFor(carrier));
   const [manageEmails, setManageEmails] = useState(false);
   function pickCarrier(id) {
     const c = carriers.find((x) => x.id === id);
     setCarrierId(id);
     if (!last) {
-      setTo(c ? c.email : "");
+      setTo(defaultEmailFor(c));
       const oldName = carrier ? carrier.nazov : "[dopravce]";
       const newName = c ? c.nazov : "[dopravce]";
       setBody((prev) => prev.replace(`PRO: ${oldName}`, `PRO: ${newName}`));
@@ -3376,7 +3390,7 @@ function TransportModal({ order, carriers, company, onClose, onSent, onUpdateCar
       {last && <div className="mb-3 bg-emerald-50 text-emerald-800 text-xs px-3 py-2 rounded-md flex items-center gap-2"><CheckCircle2 size={14} /> Naposledy odesláno {formatDateTime(last.datum)} na {last.to}</div>}
       <SelectField label="Dopravce" value={carrierId} onChange={pickCarrier} options={carriers.map((c) => ({ value: c.id, label: `${c.nazov} (${c.email})` }))} />
       <div className="mb-2">
-        <EmailQuickPicks emaily={carrier ? carrier.emaily : []} value={to} onPick={setTo} />
+        <EmailQuickPicks emaily={generalPlusPurposeEmails(carrier)} value={to} onPick={setTo} />
         {carrier && (
           <button type="button" onClick={() => setManageEmails((v) => !v)} className="text-xs text-teal-700 hover:underline">
             {manageEmails ? "Skrýt správu e-mailů dopravce" : "Spravovat e-maily dopravce"}
@@ -3816,7 +3830,9 @@ function NveListModal({ order, company, onClose, onSave, onSent }) {
   }
 
   function applyDodakToSubject() {
-    onSave({ nemeckyDodakCislo: dodak.trim() });
+    const trimmed = dodak.trim();
+    onSave({ nemeckyDodakCislo: trimmed });
+    setBody((prev) => prev.replace(`Delivery note: ${dodakRef}`, `Delivery note: ${trimmed || order.cisloObjednavkyDopravy}`));
   }
 
   const jeNemecko = isGermanDelivery(order);
@@ -5841,13 +5857,13 @@ function MaterialTransportModal({ order, carriers, suppliers, company, currentUs
   const carrier = carriers.find((c) => c.id === carrierId);
   const supplier = (suppliers || []).find((s) => s.id === order.dodavatelId);
   const materialTypStr = materialTypText(supplier ? supplier.typ : null, MATERIAL_ORDER_EMAIL_I18N.sk);
-  const [to, setTo] = useState(last ? last.to : (carrier ? carrier.email : ""));
+  const [to, setTo] = useState(last ? last.to : defaultEmailFor(carrier));
   const [manageEmails, setManageEmails] = useState(false);
   function pickCarrier(id) {
     const c = carriers.find((x) => x.id === id);
     setCarrierId(id);
     if (!last) {
-      setTo(c ? c.email : "");
+      setTo(defaultEmailFor(c));
       const oldGreeting = `Dobrý den${carrier ? " " + carrier.nazov : ""},`;
       const newGreeting = `Dobrý den${c ? " " + c.nazov : ""},`;
       setBody((prev) => prev.replace(oldGreeting, newGreeting));
@@ -5874,7 +5890,7 @@ function MaterialTransportModal({ order, carriers, suppliers, company, currentUs
       {last && <div className="mb-3 bg-emerald-50 text-emerald-800 text-xs px-3 py-2 rounded-md flex items-center gap-2"><CheckCircle2 size={14} /> Naposledy odesláno {formatDateTime(last.datum)} na {last.to}</div>}
       <SelectField label="Dopravce" value={carrierId} onChange={pickCarrier} options={carriers.map((c) => ({ value: c.id, label: `${c.nazov} (${c.email})` }))} />
       <div className="mb-2">
-        <EmailQuickPicks emaily={carrier ? carrier.emaily : []} value={to} onPick={setTo} />
+        <EmailQuickPicks emaily={generalPlusPurposeEmails(carrier)} value={to} onPick={setTo} />
         {carrier && (
           <button type="button" onClick={() => setManageEmails((v) => !v)} className="text-xs text-teal-700 hover:underline">
             {manageEmails ? "Skrýt správu e-mailů dopravce" : "Spravovat e-maily dopravce"}
@@ -5905,7 +5921,7 @@ function MaterialSupplierOrderModal({ order, suppliers, company, currentUserName
   const dodavatelNazov = order.dodavatel || (supplier ? supplier.nazov : "");
   const lang = MATERIAL_ORDER_EMAIL_I18N[(supplier && supplier.jazyk) || "sk"] || MATERIAL_ORDER_EMAIL_I18N.sk;
   const materialTypStr = materialTypText(supplier ? supplier.typ : null, lang);
-  const [to, setTo] = useState(last ? last.to : (supplier ? supplier.email : ""));
+  const [to, setTo] = useState(last ? last.to : defaultEmailFor(supplier));
   const [subject, setSubject] = useState(last ? last.subject : lang.subject(materialTypStr, order.cisloObjednavkyDopravy));
   const terminText = order.terminDodaniaNeurcity ? lang.terminUpresneny : (order.terminDodania || lang.doplnte);
   const [body, setBody] = useState(
@@ -5932,7 +5948,7 @@ function MaterialSupplierOrderModal({ order, suppliers, company, currentUserName
           <AlertCircle size={14} /> Dodavatel ma nastaveny jazyk komunikacie: {(MATERIAL_JAZYK_OPTIONS.find((o) => o.value === supplier.jazyk) || {}).label}. Text nizsie je predvyplneny v tomto jazyku.
         </div>
       )}
-      <EmailQuickPicks emaily={supplier ? supplier.emaily : []} value={to} onPick={setTo} />
+      <EmailQuickPicks emaily={generalPlusPurposeEmails(supplier)} value={to} onPick={setTo} />
       <Field label="E-mail (komu)" value={to} onChange={setTo} type="email" />
       <Field label="Předmět" value={subject} onChange={setSubject} />
       <Field label="Text zprávy" value={body} onChange={setBody} textarea rows={18} />
