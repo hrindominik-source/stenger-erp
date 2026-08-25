@@ -6,7 +6,7 @@ import {
   ClipboardList, ArrowLeft, Download, Layers, FileSignature, Printer, Package,
   LogOut, PackageCheck, PackageX, Euro, Factory, Boxes, PackagePlus, Camera,
   LayoutDashboard, Warehouse, MinusCircle, FlaskConical, ClipboardCheck, UserCheck, Menu, Mail, Calendar, FileSpreadsheet, Receipt,
-  Recycle, Calculator, Image, Construction, BookOpen, ListChecks, CalendarClock, Coffee, ChevronDown, ChevronUp, BarChart3, Settings, KeyRound, History, ShieldCheck
+  Recycle, Calculator, Image, Construction, BookOpen, ListChecks, CalendarClock, Coffee, ChevronDown, ChevronUp, BarChart3, Settings, KeyRound, History, ShieldCheck, Stamp
 } from "lucide-react";
 import { supabase } from "./supabaseClient.js";
 import { useAuth } from "./lib/auth.js";
@@ -654,6 +654,7 @@ function OfficeApp({ userFullName, userEmail, onSignOut }) {
   const [palletOrder, setPalletOrder] = useState(null);
   const [cmrOrder, setCmrOrder] = useState(null);
   const [nveOrder, setNveOrder] = useState(null);
+  const [lsGermanyOrder, setLsGermanyOrder] = useState(null);
   const [editingOrder, setEditingOrder] = useState(null);
   const [editingCarrier, setEditingCarrier] = useState(null);
   const [editingCustomer, setEditingCustomer] = useState(null);
@@ -1729,6 +1730,7 @@ function OfficeApp({ userFullName, userEmail, onSignOut }) {
             onOpenPallet={(o) => setPalletOrder(o)}
             onOpenCmr={(o) => setCmrOrder(o)}
             onOpenNve={(o) => setNveOrder(o)}
+            onOpenLsGermany={(o) => setLsGermanyOrder(o)}
             onEdit={(o) => setEditingOrder(o)}
             onDelete={deleteOrder}
             onExport={exportToExcel}
@@ -2175,6 +2177,17 @@ function OfficeApp({ userFullName, userEmail, onSignOut }) {
             updateOrder(nveOrder.id, { nveOdoslanaInfo: info });
             setNveOrder(null);
             setToast("E-mail s NVE listem připraven (" + info.to + ").");
+          }}
+        />
+      )}
+      {lsGermanyOrder && (
+        <LsGermanyModal
+          order={lsGermanyOrder}
+          onClose={() => setLsGermanyOrder(null)}
+          onSave={async (patch) => {
+            await updateOrder(lsGermanyOrder.id, patch);
+            setLsGermanyOrder(null);
+            setToast("Číslo LS Germany uloženo.");
           }}
         />
       )}
@@ -2637,7 +2650,7 @@ function TabButton({ icon, label, active, onClick }) {
 
 /* ---------------- Register ---------------- */
 
-function RegisterView({ orders, carriers, customers, expedicniaZaznamy, products, onUpdateExpedicia, onDeleteExpedicia, onNew, onOpenTransport, onOpenDelivery, onOpenPallet, onOpenCmr, onOpenNve, onEdit, onDelete, onExport, onToggleExpedicia }) {
+function RegisterView({ orders, carriers, customers, expedicniaZaznamy, products, onUpdateExpedicia, onDeleteExpedicia, onNew, onOpenTransport, onOpenDelivery, onOpenPallet, onOpenCmr, onOpenNve, onOpenLsGermany, onEdit, onDelete, onExport, onToggleExpedicia }) {
   const [confirmDelete, setConfirmDelete] = useState(null);
   const [detailOrder, setDetailOrder] = useState(null);
 
@@ -2791,6 +2804,9 @@ function RegisterView({ orders, carriers, customers, expedicniaZaznamy, products
                         </IconButton>
                         <IconButton title={o.nveOdoslanaInfo ? "NVE list odeslán " + formatDateTime(o.nveOdoslanaInfo.datum) : o.nveListPath ? "NVE list nahrán - připravit e-mail" : "NVE list"} sent={!!o.nveOdoslanaInfo} onClick={() => onOpenNve(o)}>
                           <FileSpreadsheet size={16} />
+                        </IconButton>
+                        <IconButton title={o.nemeckyDodakCislo ? "LS Germany: " + o.nemeckyDodakCislo : "LS Germany - zadejte číslo německého dodacího listu"} sent={!!o.nemeckyDodakCislo} onClick={() => onOpenLsGermany(o)}>
+                          <Stamp size={16} />
                         </IconButton>
                         {(orderBatches.length > 0 || orderDoprava) && (
                           <IconButton title={"Detail expedice (" + orderBatches.length + " šarží) - oprava chybně zapsaných údajů"} onClick={() => setDetailOrder(o)}>
@@ -3888,6 +3904,22 @@ function NveListModal({ order, company, onClose, onSave, onSent }) {
         >
           <Mail size={16} /> Otevřít e-mail
         </a>
+      </div>
+    </ModalShell>
+  );
+}
+
+/* ---------------- LS Germany (nemecky dodaci list - cislo pre CMR) ---------------- */
+
+function LsGermanyModal({ order, onClose, onSave }) {
+  const [value, setValue] = useState(order.nemeckyDodakCislo || "");
+  return (
+    <ModalShell title={"LS Germany - " + order.cisloObjednavkyDopravy} onClose={onClose}>
+      <p className="text-xs text-slate-400 mb-3">Číslo německého dodacího listu (Lieferschein DE od kolegů, např. Stenger Waffeln) - použije se v CMR.</p>
+      <Field label="Číslo LS Germany" value={value} onChange={setValue} />
+      <div className="flex justify-end gap-2 mt-2">
+        <button onClick={onClose} className="text-sm text-slate-500 px-3 py-2">Zrušit</button>
+        <button onClick={() => onSave({ nemeckyDodakCislo: value.trim() })} className="bg-teal-700 hover:bg-teal-800 text-white text-sm font-medium px-4 py-2 rounded-md">Uložit</button>
       </div>
     </ModalShell>
   );
