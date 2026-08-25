@@ -1595,7 +1595,7 @@ function OfficeApp({ userFullName, userEmail, onSignOut }) {
     const { doprava_num: dopravaNum, dodak_num: dodakNum, objednavka_num: objednavkaNum } = numData[0];
     const order = {
       id: uid(),
-      cisloObjednavky: `${String(objednavkaNum).padStart(4, "0")}/${new Date().getFullYear()}`,
+      cisloObjednavky: `OBJ-${new Date().getFullYear()}-${String(objednavkaNum).padStart(4, "0")}`,
       cisloObjednavkyZakaznika: fields.cisloObjednavkyZakaznika || "",
       datumPrijatia: fields.datumPrijatia || todayStr(),
       zakaznikId: fields.zakaznikId || "",
