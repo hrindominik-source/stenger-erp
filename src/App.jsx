@@ -3319,13 +3319,17 @@ function EditOrderPage({ order, customers, onClose, onSave }) {
 
 /* ---------------- Transport order (email) ---------------- */
 
-// Vseobecny email (napr. dopravcu/dodavatela) sa pri odosielani objednavky
-// NEMA automaticky predvyplnat spolu s ucelovymi emaily - je len jednou z volieb,
-// co si user musi vybrat kliknutim (spolu s ucelovymi v EmailQuickPicks).
+// Predvyplnene "Komu" pri vybere dopravcu/dodavatela - vsetky ucelove emaily
+// (emaily[]) + obecny email, bez duplicit. Uzivatel ich pak moze jednotlivo
+// odobrat/pridat spat cez tlacidla v EmailQuickPicks (toggle).
 function defaultEmailFor(entity) {
   if (!entity) return "";
-  if (entity.emaily && entity.emaily.length > 0) return "";
-  return entity.email || "";
+  const all = [];
+  if (entity.email) all.push(entity.email);
+  (entity.emaily || []).forEach((e) => {
+    (e.email || "").split(",").map((s) => s.trim()).filter(Boolean).forEach((addr) => all.push(addr));
+  });
+  return [...new Set(all)].join(", ");
 }
 function generalPlusPurposeEmails(entity) {
   const purpose = (entity && entity.emaily) || [];
@@ -3335,20 +3339,31 @@ function generalPlusPurposeEmails(entity) {
 
 function EmailQuickPicks({ emaily, value, onPick }) {
   if (!emaily || emaily.length === 0) return null;
-  function add(email) {
-    const current = (value || "").split(",").map((s) => s.trim()).filter(Boolean);
-    const toAdd = email.split(",").map((s) => s.trim()).filter(Boolean);
-    const merged = current.slice();
-    toAdd.forEach((e) => { if (!merged.includes(e)) merged.push(e); });
-    onPick(merged.join(", "));
+  const current = (value || "").split(",").map((s) => s.trim()).filter(Boolean);
+  function toggle(email) {
+    const parts = email.split(",").map((s) => s.trim()).filter(Boolean);
+    const allSelected = parts.length > 0 && parts.every((p) => current.includes(p));
+    const next = allSelected ? current.filter((c) => !parts.includes(c)) : current.slice();
+    if (!allSelected) parts.forEach((p) => { if (!next.includes(p)) next.push(p); });
+    onPick(next.join(", "));
   }
   return (
     <div className="mb-2 flex flex-wrap gap-1.5">
-      {emaily.map((e, i) => (
-        <button key={i} type="button" onClick={() => add(e.email)} title="Přidat do pole Komu (nenahradí stávající adresy)" className="text-xs bg-slate-100 hover:bg-slate-200 text-slate-700 px-2 py-1 rounded-md">
-          + {e.label}: {e.email}
-        </button>
-      ))}
+      {emaily.map((e, i) => {
+        const parts = (e.email || "").split(",").map((s) => s.trim()).filter(Boolean);
+        const selected = parts.length > 0 && parts.every((p) => current.includes(p));
+        return (
+          <button
+            key={i}
+            type="button"
+            onClick={() => toggle(e.email)}
+            title={selected ? "Odebrat z pole Komu" : "Přidat do pole Komu"}
+            className={"text-xs px-2 py-1 rounded-md font-medium " + (selected ? "bg-teal-600 text-white hover:bg-teal-700" : "bg-slate-100 hover:bg-slate-200 text-slate-700")}
+          >
+            {selected ? "✓" : "+"} {e.label}: {e.email}
+          </button>
+        );
+      })}
     </div>
   );
 }
@@ -3369,7 +3384,8 @@ function TransportModal({ order, carriers, company, onClose, onSent, onUpdateCar
       setBody((prev) => prev.replace(`PRO: ${oldName}`, `PRO: ${newName}`));
     }
   }
-  const [subject, setSubject] = useState(last ? last.subject : `Objednávka přepravy č. ${order.cisloObjednavkyDopravy}`);
+  const mesto = extractCityFromAddress(order.adresaDodania) || order.adresaDodaniaNazov || "";
+  const [subject, setSubject] = useState(last ? last.subject : `Objednávka přepravy č. ${order.cisloObjednavkyDopravy}${mesto ? " - " + mesto : ""}`);
   const [body, setBody] = useState(
     last ? last.body :
     `${company.nazov || "[Název společnosti]"}\n` +
@@ -3387,8 +3403,6 @@ function TransportModal({ order, carriers, company, onClose, onSent, onUpdateCar
     `Datum nakládky: ${nakladkaDateFromDodanie(order.datumDodania)}\n\n` +
     `VYKLÁDKA: ${order.datumDodania || "[doplňte]"}${order.casDodania ? " čas: " + order.casDodania : ""}\n` +
     `${order.adresaDodaniaNazov || ""}\n${order.adresaDodania || ""}\n\n` +
-    `Poznámka: ${order.poznamka || ""}\n\n` +
-    `Cena: - EUR\n\n` +
     `${company.kontaktnaOsoba || ""}\n${company.nazov || ""}\n${company.email || ""}\n${company.tel || ""}`
   );
 
