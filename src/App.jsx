@@ -3320,12 +3320,12 @@ function EditOrderPage({ order, customers, onClose, onSave }) {
 /* ---------------- Transport order (email) ---------------- */
 
 // Predvyplnene "Komu" pri vybere dopravcu/dodavatela - vsetky ucelove emaily
-// (emaily[]) + obecny email, bez duplicit. Uzivatel ich pak moze jednotlivo
-// odobrat/pridat spat cez tlacidla v EmailQuickPicks (toggle).
+// (emaily[]), bez duplicit. Obecny email sa NIKDY nepredvypna automaticky -
+// je dostupny len ako samostatne tlacidlo "Obecny" v EmailQuickPicks, ktore
+// si user musi vybrat rucne, ked ho naozaj potrebuje.
 function defaultEmailFor(entity) {
   if (!entity) return "";
   const all = [];
-  if (entity.email) all.push(entity.email);
   (entity.emaily || []).forEach((e) => {
     (e.email || "").split(",").map((s) => s.trim()).filter(Boolean).forEach((addr) => all.push(addr));
   });
