@@ -2739,7 +2739,7 @@ function RegisterView({ orders, carriers, customers, expedicniaZaznamy, products
             <thead>
               <tr className="bg-slate-100 text-slate-600 text-left">
                 <th className="px-3 py-2 font-medium whitespace-nowrap">Číslo objednávky</th>
-                <th className="px-3 py-2 font-medium">Zákazník / místo dodání</th>
+                <th className="px-3 py-2 font-medium">Místo dodání / zákazník</th>
                 <th className="px-3 py-2 font-medium whitespace-nowrap">Dodání</th>
                 <th className="px-3 py-2 font-medium">Doprava</th>
                 <th className="px-3 py-2 font-medium">Dodací list</th>
@@ -2759,8 +2759,8 @@ function RegisterView({ orders, carriers, customers, expedicniaZaznamy, products
                   <tr key={o.id} onClick={() => onEdit(o)} className={"border-t-2 border-slate-300 hover:brightness-95 cursor-pointer " + rowTint}>
                     <td className="px-3 py-2 font-medium whitespace-nowrap">{o.cisloObjednavky}</td>
                     <td className="px-3 py-2">
-                      <div>{o.zakaznik || <span className="text-slate-400">-</span>}</div>
-                      <div className="text-xs text-slate-400">{o.adresaDodaniaNazov}{o.adresaDodaniaNazov ? " - " : ""}{o.adresaDodania}</div>
+                      <div className="font-medium">{o.adresaDodaniaNazov || <span className="text-slate-400 font-normal">-</span>}</div>
+                      <div className="text-xs text-slate-400">{o.zakaznik}{o.zakaznik && o.adresaDodania ? " - " : ""}{o.adresaDodania}</div>
                     </td>
                     <td className="px-3 py-2 whitespace-nowrap">
                       {o.datumDodania || <span className="text-slate-400">-</span>}
