@@ -2760,7 +2760,7 @@ function RegisterView({ orders, carriers, customers, expedicniaZaznamy, products
                 const orderBatches = batchZaznamy.filter((z) => z.orderId === o.id);
                 const orderDoprava = dopravaByOrder.get(o.id) || null;
                 const rowText = ((o.adresaDodaniaNazov || "") + " " + (o.adresaDodania || "")).toLowerCase();
-                const rowTint = rowText.includes("netto") ? "bg-blue-100" : (rowText.includes("ehg") || rowText.includes("edeka")) ? "bg-red-50" : "";
+                const rowTint = rowText.includes("netto") ? "bg-blue-100" : (rowText.includes("ehg") || rowText.includes("edeka")) ? "bg-red-100" : "";
                 return (
                   <tr key={o.id} onClick={() => onEdit(o)} className={"border-t-2 border-slate-300 hover:brightness-95 cursor-pointer " + rowTint}>
                     <td className="px-3 py-2 font-medium whitespace-nowrap">{o.cisloObjednavky}</td>
