@@ -3632,7 +3632,8 @@ function DeliveryModal({ order, customers, carriers, company, pricelist, product
   const printId = "print-lieferschein-" + order.id;
   const defaultEmail = (customer && customer.email) ? customer.email : (order.zakaznikEmail || "");
   const [email, setEmail] = useState(last ? last.to : defaultEmail);
-  const [subject, setSubject] = useState(last ? last.subject : `Lieferschein / Dodací list č. ${order.cisloDodaciehoListu}`);
+  const mesto = extractCityFromAddress(order.adresaDodania) || order.adresaDodaniaNazov || "";
+  const [subject, setSubject] = useState(last ? last.subject : `Lieferschein / Dodací list č. ${order.cisloDodaciehoListu}${mesto ? " - " + mesto : ""}`);
   const transportPrice = computeTransportPrice(order, pricelist, extractCityFromAddress);
 
   const [body, setBody] = useState(
