@@ -2994,6 +2994,7 @@ function NewOrderPage({ onClose, onSave, defaultAdresaNakladky, customers, compa
   const [file, setFile] = useState(null);
   const [busy, setBusy] = useState(false);
   const [busyItems, setBusyItems] = useState(false);
+  const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
   const [extracted, setExtracted] = useState(null);
   const [sourceBlocks, setSourceBlocks] = useState(null);
@@ -3129,7 +3130,13 @@ function NewOrderPage({ onClose, onSave, defaultAdresaNakladky, customers, compa
 
         <div className="flex justify-between items-center mt-4 pb-2">
           <button onClick={() => setExtracted(null)} className="text-sm text-slate-500 flex items-center gap-1 hover:text-slate-800"><ArrowLeft size={14} /> Zpět</button>
-          <button onClick={() => onSave(extracted)} className="bg-teal-700 hover:bg-teal-800 text-white text-sm font-medium px-4 py-2 rounded-md flex items-center gap-1.5"><CheckCircle2 size={16} /> Uložit do registru</button>
+          <button
+            onClick={async () => { if (saving) return; setSaving(true); try { await onSave(extracted); } finally { setSaving(false); } }}
+            disabled={saving}
+            className="bg-teal-700 hover:bg-teal-800 disabled:opacity-50 disabled:cursor-not-allowed text-white text-sm font-medium px-4 py-2 rounded-md flex items-center gap-1.5"
+          >
+            {saving ? <Loader2 size={16} className="animate-spin" /> : <CheckCircle2 size={16} />} {saving ? "Ukládám..." : "Uložit do registru"}
+          </button>
         </div>
         </div>
         <div className="lg:w-1/2">
