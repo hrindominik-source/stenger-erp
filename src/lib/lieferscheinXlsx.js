@@ -20,6 +20,19 @@ function addressLines(text, max) {
   return [...lines.slice(0, max - 1), lines.slice(max - 1).join(", ")];
 }
 
+// Najde Produkt pre polozku objednavky - najprv skusi prepojenie cez katalog
+// zakaznika, a ak sa nenajde, priamo porovna polozka.artikel s cislom
+// artiklu na Produkte (nase SNC aj nemecke/Sage SW cislo).
+function findProduktForItem(it, customer, products) {
+  if (!it.artikel) return null;
+  const katalogItem = customer && customer.katalog ? customer.katalog.find((k) => k.artikel && k.artikel === it.artikel) : null;
+  if (katalogItem && katalogItem.produktId) {
+    const p = (products || []).find((p) => p.id === katalogItem.produktId);
+    if (p) return p;
+  }
+  return (products || []).find((p) => p.cisloArtiklu === it.artikel || p.cisloArtikluSW === it.artikel) || null;
+}
+
 export async function buildLieferscheinXlsx({ order, company, customer, carrierName, transportPrice, products, mesto }) {
   const ExcelJSModule = await import("exceljs");
   const ExcelJS = ExcelJSModule.default || ExcelJSModule;
@@ -115,11 +128,7 @@ export async function buildLieferscheinXlsx({ order, company, customer, carrierN
   // polozky - 4 riadky na kazdu (nazov, inhlt, EAN, RSPO)
   const items = ((order.polozky && order.polozky.length > 0) ? order.polozky : [{ popis: order.popisTovaru || "", artikel: "", palet: order.pocetPaliet || "", karton: order.pocetKartonov || "" }])
     .slice(0, MAX_ITEMS)
-    .map((it) => {
-      const katalogItem = customer && customer.katalog ? customer.katalog.find((k) => k.artikel && k.artikel === it.artikel) : null;
-      const produkt = katalogItem && katalogItem.produktId ? (products || []).find((p) => p.id === katalogItem.produktId) : null;
-      return { ...it, produkt };
-    });
+    .map((it) => ({ ...it, produkt: findProduktForItem(it, customer, products) }));
 
   items.forEach((it, i) => {
     const r0 = ITEMS_START_ROW + i * 4;

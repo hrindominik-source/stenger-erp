@@ -3441,16 +3441,27 @@ function TransportModal({ order, carriers, company, onClose, onSent, onUpdateCar
 
 /* ---------------- Dodaci list / Lieferschein (email) ---------------- */
 
+// Najde Produkt pre polozku objednavky - najprv skusi prepojenie cez katalog
+// zakaznika (katalogItem.produktId), a ak sa nenajde, priamo porovna
+// polozka.artikel s cislom artiklu na Produkte (nase SNC aj nemecke/Sage SW
+// cislo) - takze funguje aj ked polozka pride s nemeckym artiklom priamo
+// zapisanym z objednavky, bez potreby mat ho zvlast v katalogu zakaznika.
+function findProduktForItem(it, customer, products) {
+  if (!it.artikel) return null;
+  const katalogItem = customer && customer.katalog ? customer.katalog.find((k) => k.artikel && k.artikel === it.artikel) : null;
+  if (katalogItem && katalogItem.produktId) {
+    const p = (products || []).find((p) => p.id === katalogItem.produktId);
+    if (p) return p;
+  }
+  return (products || []).find((p) => p.cisloArtiklu === it.artikel || p.cisloArtikluSW === it.artikel) || null;
+}
+
 function LieferscheinPrintTable({ id, company, customer, order, carrierName, transportPrice, products }) {
   const row = { display: "flex", borderBottom: "1px solid #ddd", padding: "2px 0" };
   const left = { width: "50%", paddingRight: "8px" };
   const right = { width: "50%" };
   const items = ((order.polozky && order.polozky.length > 0) ? order.polozky : [{ popis: order.popisTovaru || "", artikel: "", palet: order.pocetPaliet || "", karton: order.pocetKartonov || "" }])
-    .map((it) => {
-      const katalogItem = customer && customer.katalog ? customer.katalog.find((k) => k.artikel && k.artikel === it.artikel) : null;
-      const produkt = katalogItem && katalogItem.produktId ? (products || []).find((p) => p.id === katalogItem.produktId) : null;
-      return { ...it, produkt };
-    });
+    .map((it) => ({ ...it, produkt: findProduktForItem(it, customer, products) }));
   const sumPaliet = items.reduce((s, it) => s + (parseFloat(it.palet) || 0), 0);
   const totalPaliet = sumPaliet > 0 ? sumPaliet : (order.pocetPaliet || 0);
   return (
@@ -3551,11 +3562,7 @@ function LieferscheinPrintTable({ id, company, customer, order, carrierName, tra
 }
 function buildLieferscheinHtml({ company, customer, order, carrierName, transportPrice, products }) {
   const items = ((order.polozky && order.polozky.length > 0) ? order.polozky : [{ popis: order.popisTovaru || "", artikel: "", palet: order.pocetPaliet || "", karton: order.pocetKartonov || "" }])
-    .map((it) => {
-      const katalogItem = customer && customer.katalog ? customer.katalog.find((k) => k.artikel && k.artikel === it.artikel) : null;
-      const produkt = katalogItem && katalogItem.produktId ? (products || []).find((p) => p.id === katalogItem.produktId) : null;
-      return { ...it, produkt };
-    });
+    .map((it) => ({ ...it, produkt: findProduktForItem(it, customer, products) }));
   const sumPaliet = items.reduce((s, it) => s + (parseFloat(it.palet) || 0), 0);
   const totalPaliet = sumPaliet > 0 ? sumPaliet : (order.pocetPaliet || 0);
   const itemRows = items.map((it) => {
