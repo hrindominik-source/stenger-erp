@@ -150,6 +150,37 @@ export function extraKnownMaterials(receipts, issues, presets) {
     .sort((a, b) => a.localeCompare(b));
 }
 
+function supplierMaterialName(t) {
+  return typeof t === "string" ? t : (t && t.popis) || "";
+}
+
+// Polozky z katalogu (Dodavatele -> tovary) konkretneho dodavatela - pouziva sa
+// namiesto celeho zoznamu materialov, aby vyber ponukal len to, co dany dodavatel
+// realne dodava. Ak dodavatel nema katalog vyplneny, vrati sa zjednoteny zoznam
+// vsetkych znamych materialov (fallback), aby vyber nezostal prazdny.
+export function materialPicksForSupplier(dodavatelId, suppliers, fallbackPresets) {
+  const supplier = (suppliers || []).find((s) => s.id === dodavatelId);
+  if (supplier && Array.isArray(supplier.tovary) && supplier.tovary.length) {
+    const names = supplier.tovary.map(supplierMaterialName).map((n) => n.trim()).filter(Boolean);
+    return Array.from(new Set(names)).sort((a, b) => a.localeCompare(b));
+  }
+  return allKnownMaterials(suppliers, fallbackPresets);
+}
+
+// Zjednoteny zoznam materialov zo vsetkych katalogov dodavatelov + zakladne presets -
+// jediny "spravny" zoznam nazvov pouzivany vsade (Prijem zbozi, Zasoby, Reklamace),
+// namiesto nekontrolovaneho dopisovania z historie zapisu (viz extraKnownMaterials vyssie).
+export function allKnownMaterials(suppliers, fallbackPresets) {
+  const set = new Set((fallbackPresets || []).map((p) => p.trim()).filter(Boolean));
+  (suppliers || []).forEach((s) => {
+    (s.tovary || []).forEach((t) => {
+      const name = supplierMaterialName(t).trim();
+      if (name) set.add(name);
+    });
+  });
+  return Array.from(set).sort((a, b) => a.localeCompare(b));
+}
+
 export function paletyEkvivalent(planRow, product) {
   const mnozstvo = parseFloat(String(planRow.mnozstvo).replace(",", ".")) || 0;
   if (planRow.mnozstvoJednotka === "kartonov") {

@@ -38,6 +38,16 @@ export function skDateStrFromIso(iso) {
   return m ? `${m[3]}.${m[2]}.${m[1]}` : "";
 }
 
+export function formatMinutes(mins) {
+  if (mins === null || mins === undefined || Number.isNaN(mins)) return "";
+  const total = Math.max(0, Math.round(mins));
+  const h = Math.floor(total / 60);
+  const m = total % 60;
+  if (h === 0) return `${m} min`;
+  if (m === 0) return `${h} h`;
+  return `${h} h ${m} min`;
+}
+
 export function durationMinutes(start, end) {
   if (!start || !end) return null;
   const [sh, sm] = start.split(":").map(Number);
@@ -46,6 +56,29 @@ export function durationMinutes(start, end) {
   let mins = eh * 60 + em - (sh * 60 + sm);
   if (mins < 0) mins += 24 * 60; // cez polnoc - okrajovy pripad
   return mins;
+}
+
+// Vypocita dalsi termin (format DD.MM.RRRR) z posledneho datumu a frekvencie -
+// pouziva sa pri checklistoch (dalsie vyplnenie) aj registri terminov/BOZP (dalsia revizia).
+export function computeNextDue(startDateStr, frekvenciaTyp, frekvenciaHodnota) {
+  const start = parseSkDate(startDateStr);
+  const n = Number(frekvenciaHodnota) || 0;
+  if (!start || !n) return "";
+  const next = new Date(start);
+  if (frekvenciaTyp === "dni") next.setDate(next.getDate() + n);
+  else if (frekvenciaTyp === "tyzdne") next.setDate(next.getDate() + n * 7);
+  else if (frekvenciaTyp === "mesiace") next.setMonth(next.getMonth() + n);
+  else if (frekvenciaTyp === "roky") next.setFullYear(next.getFullYear() + n);
+  else return "";
+  return `${String(next.getDate()).padStart(2, "0")}.${String(next.getMonth() + 1).padStart(2, "0")}.${next.getFullYear()}`;
+}
+
+// Pocet dni od dnes po zadany datum (zaporne cislo = uz po terminu).
+export function daysUntil(dateStr) {
+  const d = parseSkDate(dateStr);
+  const today = parseSkDate(todayStr());
+  if (!d || !today) return null;
+  return Math.round((d.getTime() - today.getTime()) / 86400000);
 }
 
 export function extractCityFromAddress(adresa) {

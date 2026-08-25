@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, useRef, Suspense, lazy } from "react";
+import React, { useState, useEffect, useCallback, useRef, useMemo, Suspense, lazy } from "react";
 import { createPortal } from "react-dom";
 import {
   Truck, FileText, Plus, Trash2, Pencil, X, Upload,
@@ -6,7 +6,7 @@ import {
   ClipboardList, ArrowLeft, Download, Layers, FileSignature, Printer, Package,
   LogOut, PackageCheck, PackageX, Euro, Factory, Boxes, PackagePlus, Camera,
   LayoutDashboard, Warehouse, MinusCircle, FlaskConical, ClipboardCheck, UserCheck, Menu, Mail, Calendar, FileSpreadsheet, Receipt,
-  Recycle, Calculator, Image, Construction, BookOpen, ListChecks, CalendarClock, Coffee, ChevronDown, ChevronUp
+  Recycle, Calculator, Image, Construction, BookOpen, ListChecks, CalendarClock, Coffee, ChevronDown, ChevronUp, BarChart3, Settings, KeyRound, History, ShieldCheck
 } from "lucide-react";
 import { supabase } from "./supabaseClient.js";
 import { useAuth } from "./lib/auth.js";
@@ -14,12 +14,16 @@ import Login from "./Login.jsx";
 const SkladView = lazy(() => import("./SkladView.jsx"));
 const VyrobaView = lazy(() => import("./VyrobaView.jsx"));
 const PlanSmienView = lazy(() => import("./PlanSmienView.jsx"));
-import { extractCityFromAddress, todayStr, uid, parseSkDate, isoFromSkDateStr, skDateStrFromIso, durationMinutes } from "./lib/utils.js";
+const KvalitaView = lazy(() => import("./KvalitaView.jsx"));
+import { extractCityFromAddress, todayStr, uid, parseSkDate, isoFromSkDateStr, skDateStrFromIso, durationMinutes, formatMinutes } from "./lib/utils.js";
 import { parsePricelistFile, computeTransportPrice, computeTransportPriceForCity, formatEur } from "./lib/pricelist.js";
+import { buildLieferscheinXlsx } from "./lib/lieferscheinXlsx.js";
 import { parseSupplierCatalogFile, mergeSupplierCatalog } from "./lib/supplierCatalog.js";
 import { exportRowsToExcel, exportSheetsToExcel } from "./lib/exportExcel.js";
-import { computeStockLevels, computeProductionIssues, extraKnownMaterials, suggestReceiptMatches, UNIT_QUICK_PICKS } from "./lib/inventory.js";
+import { computeStockLevels, computeProductionIssues, extraKnownMaterials, materialPicksForSupplier, allKnownMaterials, suggestReceiptMatches, UNIT_QUICK_PICKS } from "./lib/inventory.js";
+import { diffProductionPlanFields, isPlanZmenaActive, formatZmenaText } from "./lib/planZmena.js";
 import { getCnbRate } from "./lib/exchangeRate.js";
+import { summarizeMonth, computeDayHours, shiftInterval, clampShiftStart } from "./lib/dochadzka.js";
 
 const STATUS_ORDER = {
   "Prijata": "bg-slate-100 text-slate-700",
@@ -71,7 +75,8 @@ const EMPTY_CUSTOMER = { nazov: "", adresa: "", ico: "", dic: "", email: "", kat
 const EMPTY_CARRIER = { nazov: "", email: "", adresa: "", ico: "", dic: "", tel: "", web: "", emaily: [] };
 const EMPTY_SUPPLIER = { nazov: "", adresa: "", ico: "", dic: "", email: "", tel: "", typ: ["obal"], jazyk: "sk", tovary: [], emaily: [] };
 const ULOHY_OSOBY = ["Dusan Bucha", "Radka Buchova", "Dominik Hrin"];
-const EMPTY_ULOHA = { popis: "", osoby: [], termin: "", hotovo: false };
+const ULOHY_ZODPOVEDNY_OPTIONS = [{ value: "", label: "— nevybráno —" }, ...ULOHY_OSOBY.map((o) => ({ value: o, label: o }))];
+const EMPTY_ULOHA = { popis: "", osoby: [], termin: "", hotovo: false, zodpovedny: "", zastupca: "" };
 const MATERIAL_TYP_OPTIONS = [
   { value: "surovina", label: "Suroviny" },
   { value: "obal", label: "Obalový materiál" },
@@ -225,13 +230,29 @@ const GOODS_RECEIPT_PHOTOS_BUCKET = "goods-receipt-photos";
 const NVE_LISTS_BUCKET = "nve-lists";
 const INVOICES_BUCKET = "invoices";
 const DESIGNS_BUCKET = "designs";
+const SW_PRICELIST_BUCKET = "sw-pricelist";
+const NAVODY_BUCKET = "navody";
 const DESIGN_KATEGORIE = [
   { value: "kbelik", label: "Kbelíky (IML)" },
-  { value: "sacky", label: "Pytlíky (fólie)" },
+  { value: "sacky", label: "Sáčky (fólie)" },
   { value: "ine", label: "Iné" },
 ];
 const EMPTY_DESIGN = { nazov: "", kategoria: "kbelik", tlacoveDataPath: "", tlacoveDataNazov: "", nahladPath: "", fotkaPath: "" };
 const STOCK_ISSUE_REASONS = ["Vyroba", "Testovanie/vzorky", "Znehodnotene", "Ine"];
+const EMPTY_REKLAMACE = {
+  datum: "",
+  dodavatel: "",
+  material: "",
+  mnozstvoCislo: "",
+  mnozstvoJednotka: "ks",
+  mnozstvo: "",
+  dovod: "",
+  poznamka: "",
+  stav: "Ceka na vyzdvihnutie",
+  zapisal: "",
+  issueId: null,
+  dodavatelId: "",
+};
 const EMPTY_STOCK_ISSUE = {
   datum: "",
   cas: "",
@@ -250,7 +271,7 @@ const STATUS_PREVZATIA = {
 };
 
 const PRODUCTION_LINKY = [
-  { value: "sacky", label: "Sáčky" },
+  { value: "sacky", label: "Sáčky (fólie)" },
   { value: "kyble", label: "Kbelíky" },
   { value: "bulk", label: "Bulk" },
 ];
@@ -268,6 +289,12 @@ const EMPTY_PRODUCT = {
   linka: "sacky",
   receptura: [],
   designId: "",
+  cisloArtiklu: "",
+  cisloArtikluSW: "",
+  inhlt: "",
+  eanKarton: "",
+  eanUnit: "",
+  rspo: false,
 };
 const EMPTY_PRODUCTION_PLAN = {
   datum: "",
@@ -284,8 +311,6 @@ const EMPTY_PRODUCTION_PLAN = {
   vyrobeneAt: null,
   zapisal: "",
 };
-// Polia, ktorych zmenu office pri uprave planu oznaci Vyrobe/Skladu cervenym zvyraznenim.
-const PLAN_ZMENA_POLIA = ["datum", "linka", "produktNazov", "mnozstvo", "mnozstvoJednotka", "terminDodania", "poznamka"];
 function productLabel(p) {
   if (!p) return "";
   return [p.znacka, [p.gramaz, p.ksVKartone, p.kartonovNaPalete].filter(Boolean).join("/")].filter(Boolean).join(" ");
@@ -451,6 +476,15 @@ const APP_LAUNCHER_CARDS = [
     shadow: "shadow-amber-500/40",
     ring: "hover:border-amber-300",
   },
+  {
+    key: "kvalita",
+    label: "Kvalita a kontroly",
+    desc: "Checklisty, termíny a BOZP",
+    icon: <ShieldCheck size={30} />,
+    badge: "from-violet-400 to-violet-600",
+    shadow: "shadow-violet-500/40",
+    ring: "hover:border-violet-300",
+  },
 ];
 
 function AppLauncher({ onChoose }) {
@@ -534,6 +568,24 @@ export default function MiniERP() {
       <Loader2 className="animate-spin mr-2" size={20} /> Načítám...
     </div>
   );
+  if (appChoice === "kvalita") {
+    if (profile?.role !== "office") {
+      return (
+        <div className="min-h-screen flex flex-col items-center justify-center gap-3 px-4 text-center text-slate-600">
+          <AlertCircle size={24} className="text-red-500" />
+          <p className="max-w-sm text-sm">Nemáte oprávnění zobrazit tuto sekci.</p>
+          <button onClick={switchApp} className="flex items-center gap-1.5 text-sm text-teal-700 hover:text-teal-900">
+            <ArrowLeft size={14} /> Zpět na výběr appky
+          </button>
+        </div>
+      );
+    }
+    return (
+      <Suspense fallback={lazyFallback}>
+        <KvalitaView fullName={profile.full_name} onSignOut={signOut} onBack={switchApp} />
+      </Suspense>
+    );
+  }
   if (profile?.role === "sklad") {
     return (
       <Suspense fallback={lazyFallback}>
@@ -552,6 +604,8 @@ export default function MiniERP() {
 }
 
 const CENOTVORBA_ALLOWED_EMAILS = ["dh@stenger.eu"];
+const AUDIT_LOG_ALLOWED_EMAILS = ["dh@stenger.eu"];
+const RSPO_CERT_CODE = "BVC-RSPO-CZ009581";
 
 function OfficeApp({ userFullName, userEmail, onSignOut }) {
   const [view, setView] = useState("dashboard"); // dashboard | register | carriers | customers | company | ...
@@ -565,6 +619,9 @@ function OfficeApp({ userFullName, userEmail, onSignOut }) {
   });
   const [pricelist, setPricelist] = useState(null);
   const [pricelistArchive, setPricelistArchive] = useState([]);
+  const [swPricelist, setSwPricelist] = useState(null);
+  const [swPricelistArchive, setSwPricelistArchive] = useState([]);
+  const [cennikJinychZakazniku, setCennikJinychZakazniku] = useState([]);
   const [suppliers, setSuppliers] = useState([]);
   const [materialOrders, setMaterialOrders] = useState([]);
   const [goodsReceipts, setGoodsReceipts] = useState([]);
@@ -573,10 +630,15 @@ function OfficeApp({ userFullName, userEmail, onSignOut }) {
   const [productionPlan, setProductionPlan] = useState([]);
   const [productionOutputs, setProductionOutputs] = useState([]);
   const [prestavky, setPrestavky] = useState([]);
+  const [pauzy, setPauzy] = useState([]);
+  const [dochadzkaNastavenia, setDochadzkaNastavenia] = useState({ zaciatokVyroba: "06:00", zaciatokSklad: "06:00" });
+  const [ccpKontroly, setCcpKontroly] = useState([]);
   const [workers, setWorkers] = useState([]);
   const [ulohy, setUlohy] = useState([]);
   const [expedicniaZaznamy, setExpedicniaZaznamy] = useState([]);
   const [designs, setDesigns] = useState([]);
+  const [navody, setNavody] = useState([]);
+  const [reklamace, setReklamace] = useState([]);
   const [ready, setReady] = useState(false);
   const [loadError, setLoadError] = useState("");
 
@@ -598,6 +660,7 @@ function OfficeApp({ userFullName, userEmail, onSignOut }) {
   const [editingGoodsReceipt, setEditingGoodsReceipt] = useState(null);
   const [showInvoiceUpload, setShowInvoiceUpload] = useState(false);
   const [showNewStockIssue, setShowNewStockIssue] = useState(false);
+  const [showNewTestProductionIssue, setShowNewTestProductionIssue] = useState(false);
   const [editingStockIssue, setEditingStockIssue] = useState(null);
   const [editingProduct, setEditingProduct] = useState(null);
   const [showNewProductionPlan, setShowNewProductionPlan] = useState(false);
@@ -620,10 +683,16 @@ function OfficeApp({ userFullName, userEmail, onSignOut }) {
     setOrders((data || []).map((row) => ({ ...row.data, stavExpedicie: row.stav_expedicie })));
   }, []);
 
+  const fetchExpedicniaZaznamy = useCallback(async () => {
+    const { data, error } = await supabase.from("expedicia_zaznamy").select("*").order("created_at", { ascending: false });
+    if (error) return;
+    setExpedicniaZaznamy((data || []).map((row) => ({ ...row.data, orderId: row.order_id })));
+  }, []);
+
   useEffect(() => {
     (async () => {
       try {
-        const [ordersRes, carriersRes, customersRes, companyRes, pricelistRes, suppliersRes, materialOrdersRes, pricelistArchiveRes, goodsReceiptsRes, stockIssuesRes, productsRes, productionPlanRes, productionOutputsRes, prestavkyRes, workersRes, ulohyRes, expedicniaZaznamyRes, designsRes] = await Promise.all([
+        const [ordersRes, carriersRes, customersRes, companyRes, pricelistRes, suppliersRes, materialOrdersRes, pricelistArchiveRes, goodsReceiptsRes, stockIssuesRes, productsRes, productionPlanRes, productionOutputsRes, prestavkyRes, pauzyRes, dochadzkaNastaveniaRes, workersRes, ulohyRes, expedicniaZaznamyRes, designsRes, swPricelistRes, swPricelistArchiveRes, navodyRes, reklamaceRes, ccpKontrolyRes, cennikJinychZakaznikuRes] = await Promise.all([
           supabase.from("orders").select("*").order("created_at", { ascending: false }),
           supabase.from("carriers").select("*"),
           supabase.from("customers").select("*"),
@@ -638,10 +707,18 @@ function OfficeApp({ userFullName, userEmail, onSignOut }) {
           supabase.from("production_plan").select("*").order("created_at", { ascending: false }),
           supabase.from("production_outputs").select("*").order("created_at", { ascending: false }),
           supabase.from("prestavky").select("*").order("created_at", { ascending: false }),
+          supabase.from("pauzy").select("*").order("created_at", { ascending: false }),
+          supabase.from("dochadzka_nastavenia").select("*").eq("id", 1).single(),
           supabase.from("workers").select("*"),
           supabase.from("ulohy").select("*").order("created_at", { ascending: false }),
           supabase.from("expedicia_zaznamy").select("*").order("created_at", { ascending: false }),
           supabase.from("designs").select("*").order("created_at", { ascending: false }),
+          supabase.from("sw_pricelist").select("*").eq("id", 1).single(),
+          supabase.from("sw_pricelist_archive").select("*").order("archived_at", { ascending: false }),
+          supabase.from("navody").select("*").order("created_at", { ascending: false }),
+          supabase.from("reklamace").select("*").order("created_at", { ascending: false }),
+          supabase.from("ccp_kontroly").select("*").order("created_at", { ascending: false }),
+          supabase.from("cennik_jini_zakaznici").select("*"),
         ]);
         if (ordersRes.error || carriersRes.error || customersRes.error || companyRes.error) {
           setLoadError("Nepodařilo se načíst uložená data.");
@@ -661,6 +738,14 @@ function OfficeApp({ userFullName, userEmail, onSignOut }) {
           if (pricelistRes.data && pricelistRes.data.data && pricelistRes.data.data.buckets) {
             setPricelist(pricelistRes.data.data);
           }
+          if (swPricelistRes.data && swPricelistRes.data.data && swPricelistRes.data.data.path) {
+            setSwPricelist(swPricelistRes.data.data);
+          }
+          if (!swPricelistArchiveRes.error) setSwPricelistArchive(swPricelistArchiveRes.data || []);
+          if (!cennikJinychZakaznikuRes.error) setCennikJinychZakazniku((cennikJinychZakaznikuRes.data || []).map((row) => row.data));
+          if (!navodyRes.error) setNavody((navodyRes.data || []).map((row) => row.data));
+          if (!reklamaceRes.error) setReklamace((reklamaceRes.data || []).map((row) => row.data));
+          if (!ccpKontrolyRes.error) setCcpKontroly((ccpKontrolyRes.data || []).map((row) => row.data));
           if (!suppliersRes.error) setSuppliers((suppliersRes.data || []).map((row) => row.data));
           if (!materialOrdersRes.error) setMaterialOrders((materialOrdersRes.data || []).map((row) => row.data));
           if (!pricelistArchiveRes.error) setPricelistArchive(pricelistArchiveRes.data || []);
@@ -670,12 +755,17 @@ function OfficeApp({ userFullName, userEmail, onSignOut }) {
           if (!productionPlanRes.error) setProductionPlan((productionPlanRes.data || []).map((row) => row.data));
           if (!productionOutputsRes.error) setProductionOutputs((productionOutputsRes.data || []).map((row) => row.data));
           if (!prestavkyRes.error) setPrestavky((prestavkyRes.data || []).map((row) => row.data));
+          if (!pauzyRes.error) setPauzy((pauzyRes.data || []).map((row) => row.data));
+          if (dochadzkaNastaveniaRes.data) {
+            setDochadzkaNastavenia((prev) => ({ ...prev, ...dochadzkaNastaveniaRes.data.data }));
+          }
           if (!workersRes.error) setWorkers((workersRes.data || []).map((row) => row.data));
           if (!ulohyRes.error) setUlohy((ulohyRes.data || []).map((row) => row.data));
           if (!expedicniaZaznamyRes.error) setExpedicniaZaznamy((expedicniaZaznamyRes.data || []).map((row) => ({ ...row.data, orderId: row.order_id })));
           if (!designsRes.error) setDesigns((designsRes.data || []).map((row) => row.data));
         }
       } catch (e) {
+        console.error(e);
         setLoadError("Nepodařilo se načíst uložená data.");
       }
       setReady(true);
@@ -693,6 +783,18 @@ function OfficeApp({ userFullName, userEmail, onSignOut }) {
       supabase.removeChannel(channel);
     };
   }, [fetchOrders]);
+
+  useEffect(() => {
+    const channel = supabase
+      .channel("expedicia-zaznamy-office")
+      .on("postgres_changes", { event: "*", schema: "public", table: "expedicia_zaznamy" }, () => {
+        fetchExpedicniaZaznamy();
+      })
+      .subscribe();
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [fetchExpedicniaZaznamy]);
 
   function orderRowFromOrder(order) {
     return {
@@ -722,6 +824,8 @@ function OfficeApp({ userFullName, userEmail, onSignOut }) {
         if (error) throw error;
       }
     } catch (e) {
+      console.error(e);
+      setCarriers(prev);
       setLoadError("Uložení se nezdařilo, zkuste to znovu.");
     }
   }
@@ -741,6 +845,8 @@ function OfficeApp({ userFullName, userEmail, onSignOut }) {
         if (error) throw error;
       }
     } catch (e) {
+      console.error(e);
+      setCustomers(prev);
       setLoadError("Uložení se nezdařilo, zkuste to znovu.");
     }
   }
@@ -759,40 +865,59 @@ function OfficeApp({ userFullName, userEmail, onSignOut }) {
       if (error) throw error;
       setToast("Údaje o firmě byly uloženy.");
     } catch (e) {
+      console.error(e);
+      setLoadError("Uložení se nezdařilo, zkuste to znovu.");
+    }
+  }
+  async function persistDochadzkaNastavenia(next) {
+    const prev = dochadzkaNastavenia;
+    setDochadzkaNastavenia(next);
+    try {
+      const { error } = await supabase.from("dochadzka_nastavenia").update({ data: next }).eq("id", 1);
+      if (error) throw error;
+      setToast("Nastavení docházky bylo uloženo.");
+    } catch (e) {
+      console.error(e);
+      setDochadzkaNastavenia(prev);
       setLoadError("Uložení se nezdařilo, zkuste to znovu.");
     }
   }
 
   async function archiveCurrentPricelist() {
-    if (!pricelist || !pricelist.buckets || !pricelist.buckets.length) return;
+    if (!pricelist || !pricelist.buckets || !pricelist.buckets.length) return true;
     const entry = { id: uid(), data: pricelist, file_name: pricelist.fileName || null };
     try {
       const { error } = await supabase.from("pricelist_archive").insert(entry);
       if (error) throw error;
       setPricelistArchive((prev) => [{ ...entry, archived_at: new Date().toISOString() }, ...prev]);
+      return true;
     } catch (e) {
-      setLoadError("Archivace ceníku se nezdařila.");
+      console.error(e);
+      setLoadError("Archivace ceníku se nezdařila, nový ceník nebyl uložen.");
+      return false;
     }
   }
 
   async function persistPricelist(next) {
-    await archiveCurrentPricelist();
+    if (!(await archiveCurrentPricelist())) return;
     setPricelist(next);
     try {
       const { error } = await supabase.from("pricelist").update({ data: next }).eq("id", 1);
       if (error) throw error;
     } catch (e) {
+      console.error(e);
       setLoadError("Uložení ceníku se nezdařilo, zkuste to znovu.");
     }
   }
 
   async function deletePricelist() {
-    await archiveCurrentPricelist();
+    if (!(await archiveCurrentPricelist())) return;
     setPricelist({});
     try {
       const { error } = await supabase.from("pricelist").update({ data: {} }).eq("id", 1);
       if (error) throw error;
     } catch (e) {
+      console.error(e);
       setLoadError("Smazání ceníku se nezdařilo, zkuste to znovu.");
     }
   }
@@ -807,7 +932,129 @@ function OfficeApp({ userFullName, userEmail, onSignOut }) {
       const { error } = await supabase.from("pricelist_archive").delete().eq("id", id);
       if (error) throw error;
     } catch (e) {
+      console.error(e);
       setLoadError("Smazání z archivu se nezdařilo, zkuste to znovu.");
+    }
+  }
+
+  async function archiveCurrentSwPricelist() {
+    if (!swPricelist || !swPricelist.path) return true;
+    const entry = { id: uid(), data: swPricelist, file_name: swPricelist.fileName || null };
+    try {
+      const { error } = await supabase.from("sw_pricelist_archive").insert(entry);
+      if (error) throw error;
+      setSwPricelistArchive((prev) => [{ ...entry, archived_at: new Date().toISOString() }, ...prev]);
+      return true;
+    } catch (e) {
+      console.error(e);
+      setLoadError("Archivace ceniku SW GmbH se nezdarila, novy cenik nebyl ulozen.");
+      return false;
+    }
+  }
+
+  async function persistSwPricelist(next) {
+    if (!(await archiveCurrentSwPricelist())) return;
+    setSwPricelist(next);
+    try {
+      const { error } = await supabase.from("sw_pricelist").update({ data: next }).eq("id", 1);
+      if (error) throw error;
+    } catch (e) {
+      console.error(e);
+      setLoadError("Ulozeni ceniku SW GmbH se nezdarilo, zkuste to znovu.");
+    }
+  }
+
+  async function restoreSwPricelistFromArchive(entry) {
+    await persistSwPricelist(entry.data);
+  }
+
+  async function deleteSwPricelistArchiveEntry(id) {
+    setSwPricelistArchive((prev) => prev.filter((e) => e.id !== id));
+    try {
+      const { error } = await supabase.from("sw_pricelist_archive").delete().eq("id", id);
+      if (error) throw error;
+    } catch (e) {
+      console.error(e);
+      setLoadError("Smazani z archivu se nezdarilo, zkuste to znovu.");
+    }
+  }
+
+  async function saveNewNavod(fields) {
+    const navod = { ...fields, id: fields.id || uid() };
+    setNavody((prev) => [navod, ...prev]);
+    try {
+      const { error } = await supabase.from("navody").insert({ id: navod.id, data: navod });
+      if (error) throw error;
+    } catch (e) {
+      console.error(e);
+      setLoadError("Uložení návodu se nezdařilo, zkuste to znovu.");
+    }
+    return navod;
+  }
+
+  async function deleteNavod(id) {
+    setNavody((prev) => prev.filter((n) => n.id !== id));
+    try {
+      const { error } = await supabase.from("navody").delete().eq("id", id);
+      if (error) throw error;
+    } catch (e) {
+      console.error(e);
+      setLoadError("Smazání návodu se nezdařilo, zkuste to znovu.");
+    }
+  }
+
+  async function saveNewReklamace(fields) {
+    const rec = { ...EMPTY_REKLAMACE, ...fields, id: fields.id || uid() };
+    if (rec.material && rec.mnozstvoCislo) {
+      const issue = await saveNewStockIssue({
+        datum: rec.datum,
+        material: rec.material,
+        mnozstvoCislo: rec.mnozstvoCislo,
+        mnozstvoJednotka: rec.mnozstvoJednotka,
+        mnozstvo: rec.mnozstvo,
+        dovod: "Znehodnotene",
+        poznamka: `Reklamace${rec.dodavatel ? " - " + rec.dodavatel : ""}${rec.dovod ? " (" + rec.dovod + ")" : ""}`,
+        zapisal: rec.zapisal,
+      });
+      rec.issueId = issue.id;
+    }
+    setReklamace((prev) => [rec, ...prev]);
+    try {
+      const { error } = await supabase.from("reklamace").insert({ id: rec.id, data: rec });
+      if (error) throw error;
+    } catch (e) {
+      console.error(e);
+      setReklamace((prev) => prev.filter((r) => r.id !== rec.id));
+      if (rec.issueId) await deleteStockIssue(rec.issueId);
+      setLoadError("Uložení reklamace se nezdařilo, zkuste to znovu.");
+    }
+    return rec;
+  }
+
+  async function updateReklamace(id, patch) {
+    const current = reklamace.find((r) => r.id === id);
+    if (!current) return;
+    const merged = { ...current, ...patch };
+    setReklamace((prev) => prev.map((r) => (r.id === id ? merged : r)));
+    try {
+      const { error } = await supabase.from("reklamace").update({ data: merged }).eq("id", id);
+      if (error) throw error;
+    } catch (e) {
+      console.error(e);
+      setLoadError("Uložení reklamace se nezdařilo, zkuste to znovu.");
+    }
+  }
+
+  async function deleteReklamace(id) {
+    const rec = reklamace.find((r) => r.id === id);
+    setReklamace((prev) => prev.filter((r) => r.id !== id));
+    try {
+      const { error } = await supabase.from("reklamace").delete().eq("id", id);
+      if (error) throw error;
+      if (rec && rec.issueId) await deleteStockIssue(rec.issueId);
+    } catch (e) {
+      console.error(e);
+      setLoadError("Smazání reklamace se nezdařilo, zkuste to znovu.");
     }
   }
 
@@ -827,6 +1074,8 @@ function OfficeApp({ userFullName, userEmail, onSignOut }) {
         if (error) throw error;
       }
     } catch (e) {
+      console.error(e);
+      setSuppliers(prev);
       setLoadError("Uložení se nezdařilo, zkuste to znovu.");
     }
   }
@@ -847,6 +1096,8 @@ function OfficeApp({ userFullName, userEmail, onSignOut }) {
         if (error) throw error;
       }
     } catch (e) {
+      console.error(e);
+      setProducts(prev);
       setLoadError("Uložení se nezdařilo, zkuste to znovu.");
     }
   }
@@ -867,6 +1118,30 @@ function OfficeApp({ userFullName, userEmail, onSignOut }) {
         if (error) throw error;
       }
     } catch (e) {
+      console.error(e);
+      setWorkers(prev);
+      setLoadError("Uložení se nezdařilo, zkuste to znovu.");
+    }
+  }
+
+  async function persistCennikJinychZakazniku(next) {
+    const prev = cennikJinychZakazniku;
+    setCennikJinychZakazniku(next);
+    try {
+      const prevIds = new Set(prev.map((e) => e.id));
+      const nextIds = new Set(next.map((e) => e.id));
+      const toDelete = [...prevIds].filter((id) => !nextIds.has(id));
+      if (next.length) {
+        const { error } = await supabase.from("cennik_jini_zakaznici").upsert(next.map((e) => ({ id: e.id, data: e })));
+        if (error) throw error;
+      }
+      if (toDelete.length) {
+        const { error } = await supabase.from("cennik_jini_zakaznici").delete().in("id", toDelete);
+        if (error) throw error;
+      }
+    } catch (e) {
+      console.error(e);
+      setCennikJinychZakazniku(prev);
       setLoadError("Uložení se nezdařilo, zkuste to znovu.");
     }
   }
@@ -881,7 +1156,7 @@ function OfficeApp({ userFullName, userEmail, onSignOut }) {
       ...EMPTY_MATERIAL_ORDER,
       ...fields,
       id: uid(),
-      cisloObjednavkyDopravy: `${String(num).padStart(4, "0")}/${new Date().getFullYear()}`,
+      cisloObjednavkyDopravy: `M${String(num).padStart(4, "0")}/${new Date().getFullYear()}`,
       stavDopravy: fields.sposobDopravy === "dodavatel" ? "Dodavatel doruci sam" : fields.sposobDopravy === "vyzdvihnutie" ? "Osobny odber" : "Neobjednana",
       dopravaOdoslanaInfo: null,
       stavObjednavky: "Neodoslana",
@@ -892,6 +1167,7 @@ function OfficeApp({ userFullName, userEmail, onSignOut }) {
       const { error } = await supabase.from("material_orders").insert({ id: order.id, data: order });
       if (error) throw error;
     } catch (e) {
+      console.error(e);
       setLoadError("Uložení objednávky se nezdařilo, zkuste to znovu.");
     }
     setShowNewMaterialOrder(false);
@@ -906,6 +1182,7 @@ function OfficeApp({ userFullName, userEmail, onSignOut }) {
       const { error } = await supabase.from("material_orders").update({ data: merged }).eq("id", id);
       if (error) throw error;
     } catch (e) {
+      console.error(e);
       setLoadError("Uložení se nezdařilo, zkuste to znovu.");
     }
   }
@@ -916,6 +1193,7 @@ function OfficeApp({ userFullName, userEmail, onSignOut }) {
       const { error } = await supabase.from("material_orders").delete().eq("id", id);
       if (error) throw error;
     } catch (e) {
+      console.error(e);
       setLoadError("Uložení se nezdařilo, zkuste to znovu.");
     }
   }
@@ -927,6 +1205,7 @@ function OfficeApp({ userFullName, userEmail, onSignOut }) {
       const { error } = await supabase.from("ulohy").insert({ id: uloha.id, data: uloha });
       if (error) throw error;
     } catch (e) {
+      console.error(e);
       setLoadError("Uložení úkolu se nezdařilo, zkuste to znovu.");
     }
   }
@@ -940,6 +1219,7 @@ function OfficeApp({ userFullName, userEmail, onSignOut }) {
       const { error } = await supabase.from("ulohy").update({ data: merged }).eq("id", id);
       if (error) throw error;
     } catch (e) {
+      console.error(e);
       setLoadError("Uložení se nezdařilo, zkuste to znovu.");
     }
   }
@@ -950,6 +1230,7 @@ function OfficeApp({ userFullName, userEmail, onSignOut }) {
       const { error } = await supabase.from("ulohy").delete().eq("id", id);
       if (error) throw error;
     } catch (e) {
+      console.error(e);
       setLoadError("Uložení se nezdařilo, zkuste to znovu.");
     }
   }
@@ -964,6 +1245,7 @@ function OfficeApp({ userFullName, userEmail, onSignOut }) {
       const { error } = await supabase.from("expedicia_zaznamy").update({ data }).eq("id", id);
       if (error) throw error;
     } catch (e) {
+      console.error(e);
       setLoadError("Uložení se nezdařilo, zkuste to znovu.");
     }
   }
@@ -974,6 +1256,7 @@ function OfficeApp({ userFullName, userEmail, onSignOut }) {
       const { error } = await supabase.from("expedicia_zaznamy").delete().eq("id", id);
       if (error) throw error;
     } catch (e) {
+      console.error(e);
       setLoadError("Uložení se nezdařilo, zkuste to znovu.");
     }
   }
@@ -985,6 +1268,7 @@ function OfficeApp({ userFullName, userEmail, onSignOut }) {
       const { error } = await supabase.from("designs").insert({ id: design.id, data: design });
       if (error) throw error;
     } catch (e) {
+      console.error(e);
       setLoadError("Uložení se nezdařilo, zkuste to znovu.");
     }
     return design;
@@ -999,6 +1283,7 @@ function OfficeApp({ userFullName, userEmail, onSignOut }) {
       const { error } = await supabase.from("designs").update({ data: merged }).eq("id", id);
       if (error) throw error;
     } catch (e) {
+      console.error(e);
       setLoadError("Uložení se nezdařilo, zkuste to znovu.");
     }
   }
@@ -1009,6 +1294,7 @@ function OfficeApp({ userFullName, userEmail, onSignOut }) {
       const { error } = await supabase.from("designs").delete().eq("id", id);
       if (error) throw error;
     } catch (e) {
+      console.error(e);
       setLoadError("Uložení se nezdařilo, zkuste to znovu.");
     }
   }
@@ -1020,6 +1306,7 @@ function OfficeApp({ userFullName, userEmail, onSignOut }) {
       const { error } = await supabase.from("goods_receipts").insert({ id: receipt.id, data: receipt });
       if (error) throw error;
     } catch (e) {
+      console.error(e);
       setLoadError("Uložení se nezdařilo, zkuste to znovu.");
     }
     setShowNewGoodsReceipt(false);
@@ -1035,6 +1322,7 @@ function OfficeApp({ userFullName, userEmail, onSignOut }) {
       const { error } = await supabase.from("goods_receipts").update({ data: merged }).eq("id", id);
       if (error) throw error;
     } catch (e) {
+      console.error(e);
       setLoadError("Uložení se nezdařilo, zkuste to znovu.");
     }
   }
@@ -1045,6 +1333,7 @@ function OfficeApp({ userFullName, userEmail, onSignOut }) {
       const { error } = await supabase.from("goods_receipts").delete().eq("id", id);
       if (error) throw error;
     } catch (e) {
+      console.error(e);
       setLoadError("Uložení se nezdařilo, zkuste to znovu.");
     }
   }
@@ -1056,9 +1345,9 @@ function OfficeApp({ userFullName, userEmail, onSignOut }) {
       const { error } = await supabase.from("stock_issues").insert({ id: issue.id, data: issue });
       if (error) throw error;
     } catch (e) {
+      console.error(e);
       setLoadError("Uložení se nezdařilo, zkuste to znovu.");
     }
-    setShowNewStockIssue(false);
     return issue;
   }
 
@@ -1071,8 +1360,15 @@ function OfficeApp({ userFullName, userEmail, onSignOut }) {
       const { error } = await supabase.from("stock_issues").update({ data: merged }).eq("id", id);
       if (error) throw error;
     } catch (e) {
+      console.error(e);
       setLoadError("Uložení se nezdařilo, zkuste to znovu.");
     }
+  }
+
+  async function saveTestProductionIssueBatch(lines) {
+    await Promise.all(lines.map((line) => saveNewStockIssue(line)));
+    setShowNewTestProductionIssue(false);
+    setToast(`Zapsáno ${lines.length} výdej(ů) pro testovací výrobu.`);
   }
 
   async function deleteStockIssue(id) {
@@ -1081,6 +1377,7 @@ function OfficeApp({ userFullName, userEmail, onSignOut }) {
       const { error } = await supabase.from("stock_issues").delete().eq("id", id);
       if (error) throw error;
     } catch (e) {
+      console.error(e);
       setLoadError("Uložení se nezdařilo, zkuste to znovu.");
     }
   }
@@ -1092,6 +1389,7 @@ function OfficeApp({ userFullName, userEmail, onSignOut }) {
       const { error } = await supabase.from("production_plan").insert({ id: plan.id, data: plan });
       if (error) throw error;
     } catch (e) {
+      console.error(e);
       setLoadError("Uložení se nezdařilo, zkuste to znovu.");
     }
     setShowNewProductionPlan(false);
@@ -1102,17 +1400,19 @@ function OfficeApp({ userFullName, userEmail, onSignOut }) {
     const current = productionPlan.find((p) => p.id === id);
     if (!current) return;
     let merged = { ...current, ...patch };
-    // Oznaci, ktore konkretne polia planu office prave zmenil, aby to Vyroba/Sklad
-    // videli cervenou (24 hodin) - zmena stavVyroby samotnou vyrobou sa nepocita.
-    const zmenene = PLAN_ZMENA_POLIA.filter((key) => String(current[key] ?? "") !== String(patch[key] ?? current[key] ?? ""));
+    // Oznaci, ktore konkretne polia planu office prave zmenil a s akymi hodnotami
+    // (predtym/potom), aby to Vyroba/Sklad/Office videli konkretne (24 hodin) -
+    // zmena stavVyroby samotnou vyrobou sa nepocita.
+    const { zmenene, detail } = diffProductionPlanFields(current, patch, (v) => (PRODUCTION_LINKY.find((l) => l.value === v) || {}).label || v);
     if (zmenene.length > 0) {
-      merged = { ...merged, zmenenePolia: zmenene, zmeneneKedy: new Date().toISOString() };
+      merged = { ...merged, zmenenePolia: zmenene, zmeneneKedy: new Date().toISOString(), zmenyDetail: detail };
     }
     setProductionPlan((prev) => prev.map((p) => (p.id === id ? merged : p)));
     try {
       const { error } = await supabase.from("production_plan").update({ data: merged }).eq("id", id);
       if (error) throw error;
     } catch (e) {
+      console.error(e);
       setLoadError("Uložení se nezdařilo, zkuste to znovu.");
     }
   }
@@ -1123,6 +1423,7 @@ function OfficeApp({ userFullName, userEmail, onSignOut }) {
       const { error } = await supabase.from("production_plan").delete().eq("id", id);
       if (error) throw error;
     } catch (e) {
+      console.error(e);
       setLoadError("Uložení se nezdařilo, zkuste to znovu.");
     }
   }
@@ -1140,6 +1441,7 @@ function OfficeApp({ userFullName, userEmail, onSignOut }) {
       const { error } = await supabase.from("production_outputs").delete().eq("id", output.id);
       if (error) throw error;
     } catch (e) {
+      console.error(e);
       setLoadError("Smazání se nezdařilo, zkuste to znovu.");
     }
   }
@@ -1185,17 +1487,21 @@ function OfficeApp({ userFullName, userEmail, onSignOut }) {
       const { data: freshIssues, error: fetchErr } = await supabase.from("stock_issues").select("*").order("created_at", { ascending: false });
       if (!fetchErr) setStockIssues((freshIssues || []).map((r) => r.data));
     } catch (e) {
+      console.error(e);
       setLoadError("Uložení se nezdařilo, zkuste to znovu.");
     }
   }
 
   // Oprava/zmazanie zaznamu prestavky (napr. ked pracovnicka zabudla tuknut koniec).
   async function deletePrestavka(id) {
+    const prevList = prestavky;
     setPrestavky((prev) => prev.filter((p) => p.id !== id));
     try {
       const { error } = await supabase.from("prestavky").delete().eq("id", id);
       if (error) throw error;
     } catch (e) {
+      console.error(e);
+      setPrestavky(prevList);
       setLoadError("Smazání se nezdařilo, zkuste to znovu.");
     }
   }
@@ -1203,12 +1509,44 @@ function OfficeApp({ userFullName, userEmail, onSignOut }) {
   async function updatePrestavka(id, patch) {
     const current = prestavky.find((p) => p.id === id);
     if (!current) return;
+    const prevList = prestavky;
     const merged = { ...current, ...patch };
     setPrestavky((prev) => prev.map((p) => (p.id === id ? merged : p)));
     try {
       const { error } = await supabase.from("prestavky").update({ data: merged }).eq("id", id);
       if (error) throw error;
     } catch (e) {
+      console.error(e);
+      setPrestavky(prevList);
+      setLoadError("Uložení se nezdařilo, zkuste to znovu.");
+    }
+  }
+
+  async function deletePauza(id) {
+    const prevList = pauzy;
+    setPauzy((prev) => prev.filter((p) => p.id !== id));
+    try {
+      const { error } = await supabase.from("pauzy").delete().eq("id", id);
+      if (error) throw error;
+    } catch (e) {
+      console.error(e);
+      setPauzy(prevList);
+      setLoadError("Smazání se nezdařilo, zkuste to znovu.");
+    }
+  }
+
+  async function updatePauza(id, patch) {
+    const current = pauzy.find((p) => p.id === id);
+    if (!current) return;
+    const prevList = pauzy;
+    const merged = { ...current, ...patch };
+    setPauzy((prev) => prev.map((p) => (p.id === id ? merged : p)));
+    try {
+      const { error } = await supabase.from("pauzy").update({ data: merged }).eq("id", id);
+      if (error) throw error;
+    } catch (e) {
+      console.error(e);
+      setPauzy(prevList);
       setLoadError("Uložení se nezdařilo, zkuste to znovu.");
     }
   }
@@ -1240,12 +1578,6 @@ function OfficeApp({ userFullName, userEmail, onSignOut }) {
     await exportRowsToExcel(rows, "Registr objednávek", "Register_objednavok");
   }
 
-  function nextOrderNumber() {
-    const year = new Date().getFullYear();
-    const count = orders.filter((o) => o.cisloObjednavky.includes(String(year))).length + 1;
-    return `OBJ-${year}-${String(count).padStart(3, "0")}`;
-  }
-
   async function saveNewOrder(fields) {
     const suffix = ddmmFromSkDateStr(fields.datumDodania);
     const { data: numData, error: numError } = await supabase.rpc("next_order_numbers");
@@ -1253,10 +1585,10 @@ function OfficeApp({ userFullName, userEmail, onSignOut }) {
       setLoadError("Nepodařilo se přidělit číslo objednávky, zkuste to znovu.");
       return;
     }
-    const { doprava_num: dopravaNum, dodak_num: dodakNum } = numData[0];
+    const { doprava_num: dopravaNum, dodak_num: dodakNum, objednavka_num: objednavkaNum } = numData[0];
     const order = {
       id: uid(),
-      cisloObjednavky: fields.cisloObjednavky || nextOrderNumber(),
+      cisloObjednavky: `${String(objednavkaNum).padStart(4, "0")}/${new Date().getFullYear()}`,
       cisloObjednavkyZakaznika: fields.cisloObjednavkyZakaznika || "",
       datumPrijatia: fields.datumPrijatia || todayStr(),
       zakaznikId: fields.zakaznikId || "",
@@ -1281,8 +1613,8 @@ function OfficeApp({ userFullName, userEmail, onSignOut }) {
       poznamka: fields.poznamka || "",
       zdrojDokument: fields.zdrojDokument || null,
       sposobDopravy: fields.sposobDopravy || "doprava",
-      cisloObjednavkyDopravy: `${dopravaNum}/${suffix}`,
-      cisloDodaciehoListu: `${dodakNum}/${suffix}`,
+      cisloObjednavkyDopravy: `${String(dopravaNum).padStart(4, "0")}/${suffix}`,
+      cisloDodaciehoListu: `${String(dodakNum).padStart(4, "0")}/${suffix}`,
       stavObjednavky: "Prijata",
       stavDopravy: fields.sposobDopravy === "vyzdvihnutie" ? "Vyzdvihnutie" : "Neobjednana",
       dopravcaId: "",
@@ -1295,6 +1627,7 @@ function OfficeApp({ userFullName, userEmail, onSignOut }) {
       const { error } = await supabase.from("orders").insert(orderRowFromOrder(order));
       if (error) throw error;
     } catch (e) {
+      console.error(e);
       setLoadError("Uložení objednávky se nezdařilo, zkuste to znovu.");
     }
     setShowNewOrder(false);
@@ -1310,6 +1643,7 @@ function OfficeApp({ userFullName, userEmail, onSignOut }) {
       const { error } = await supabase.from("orders").update(row).eq("id", id);
       if (error) throw error;
     } catch (e) {
+      console.error(e);
       setLoadError("Uložení se nezdařilo, zkuste to znovu.");
     }
   }
@@ -1319,6 +1653,7 @@ function OfficeApp({ userFullName, userEmail, onSignOut }) {
       const { error } = await supabase.from("orders").delete().eq("id", id);
       if (error) throw error;
     } catch (e) {
+      console.error(e);
       setLoadError("Uložení se nezdařilo, zkuste to znovu.");
     }
   }
@@ -1329,6 +1664,7 @@ function OfficeApp({ userFullName, userEmail, onSignOut }) {
       const { error } = await supabase.rpc("set_expedovana", { p_id: order.id, p_val: next });
       if (error) throw error;
     } catch (e) {
+      console.error(e);
       setOrders((prev) => prev.map((o) => (o.id === order.id ? { ...o, stavExpedicie: order.stavExpedicie } : o)));
       setLoadError("Změna stavu expedice se nezdařila, zkuste to znovu.");
     }
@@ -1397,7 +1733,6 @@ function OfficeApp({ userFullName, userEmail, onSignOut }) {
           <NewOrderPage
             onClose={() => setShowNewOrder(false)}
             onSave={saveNewOrder}
-            suggestedNumber={nextOrderNumber()}
             defaultAdresaNakladky={company.adresa || ""}
             customers={customers}
             company={company}
@@ -1436,8 +1771,29 @@ function OfficeApp({ userFullName, userEmail, onSignOut }) {
         {view === "suppliers" && (
           <SuppliersView suppliers={suppliers} onSave={persistSuppliers} onEdit={(s) => setEditingSupplier(s)} />
         )}
-        {view === "waffelnpricelist" && <PlaceholderView title="Pricelist SW GmbH" />}
+        {view === "waffelnpricelist" && (
+          <SwPricelistView
+            swPricelist={swPricelist}
+            swPricelistArchive={swPricelistArchive}
+            onUpload={persistSwPricelist}
+            onRestore={restoreSwPricelistFromArchive}
+            onDeleteArchiveEntry={deleteSwPricelistArchiveEntry}
+            cennikJinychZakazniku={cennikJinychZakazniku}
+            onSaveCennikJinychZakazniku={persistCennikJinychZakazniku}
+            products={products}
+          />
+        )}
         {view === "ekokom" && <PlaceholderView title="EKO-KOM" />}
+        {view === "reporting" && (
+          CENOTVORBA_ALLOWED_EMAILS.includes(userEmail)
+            ? <PlaceholderView title="Reporting" />
+            : (
+              <div className="bg-white border border-slate-200 rounded-lg p-10 text-center text-slate-500">
+                <AlertCircle size={28} className="mx-auto mb-3 text-slate-300" />
+                Nemate opravnenie zobrazit tuto sekciu.
+              </div>
+            )
+        )}
         {view === "cenotvorba" && (
           CENOTVORBA_ALLOWED_EMAILS.includes(userEmail)
             ? <PlaceholderView title="Cenotvorba" />
@@ -1448,10 +1804,25 @@ function OfficeApp({ userFullName, userEmail, onSignOut }) {
               </div>
             )
         )}
+        {view === "auditlog" && (
+          AUDIT_LOG_ALLOWED_EMAILS.includes(userEmail)
+            ? <AuditLogView />
+            : (
+              <div className="bg-white border border-slate-200 rounded-lg p-10 text-center text-slate-500">
+                <AlertCircle size={28} className="mx-auto mb-3 text-slate-300" />
+                Nemate opravnenie zobrazit tuto sekciu.
+              </div>
+            )
+        )}
         {view === "designs" && (
           <DesignsView designs={designs} onSave={saveNewDesign} onUpdate={updateDesign} onDelete={deleteDesign} />
         )}
-        {view === "navody" && <PlaceholderView title="Navody" />}
+        {view === "navody" && (
+          <NavodyView navody={navody} onSave={saveNewNavod} onDelete={deleteNavod} />
+        )}
+        {view === "reklamace" && (
+          <ReklamaceView reklamace={reklamace} suppliers={suppliers} currentUserName={userFullName} onSave={saveNewReklamace} onUpdate={updateReklamace} onDelete={deleteReklamace} />
+        )}
         {view === "materials" && (
           <MaterialOrdersView
             materialOrders={materialOrders}
@@ -1480,12 +1851,13 @@ function OfficeApp({ userFullName, userEmail, onSignOut }) {
             goodsReceipts={goodsReceipts}
             stockIssues={stockIssues}
             onNew={() => setShowNewStockIssue(true)}
+            onNewTestProduction={() => setShowNewTestProductionIssue(true)}
             onEdit={(i) => setEditingStockIssue(i)}
             onDelete={deleteStockIssue}
           />
         )}
         {view === "products" && (
-          <ProductsView products={products} designs={designs} onSave={persistProducts} onEdit={(p) => setEditingProduct(p)} />
+          <ProductsView products={products} designs={designs} swPricelist={swPricelist} onSave={persistProducts} onEdit={(p) => setEditingProduct(p)} />
         )}
         {view === "productionplan" && (
           <ProductionPlanView
@@ -1495,12 +1867,20 @@ function OfficeApp({ userFullName, userEmail, onSignOut }) {
             stockIssues={stockIssues}
             productionOutputs={productionOutputs}
             prestavky={prestavky}
+            pauzy={pauzy}
+            dochadzkaNastavenia={dochadzkaNastavenia}
+            ccpKontroly={ccpKontroly}
             onNew={() => setShowNewProductionPlan(true)}
             onEdit={(p) => setEditingProductionPlan(p)}
             onDelete={deleteProductionPlan}
             onDeleteOutput={deleteProductionOutput}
             onEditOutput={(o) => setEditingProductionOutput(o)}
             onDeletePrestavka={deletePrestavka}
+            onUpdatePrestavka={updatePrestavka}
+            onDeletePauza={deletePauza}
+            onUpdatePauza={updatePauza}
+            onUpdateDochadzkaNastavenia={persistDochadzkaNastavenia}
+            workers={workers}
           />
         )}
         {view === "workers" && (
@@ -1521,6 +1901,7 @@ function OfficeApp({ userFullName, userEmail, onSignOut }) {
       {editingCustomer && (
         <CustomerModal
           customer={editingCustomer}
+          products={products}
           onClose={() => setEditingCustomer(null)}
           onSave={(patch) => {
             persistCustomers(customers.map((c) => (c.id === editingCustomer.id ? { ...c, ...patch } : c)));
@@ -1566,6 +1947,7 @@ function OfficeApp({ userFullName, userEmail, onSignOut }) {
           company={company}
           currentUserName={userFullName}
           onClose={() => setSendMaterialOrder(null)}
+          onUpdateCarrierEmails={(carrierId, emaily) => persistCarriers(carriers.map((c) => (c.id === carrierId ? { ...c, emaily } : c)))}
           onSent={(dopravcaId, info) => {
             updateMaterialOrder(sendMaterialOrder.id, { stavDopravy: "Objednana", dopravcaId, dopravaOdoslanaInfo: info });
             setSendMaterialOrder(null);
@@ -1615,6 +1997,7 @@ function OfficeApp({ userFullName, userEmail, onSignOut }) {
         <InvoiceUploadModal
           receipts={goodsReceipts}
           company={company}
+          suppliers={suppliers}
           onClose={() => setShowInvoiceUpload(false)}
           onApply={async (updates) => {
             for (const u of updates) {
@@ -1622,28 +2005,50 @@ function OfficeApp({ userFullName, userEmail, onSignOut }) {
             }
             setToast(`Cena doplněna k ${updates.length} příjmu(ům) zboží.`);
           }}
+          onAddToSupplierCatalog={async (supplierId, popisList) => {
+            const supplier = suppliers.find((s) => s.id === supplierId);
+            if (!supplier) return;
+            const existing = normalizeTovary(supplier.tovary);
+            const seen = new Set(existing.map((t) => (t.popis || "").trim().toLowerCase()));
+            const additions = [];
+            for (const p of popisList) {
+              const key = (p || "").trim().toLowerCase();
+              if (!key || seen.has(key)) continue;
+              seen.add(key);
+              additions.push({ popis: p.trim(), artikel: "", balenie: "" });
+            }
+            if (!additions.length) { setToast("Všechny položky už jsou v katalogu dodavatele."); return; }
+            await persistSuppliers(suppliers.map((s) => (s.id === supplierId ? { ...s, tovary: [...existing, ...additions] } : s)));
+            setToast(`Přidáno ${additions.length} položek do katalogu dodavatele ${supplier.nazov}.`);
+          }}
         />
       )}
       {showNewStockIssue && (
         <StockIssueFormModal
-          existingReceipts={goodsReceipts}
-          existingIssues={stockIssues}
+          suppliers={suppliers}
           currentUserName={userFullName}
           onClose={() => setShowNewStockIssue(false)}
-          onSave={saveNewStockIssue}
+          onSave={async (fields) => { await saveNewStockIssue(fields); setShowNewStockIssue(false); }}
         />
       )}
       {editingStockIssue && (
         <StockIssueFormModal
           issue={editingStockIssue}
-          existingReceipts={goodsReceipts}
-          existingIssues={stockIssues}
+          suppliers={suppliers}
           currentUserName={userFullName}
           onClose={() => setEditingStockIssue(null)}
           onSave={(patch) => {
             updateStockIssue(editingStockIssue.id, patch);
             setEditingStockIssue(null);
           }}
+        />
+      )}
+      {showNewTestProductionIssue && (
+        <TestProductionIssueModal
+          suppliers={suppliers}
+          currentUserName={userFullName}
+          onClose={() => setShowNewTestProductionIssue(false)}
+          onSaveBatch={saveTestProductionIssueBatch}
         />
       )}
       {editingProduct && (
@@ -1699,6 +2104,7 @@ function OfficeApp({ userFullName, userEmail, onSignOut }) {
           carriers={carriers}
           company={company}
           onClose={() => setTransportOrder(null)}
+          onUpdateCarrierEmails={(carrierId, emaily) => persistCarriers(carriers.map((c) => (c.id === carrierId ? { ...c, emaily } : c)))}
           onSent={(dopravcaId, info) => {
             updateOrder(transportOrder.id, { stavDopravy: "Objednana", dopravcaId, dopravaOdoslanaInfo: info });
             setTransportOrder(null);
@@ -1713,6 +2119,8 @@ function OfficeApp({ userFullName, userEmail, onSignOut }) {
           carriers={carriers}
           company={company}
           pricelist={pricelist}
+          products={products}
+          currentUserName={userFullName}
           onClose={() => setDeliveryOrder(null)}
           onSent={(email, info) => {
             updateOrder(deliveryOrder.id, { dodaciListOdoslany: "Ano", zakaznikEmail: email, stavObjednavky: "Odoslana", dodaciListOdoslanaInfo: info });
@@ -1821,6 +2229,12 @@ async function openDesignFile(path) {
   if (!error && data) window.open(data.signedUrl, "_blank");
 }
 
+async function openSwPricelistFile(path) {
+  if (!path) return;
+  const { data, error } = await supabase.storage.from(SW_PRICELIST_BUCKET).createSignedUrl(path, 3600, { download: true });
+  if (!error && data) window.open(data.signedUrl, "_blank");
+}
+
 function downloadText(filename, content) {
   const blob = new Blob([content], { type: "text/plain;charset=utf-8" });
   const url = URL.createObjectURL(blob);
@@ -1853,15 +2267,18 @@ const HEADER_MENU_ITEMS = [
   { icon: <Users size={16} />, label: "Dopravci", v: "carriers" },
   { icon: <Package size={16} />, label: "Zákazníci", v: "customers" },
   { icon: <Building2 size={16} />, label: "Nastavení firmy", v: "company" },
-  { icon: <Euro size={16} />, label: "Ceník dopravy", v: "pricelist" },
-  { icon: <Receipt size={16} />, label: "Pricelist SW GmbH", v: "waffelnpricelist" },
+  { icon: <Euro size={16} />, label: "Ceník dopravy DORYS", v: "pricelist" },
+  { icon: <Receipt size={16} />, label: "Ceník Stenger Waffeln", v: "waffelnpricelist" },
   { icon: <Factory size={16} />, label: "Dodavatelé", v: "suppliers" },
   { icon: <Recycle size={16} />, label: "EKO-KOM", v: "ekokom" },
   { icon: <Calculator size={16} />, label: "Tvorba cen", v: "cenotvorba" },
   { icon: <Image size={16} />, label: "Designy a fotky", v: "designs" },
   { icon: <BookOpen size={16} />, label: "Návody", v: "navody" },
+  { icon: <PackageX size={16} />, label: "Reklamace", v: "reklamace" },
   { icon: <FlaskConical size={16} />, label: "Produkty", v: "products" },
   { icon: <UserCheck size={16} />, label: "Pracovníci", v: "workers" },
+  { icon: <BarChart3 size={16} />, label: "Reporting", v: "reporting" },
+  { icon: <History size={16} />, label: "Audit log", v: "auditlog" },
 ];
 
 function PlaceholderView({ title }) {
@@ -1878,7 +2295,11 @@ function PlaceholderView({ title }) {
 
 function Header({ view, setView, company, userFullName, userEmail, onSignOut }) {
   const [menuOpen, setMenuOpen] = useState(false);
-  const menuItems = HEADER_MENU_ITEMS.filter((item) => item.v !== "cenotvorba" || CENOTVORBA_ALLOWED_EMAILS.includes(userEmail));
+  const menuItems = HEADER_MENU_ITEMS.filter((item) => {
+    if (item.v === "cenotvorba" || item.v === "reporting") return CENOTVORBA_ALLOWED_EMAILS.includes(userEmail);
+    if (item.v === "auditlog") return AUDIT_LOG_ALLOWED_EMAILS.includes(userEmail);
+    return true;
+  });
   const inMenu = menuItems.some((item) => item.v === view);
 
   return (
@@ -2214,9 +2635,11 @@ function RegisterView({ orders, carriers, customers, expedicniaZaznamy, products
   const [confirmDelete, setConfirmDelete] = useState(null);
   const [detailOrder, setDetailOrder] = useState(null);
 
-  const batchZaznamy = (expedicniaZaznamy || []).filter((z) => z.typ !== "doprava" && z.typ !== "celkova");
+  const batchZaznamy = (expedicniaZaznamy || []).filter((z) => z.typ !== "doprava" && z.typ !== "celkova" && z.typ !== "kontrola");
   const dopravaByOrder = new Map();
   (expedicniaZaznamy || []).filter((z) => z.typ === "doprava").forEach((z) => { dopravaByOrder.set(z.orderId, z); });
+  const kontrolaByOrder = new Map();
+  (expedicniaZaznamy || []).filter((z) => z.typ === "kontrola").forEach((z) => { kontrolaByOrder.set(z.orderId, z); });
 
   // Zorpanie riadok, sa da spolahnut na to, ze v tomto stlpci moze exportovat rovnaka objednavka na viac riadkov (viac sarzi)
   async function exportExpediciaToExcel() {
@@ -2230,11 +2653,17 @@ function RegisterView({ orders, carriers, customers, expedicniaZaznamy, products
       const ob = orders.find((o) => o.id === b) || {};
       return (parseSkDate(oa.datumDodania) || 0) - (parseSkDate(ob.datumDodania) || 0);
     });
-    const blankRow = { "Číslo objednávky": "", "Číslo dodacího listu": "", "Zákazník": "", "Produkt": "", "Šarže": "", "Počet palet": "", "Počet kartonů": "", "Název místa dodání": "", "Adresa dodania": "", "Město": "", "Dopravce": "", "Řidič": "", "Datum naložení": "", "Datum dodání": "" };
+    const blankRow = { "Číslo objednávky": "", "Číslo dodacího listu": "", "Zákazník": "", "Produkt": "", "Šarže": "", "Počet palet": "", "Počet kartonů": "", "Název místa dodání": "", "Adresa dodania": "", "Město": "", "Dopravce": "", "Řidič": "", "Datum naložení": "", "Datum dodání": "", "Ložná plocha": "" };
     const rows = [];
     orderIds.forEach((orderId, orderIdx) => {
       const order = orders.find((o) => o.id === orderId) || {};
       const doprava = dopravaByOrder.get(orderId) || {};
+      const kontrola = kontrolaByOrder.get(orderId);
+      const loznaPlochaText = !kontrola
+        ? ""
+        : kontrola.vysledek === "odmitnuto"
+        ? `Odmítnuto - ${kontrola.duvodOdmitnuti || ""} (${kontrola.zapisal || ""})`
+        : `OK (${kontrola.zapisal || ""})`;
       const batches = byOrder.get(orderId).slice().sort((a, b) => (parseSkDate(a.datum) || 0) - (parseSkDate(b.datum) || 0));
       batches.forEach((z, i) => {
         // Udaje na urovni objednavky (cislo, zakaznik, miesto, doprava, datum dodania) sa vypisu
@@ -2255,6 +2684,7 @@ function RegisterView({ orders, carriers, customers, expedicniaZaznamy, products
           "Řidič": i === 0 ? (doprava.vodic || "") : "",
           "Datum naložení": z.datum || "",
           "Datum dodání": i === 0 ? (order.datumDodania || "") : "",
+          "Ložná plocha": i === 0 ? loznaPlochaText : "",
         });
       });
       if (orderIdx < orderIds.length - 1) rows.push({ ...blankRow });
@@ -2289,7 +2719,7 @@ function RegisterView({ orders, carriers, customers, expedicniaZaznamy, products
           <table className="w-full text-sm">
             <thead>
               <tr className="bg-slate-100 text-slate-600 text-left">
-                <th className="px-3 py-2 font-medium whitespace-nowrap">Číslo dopravy</th>
+                <th className="px-3 py-2 font-medium whitespace-nowrap">Číslo objednávky</th>
                 <th className="px-3 py-2 font-medium">Zákazník / místo dodání</th>
                 <th className="px-3 py-2 font-medium whitespace-nowrap">Dodání</th>
                 <th className="px-3 py-2 font-medium">Doprava</th>
@@ -2308,10 +2738,7 @@ function RegisterView({ orders, carriers, customers, expedicniaZaznamy, products
                 const rowTint = rowText.includes("netto") ? "bg-blue-50" : (rowText.includes("ehg") || rowText.includes("edeka")) ? "bg-red-50" : "";
                 return (
                   <tr key={o.id} onClick={() => onEdit(o)} className={"border-t-2 border-slate-300 hover:brightness-95 cursor-pointer " + rowTint}>
-                    <td className="px-3 py-2 font-medium whitespace-nowrap">
-                      {o.cisloObjednavkyDopravy}
-                      <div className="text-xs text-slate-400 font-normal">LS: {o.cisloDodaciehoListu}</div>
-                    </td>
+                    <td className="px-3 py-2 font-medium whitespace-nowrap">{o.cisloObjednavky}</td>
                     <td className="px-3 py-2">
                       <div>{o.zakaznik || <span className="text-slate-400">-</span>}</div>
                       <div className="text-xs text-slate-400">{o.adresaDodaniaNazov}{o.adresaDodaniaNazov ? " - " : ""}{o.adresaDodania}</div>
@@ -2320,9 +2747,13 @@ function RegisterView({ orders, carriers, customers, expedicniaZaznamy, products
                       {o.datumDodania || <span className="text-slate-400">-</span>}
                       {o.casDodania && <div className="text-xs text-slate-400">{o.casDodania}</div>}
                     </td>
-                    <td className="px-3 py-2"><Badge text={o.stavDopravy} map={STATUS_TRANSPORT} /></td>
+                    <td className="px-3 py-2">
+                      <Badge text={o.stavDopravy} map={STATUS_TRANSPORT} />
+                      <div className="text-xs text-slate-500 font-normal mt-0.5">{o.cisloObjednavkyDopravy}</div>
+                    </td>
                     <td className="px-3 py-2">
                       <Badge text={o.dodaciListOdoslany === "Ano" ? "Odesláno" : "Neodesláno"} map={{ Odoslany: "bg-emerald-100 text-emerald-700", Neodoslany: "bg-slate-100 text-slate-700" }} />
+                      <div className="text-xs text-slate-500 font-normal mt-0.5">{o.cisloDodaciehoListu}</div>
                     </td>
                     <td className="px-3 py-2" onClick={(e) => e.stopPropagation()}>
                       <button
@@ -2535,7 +2966,7 @@ function PageShell({ title, onBack, children }) {
   );
 }
 
-function NewOrderPage({ onClose, onSave, suggestedNumber, defaultAdresaNakladky, customers, company }) {
+function NewOrderPage({ onClose, onSave, defaultAdresaNakladky, customers, company }) {
   const [mode, setMode] = useState("text");
   const [text, setText] = useState("");
   const [file, setFile] = useState(null);
@@ -2551,7 +2982,6 @@ function NewOrderPage({ onClose, onSave, suggestedNumber, defaultAdresaNakladky,
     if (mode === "manual") {
       setExtracted({
         ...EMPTY_ORDER,
-        cisloObjednavky: suggestedNumber,
         datumPrijatia: todayStr(),
         adresaNakladky: defaultAdresaNakladky,
         zdrojDokument: null,
@@ -2588,17 +3018,28 @@ function NewOrderPage({ onClose, onSave, suggestedNumber, defaultAdresaNakladky,
       }
       const result = await callClaude([...blocks, { type: "text", text: EXTRACT_INSTRUCTIONS }], company.apiKey);
       setSourceBlocks(blocks);
+      const matchedCustomer = customers.find((c) => c.nazov.trim().toLowerCase() === (result.zakaznik || "").trim().toLowerCase());
+      let polozky = [];
+      if (matchedCustomer && matchedCustomer.katalog && matchedCustomer.katalog.length > 0) {
+        try {
+          const itemsResult = await callClaude([...blocks, { type: "text", text: buildItemsInstructions(matchedCustomer.katalog) }], company.apiKey);
+          polozky = itemsResult.polozky || [];
+        } catch (itemsErr) {
+          console.error(itemsErr);
+        }
+      }
       setExtracted({
         ...EMPTY_ORDER,
-        cisloObjednavky: suggestedNumber,
         datumPrijatia: todayStr(),
         adresaNakladky: defaultAdresaNakladky,
         ...result,
+        zakaznikId: matchedCustomer ? matchedCustomer.id : "",
         paletyZpat: true,
-        polozky: [],
+        polozky,
         zdrojDokument,
       });
     } catch (e) {
+      console.error(e);
       setError(e.message || "Extrakce se nezdařila.");
     }
     setBusy(false);
@@ -2613,6 +3054,7 @@ function NewOrderPage({ onClose, onSave, suggestedNumber, defaultAdresaNakladky,
       const result = await callClaude([...sourceBlocks, { type: "text", text: buildItemsInstructions(customer.katalog) }], company.apiKey);
       setExtracted({ ...extracted, polozky: result.polozky || [] });
     } catch (e) {
+      console.error(e);
       setError(e.message || "Přiřazení položek se nezdařilo.");
     }
     setBusyItems(false);
@@ -2731,6 +3173,7 @@ function PdfPreview({ zdrojDokument }) {
       url = base64ToBlobUrl(zdrojDokument.data, "application/pdf");
       setBlobUrl(url);
     } catch (e) {
+      console.error(e);
       setFailed(true);
     }
     return () => { if (url) URL.revokeObjectURL(url); };
@@ -2847,24 +3290,32 @@ function EditOrderPage({ order, customers, onClose, onSave }) {
 
 /* ---------------- Transport order (email) ---------------- */
 
-function EmailQuickPicks({ emaily, onPick }) {
+function EmailQuickPicks({ emaily, value, onPick }) {
   if (!emaily || emaily.length === 0) return null;
+  function add(email) {
+    const current = (value || "").split(",").map((s) => s.trim()).filter(Boolean);
+    const toAdd = email.split(",").map((s) => s.trim()).filter(Boolean);
+    const merged = current.slice();
+    toAdd.forEach((e) => { if (!merged.includes(e)) merged.push(e); });
+    onPick(merged.join(", "));
+  }
   return (
     <div className="mb-2 flex flex-wrap gap-1.5">
       {emaily.map((e, i) => (
-        <button key={i} type="button" onClick={() => onPick(e.email)} className="text-xs bg-slate-100 hover:bg-slate-200 text-slate-700 px-2 py-1 rounded-md">
-          {e.label}: {e.email}
+        <button key={i} type="button" onClick={() => add(e.email)} title="Přidat do pole Komu (nenahradí stávající adresy)" className="text-xs bg-slate-100 hover:bg-slate-200 text-slate-700 px-2 py-1 rounded-md">
+          + {e.label}: {e.email}
         </button>
       ))}
     </div>
   );
 }
 
-function TransportModal({ order, carriers, company, onClose, onSent }) {
+function TransportModal({ order, carriers, company, onClose, onSent, onUpdateCarrierEmails }) {
   const last = order.dopravaOdoslanaInfo;
   const [carrierId, setCarrierId] = useState(order.dopravcaId || (carriers[0] ? carriers[0].id : ""));
   const carrier = carriers.find((c) => c.id === carrierId);
   const [to, setTo] = useState(last ? last.to : (carrier ? carrier.email : ""));
+  const [manageEmails, setManageEmails] = useState(false);
   function pickCarrier(id) {
     setCarrierId(id);
     if (!last) {
@@ -2899,7 +3350,19 @@ function TransportModal({ order, carriers, company, onClose, onSent }) {
     <ModalShell title={"Objednávka dopravy - " + order.cisloObjednavkyDopravy} onClose={onClose} extraWide>
       {last && <div className="mb-3 bg-emerald-50 text-emerald-800 text-xs px-3 py-2 rounded-md flex items-center gap-2"><CheckCircle2 size={14} /> Naposledy odesláno {formatDateTime(last.datum)} na {last.to}</div>}
       <SelectField label="Dopravce" value={carrierId} onChange={pickCarrier} options={carriers.map((c) => ({ value: c.id, label: `${c.nazov} (${c.email})` }))} />
-      <EmailQuickPicks emaily={carrier ? carrier.emaily : []} onPick={setTo} />
+      <div className="mb-2">
+        <EmailQuickPicks emaily={carrier ? carrier.emaily : []} value={to} onPick={setTo} />
+        {carrier && (
+          <button type="button" onClick={() => setManageEmails((v) => !v)} className="text-xs text-teal-700 hover:underline">
+            {manageEmails ? "Skrýt správu e-mailů dopravce" : "Spravovat e-maily dopravce"}
+          </button>
+        )}
+        {manageEmails && carrier && (
+          <div className="mt-2 border border-slate-200 rounded-md p-2 bg-slate-50">
+            <EmailListEditor emaily={carrier.emaily} onChange={(list) => onUpdateCarrierEmails(carrier.id, list)} />
+          </div>
+        )}
+      </div>
       <Field label="E-mail (komu)" value={to} onChange={setTo} type="email" />
       <Field label="Předmět" value={subject} onChange={setSubject} />
       <Field label="Text zprávy" value={body} onChange={setBody} textarea rows={18} />
@@ -2915,35 +3378,28 @@ function TransportModal({ order, carriers, company, onClose, onSent }) {
 
 /* ---------------- Dodaci list / Lieferschein (email) ---------------- */
 
-function LieferscheinPrintTable({ id, company, customer, order, carrierName, transportPrice }) {
+function LieferscheinPrintTable({ id, company, customer, order, carrierName, transportPrice, products }) {
   const row = { display: "flex", borderBottom: "1px solid #ddd", padding: "2px 0" };
   const left = { width: "50%", paddingRight: "8px" };
   const right = { width: "50%" };
-  const items = ((order.polozky && order.polozky.length > 0) ? order.polozky : [{ popis: order.popisTovaru || "", artikel: "", palet: order.pocetPaliet || "", karton: order.pocetKartonov || "", detail: "" }])
+  const items = ((order.polozky && order.polozky.length > 0) ? order.polozky : [{ popis: order.popisTovaru || "", artikel: "", palet: order.pocetPaliet || "", karton: order.pocetKartonov || "" }])
     .map((it) => {
-      if (it.detail) return it;
-      const match = customer && customer.katalog ? customer.katalog.find((k) => k.artikel && k.artikel === it.artikel) : null;
-      return match ? { ...it, detail: match.detail || "" } : it;
+      const katalogItem = customer && customer.katalog ? customer.katalog.find((k) => k.artikel && k.artikel === it.artikel) : null;
+      const produkt = katalogItem && katalogItem.produktId ? (products || []).find((p) => p.id === katalogItem.produktId) : null;
+      return { ...it, produkt };
     });
+  const sumPaliet = items.reduce((s, it) => s + (parseFloat(it.palet) || 0), 0);
+  const totalPaliet = sumPaliet > 0 ? sumPaliet : (order.pocetPaliet || 0);
   return (
     <div id={id} className="print-only-content">
       <div style={{ fontFamily: "Arial, sans-serif", fontSize: "11px", color: "#111", maxWidth: "760px" }}>
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
+        <div style={{ textAlign: "right" }}>
+          {order.cisloObjednavkyDopravy}
+          {transportPrice && transportPrice.matched ? "   " + formatEur(transportPrice.total) : ""}
+        </div>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginTop: "2px" }}>
           <div style={{ fontWeight: "bold" }}>{company.nazov}</div>
-          <div style={{ textAlign: "right" }}>
-            <div style={{ fontSize: "9px", color: "#777" }}>obj. dopravy: {order.cisloObjednavkyDopravy}</div>
-            <div style={{ fontWeight: "bold", fontSize: "16px" }}>LIEFERSCHEIN <span style={{ fontWeight: "normal", fontSize: "12px" }}>Nr: {order.cisloDodaciehoListu}</span></div>
-            {transportPrice && (
-              <div style={{ fontSize: "11px", marginTop: "2px" }}>
-                Cena dopravy:{" "}
-                {transportPrice.matched ? (
-                  <b>{formatEur(transportPrice.total)}</b>
-                ) : (
-                  <span style={{ color: "#b45309" }}>neurčena{transportPrice.reason ? " (" + transportPrice.reason + ")" : ""}</span>
-                )}
-              </div>
-            )}
-          </div>
+          <div style={{ fontWeight: "bold", fontSize: "16px" }}>LIEFERSCHEIN <span style={{ fontWeight: "normal", fontSize: "12px" }}>Nr: {order.cisloDodaciehoListu}</span></div>
         </div>
 
         <div style={{ marginTop: "8px", textAlign: "right" }}>
@@ -2977,10 +3433,10 @@ function LieferscheinPrintTable({ id, company, customer, order, carrierName, tra
           <thead>
             <tr style={{ borderBottom: "2px solid #333", textAlign: "left" }}>
               <th style={{ padding: "3px" }}>Palet</th>
-              <th style={{ padding: "3px" }}>Kartonů</th>
+              <th style={{ padding: "3px" }}>Karton</th>
               <th style={{ padding: "3px" }}>BEZEICHNUNG</th>
               <th style={{ padding: "3px" }}>STK</th>
-              <th style={{ padding: "3px" }}>ARTIKEL LIEF.NUM.</th>
+              <th style={{ padding: "3px" }}>AKRTIKEL LIEF.NUM.</th>
             </tr>
           </thead>
           <tbody>
@@ -2990,7 +3446,13 @@ function LieferscheinPrintTable({ id, company, customer, order, carrierName, tra
                 <td style={{ padding: "3px" }}>{it.karton}</td>
                 <td style={{ padding: "3px" }}>
                   <div>{it.popis}</div>
-                  {it.detail && <div style={{ fontSize: "9px", color: "#555", whiteSpace: "pre-wrap" }}>{it.detail}</div>}
+                  {it.produkt?.inhlt && <div style={{ fontSize: "9px", color: "#555", whiteSpace: "pre-wrap" }}>{it.produkt.inhlt}</div>}
+                  {(it.produkt?.eanKarton || it.produkt?.eanUnit) && (
+                    <div style={{ fontSize: "9px", color: "#555" }}>
+                      {[it.produkt.eanKarton && `EAN karton: ${it.produkt.eanKarton}`, it.produkt.eanUnit && `EAN kus: ${it.produkt.eanUnit}`].filter(Boolean).join("   ")}
+                    </div>
+                  )}
+                  {it.produkt?.rspo && <div style={{ fontSize: "9px", color: "#555" }}>{RSPO_CERT_CODE}</div>}
                 </td>
                 <td style={{ padding: "3px" }}></td>
                 <td style={{ padding: "3px" }}>{it.artikel}</td>
@@ -3000,13 +3462,13 @@ function LieferscheinPrintTable({ id, company, customer, order, carrierName, tra
         </table>
 
         <div style={{ marginTop: "14px", fontWeight: "bold" }}>
-          {order.pocetPaletovychMiest || 0} Doppelstockpal. = {order.pocetPaliet || 0} europaletten = {order.pocetPaletovychMiest || 0} stallplätze
+          {order.pocetPaletovychMiest || 0} Doppelstockpal. = {totalPaliet} europaletten = {order.pocetPaletovychMiest || 0} stallplätze
         </div>
 
         <div style={{ display: "flex", marginTop: "20px", gap: "16px" }}>
           <div style={{ width: "33%" }}>
             <div>vystavil/ausgestellt von:</div>
-            <div>{company.kontaktnaOsoba} {company.email ? "(" + company.email + ")" : ""}</div>
+            <div>{company.email}</div>
           </div>
           <div style={{ width: "33%" }}>
             <div>TRANSPORT: {carrierName || ""}</div>
@@ -3018,37 +3480,46 @@ function LieferscheinPrintTable({ id, company, customer, order, carrierName, tra
           </div>
           <div style={{ width: "33%" }}>
             <div>odběratel / abnehmer:</div>
-            <div style={{ marginTop: "30px" }}>podpis: ________________</div>
           </div>
         </div>
       </div>
     </div>
   );
 }
-function buildLieferscheinHtml({ company, customer, order, carrierName, transportPrice }) {
-  const items = ((order.polozky && order.polozky.length > 0) ? order.polozky : [{ popis: order.popisTovaru || "", artikel: "", palet: order.pocetPaliet || "", karton: order.pocetKartonov || "", detail: "" }])
+function buildLieferscheinHtml({ company, customer, order, carrierName, transportPrice, products }) {
+  const items = ((order.polozky && order.polozky.length > 0) ? order.polozky : [{ popis: order.popisTovaru || "", artikel: "", palet: order.pocetPaliet || "", karton: order.pocetKartonov || "" }])
     .map((it) => {
-      if (it.detail) return it;
-      const match = customer && customer.katalog ? customer.katalog.find((k) => k.artikel && k.artikel === it.artikel) : null;
-      return match ? { ...it, detail: match.detail || "" } : it;
+      const katalogItem = customer && customer.katalog ? customer.katalog.find((k) => k.artikel && k.artikel === it.artikel) : null;
+      const produkt = katalogItem && katalogItem.produktId ? (products || []).find((p) => p.id === katalogItem.produktId) : null;
+      return { ...it, produkt };
     });
-  const itemRows = items.map((it) => `
+  const sumPaliet = items.reduce((s, it) => s + (parseFloat(it.palet) || 0), 0);
+  const totalPaliet = sumPaliet > 0 ? sumPaliet : (order.pocetPaliet || 0);
+  const itemRows = items.map((it) => {
+    const p = it.produkt;
+    const eanLine = p ? [p.eanKarton && `EAN karton: ${p.eanKarton}`, p.eanUnit && `EAN kus: ${p.eanUnit}`].filter(Boolean).join("   ") : "";
+    return `
     <tr style="border-bottom:1px solid #eee;vertical-align:top;">
       <td style="padding:3px;">${it.palet || ""}</td>
       <td style="padding:3px;">${it.karton || ""}</td>
-      <td style="padding:3px;"><div>${it.popis || ""}</div>${it.detail ? `<div style="font-size:9px;color:#555;white-space:pre-wrap;">${it.detail}</div>` : ""}</td>
+      <td style="padding:3px;">
+        <div>${it.popis || ""}</div>
+        ${p && p.inhlt ? `<div style="font-size:9px;color:#555;white-space:pre-wrap;">${p.inhlt}</div>` : ""}
+        ${eanLine ? `<div style="font-size:9px;color:#555;">${eanLine}</div>` : ""}
+        ${p && p.rspo ? `<div style="font-size:9px;color:#555;">${RSPO_CERT_CODE}</div>` : ""}
+      </td>
       <td style="padding:3px;"></td>
       <td style="padding:3px;">${it.artikel || ""}</td>
-    </tr>`).join("");
+    </tr>`;
+  }).join("");
   return `
     <div style="font-family:Arial,sans-serif;font-size:11px;color:#111;max-width:760px;">
-      <div style="display:flex;justify-content:space-between;">
+      <div style="text-align:right;">
+        ${order.cisloObjednavkyDopravy}${transportPrice && transportPrice.matched ? "   " + formatEur(transportPrice.total) : ""}
+      </div>
+      <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-top:2px;">
         <div style="font-weight:bold;">${company.nazov || ""}</div>
-        <div style="text-align:right;">
-          <div style="font-size:9px;color:#777;">obj. dopravy: ${order.cisloObjednavkyDopravy}</div>
-          <div style="font-weight:bold;font-size:16px;">LIEFERSCHEIN <span style="font-weight:normal;font-size:12px;">Nr: ${order.cisloDodaciehoListu}</span></div>
-          ${transportPrice ? `<div style="font-size:11px;margin-top:2px;">Cena dopravy: ${transportPrice.matched ? `<b>${formatEur(transportPrice.total)}</b>` : `<span style="color:#b45309;">neurčena${transportPrice.reason ? " (" + transportPrice.reason + ")" : ""}</span>`}</div>` : ""}
-        </div>
+        <div style="font-weight:bold;font-size:16px;">LIEFERSCHEIN <span style="font-weight:normal;font-size:12px;">Nr: ${order.cisloDodaciehoListu}</span></div>
       </div>
       <div style="margin-top:8px;text-align:right;">
         <div style="font-style:italic;font-size:10px;">Lieferadresse/adresa dodání</div>
@@ -3076,22 +3547,22 @@ function buildLieferscheinHtml({ company, customer, order, carrierName, transpor
       </div>
       <table style="width:100%;border-collapse:collapse;margin-top:10px;font-size:10.5px;">
         <thead><tr style="border-bottom:2px solid #333;text-align:left;">
-          <th style="padding:3px;">Palet</th><th style="padding:3px;">Kartonů</th><th style="padding:3px;">BEZEICHNUNG</th><th style="padding:3px;">STK</th><th style="padding:3px;">ARTIKEL LIEF.NUM.</th>
+          <th style="padding:3px;">Palet</th><th style="padding:3px;">Karton</th><th style="padding:3px;">BEZEICHNUNG</th><th style="padding:3px;">STK</th><th style="padding:3px;">AKRTIKEL LIEF.NUM.</th>
         </tr></thead>
         <tbody>${itemRows}</tbody>
       </table>
       <div style="margin-top:14px;font-weight:bold;">
-        ${order.pocetPaletovychMiest || 0} Doppelstockpal. = ${order.pocetPaliet || 0} europaletten = ${order.pocetPaletovychMiest || 0} stallplätze
+        ${order.pocetPaletovychMiest || 0} Doppelstockpal. = ${totalPaliet} europaletten = ${order.pocetPaletovychMiest || 0} stallplätze
       </div>
       <div style="display:flex;margin-top:20px;gap:16px;">
-        <div style="width:33%;"><div>vystavil/ausgestellt von:</div><div>${company.kontaktnaOsoba || ""} ${company.email ? "(" + company.email + ")" : ""}</div></div>
+        <div style="width:33%;"><div>vystavil/ausgestellt von:</div><div>${company.email || ""}</div></div>
         <div style="width:33%;"><div>TRANSPORT: ${carrierName || ""}</div><div>NUMBER TRUCK: ________________</div><div style="margin-top:6px;">EUROPALETTEN</div><div>ACCEPTED: ______</div><div>RELEASSED: ______</div><div>DEBT: ______</div></div>
-        <div style="width:33%;"><div>odběratel / abnehmer:</div><div style="margin-top:30px;">podpis: ________________</div></div>
+        <div style="width:33%;"><div>odběratel / abnehmer:</div></div>
       </div>
     </div>`;
 }
 
-function DeliveryModal({ order, customers, carriers, company, pricelist, onClose, onSent }) {
+function DeliveryModal({ order, customers, carriers, company, pricelist, products, currentUserName, onClose, onSent }) {
   const last = order.dodaciListOdoslanaInfo;
   const customer = customers.find((c) => c.id === order.zakaznikId);
   const carrier = carriers.find((c) => c.id === order.dopravcaId);
@@ -3101,49 +3572,38 @@ function DeliveryModal({ order, customers, carriers, company, pricelist, onClose
   const [subject, setSubject] = useState(last ? last.subject : `Lieferschein / Dodací list č. ${order.cisloDodaciehoListu}`);
   const transportPrice = computeTransportPrice(order, pricelist, extractCityFromAddress);
 
-  function buildItemsLines() {
-    if (order.polozky && order.polozky.length > 0) {
-      return order.polozky.map((it) => `  ${it.popis}${it.artikel ? " (art. " + it.artikel + ")" : ""} - Palet: ${it.palet || "0"}, Karton: ${it.karton || "0"}`).join("\n");
-    }
-    return `  ${order.popisTovaru || "[doplňte]"} - ${order.mnozstvo || ""}`;
-  }
-
   const [body, setBody] = useState(
     last ? last.body :
-    `${company.nazov || "[Název společnosti]"}\n${company.adresa || ""}\n\n` +
-    `LIEFERSCHEIN / DODACÍ LIST  Nr: ${order.cisloDodaciehoListu}\n` +
-    `(objednávka dopravy č.: ${order.cisloObjednavkyDopravy})\n\n` +
-    `Lieferadresse / adresa dodání:\n${order.adresaDodaniaNazov || ""}\n${order.adresaDodania || ""}\n\n` +
-    `Abnehmer / odběratel:\n${customer ? customer.nazov : (order.zakaznik || "")}\n${customer ? customer.adresa : ""}\n${customer && customer.dic ? "Ust.-Id Nr. " + customer.dic : ""}\n\n` +
-    `Lieferungstag / datum dodání: ${order.datumDodania || "[doplňte]"}\n` +
-    `Bestellung / číslo objednávky zákazníka: ${order.cisloObjednavkyZakaznika || "[doplňte]"}\n\n` +
-    `ZBOŽÍ:\n${buildItemsLines()}\n\n` +
-    `Celkový počet palet: ${order.pocetPaliet || ""}${order.pocetKartonov ? "   Celkový počet kartonů: " + order.pocetKartonov : ""}\n\n` +
-    `Poznámka: ${order.poznamka || ""}\n\n` +
-    `Cena dopravy: ${transportPrice.matched ? formatEur(transportPrice.total) : "neurčena (" + transportPrice.reason + ")"}\n\n` +
-    `vystavil: ${company.kontaktnaOsoba || ""} (${company.email || ""})`
+    `Hello,\n\n` +
+    `please find attached the delivery note for this order.\n\n` +
+    `Have a nice day.\n\n` +
+    `Best regards,\n${currentUserName || company.kontaktnaOsoba || ""}`
   );
 
   function handlePrint() {
     setTimeout(() => window.print(), 50);
   }
   function handleDownload() {
-    const html = buildLieferscheinHtml({ company, customer, order, carrierName: carrier ? carrier.nazov : "", transportPrice });
+    const html = buildLieferscheinHtml({ company, customer, order, carrierName: carrier ? carrier.nazov : "", transportPrice, products });
     downloadHtml(`Lieferschein_${order.cisloDodaciehoListu.replace("/", "-")}.html`, html);
+  }
+  function handleDownloadXlsx() {
+    buildLieferscheinXlsx({ order, company, customer, carrierName: carrier ? carrier.nazov : "", transportPrice, products });
   }
 
   return (
     <ModalShell title={"Dodací list - " + order.cisloDodaciehoListu} onClose={onClose} wide>
-      <LieferscheinPrintTable id={printId} company={company} customer={customer} order={order} carrierName={carrier ? carrier.nazov : ""} transportPrice={transportPrice} />
+      <LieferscheinPrintTable id={printId} company={company} customer={customer} order={order} carrierName={carrier ? carrier.nazov : ""} transportPrice={transportPrice} products={products} />
       {last && <div className="mb-3 bg-emerald-50 text-emerald-800 text-xs px-3 py-2 rounded-md flex items-center gap-2"><CheckCircle2 size={14} /> Naposledy odesláno {formatDateTime(last.datum)} na {last.to}</div>}
-      <p className="text-xs text-slate-400 mb-3">Náhled nahoře odpovídá přesnému formátu vašeho Lieferscheinu - "Stáhnout" uloží stejný vzhled jako .html. E-mail níže se posílá kolegům do Německa jako obyčejný text (mailto nepodporuje formátovanou přílohu).</p>
-      <EmailQuickPicks emaily={customer ? customer.emaily : []} onPick={setEmail} />
+      <p className="text-xs text-slate-400 mb-3">Náhled nahoře odpovídá přesnému formátu vašeho Lieferscheinu - klikněte na "Stáhnout Excel" (přesná kopie vaší šablony) a stažený soubor ručně přiložte v Outlooku k e-mailu, který se otevře tlačítkem "Odeslat" (mailto odkaz nepodporuje automatickou přílohu).</p>
+      <EmailQuickPicks emaily={customer ? customer.emaily : []} value={email} onPick={setEmail} />
       <Field label="E-mail (kolegové v Německu)" value={email} onChange={setEmail} type="email" />
       <Field label="Předmět" value={subject} onChange={setSubject} />
       <Field label="Text zprávy (e-mail)" value={body} onChange={setBody} textarea />
       <div className="flex justify-end gap-2 mt-2 flex-wrap">
         <button onClick={onClose} className="text-sm text-slate-500 px-3 py-2">Zrušit</button>
-        <button onClick={handleDownload} className="bg-white border border-slate-200 hover:bg-slate-50 text-slate-700 text-sm font-medium px-4 py-2 rounded-md flex items-center gap-1.5"><Download size={16} /> Stáhnout</button>
+        <button onClick={handleDownloadXlsx} className="bg-white border border-slate-200 hover:bg-slate-50 text-slate-700 text-sm font-medium px-4 py-2 rounded-md flex items-center gap-1.5"><Download size={16} /> Stáhnout Excel</button>
+        <button onClick={handleDownload} className="bg-white border border-slate-200 hover:bg-slate-50 text-slate-700 text-sm font-medium px-4 py-2 rounded-md flex items-center gap-1.5"><Download size={16} /> Stáhnout HTML</button>
         <button onClick={handlePrint} className="bg-white border border-slate-200 hover:bg-slate-50 text-slate-700 text-sm font-medium px-4 py-2 rounded-md flex items-center gap-1.5"><Printer size={16} /> Vytisknout</button>
         <a href={email ? buildMailto(email, subject, body) : "#"} onClick={() => email && onSent(email, { subject, body, to: email, datum: new Date().toISOString() })} className={"bg-teal-700 hover:bg-teal-800 text-white text-sm font-medium px-4 py-2 rounded-md flex items-center gap-1.5 " + (!email ? "opacity-50 pointer-events-none" : "")}>
           <FileText size={16} /> Odeslat e-mailem
@@ -3350,6 +3810,7 @@ function NveListModal({ order, company, onClose, onSave, onSent }) {
       if (uploadError) throw uploadError;
       await onSave({ nveListPath: path, nveListFileName: file.name, nveListUploadedAt: new Date().toISOString() });
     } catch (err) {
+      console.error(err);
       setError("Nahrání souboru se nezdařilo, zkuste to znovu.");
     }
     setBusy(false);
@@ -3467,20 +3928,55 @@ function CmrModal({ order, carriers, customers, company, onClose, onDone }) {
 
 /* ---------------- Carriers ---------------- */
 
+function UlohaEditModal({ uloha, onClose, onSave }) {
+  const [popis, setPopis] = useState(uloha.popis || "");
+  const [osoby, setOsoby] = useState(uloha.osoby || []);
+  const [termin, setTermin] = useState(uloha.termin || "");
+  const [zodpovedny, setZodpovedny] = useState(uloha.zodpovedny || "");
+  const [zastupca, setZastupca] = useState(uloha.zastupca || "");
+  const [error, setError] = useState("");
+  const osobyOptions = ULOHY_OSOBY.map((o) => ({ value: o, label: o }));
+
+  function save() {
+    if (!popis.trim()) { setError("Vyplňte znění úkolu."); return; }
+    setError("");
+    onSave({ popis: popis.trim(), osoby, termin: termin.trim(), zodpovedny, zastupca });
+  }
+
+  return (
+    <ModalShell title="Upravit úkol" onClose={onClose}>
+      <Field label="Úkol / akční plán / bod" value={popis} onChange={setPopis} textarea rows={2} />
+      <MultiCheckField label="Kdo má doručit" value={osoby} onChange={setOsoby} options={osobyOptions} />
+      <div className="grid grid-cols-2 gap-x-3">
+        <SelectField label="Zodpovědná osoba" value={zodpovedny} onChange={setZodpovedny} options={ULOHY_ZODPOVEDNY_OPTIONS} />
+        <SelectField label="Zástupce (při nepřítomnosti)" value={zastupca} onChange={setZastupca} options={ULOHY_ZODPOVEDNY_OPTIONS} />
+      </div>
+      <DateField label="Termín" value={termin} onChange={setTermin} />
+      {error && <div className="mb-3 bg-red-50 text-red-700 text-xs px-3 py-2 rounded-md flex items-center gap-2"><AlertCircle size={14} /> {error}</div>}
+      <div className="flex justify-end mt-2">
+        <button onClick={save} className="bg-teal-700 hover:bg-teal-800 text-white text-sm font-medium px-4 py-2 rounded-md">Uložit</button>
+      </div>
+    </ModalShell>
+  );
+}
+
 function UlohyView({ ulohy, onSave, onUpdate, onDelete }) {
   const [popis, setPopis] = useState("");
   const [osoby, setOsoby] = useState([]);
   const [termin, setTermin] = useState("");
+  const [zodpovedny, setZodpovedny] = useState("");
+  const [zastupca, setZastupca] = useState("");
   const [formError, setFormError] = useState("");
   const [confirmDelete, setConfirmDelete] = useState(null);
+  const [editingUloha, setEditingUloha] = useState(null);
 
   const osobyOptions = ULOHY_OSOBY.map((o) => ({ value: o, label: o }));
 
   function add() {
     if (!popis.trim()) { setFormError("Vyplňte znění úkolu."); return; }
     setFormError("");
-    onSave({ popis: popis.trim(), osoby, termin: termin.trim() });
-    setPopis(""); setOsoby([]); setTermin("");
+    onSave({ popis: popis.trim(), osoby, termin: termin.trim(), zodpovedny, zastupca });
+    setPopis(""); setOsoby([]); setTermin(""); setZodpovedny(""); setZastupca("");
   }
 
   const dnes = parseSkDate(todayStr());
@@ -3502,6 +3998,10 @@ function UlohyView({ ulohy, onSave, onUpdate, onDelete }) {
       <div className="bg-white border border-slate-200 rounded-lg p-4 mb-4">
         <Field label="Úkol / akční plán / bod" value={popis} onChange={setPopis} textarea rows={2} />
         <MultiCheckField label="Kdo má doručit" value={osoby} onChange={setOsoby} options={osobyOptions} />
+        <div className="grid grid-cols-2 gap-x-3">
+          <SelectField label="Zodpovědná osoba" value={zodpovedny} onChange={setZodpovedny} options={ULOHY_ZODPOVEDNY_OPTIONS} />
+          <SelectField label="Zástupce (při nepřítomnosti)" value={zastupca} onChange={setZastupca} options={ULOHY_ZODPOVEDNY_OPTIONS} />
+        </div>
         <div className="flex gap-2 items-end flex-wrap">
           <div className="min-w-[160px]">
             <DateField label="Termín" value={termin} onChange={setTermin} />
@@ -3515,7 +4015,7 @@ function UlohyView({ ulohy, onSave, onUpdate, onDelete }) {
       ) : (
         <div className="bg-white border border-slate-200 rounded-lg overflow-hidden">
           <table className="w-full text-sm">
-            <thead><tr className="bg-slate-100 text-slate-600 text-left"><th className="px-3 py-2 font-medium">Úkol</th><th className="px-3 py-2 font-medium">Kdo</th><th className="px-3 py-2 font-medium">Termín</th><th className="px-3 py-2 font-medium">Stav</th><th className="px-3 py-2"></th></tr></thead>
+            <thead><tr className="bg-slate-100 text-slate-600 text-left"><th className="px-3 py-2 font-medium">Úkol</th><th className="px-3 py-2 font-medium">Kdo</th><th className="px-3 py-2 font-medium">Zodpovědný</th><th className="px-3 py-2 font-medium">Termín</th><th className="px-3 py-2 font-medium">Stav</th><th className="px-3 py-2"></th></tr></thead>
             <tbody>
               {sorted.map((u) => {
                 const terminDate = parseSkDate(u.termin);
@@ -3530,6 +4030,14 @@ function UlohyView({ ulohy, onSave, onUpdate, onDelete }) {
                         ))}
                       </div>
                     </td>
+                    <td className="px-3 py-2 text-slate-500 whitespace-nowrap">
+                      {u.zodpovedny ? (
+                        <>
+                          {u.zodpovedny}
+                          {u.zastupca && <span className="text-xs text-slate-400"> (zástupce: {u.zastupca})</span>}
+                        </>
+                      ) : "—"}
+                    </td>
                     <td className={"px-3 py-2 " + (overdue ? "text-red-600 font-medium" : "text-slate-500")}>{u.termin || "—"}</td>
                     <td className="px-3 py-2">
                       <button
@@ -3540,7 +4048,10 @@ function UlohyView({ ulohy, onSave, onUpdate, onDelete }) {
                       </button>
                     </td>
                     <td className="px-3 py-2 text-right">
-                      <IconButton title="Smazat" onClick={() => setConfirmDelete(u)}><Trash2 size={16} /></IconButton>
+                      <div className="flex justify-end gap-1">
+                        <IconButton title="Upravit" onClick={() => setEditingUloha(u)}><Pencil size={16} /></IconButton>
+                        <IconButton title="Smazat" onClick={() => setConfirmDelete(u)}><Trash2 size={16} /></IconButton>
+                      </div>
                     </td>
                   </tr>
                 );
@@ -3548,6 +4059,13 @@ function UlohyView({ ulohy, onSave, onUpdate, onDelete }) {
             </tbody>
           </table>
         </div>
+      )}
+      {editingUloha && (
+        <UlohaEditModal
+          uloha={editingUloha}
+          onClose={() => setEditingUloha(null)}
+          onSave={async (patch) => { await onUpdate(editingUloha.id, patch); setEditingUloha(null); }}
+        />
       )}
       {confirmDelete && (
         <ModalShell title="Smazat úkol?" onClose={() => setConfirmDelete(null)}>
@@ -3643,6 +4161,11 @@ function EmailListEditor({ emaily, onChange, caption }) {
     setLabel("");
     setEmail("");
   }
+  function update(i, key, val) {
+    const next = emaily.slice();
+    next[i] = { ...next[i], [key]: val };
+    onChange(next);
+  }
   function remove(i) {
     onChange(emaily.filter((_, idx) => idx !== i));
   }
@@ -3653,9 +4176,10 @@ function EmailListEditor({ emaily, onChange, caption }) {
       {(emaily || []).length > 0 && (
         <div className="mb-1.5 space-y-1">
           {emaily.map((e, i) => (
-            <div key={i} className="flex items-center justify-between bg-slate-50 rounded-md px-2.5 py-1.5 text-sm">
-              <span><b>{e.label}:</b> {e.email}</span>
-              <button onClick={() => remove(i)} className="text-slate-400 hover:text-red-600"><Trash2 size={14} /></button>
+            <div key={i} className="flex items-center gap-1.5 bg-slate-50 rounded-md px-1.5 py-1">
+              <input value={e.label} onChange={(ev) => update(i, "label", ev.target.value)} className="w-32 border border-slate-200 rounded px-2 py-1 text-sm" />
+              <input value={e.email} onChange={(ev) => update(i, "email", ev.target.value)} className="flex-1 border border-slate-200 rounded px-2 py-1 text-sm" />
+              <button onClick={() => remove(i)} className="text-slate-400 hover:text-red-600 shrink-0"><Trash2 size={14} /></button>
             </div>
           ))}
         </div>
@@ -3761,26 +4285,50 @@ function CustomersView({ customers, onSave, onEdit }) {
   );
 }
 
-function CatalogTable({ katalog, setKatalog }) {
+function CatalogTable({ katalog, setKatalog, products }) {
   function update(i, key, val) {
     const next = katalog.slice();
     next[i] = { ...next[i], [key]: val };
     setKatalog(next);
   }
+  function pickProdukt(i, produktId) {
+    const p = (products || []).find((x) => x.id === produktId);
+    const next = katalog.slice();
+    next[i] = {
+      ...next[i],
+      produktId,
+      artikel: p ? (p.cisloArtiklu || next[i].artikel) : next[i].artikel,
+      popis: next[i].popis || (p ? productLabel(p) : next[i].popis),
+    };
+    setKatalog(next);
+  }
   function remove(i) { setKatalog(katalog.filter((_, idx) => idx !== i)); }
-  function add() { setKatalog([...katalog, { popis: "", artikel: "", detail: "" }]); }
+  function add() { setKatalog([...katalog, { popis: "", artikel: "", produktId: "" }]); }
   return (
     <div className="mb-3">
       <span className="block text-xs font-medium text-slate-500 mb-1">Katalog zboží</span>
+      <p className="text-xs text-slate-400 mb-1.5">EAN, obsah balení a RSPO se zadávají jednou u produktu ve Výrobě - zde jen propojíte produkt a doplníte název/číslo artiklu, jak je zná tento zákazník.</p>
       <div className="border border-slate-200 rounded-md overflow-hidden">
         <table className="w-full text-xs">
-          <thead><tr className="bg-slate-100 text-slate-600 text-left"><th className="px-2 py-1.5">Popis zboží</th><th className="px-2 py-1.5 w-28">Číslo artiklu</th><th className="px-2 py-1.5 w-48">Balenie / EAN / cert. (viac riadkov)</th><th className="px-2 py-1.5 w-8"></th></tr></thead>
+          <thead>
+            <tr className="bg-slate-100 text-slate-600 text-left">
+              <th className="px-2 py-1.5 w-48">Produkt z výroby</th>
+              <th className="px-2 py-1.5">Popis zboží (pro zákazníka)</th>
+              <th className="px-2 py-1.5 w-28">Číslo artiklu</th>
+              <th className="px-2 py-1.5 w-8"></th>
+            </tr>
+          </thead>
           <tbody>
             {katalog.map((k, i) => (
               <tr key={i} className="border-t border-slate-100">
+                <td className="px-1 py-1">
+                  <select value={k.produktId || ""} onChange={(e) => pickProdukt(i, e.target.value)} className="w-full border border-slate-200 rounded px-1.5 py-1">
+                    <option value="">-- nepropojeno --</option>
+                    {(products || []).map((p) => <option key={p.id} value={p.id}>{productLabel(p)}</option>)}
+                  </select>
+                </td>
                 <td className="px-1 py-1"><input value={k.popis} onChange={(e) => update(i, "popis", e.target.value)} className="w-full border border-slate-200 rounded px-1.5 py-1" /></td>
                 <td className="px-1 py-1"><input value={k.artikel} onChange={(e) => update(i, "artikel", e.target.value)} className="w-full border border-slate-200 rounded px-1.5 py-1" /></td>
-                <td className="px-1 py-1"><textarea value={k.detail || ""} onChange={(e) => update(i, "detail", e.target.value)} rows={2} placeholder="např. inhalt: 20 x 75g Beutel, 1 PLT=16 KRT" className="w-full border border-slate-200 rounded px-1.5 py-1" /></td>
                 <td className="px-1 py-1 text-center"><button onClick={() => remove(i)} className="text-slate-400 hover:text-red-600"><Trash2 size={14} /></button></td>
               </tr>
             ))}
@@ -3792,7 +4340,7 @@ function CatalogTable({ katalog, setKatalog }) {
   );
 }
 
-function CustomerModal({ customer, onClose, onSave }) {
+function CustomerModal({ customer, products, onClose, onSave }) {
   const [f, setF] = useState({ ...EMPTY_CUSTOMER, ...customer, katalog: customer.katalog || [] });
   return (
     <ModalShell title={"Upravit zákazníka - " + customer.nazov} onClose={onClose} wide>
@@ -3802,7 +4350,7 @@ function CustomerModal({ customer, onClose, onSave }) {
       <Field label="DIČ / Ust.-Id Nr." value={f.dic} onChange={(v) => setF({ ...f, dic: v })} />
       <Field label="E-mail (komu se posílá dodací list - oddělte čárkou, pokud je více adres)" value={f.email} onChange={(v) => setF({ ...f, email: v })} />
       <EmailListEditor emaily={f.emaily} onChange={(list) => setF({ ...f, emaily: list })} />
-      <CatalogTable katalog={f.katalog} setKatalog={(k) => setF({ ...f, katalog: k })} />
+      <CatalogTable katalog={f.katalog} setKatalog={(k) => setF({ ...f, katalog: k })} products={products} />
       <div className="flex justify-end mt-2"><button onClick={() => onSave(f)} className="bg-teal-700 hover:bg-teal-800 text-white text-sm font-medium px-4 py-2 rounded-md">Uložit</button></div>
     </ModalShell>
   );
@@ -3912,6 +4460,7 @@ function SupplierGoodsTable({ tovary, setTovary }) {
       setTovary(next);
       setImportMsg(`Naimportováno: ${added} nových, ${updated} aktualizovaných.`);
     } catch (err) {
+      console.error(err);
       setImportError(err.message || "Nepodařilo se zpracovat soubor.");
     }
     setImportBusy(false);
@@ -3992,6 +4541,7 @@ function DesignFormModal({ design, onClose, onSave }) {
       if (uploadError) throw uploadError;
       setF((prev) => ({ ...prev, [field]: path, ...(field === "tlacoveDataPath" ? { tlacoveDataNazov: file.name } : {}) }));
     } catch (e) {
+      console.error(e);
       setError("Nahrání souboru se nezdařilo, zkuste to znovu.");
     }
     setBusy(false);
@@ -4124,11 +4674,409 @@ function DesignsView({ designs, onSave, onUpdate, onDelete }) {
   );
 }
 
+/* ---------------- Navody ---------------- */
+
+function NavodCard({ navod, onOpen, onDelete }) {
+  const [url, setUrl] = useState(null);
+
+  useEffect(() => {
+    let active = true;
+    (async () => {
+      const { data, error } = await supabase.storage.from(NAVODY_BUCKET).createSignedUrl(navod.path, 3600);
+      if (active && !error && data) setUrl(data.signedUrl);
+    })();
+    return () => { active = false; };
+  }, [navod.path]);
+
+  return (
+    <div className="bg-white border border-slate-200 rounded-lg overflow-hidden group">
+      <button type="button" onClick={() => onOpen(navod, url)} disabled={!url} className="block w-full text-left cursor-pointer disabled:cursor-wait">
+        <div className="h-56 bg-slate-50 border-b border-slate-100 overflow-hidden relative">
+          {url ? (
+            <iframe src={url} title={navod.nazov} className="w-full h-full pointer-events-none" />
+          ) : (
+            <div className="w-full h-full flex items-center justify-center text-slate-300"><FileText size={28} /></div>
+          )}
+          <div className="absolute inset-0 group-hover:bg-black/5 transition-colors" />
+        </div>
+      </button>
+      <div className="flex items-center justify-between px-3 py-2 gap-2">
+        <div className="font-medium text-sm truncate">{navod.nazov}</div>
+        <IconButton title="Smazat" onClick={() => onDelete(navod)}><Trash2 size={16} /></IconButton>
+      </div>
+    </div>
+  );
+}
+
+function NavodFormModal({ onClose, onSave }) {
+  const [nazov, setNazov] = useState("");
+  const [file, setFile] = useState(null);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+
+  async function save() {
+    if (!nazov.trim()) { setError("Vyplňte název návodu."); return; }
+    if (!file) { setError("Vyberte PDF soubor."); return; }
+    setBusy(true);
+    setError("");
+    try {
+      const id = uid();
+      const path = `${id}/${file.name}`;
+      const { error: uploadError } = await supabase.storage.from(NAVODY_BUCKET).upload(path, file, { contentType: file.type || "application/pdf" });
+      if (uploadError) throw uploadError;
+      await onSave({ id, nazov: nazov.trim(), path, fileName: file.name });
+    } catch (e) {
+      console.error(e);
+      setError("Nahrání se nezdařilo, zkuste to znovu.");
+    }
+    setBusy(false);
+  }
+
+  return (
+    <ModalShell title="Nový návod" onClose={onClose}>
+      <Field label="Název" value={nazov} onChange={setNazov} />
+      <label className="block mb-3">
+        <span className="block text-xs font-medium text-slate-500 mb-1">PDF soubor</span>
+        <input type="file" accept="application/pdf" disabled={busy} onChange={(e) => setFile(e.target.files[0])} className="w-full text-sm" />
+      </label>
+      {error && <div className="mb-3 bg-red-50 text-red-700 text-xs px-3 py-2 rounded-md flex items-center gap-2"><AlertCircle size={14} /> {error}</div>}
+      <div className="flex justify-end mt-2">
+        <button onClick={save} disabled={busy} className="bg-teal-700 hover:bg-teal-800 disabled:opacity-60 text-white text-sm font-medium px-4 py-2 rounded-md">
+          {busy ? "Nahrávám..." : "Uložit"}
+        </button>
+      </div>
+    </ModalShell>
+  );
+}
+
+function NavodyView({ navody, onSave, onDelete }) {
+  const [showNew, setShowNew] = useState(false);
+  const [viewing, setViewing] = useState(null);
+  const [confirmDelete, setConfirmDelete] = useState(null);
+
+  return (
+    <div>
+      <div className="flex items-center justify-between mb-4">
+        <h1 className="text-xl font-semibold">Návody</h1>
+        <button onClick={() => setShowNew(true)} className="flex items-center gap-1.5 bg-teal-700 hover:bg-teal-800 text-white text-sm font-medium px-3 py-2 rounded-md">
+          <Plus size={16} /> Přidat návod
+        </button>
+      </div>
+
+      {navody.length === 0 ? (
+        <div className="bg-white border border-slate-200 rounded-lg p-10 text-center text-slate-500">
+          <BookOpen size={28} className="mx-auto mb-3 text-slate-300" />
+          Zatím žádné návody.
+        </div>
+      ) : (
+        <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-4">
+          {navody.map((n) => (
+            <NavodCard key={n.id} navod={n} onOpen={(navod, url) => setViewing({ navod, url })} onDelete={() => setConfirmDelete(n)} />
+          ))}
+        </div>
+      )}
+
+      {showNew && (
+        <NavodFormModal
+          onClose={() => setShowNew(false)}
+          onSave={async (fields) => { await onSave(fields); setShowNew(false); }}
+        />
+      )}
+
+      {viewing && (
+        <div className="fixed inset-0 bg-black/60 z-50 flex flex-col p-4">
+          <div className="flex items-center justify-between mb-2 text-white">
+            <div className="font-medium">{viewing.navod.nazov}</div>
+            <button onClick={() => setViewing(null)} className="hover:text-slate-300"><X size={22} /></button>
+          </div>
+          <div className="flex-1 bg-white rounded-lg overflow-hidden">
+            {viewing.url && <iframe src={viewing.url} title={viewing.navod.nazov} className="w-full h-full" />}
+          </div>
+        </div>
+      )}
+
+      {confirmDelete && (
+        <ModalShell title="Smazat návod?" onClose={() => setConfirmDelete(null)}>
+          <p className="text-sm text-slate-600 mb-4">Opravdu chcete smazat návod "{confirmDelete.nazov}"?</p>
+          <div className="flex justify-end gap-2">
+            <button onClick={() => setConfirmDelete(null)} className="text-sm text-slate-500 px-3 py-2">Zrušit</button>
+            <button onClick={() => { onDelete(confirmDelete.id); setConfirmDelete(null); }} className="bg-red-600 hover:bg-red-700 text-white text-sm font-medium px-4 py-2 rounded-md flex items-center gap-1.5">
+              <Trash2 size={16} /> Ano, smazat
+            </button>
+          </div>
+        </ModalShell>
+      )}
+    </div>
+  );
+}
+
+/* ---------------- Reklamace ---------------- */
+
+function ReklamaceView({ reklamace, suppliers, currentUserName, onSave, onUpdate, onDelete }) {
+  const [f, setF] = useState({ ...EMPTY_REKLAMACE, datum: todayStr(), zapisal: currentUserName || "" });
+  const [formError, setFormError] = useState("");
+  const [confirmDelete, setConfirmDelete] = useState(null);
+  const materialPicks = materialPicksForSupplier(f.dodavatelId, suppliers, MATERIAL_QUICK_PICKS);
+
+  function pickSupplier(id) {
+    const s = (suppliers || []).find((x) => x.id === id);
+    setF((prev) => ({ ...prev, dodavatelId: id, dodavatel: s ? s.nazov : prev.dodavatel, material: "" }));
+  }
+
+  function add() {
+    if (!f.material.trim()) { setFormError("Vyplňte materiál / položku."); return; }
+    if (!f.mnozstvoCislo) { setFormError("Vyplňte množství."); return; }
+    setFormError("");
+    onSave({
+      ...f,
+      material: f.material.trim(),
+      dodavatel: f.dodavatel.trim(),
+      dovod: f.dovod.trim(),
+      poznamka: f.poznamka.trim(),
+      mnozstvo: [f.mnozstvoCislo, f.mnozstvoJednotka].filter(Boolean).join(" ").trim(),
+    });
+    setF({ ...EMPTY_REKLAMACE, datum: todayStr(), zapisal: currentUserName || "" });
+  }
+
+  const sorted = reklamace.slice().sort((a, b) => {
+    if (!!(a.stav === "Vybavene") !== !!(b.stav === "Vybavene")) return a.stav === "Vybavene" ? 1 : -1;
+    return 0;
+  });
+
+  return (
+    <div>
+      <div className="flex items-center justify-between mb-4">
+        <h1 className="text-xl font-semibold">Reklamace</h1>
+      </div>
+      <p className="text-xs text-slate-400 mb-4">Poškozený materiál nebo obaly zjištěné např. při kontrole před výrobou (nesouvisí s konkrétním příjmem zboží) - čeká na vyzvednutí dodavatelem při další dodávce. Množství se automaticky odečte ze stavu zásob (jako výdej s důvodem "Znehodnotené").</p>
+      <div className="bg-white border border-slate-200 rounded-lg p-4 mb-4">
+        <div className="grid grid-cols-2 gap-x-3">
+          <DateField label="Datum" value={f.datum} onChange={(v) => setF({ ...f, datum: v })} />
+          <SelectField
+            label="Dodavatel"
+            value={f.dodavatelId}
+            onChange={pickSupplier}
+            options={[{ value: "", label: "-- vyberte / doplním ručně --" }, ...suppliers.map((s) => ({ value: s.id, label: s.nazov }))]}
+          />
+        </div>
+        {!f.dodavatelId && (
+          <Field label="Název dodavatele (zobrazení)" value={f.dodavatel} onChange={(v) => setF({ ...f, dodavatel: v })} />
+        )}
+        <label className="block mb-3">
+          <span className="block text-xs font-medium text-slate-500 mb-1">Materiál / položka (např. Kbelíky)</span>
+          <input
+            list="reklamace-material-picks"
+            value={f.material}
+            onChange={(e) => setF({ ...f, material: e.target.value })}
+            className="w-full border border-slate-200 rounded-md px-2.5 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-teal-600"
+          />
+          <datalist id="reklamace-material-picks">
+            {materialPicks.map((m) => <option key={m} value={m} />)}
+          </datalist>
+        </label>
+        <div className="mb-3">
+          <span className="block text-xs font-medium text-slate-500 mb-1">Množství</span>
+          <div className="flex gap-2 items-center flex-wrap">
+            <input value={f.mnozstvoCislo} onChange={(e) => setF({ ...f, mnozstvoCislo: e.target.value })} inputMode="decimal" placeholder="např. 20" className="w-24 border border-slate-200 rounded-md px-2.5 py-1.5 text-sm" />
+            <select value={f.mnozstvoJednotka} onChange={(e) => setF({ ...f, mnozstvoJednotka: e.target.value })} className="border border-slate-200 rounded-md px-2.5 py-1.5 text-sm">
+              {UNIT_QUICK_PICKS.map((u) => <option key={u} value={u}>{u}</option>)}
+            </select>
+          </div>
+        </div>
+        <Field label="Důvod (např. poškozené při kontrole před výrobou)" value={f.dovod} onChange={(v) => setF({ ...f, dovod: v })} />
+        <Field label="Poznámka" value={f.poznamka} onChange={(v) => setF({ ...f, poznamka: v })} textarea />
+        <Field label="Zapsal" value={f.zapisal} onChange={(v) => setF({ ...f, zapisal: v })} />
+        <button onClick={add} className="bg-teal-700 hover:bg-teal-800 text-white text-sm font-medium px-3 py-2 rounded-md flex items-center gap-1.5"><Plus size={16} /> Přidat reklamaci</button>
+        {formError && <div className="mt-2 bg-red-50 text-red-700 text-xs px-3 py-2 rounded-md flex items-center gap-2"><AlertCircle size={14} /> {formError}</div>}
+      </div>
+
+      {sorted.length === 0 ? (
+        <div className="bg-white border border-slate-200 rounded-lg p-8 text-center text-slate-500">Zatím žádná reklamace.</div>
+      ) : (
+        <div className="bg-white border border-slate-200 rounded-lg overflow-hidden">
+          <table className="w-full text-sm">
+            <thead><tr className="bg-slate-100 text-slate-600 text-left"><th className="px-3 py-2 font-medium">Datum</th><th className="px-3 py-2 font-medium">Dodavatel</th><th className="px-3 py-2 font-medium">Materiál</th><th className="px-3 py-2 font-medium">Množství</th><th className="px-3 py-2 font-medium">Důvod</th><th className="px-3 py-2 font-medium">Stav</th><th className="px-3 py-2"></th></tr></thead>
+            <tbody>
+              {sorted.map((r) => (
+                <tr key={r.id} className={"border-t border-slate-100 " + (r.stav === "Vybavene" ? "opacity-50" : "")}>
+                  <td className="px-3 py-2 text-slate-500">{r.datum || "—"}</td>
+                  <td className="px-3 py-2">{r.dodavatel || "—"}</td>
+                  <td className="px-3 py-2 font-medium">{r.material}</td>
+                  <td className="px-3 py-2 text-slate-500">{r.mnozstvo}</td>
+                  <td className="px-3 py-2 text-slate-500 whitespace-pre-wrap max-w-xs">{r.dovod}</td>
+                  <td className="px-3 py-2">
+                    <button
+                      onClick={() => onUpdate(r.id, { stav: r.stav === "Vybavene" ? "Ceka na vyzdvihnutie" : "Vybavene" })}
+                      className={"flex items-center gap-1.5 text-xs font-medium px-2 py-1 rounded-full border " + (r.stav === "Vybavene" ? "bg-green-50 text-green-700 border-green-200" : "bg-amber-50 text-amber-700 border-amber-200")}
+                    >
+                      <CheckCircle2 size={14} /> {r.stav === "Vybavene" ? "Vybaveno" : "Čeká na vyzvednutí"}
+                    </button>
+                  </td>
+                  <td className="px-3 py-2 text-right">
+                    <IconButton title="Smazat" onClick={() => setConfirmDelete(r)}><Trash2 size={16} /></IconButton>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+      {confirmDelete && (
+        <ModalShell title="Smazat reklamaci?" onClose={() => setConfirmDelete(null)}>
+          <p className="text-sm text-slate-600 mb-4">Opravdu chcete smazat tuto reklamaci? Tuto akci nelze vrátit zpět.</p>
+          <div className="flex justify-end gap-2">
+            <button onClick={() => setConfirmDelete(null)} className="px-3 py-1.5 rounded-md text-sm border border-slate-200 text-slate-600">Zrušit</button>
+            <button onClick={() => { onDelete(confirmDelete.id); setConfirmDelete(null); }} className="px-3 py-1.5 rounded-md text-sm bg-red-600 hover:bg-red-700 text-white">Smazat</button>
+          </div>
+        </ModalShell>
+      )}
+    </div>
+  );
+}
+
 /* ---------------- Produkty ---------------- */
 
-function ProductsView({ products, designs, onSave, onEdit }) {
+function findSwPricelistProductColumns(rows) {
+  if (!rows || !rows.length) return null;
+  const LABELS = [
+    { key: "nazov", match: /name/i },
+    { key: "vaha", match: /weight/i },
+    { key: "obsah", match: /content/i },
+    { key: "snc", match: /snc/i },
+    { key: "sw", match: /sage/i },
+  ];
+  let headerRowIdx = -1, bestCount = -1, cols = {};
+  rows.forEach((row, ri) => {
+    const rowCols = {};
+    let count = 0;
+    row.forEach((cell, ci) => {
+      const s = String(cell);
+      LABELS.forEach((l) => {
+        if (rowCols[l.key] === undefined && l.match.test(s)) { rowCols[l.key] = ci; count++; }
+      });
+    });
+    if (count > bestCount) { bestCount = count; headerRowIdx = ri; cols = rowCols; }
+  });
+  if (bestCount < 3 || cols.nazov === undefined) return null;
+  return { headerRowIdx, cols };
+}
+
+function numEqApprox(a, b) {
+  const na = parseFloat(String(a).replace(",", "."));
+  const nb = parseFloat(String(b).replace(",", "."));
+  if (isNaN(na) || isNaN(nb)) return false;
+  return Math.abs(na - nb) < 0.001;
+}
+
+function guessProductMatch(products, row) {
+  const nazovUpper = String(row.nazov || "").toUpperCase();
+  const words = nazovUpper.split(/[^A-Z0-9]+/).filter(Boolean);
+  const candidates = products.filter((p) => {
+    const znackaUpper = String(p.znacka || "").toUpperCase().trim();
+    if (!znackaUpper || !words.includes(znackaUpper)) return false;
+    if (row.vaha !== "" && p.gramaz && !numEqApprox(row.vaha, p.gramaz)) return false;
+    if (row.obsah !== "" && p.ksVKartone && !numEqApprox(row.obsah, p.ksVKartone)) return false;
+    return true;
+  });
+  return candidates.length === 1 ? candidates[0] : null;
+}
+
+function ArtiklMatchModal({ products, swPricelist, onClose, onApply }) {
+  const info = useMemo(() => findSwPricelistProductColumns(swPricelist && swPricelist.rows), [swPricelist]);
+
+  const dataRows = useMemo(() => {
+    if (!info || !swPricelist || !swPricelist.rows) return [];
+    const { headerRowIdx, cols } = info;
+    return swPricelist.rows.slice(headerRowIdx + 1).map((row, i) => ({
+      idx: headerRowIdx + 1 + i,
+      nazov: row[cols.nazov],
+      vaha: cols.vaha !== undefined ? row[cols.vaha] : "",
+      obsah: cols.obsah !== undefined ? row[cols.obsah] : "",
+      snc: cols.snc !== undefined ? row[cols.snc] : "",
+      sw: cols.sw !== undefined ? row[cols.sw] : "",
+    })).filter((r) => String(r.nazov || "").trim() && (String(r.snc || "").trim() || String(r.sw || "").trim()));
+  }, [info, swPricelist]);
+
+  const [selections, setSelections] = useState(() => {
+    const initial = {};
+    dataRows.forEach((r) => {
+      const match = guessProductMatch(products, r);
+      if (match) initial[r.idx] = match.id;
+    });
+    return initial;
+  });
+
+  const matchedCount = Object.values(selections).filter(Boolean).length;
+
+  function apply() {
+    const patchById = {};
+    dataRows.forEach((r) => {
+      const pid = selections[r.idx];
+      if (pid) patchById[pid] = { cisloArtiklu: String(r.snc || "").trim(), cisloArtikluSW: String(r.sw || "").trim() };
+    });
+    const next = products.map((p) => (patchById[p.id] ? { ...p, ...patchById[p.id] } : p));
+    onApply(next);
+    onClose();
+  }
+
+  if (!info || !dataRows.length) {
+    return (
+      <ModalShell title="Doplnit artiklová čísla z ceníku" onClose={onClose}>
+        <div className="text-sm text-slate-500">V nahraném ceníku Stenger Waffeln se nepodařilo najít sloupce s artiklovými čísly (Artikel No. SNC / Sage 100). Zkontrolujte, že je ceník nahraný v sekci "Ceník Stenger Waffeln".</div>
+      </ModalShell>
+    );
+  }
+
+  return (
+    <ModalShell title="Doplnit artiklová čísla z ceníku" onClose={onClose} extraWide>
+      <p className="text-xs text-slate-400 mb-3">Řádky, kde appka podle názvu, gramáže a ks v kartonu našla přesně jeden odpovídající produkt, jsou předvyplněné (zeleně). Zkontrolujte a zbytek doplňte ručně přes výběr, pak potvrďte.</p>
+      <div className="overflow-auto max-h-[55vh] border border-slate-100 rounded-md mb-3">
+        <table className="text-xs w-full">
+          <thead>
+            <tr className="bg-slate-100 text-slate-600 text-left sticky top-0">
+              <th className="px-2 py-1.5">Artikel Name</th>
+              <th className="px-2 py-1.5">Váha</th>
+              <th className="px-2 py-1.5">Content</th>
+              <th className="px-2 py-1.5">SNC</th>
+              <th className="px-2 py-1.5">Sage 100</th>
+              <th className="px-2 py-1.5">Produkt</th>
+            </tr>
+          </thead>
+          <tbody>
+            {dataRows.map((r) => (
+              <tr key={r.idx} className="border-t border-slate-100">
+                <td className="px-2 py-1 whitespace-nowrap">{r.nazov}</td>
+                <td className="px-2 py-1 whitespace-nowrap">{r.vaha}</td>
+                <td className="px-2 py-1 whitespace-nowrap">{r.obsah}</td>
+                <td className="px-2 py-1 whitespace-nowrap">{r.snc}</td>
+                <td className="px-2 py-1 whitespace-nowrap">{r.sw}</td>
+                <td className="px-2 py-1">
+                  <select
+                    value={selections[r.idx] || ""}
+                    onChange={(e) => setSelections((prev) => ({ ...prev, [r.idx]: e.target.value }))}
+                    className={"border rounded-md px-1.5 py-1 text-xs max-w-[200px] " + (selections[r.idx] ? "border-teal-300 bg-teal-50" : "border-slate-200")}
+                  >
+                    <option value="">— nepřiřazeno —</option>
+                    {products.map((p) => <option key={p.id} value={p.id}>{productLabel(p)}</option>)}
+                  </select>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+      <div className="flex items-center justify-between">
+        <span className="text-xs text-slate-500">{matchedCount} z {dataRows.length} řádků přiřazeno.</span>
+        <button onClick={apply} disabled={matchedCount === 0} className="bg-teal-700 hover:bg-teal-800 disabled:opacity-50 text-white text-sm font-medium px-4 py-2 rounded-md">Uložit přiřazená čísla</button>
+      </div>
+    </ModalShell>
+  );
+}
+
+function ProductsView({ products, designs, swPricelist, onSave, onEdit }) {
   const [f, setF] = useState({ znacka: "", gramaz: "", ksVKartone: "", kartonovNaPalete: "", linka: "sacky" });
   const [formError, setFormError] = useState("");
+  const [showArtiklMatch, setShowArtiklMatch] = useState(false);
 
   function add() {
     if (!f.znacka.trim()) { setFormError("Vyplňte značku/název produktu."); return; }
@@ -4148,6 +5096,8 @@ function ProductsView({ products, designs, onSave, onEdit }) {
       "Ks v kartonu": p.ksVKartone,
       "Kartonů na paletě": p.kartonovNaPalete,
       "Design": (designs || []).find((d) => d.id === p.designId)?.nazov || "",
+      "Naše artiklové číslo (SNC)": p.cisloArtiklu || "",
+      "Artiklové číslo Stenger Waffeln (Sage 100)": p.cisloArtikluSW || "",
       "Položky v receptuře": (p.receptura || []).length,
     }));
     await exportRowsToExcel(rows, "Produkty", "Produkty");
@@ -4157,10 +5107,23 @@ function ProductsView({ products, designs, onSave, onEdit }) {
     <div>
       <div className="flex items-center justify-between mb-4">
         <h1 className="text-xl font-semibold">Produkty</h1>
-        <button onClick={exportToExcel} disabled={products.length === 0} title={products.length === 0 ? "Seznam je prázdný" : "Exportovat do Excelu"} className="flex items-center gap-1.5 bg-white border border-slate-200 hover:bg-slate-50 disabled:opacity-50 disabled:cursor-not-allowed text-slate-700 text-sm font-medium px-3 py-2 rounded-md">
-          <Download size={16} /> Export do Excelu
-        </button>
+        <div className="flex gap-2">
+          <button onClick={() => setShowArtiklMatch(true)} disabled={!swPricelist || !swPricelist.rows} title={!swPricelist || !swPricelist.rows ? "Nejprve nahrajte ceník v sekci Ceník Stenger Waffeln" : "Doplnit artiklová čísla z ceníku"} className="flex items-center gap-1.5 bg-white border border-slate-200 hover:bg-slate-50 disabled:opacity-50 disabled:cursor-not-allowed text-slate-700 text-sm font-medium px-3 py-2 rounded-md">
+            <Receipt size={16} /> Doplnit čísla z ceníku SW
+          </button>
+          <button onClick={exportToExcel} disabled={products.length === 0} title={products.length === 0 ? "Seznam je prázdný" : "Exportovat do Excelu"} className="flex items-center gap-1.5 bg-white border border-slate-200 hover:bg-slate-50 disabled:opacity-50 disabled:cursor-not-allowed text-slate-700 text-sm font-medium px-3 py-2 rounded-md">
+            <Download size={16} /> Export do Excelu
+          </button>
+        </div>
       </div>
+      {showArtiklMatch && (
+        <ArtiklMatchModal
+          products={products}
+          swPricelist={swPricelist}
+          onClose={() => setShowArtiklMatch(false)}
+          onApply={onSave}
+        />
+      )}
       <div className="bg-white border border-slate-200 rounded-lg p-4 mb-4">
         <div className="flex gap-2 items-end flex-wrap">
           <label className="min-w-[160px]"><span className="block text-xs font-medium text-slate-500 mb-1">Značka / název</span><input value={f.znacka} onChange={(e) => setF({ ...f, znacka: e.target.value })} placeholder="např. FUN" className="w-full border border-slate-200 rounded-md px-2.5 py-1.5 text-sm" /></label>
@@ -4182,7 +5145,7 @@ function ProductsView({ products, designs, onSave, onEdit }) {
       ) : (
         <div className="bg-white border border-slate-200 rounded-lg overflow-hidden">
           <table className="w-full text-sm">
-            <thead><tr className="bg-slate-100 text-slate-600 text-left"><th className="px-3 py-2 font-medium">Produkt</th><th className="px-3 py-2 font-medium">Linka</th><th className="px-3 py-2 font-medium">Design</th><th className="px-3 py-2 font-medium">Receptura</th><th className="px-3 py-2"></th></tr></thead>
+            <thead><tr className="bg-slate-100 text-slate-600 text-left"><th className="px-3 py-2 font-medium">Produkt</th><th className="px-3 py-2 font-medium">Linka</th><th className="px-3 py-2 font-medium">Design</th><th className="px-3 py-2 font-medium">Č. SNC / SW</th><th className="px-3 py-2 font-medium">Receptura</th><th className="px-3 py-2"></th></tr></thead>
             <tbody>
               {products.map((p) => (
                 <tr key={p.id} className="border-t border-slate-100">
@@ -4194,6 +5157,7 @@ function ProductsView({ products, designs, onSave, onEdit }) {
                       {(designs || []).map((d) => <option key={d.id} value={d.id}>{d.nazov}</option>)}
                     </select>
                   </td>
+                  <td className="px-3 py-2 text-slate-500 text-xs whitespace-nowrap">{p.cisloArtiklu || "—"} / {p.cisloArtikluSW || "—"}</td>
                   <td className="px-3 py-2 text-slate-500">{(p.receptura || []).length} polozka(y)</td>
                   <td className="px-3 py-2 text-right">
                     <div className="flex justify-end gap-1">
@@ -4263,6 +5227,16 @@ function ProductModal({ product, existingReceipts, existingIssues, onClose, onSa
         <Field label="Ks v kartonu" value={f.ksVKartone} onChange={(v) => setF({ ...f, ksVKartone: v })} />
         <Field label="Kartonů na paletě" value={f.kartonovNaPalete} onChange={(v) => setF({ ...f, kartonovNaPalete: v })} />
       </div>
+      <div className="grid grid-cols-2 gap-x-3">
+        <Field label="Naše artiklové číslo (SNC)" value={f.cisloArtiklu} onChange={(v) => setF({ ...f, cisloArtiklu: v })} />
+        <Field label="Artiklové číslo Stenger Waffeln (Sage 100)" value={f.cisloArtikluSW} onChange={(v) => setF({ ...f, cisloArtikluSW: v })} />
+      </div>
+      <Field label="Obsah balení (inhlt, pro Lieferschein)" value={f.inhlt} onChange={(v) => setF({ ...f, inhlt: v })} textarea placeholder="např. 20 x 75 g Beutel, 1 PLT= 16 KRT" />
+      <div className="grid grid-cols-2 gap-x-3">
+        <Field label="EAN karton" value={f.eanKarton} onChange={(v) => setF({ ...f, eanKarton: v })} />
+        <Field label="EAN kus" value={f.eanUnit} onChange={(v) => setF({ ...f, eanUnit: v })} />
+      </div>
+      <ToggleField label="Obsahuje palmový olej (RSPO)" value={f.rspo} onChange={(v) => setF({ ...f, rspo: v })} yesLabel="Ano" noLabel="Ne" />
       <RecipeTable receptura={f.receptura} setReceptura={(r) => setF({ ...f, receptura: r })} existingReceipts={existingReceipts} existingIssues={existingIssues} />
       <div className="flex justify-end mt-2"><button onClick={() => onSave(f)} className="bg-teal-700 hover:bg-teal-800 text-white text-sm font-medium px-4 py-2 rounded-md">Uložit</button></div>
     </ModalShell>
@@ -4274,28 +5248,38 @@ function ProductModal({ product, existingReceipts, existingIssues, onClose, onSa
 const WORKER_TYPY = [
   { value: "vyroba", label: "Vyroba" },
   { value: "sklad", label: "Sklad" },
+  { value: "office", label: "Office" },
 ];
 
 function WorkersView({ workers, onSave }) {
   const [meno, setMeno] = useState("");
   const [typ, setTyp] = useState("vyroba");
+  const [zaskok, setZaskok] = useState(false);
   const [formError, setFormError] = useState("");
 
   function add() {
     if (!meno.trim()) { setFormError("Vyplňte jméno pracovníka."); return; }
     setFormError("");
-    onSave([...workers, { id: uid(), meno: meno.trim(), typ }]);
+    onSave([...workers, { id: uid(), meno: meno.trim(), typ, zaskok }]);
     setMeno("");
+    setZaskok(false);
   }
   function remove(id) { onSave(workers.filter((w) => w.id !== id)); }
   function changeTyp(id, next) {
     onSave(workers.map((w) => (w.id === id ? { ...w, typ: next } : w)));
   }
+  function toggleZaskok(id) {
+    onSave(workers.map((w) => (w.id === id ? { ...w, zaskok: !w.zaskok } : w)));
+  }
+  async function resetPin(w) {
+    if (!window.confirm(`Zresetovat PIN pro "${w.meno}"? Při dalším ťuknutí na tabletu si zvolí nový.`)) return;
+    await supabase.rpc("dochadzka_reset_worker_pin", { p_worker_id: w.id });
+  }
 
   return (
     <div>
       <h1 className="text-xl font-semibold mb-4">Pracovníci</h1>
-      <p className="text-xs text-slate-400 mb-4">Tento seznam slouží k označení, kdo zapsal dávku na tabletu ve Výrobě nebo na Skladu (nejsou to přihlašovací účty - každý tablet používá jeden sdílený login, lidé si tam jen "odkliknou" své jméno). Typ určuje, na kterém tabletu se dané jméno nabízí k výběru. Každý s typem "Vyroba" se automaticky zobrazí i v appce Plán směn (plánování směn) - jména/přidávání/mazání se spravuje jen tady, appka si je jen načte.</p>
+      <p className="text-xs text-slate-400 mb-4">Tento seznam slouží k označení, kdo zapsal dávku na tabletu ve Výrobě nebo na Skladu (nejsou to přihlašovací účty - každý tablet používá jeden sdílený login, lidé si tam jen "odkliknou" své jméno). Typ určuje, na kterém tabletu se dané jméno nabízí k výběru ("Office" se na žádném tabletu nenabízí, slouží jen k evidenci). Každý s typem "Vyroba" se automaticky zobrazí i v appce Plán směn (plánování směn) - jména/přidávání/mazání se spravuje jen tady, appka si je jen načte. "Zástup" schová jméno na tabletu za tlačítko "+ zástup", aby nezabíralo místo mezi lidmi, co tam pracují běžně - stále jde vybrat, jen na jedno ťuknutí navíc.</p>
       <div className="bg-white border border-slate-200 rounded-lg p-4 mb-4">
         <div className="flex gap-2 items-end flex-wrap">
           <label className="flex-1 min-w-[220px]"><span className="block text-xs font-medium text-slate-500 mb-1">Jméno pracovníka</span><input value={meno} onChange={(e) => setMeno(e.target.value)} className="w-full border border-slate-200 rounded-md px-2.5 py-1.5 text-sm" /></label>
@@ -4303,6 +5287,10 @@ function WorkersView({ workers, onSave }) {
             <select value={typ} onChange={(e) => setTyp(e.target.value)} className="border border-slate-200 rounded-md px-2.5 py-1.5 text-sm">
               {WORKER_TYPY.map((t) => <option key={t.value} value={t.value}>{t.label}</option>)}
             </select>
+          </label>
+          <label className="flex items-center gap-1.5 pb-1.5">
+            <input type="checkbox" checked={zaskok} onChange={(e) => setZaskok(e.target.checked)} />
+            <span className="text-xs font-medium text-slate-500">Zástup</span>
           </label>
           <button onClick={add} className="bg-teal-700 hover:bg-teal-800 text-white text-sm font-medium px-3 py-2 rounded-md flex items-center gap-1.5"><Plus size={16} /> Přidat</button>
         </div>
@@ -4313,7 +5301,7 @@ function WorkersView({ workers, onSave }) {
       ) : (
         <div className="bg-white border border-slate-200 rounded-lg overflow-hidden">
           <table className="w-full text-sm">
-            <thead><tr className="bg-slate-100 text-slate-600 text-left"><th className="px-3 py-2 font-medium">Jméno</th><th className="px-3 py-2 font-medium">Typ</th><th className="px-3 py-2"></th></tr></thead>
+            <thead><tr className="bg-slate-100 text-slate-600 text-left"><th className="px-3 py-2 font-medium">Jméno</th><th className="px-3 py-2 font-medium">Typ</th><th className="px-3 py-2 font-medium">Zástup</th><th className="px-3 py-2"></th></tr></thead>
             <tbody>
               {workers.map((w) => (
                 <tr key={w.id} className="border-t border-slate-100">
@@ -4323,11 +5311,173 @@ function WorkersView({ workers, onSave }) {
                       {WORKER_TYPY.map((t) => <option key={t.value} value={t.value}>{t.label}</option>)}
                     </select>
                   </td>
+                  <td className="px-3 py-2">
+                    <input type="checkbox" checked={!!w.zaskok} onChange={() => toggleZaskok(w.id)} />
+                  </td>
                   <td className="px-3 py-2 text-right">
+                    {(w.typ === "vyroba" || w.typ === "sklad") && (
+                      <IconButton title="Resetovat PIN pro docházku" onClick={() => resetPin(w)}><KeyRound size={16} /></IconButton>
+                    )}
                     <IconButton title="Smazat" onClick={() => remove(w.id)}><Trash2 size={16} /></IconButton>
                   </td>
                 </tr>
               ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </div>
+  );
+}
+
+/* ---------------- Audit log ---------------- */
+
+const AUDIT_ENTITY_LABELS = {
+  orders: "Objednávka",
+  production_plan: "Výrobní plán",
+  stock_issues: "Výdej ze skladu",
+  goods_receipts: "Příjem zboží",
+  products: "Produkt",
+  customers: "Zákazník",
+  suppliers: "Dodavatel",
+};
+
+const AUDIT_ACTION_LABELS = {
+  insert: { text: "Vytvořeno", cls: "bg-emerald-100 text-emerald-700" },
+  update: { text: "Upraveno", cls: "bg-amber-100 text-amber-800" },
+  delete: { text: "Smazáno", cls: "bg-red-100 text-red-700" },
+};
+
+function auditRecordLabel(val) {
+  if (!val || !val.data) return "";
+  const d = val.data;
+  return d.produktNazov || d.zakaznik || d.nazov || d.meno || d.popis || "";
+}
+
+function auditDiff(oldVal, newVal) {
+  const before = (oldVal && oldVal.data) || {};
+  const after = (newVal && newVal.data) || {};
+  const keys = Array.from(new Set([...Object.keys(before), ...Object.keys(after)]));
+  return keys
+    .filter((k) => JSON.stringify(before[k]) !== JSON.stringify(after[k]))
+    .map((k) => ({ key: k, before: before[k], after: after[k] }));
+}
+
+function auditValueText(v) {
+  if (v === undefined) return "-";
+  if (v === null || v === "") return "(prázdné)";
+  if (typeof v === "object") return JSON.stringify(v);
+  return String(v);
+}
+
+function AuditLogView() {
+  const [rows, setRows] = useState([]);
+  const [names, setNames] = useState({});
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
+  const [filterEntity, setFilterEntity] = useState("vsetko");
+  const [expandedId, setExpandedId] = useState(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      const [logRes, profilesRes] = await Promise.all([
+        supabase.from("audit_log").select("*").order("created_at", { ascending: false }).limit(300),
+        supabase.from("profiles").select("id, full_name"),
+      ]);
+      if (cancelled) return;
+      if (logRes.error) {
+        setError("Nepodařilo se načíst audit log.");
+      } else {
+        setRows(logRes.data || []);
+      }
+      if (!profilesRes.error) {
+        setNames(Object.fromEntries((profilesRes.data || []).map((p) => [p.id, p.full_name])));
+      }
+      setLoading(false);
+    })();
+    return () => { cancelled = true; };
+  }, []);
+
+  const filtered = filterEntity === "vsetko" ? rows : rows.filter((r) => r.entity === filterEntity);
+
+  if (loading) {
+    return <div className="text-center text-slate-400 py-10"><Loader2 className="animate-spin mx-auto mb-2" size={24} /> Načítám...</div>;
+  }
+
+  return (
+    <div>
+      <div className="flex items-center justify-between mb-4 flex-wrap gap-2">
+        <h1 className="text-xl font-semibold">Audit log</h1>
+        <select value={filterEntity} onChange={(e) => setFilterEntity(e.target.value)} className="border border-slate-200 rounded-md px-2.5 py-1.5 text-sm">
+          <option value="vsetko">Všechny entity</option>
+          {Object.entries(AUDIT_ENTITY_LABELS).map(([key, label]) => <option key={key} value={key}>{label}</option>)}
+        </select>
+      </div>
+      <p className="text-xs text-slate-400 mb-4 max-w-2xl">
+        Kdo, co a kdy změnil v klíčových tabulkách (objednávky, výroba, sklad, produkty, zákazníci, dodavatelé). Zapisuje se automaticky na úrovni databáze, nedá se to obejít ani smazat. Historie je vidět jen od zavedení audit logu, ne zpětně.
+      </p>
+      {error && <div className="mb-3 bg-red-50 text-red-700 text-sm px-3 py-2 rounded-md flex items-center gap-2"><AlertCircle size={16} /> {error}</div>}
+      {filtered.length === 0 ? (
+        <div className="bg-white border border-slate-200 rounded-lg p-10 text-center text-slate-400 text-sm">Zatím žádné zaznamenané změny.</div>
+      ) : (
+        <div className="bg-white border border-slate-200 rounded-lg overflow-x-auto">
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="bg-slate-100 text-slate-600 text-left">
+                <th className="px-3 py-2 font-medium whitespace-nowrap">Datum a čas</th>
+                <th className="px-3 py-2 font-medium">Entita</th>
+                <th className="px-3 py-2 font-medium">Akce</th>
+                <th className="px-3 py-2 font-medium">Záznam</th>
+                <th className="px-3 py-2 font-medium">Kdo</th>
+                <th className="px-3 py-2 font-medium">Zdroj</th>
+                <th className="px-3 py-2"></th>
+              </tr>
+            </thead>
+            <tbody>
+              {filtered.map((r) => {
+                const action = AUDIT_ACTION_LABELS[r.action] || { text: r.action, cls: "bg-slate-100 text-slate-600" };
+                const label = auditRecordLabel(r.new_value) || auditRecordLabel(r.old_value);
+                const who = r.changed_by ? (names[r.changed_by] || "Neznámý uživatel") : "Automatizace";
+                const expanded = expandedId === r.id;
+                const diff = r.action === "update" ? auditDiff(r.old_value, r.new_value) : [];
+                return (
+                  <React.Fragment key={r.id}>
+                    <tr className="border-t border-slate-100 cursor-pointer hover:bg-slate-50" onClick={() => setExpandedId(expanded ? null : r.id)}>
+                      <td className="px-3 py-2 whitespace-nowrap text-slate-500">{formatDateTime(r.created_at)}</td>
+                      <td className="px-3 py-2 whitespace-nowrap">{AUDIT_ENTITY_LABELS[r.entity] || r.entity}</td>
+                      <td className="px-3 py-2"><span className={"text-xs font-bold px-2 py-0.5 rounded-full " + action.cls}>{action.text}</span></td>
+                      <td className="px-3 py-2">{label || <span className="text-slate-400">{r.entity_id}</span>}</td>
+                      <td className="px-3 py-2 whitespace-nowrap text-slate-500">{who}</td>
+                      <td className="px-3 py-2 whitespace-nowrap text-slate-500">{r.source === "automation" ? "Automatizace" : "Uživatel"}</td>
+                      <td className="px-3 py-2 text-right text-slate-400">{expanded ? <ChevronUp size={16} /> : <ChevronDown size={16} />}</td>
+                    </tr>
+                    {expanded && (
+                      <tr className="bg-slate-50">
+                        <td colSpan={7} className="px-3 py-2">
+                          {r.action === "update" ? (
+                            diff.length === 0 ? (
+                              <div className="text-xs text-slate-400 py-1">Žádná změněná pole (jen dotyk data).</div>
+                            ) : (
+                              <div className="space-y-1">
+                                {diff.map((d) => (
+                                  <div key={d.key} className="text-xs bg-white border border-slate-200 rounded-md px-3 py-1.5">
+                                    <span className="font-semibold">{d.key}</span>: {auditValueText(d.before)} → <span className="text-teal-700 font-medium">{auditValueText(d.after)}</span>
+                                  </div>
+                                ))}
+                              </div>
+                            )
+                          ) : (
+                            <div className="text-xs text-slate-500 py-1">
+                              {r.action === "insert" ? "Vytvořený záznam" : "Smazaný záznam"}: <span className="font-mono">{r.entity_id}</span>
+                            </div>
+                          )}
+                        </td>
+                      </tr>
+                    )}
+                  </React.Fragment>
+                );
+              })}
             </tbody>
           </table>
         </div>
@@ -4469,6 +5619,11 @@ function MaterialOrdersView({ materialOrders, suppliers, carriers, onNew, onEdit
 }
 
 function MaterialOrderItemsTable({ items, setItems, supplierTovary }) {
+  const [catalogSearch, setCatalogSearch] = useState("");
+  const filteredTovary = catalogSearch.trim()
+    ? supplierTovary.filter((t) => (t.popis || "").toLowerCase().includes(catalogSearch.trim().toLowerCase()))
+    : supplierTovary;
+
   function update(i, key, val) {
     const next = items.slice();
     next[i] = { ...next[i], [key]: val };
@@ -4499,13 +5654,27 @@ function MaterialOrderItemsTable({ items, setItems, supplierTovary }) {
     <div className="mb-3">
       <span className="block text-xs font-medium text-slate-500 mb-1">Položky objednávky</span>
       {supplierTovary.length > 0 && (
-        <div className="mb-2 flex flex-wrap gap-1.5">
-          {supplierTovary.map((t, i) => (
-            <button key={i} type="button" onClick={() => addFromCatalog(t)} className="text-xs bg-slate-100 hover:bg-slate-200 text-slate-700 px-2 py-1 rounded-md">
-              + {t.popis}
-            </button>
-          ))}
-        </div>
+        <>
+          {supplierTovary.length > 8 && (
+            <input
+              value={catalogSearch}
+              onChange={(e) => setCatalogSearch(e.target.value)}
+              placeholder="Hledat v katalogu dodavatele..."
+              className="w-full border border-slate-200 rounded-md px-2 py-1.5 text-xs mb-1.5"
+            />
+          )}
+          {filteredTovary.length === 0 ? (
+            <div className="text-xs text-slate-400 mb-2">Nic nenalezeno.</div>
+          ) : (
+            <div className="mb-2 flex flex-wrap gap-1.5 max-h-40 overflow-y-auto">
+              {filteredTovary.map((t, i) => (
+                <button key={i} type="button" onClick={() => addFromCatalog(t)} className="text-xs bg-slate-100 hover:bg-slate-200 text-slate-700 px-2 py-1 rounded-md">
+                  + {t.popis}
+                </button>
+              ))}
+            </div>
+          )}
+        </>
       )}
       {items.length > 0 && (
         <div className="border border-slate-200 rounded-md overflow-hidden mb-1.5">
@@ -4610,13 +5779,14 @@ function MaterialOrderFormModal({ order, suppliers, company, onClose, onSave }) 
   );
 }
 
-function MaterialTransportModal({ order, carriers, suppliers, company, currentUserName, onClose, onSent }) {
+function MaterialTransportModal({ order, carriers, suppliers, company, currentUserName, onClose, onSent, onUpdateCarrierEmails }) {
   const last = order.dopravaOdoslanaInfo;
   const [carrierId, setCarrierId] = useState(order.dopravcaId || (carriers[0] ? carriers[0].id : ""));
   const carrier = carriers.find((c) => c.id === carrierId);
   const supplier = (suppliers || []).find((s) => s.id === order.dodavatelId);
   const materialTypStr = materialTypText(supplier ? supplier.typ : null, MATERIAL_ORDER_EMAIL_I18N.sk);
   const [to, setTo] = useState(last ? last.to : (carrier ? carrier.email : ""));
+  const [manageEmails, setManageEmails] = useState(false);
   function pickCarrier(id) {
     setCarrierId(id);
     if (!last) {
@@ -4644,7 +5814,19 @@ function MaterialTransportModal({ order, carriers, suppliers, company, currentUs
     <ModalShell title={"Objednávka dopravy - " + order.cisloObjednavkyDopravy} onClose={onClose} extraWide>
       {last && <div className="mb-3 bg-emerald-50 text-emerald-800 text-xs px-3 py-2 rounded-md flex items-center gap-2"><CheckCircle2 size={14} /> Naposledy odesláno {formatDateTime(last.datum)} na {last.to}</div>}
       <SelectField label="Dopravce" value={carrierId} onChange={pickCarrier} options={carriers.map((c) => ({ value: c.id, label: `${c.nazov} (${c.email})` }))} />
-      <EmailQuickPicks emaily={carrier ? carrier.emaily : []} onPick={setTo} />
+      <div className="mb-2">
+        <EmailQuickPicks emaily={carrier ? carrier.emaily : []} value={to} onPick={setTo} />
+        {carrier && (
+          <button type="button" onClick={() => setManageEmails((v) => !v)} className="text-xs text-teal-700 hover:underline">
+            {manageEmails ? "Skrýt správu e-mailů dopravce" : "Spravovat e-maily dopravce"}
+          </button>
+        )}
+        {manageEmails && carrier && (
+          <div className="mt-2 border border-slate-200 rounded-md p-2 bg-slate-50">
+            <EmailListEditor emaily={carrier.emaily} onChange={(list) => onUpdateCarrierEmails(carrier.id, list)} />
+          </div>
+        )}
+      </div>
       <Field label="E-mail (komu)" value={to} onChange={setTo} type="email" />
       <Field label="Předmět" value={subject} onChange={setSubject} />
       <Field label="Text zprávy" value={body} onChange={setBody} textarea rows={18} />
@@ -4691,7 +5873,7 @@ function MaterialSupplierOrderModal({ order, suppliers, company, currentUserName
           <AlertCircle size={14} /> Dodavatel ma nastaveny jazyk komunikacie: {(MATERIAL_JAZYK_OPTIONS.find((o) => o.value === supplier.jazyk) || {}).label}. Text nizsie je predvyplneny v tomto jazyku.
         </div>
       )}
-      <EmailQuickPicks emaily={supplier ? supplier.emaily : []} onPick={setTo} />
+      <EmailQuickPicks emaily={supplier ? supplier.emaily : []} value={to} onPick={setTo} />
       <Field label="E-mail (komu)" value={to} onChange={setTo} type="email" />
       <Field label="Předmět" value={subject} onChange={setSubject} />
       <Field label="Text zprávy" value={body} onChange={setBody} textarea rows={18} />
@@ -4707,13 +5889,16 @@ function MaterialSupplierOrderModal({ order, suppliers, company, currentUserName
 
 /* ---------------- Faktura - dodatocne ocenenie prijmov tovaru ---------------- */
 
-function InvoiceUploadModal({ receipts, company, onClose, onApply }) {
+function InvoiceUploadModal({ receipts, company, suppliers, onClose, onApply, onAddToSupplierCatalog }) {
   const [file, setFile] = useState(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [extracted, setExtracted] = useState(null);
   const [matches, setMatches] = useState([]);
   const [kurz, setKurz] = useState(null);
+  const [catalogSupplierId, setCatalogSupplierId] = useState("");
+  const [catalogBusy, setCatalogBusy] = useState(false);
+  const [catalogDone, setCatalogDone] = useState(false);
   const fileInputRef = useRef(null);
   const unpricedReceipts = receipts.filter((r) => r.cenaJednotkovaCzk === "" || r.cenaJednotkovaCzk === undefined || r.cenaJednotkovaCzk === null);
 
@@ -4743,7 +5928,17 @@ function InvoiceUploadModal({ receipts, company, onClose, onApply }) {
           return { item: it, receiptId: suggestions[0] ? suggestions[0].id : "", suggestions };
         })
       );
+      const dLower = (data.dodavatel || "").trim().toLowerCase();
+      const guessed = dLower
+        ? (suppliers || []).find((s) => {
+            const n = (s.nazov || "").trim().toLowerCase();
+            return n && (n.includes(dLower) || dLower.includes(n));
+          })
+        : null;
+      setCatalogSupplierId(guessed ? guessed.id : "");
+      setCatalogDone(false);
     } catch (err) {
+      console.error(err);
       setError(err.message || "Extrakce se nezdařila, zkuste to znovu.");
     }
     setBusy(false);
@@ -4788,6 +5983,7 @@ function InvoiceUploadModal({ receipts, company, onClose, onApply }) {
       await onApply(updates);
       onClose();
     } catch (err) {
+      console.error(err);
       setError(err.message || "Uložení se nezdařilo, zkuste to znovu.");
     }
     setBusy(false);
@@ -4819,6 +6015,33 @@ function InvoiceUploadModal({ receipts, company, onClose, onApply }) {
             <div><b>Číslo faktury:</b> {extracted.cisloFaktury || "-"}</div>
             <div><b>Datum:</b> {extracted.datumFaktury || "-"}</div>
             <div><b>Mena:</b> {extracted.mena}{kurz && extracted.mena !== "CZK" && ` - kurz ČNB ${kurz.rate} CZK/${extracted.mena} (platný pro ${kurz.validFor})`}</div>
+          </div>
+          <div className="bg-slate-50 rounded-md px-3 py-2 mb-3">
+            <div className="text-xs font-medium text-slate-600 mb-1.5">Doplnit tyto položky do katalogu dodavatele (pro příště rychlejší výběr v Příjmu/Zásobách/Reklamacích)</div>
+            <div className="flex items-center gap-2 flex-wrap">
+              <select
+                value={catalogSupplierId}
+                onChange={(e) => { setCatalogSupplierId(e.target.value); setCatalogDone(false); }}
+                className="border border-slate-200 rounded-md px-2 py-1.5 text-sm"
+              >
+                <option value="">-- vyberte dodavatele --</option>
+                {suppliers.map((s) => <option key={s.id} value={s.id}>{s.nazov}</option>)}
+              </select>
+              <button
+                type="button"
+                disabled={!catalogSupplierId || catalogBusy}
+                onClick={async () => {
+                  setCatalogBusy(true);
+                  await onAddToSupplierCatalog(catalogSupplierId, matches.map((m) => m.item.popis));
+                  setCatalogBusy(false);
+                  setCatalogDone(true);
+                }}
+                className="text-xs bg-white border border-slate-200 hover:bg-slate-50 disabled:opacity-50 disabled:cursor-not-allowed text-slate-700 font-medium px-3 py-1.5 rounded-md flex items-center gap-1.5"
+              >
+                {catalogBusy ? <Loader2 size={14} className="animate-spin" /> : <Plus size={14} />} Doplnit do katalogu
+              </button>
+              {catalogDone && <span className="text-xs text-emerald-700 flex items-center gap-1"><CheckCircle2 size={14} /> Hotovo</span>}
+            </div>
           </div>
           {unpricedReceipts.length === 0 && (
             <div className="mb-3 bg-amber-50 text-amber-800 text-xs px-3 py-2 rounded-md flex items-center gap-2"><AlertCircle size={14} /> Nenašel se žádný příjem zboží bez ceny k napárování. Zkontrolujte, zda je příjem už v systému zapsán.</div>
@@ -4989,7 +6212,7 @@ function GoodsReceiptFormModal({ receipt, suppliers, materialOrders, existingRec
   });
   const [photoUploading, setPhotoUploading] = useState(false);
   const [photoError, setPhotoError] = useState("");
-  const materialPicks = [...MATERIAL_QUICK_PICKS, ...extraKnownMaterials(existingReceipts, [], MATERIAL_QUICK_PICKS)];
+  const materialPicks = materialPicksForSupplier(f.dodavatelId, suppliers, MATERIAL_QUICK_PICKS);
 
   function pickSupplier(id) {
     const s = suppliers.find((x) => x.id === id);
@@ -5011,6 +6234,7 @@ function GoodsReceiptFormModal({ receipt, suppliers, materialOrders, existingRec
       if (error) throw error;
       setF((prev) => ({ ...prev, photoPath: path }));
     } catch (err) {
+      console.error(err);
       setPhotoError("Nahrání fotky se nezdařilo, zkuste to znovu.");
     }
     setPhotoUploading(false);
@@ -5038,12 +6262,18 @@ function GoodsReceiptFormModal({ receipt, suppliers, materialOrders, existingRec
           options={[{ value: "", label: "-- žádná --" }, ...materialOrders.map((o) => ({ value: o.id, label: `${o.cisloObjednavkyDopravy} - ${o.dodavatel || ""}` }))]}
         />
       )}
-      <div className="mb-1 flex gap-1.5 flex-wrap">
-        {materialPicks.map((m) => (
-          <button key={m} type="button" onClick={() => setF({ ...f, material: m })} className="text-xs bg-slate-100 hover:bg-slate-200 text-slate-700 px-2 py-1 rounded-md">{m}</button>
-        ))}
-      </div>
-      <Field label="Materiál / položka" value={f.material} onChange={(v) => setF({ ...f, material: v })} />
+      <label className="block mb-3">
+        <span className="block text-xs font-medium text-slate-500 mb-1">Materiál / položka</span>
+        <input
+          list="goods-receipt-material-picks"
+          value={f.material}
+          onChange={(e) => setF({ ...f, material: e.target.value })}
+          className="w-full border border-slate-200 rounded-md px-2.5 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-teal-600"
+        />
+        <datalist id="goods-receipt-material-picks">
+          {materialPicks.map((m) => <option key={m} value={m} />)}
+        </datalist>
+      </label>
       <div className="mb-3">
         <span className="block text-xs font-medium text-slate-500 mb-1">Množství</span>
         <div className="flex gap-2 items-center flex-wrap">
@@ -5107,7 +6337,7 @@ function formatCzk(n) {
   return Math.round(n).toLocaleString("sk-SK") + " Kč";
 }
 
-function StockView({ goodsReceipts, stockIssues, onNew, onEdit, onDelete }) {
+function StockView({ goodsReceipts, stockIssues, onNew, onNewTestProduction, onEdit, onDelete }) {
   const [confirmDelete, setConfirmDelete] = useState(null);
   const stock = computeStockLevels(goodsReceipts, stockIssues);
   const celkovaHodnota = stock.reduce((sum, row) => sum + (row.hodnota || 0), 0);
@@ -5149,6 +6379,9 @@ function StockView({ goodsReceipts, stockIssues, onNew, onEdit, onDelete }) {
         <div className="flex gap-2">
           <button onClick={exportToExcel} disabled={stock.length === 0 && stockIssues.length === 0} title={stock.length === 0 && stockIssues.length === 0 ? "Seznam je prázdný" : "Exportovat do Excelu"} className="flex items-center gap-1.5 bg-white border border-slate-200 hover:bg-slate-50 disabled:opacity-50 disabled:cursor-not-allowed text-slate-700 text-sm font-medium px-3 py-2 rounded-md">
             <Download size={16} /> Export do Excelu
+          </button>
+          <button onClick={onNewTestProduction} className="flex items-center gap-1.5 bg-white border border-slate-200 hover:bg-slate-50 text-slate-700 text-sm font-medium px-3 py-2 rounded-md">
+            <FlaskConical size={16} /> Testovací výroba
           </button>
           <button onClick={onNew} className="flex items-center gap-1.5 bg-teal-700 hover:bg-teal-800 text-white text-sm font-medium px-3 py-2 rounded-md">
             <MinusCircle size={16} /> Zapisat vydaj
@@ -5249,7 +6482,7 @@ function StockView({ goodsReceipts, stockIssues, onNew, onEdit, onDelete }) {
   );
 }
 
-function StockIssueFormModal({ issue, existingReceipts, existingIssues, currentUserName, onClose, onSave }) {
+function StockIssueFormModal({ issue, suppliers, currentUserName, onClose, onSave }) {
   const [formId] = useState(() => (issue && issue.id) || uid());
   const [f, setF] = useState({
     ...EMPTY_STOCK_ISSUE,
@@ -5257,7 +6490,7 @@ function StockIssueFormModal({ issue, existingReceipts, existingIssues, currentU
     zapisal: currentUserName || "",
     ...issue,
   });
-  const materialPicks = [...MATERIAL_QUICK_PICKS, ...extraKnownMaterials(existingReceipts, existingIssues, MATERIAL_QUICK_PICKS)];
+  const materialPicks = allKnownMaterials(suppliers, MATERIAL_QUICK_PICKS);
 
   return (
     <ModalShell title={issue ? "Upravit výdej" : "Nový výdej materiálu"} onClose={onClose}>
@@ -5265,12 +6498,18 @@ function StockIssueFormModal({ issue, existingReceipts, existingIssues, currentU
         <DateField label="Datum" value={f.datum} onChange={(v) => setF({ ...f, datum: v })} />
         <Field label="Čas" value={f.cas} onChange={(v) => setF({ ...f, cas: v })} />
       </div>
-      <div className="mb-1 flex gap-1.5 flex-wrap">
-        {materialPicks.map((m) => (
-          <button key={m} type="button" onClick={() => setF({ ...f, material: m })} className="text-xs bg-slate-100 hover:bg-slate-200 text-slate-700 px-2 py-1 rounded-md">{m}</button>
-        ))}
-      </div>
-      <Field label="Materiál / položka" value={f.material} onChange={(v) => setF({ ...f, material: v })} />
+      <label className="block mb-3">
+        <span className="block text-xs font-medium text-slate-500 mb-1">Materiál / položka</span>
+        <input
+          list="stock-issue-material-picks"
+          value={f.material}
+          onChange={(e) => setF({ ...f, material: e.target.value })}
+          className="w-full border border-slate-200 rounded-md px-2.5 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-teal-600"
+        />
+        <datalist id="stock-issue-material-picks">
+          {materialPicks.map((m) => <option key={m} value={m} />)}
+        </datalist>
+      </label>
       <div className="mb-3">
         <span className="block text-xs font-medium text-slate-500 mb-1">Množství</span>
         <div className="flex gap-2 items-center flex-wrap">
@@ -5309,16 +6548,101 @@ function StockIssueFormModal({ issue, existingReceipts, existingIssues, currentU
   );
 }
 
+function TestProductionIssueModal({ suppliers, currentUserName, onClose, onSaveBatch }) {
+  const [datum, setDatum] = useState(todayStr());
+  const [nazovTestu, setNazovTestu] = useState("");
+  const [zapisal, setZapisal] = useState(currentUserName || "");
+  const [lines, setLines] = useState([{ material: "", mnozstvoCislo: "", mnozstvoJednotka: "ks" }]);
+  const [error, setError] = useState("");
+  const [busy, setBusy] = useState(false);
+  const materialPicks = allKnownMaterials(suppliers, MATERIAL_QUICK_PICKS);
+
+  function updateLine(i, patch) {
+    setLines((prev) => prev.map((l, li) => (li === i ? { ...l, ...patch } : l)));
+  }
+  function addLine() { setLines((prev) => [...prev, { material: "", mnozstvoCislo: "", mnozstvoJednotka: "ks" }]); }
+  function removeLine(i) { setLines((prev) => prev.filter((_, li) => li !== i)); }
+
+  async function save() {
+    const valid = lines.filter((l) => l.material.trim() && l.mnozstvoCislo);
+    if (!valid.length) { setError("Vyplňte alespoň jeden materiál a množství."); return; }
+    setError("");
+    setBusy(true);
+    const poznamka = nazovTestu.trim() ? `Testovací výroba: ${nazovTestu.trim()}` : "Testovací výroba";
+    await onSaveBatch(valid.map((l) => ({
+      datum,
+      material: l.material.trim(),
+      mnozstvoCislo: l.mnozstvoCislo,
+      mnozstvoJednotka: l.mnozstvoJednotka,
+      mnozstvo: [l.mnozstvoCislo, l.mnozstvoJednotka].filter(Boolean).join(" ").trim(),
+      dovod: "Testovanie/vzorky",
+      poznamka,
+      zapisal,
+    })));
+    setBusy(false);
+  }
+
+  return (
+    <ModalShell title="Testovací výroba - výdej materiálu" onClose={onClose} wide>
+      <div className="grid grid-cols-2 gap-x-3">
+        <DateField label="Datum" value={datum} onChange={setDatum} />
+        <Field label="Zapsal" value={zapisal} onChange={setZapisal} />
+      </div>
+      <Field label="Název testu / příchutě (nepovinné)" value={nazovTestu} onChange={setNazovTestu} />
+
+      <div className="mb-2">
+        <span className="block text-xs font-medium text-slate-500 mb-1">Materiály a obaly</span>
+        <datalist id="test-production-material-picks">
+          {materialPicks.map((m) => <option key={m} value={m} />)}
+        </datalist>
+        {lines.map((l, i) => (
+          <div key={i} className="mb-2 border border-slate-100 rounded-md p-2">
+            <div className="flex gap-2 items-center flex-wrap">
+              <input list="test-production-material-picks" value={l.material} onChange={(e) => updateLine(i, { material: e.target.value })} placeholder="Materiál / položka" className="flex-1 min-w-[160px] border border-slate-200 rounded-md px-2.5 py-1.5 text-sm" />
+              <input value={l.mnozstvoCislo} onChange={(e) => updateLine(i, { mnozstvoCislo: e.target.value })} inputMode="decimal" placeholder="množství" className="w-24 border border-slate-200 rounded-md px-2.5 py-1.5 text-sm" />
+              <select value={l.mnozstvoJednotka} onChange={(e) => updateLine(i, { mnozstvoJednotka: e.target.value })} className="border border-slate-200 rounded-md px-2.5 py-1.5 text-sm">
+                {UNIT_QUICK_PICKS.map((u) => <option key={u} value={u}>{u}</option>)}
+              </select>
+              {lines.length > 1 && (
+                <IconButton title="Odebrat řádek" onClick={() => removeLine(i)}><Trash2 size={16} /></IconButton>
+              )}
+            </div>
+          </div>
+        ))}
+        <button type="button" onClick={addLine} className="text-xs text-teal-700 hover:text-teal-900 flex items-center gap-1"><Plus size={14} /> Přidat další materiál/obal</button>
+      </div>
+
+      {error && <div className="mb-3 bg-red-50 text-red-700 text-xs px-3 py-2 rounded-md flex items-center gap-2"><AlertCircle size={14} /> {error}</div>}
+      <div className="flex justify-end mt-2">
+        <button onClick={save} disabled={busy} className="bg-teal-700 hover:bg-teal-800 disabled:opacity-60 text-white text-sm font-medium px-4 py-2 rounded-md">
+          {busy ? "Ukládám..." : "Uložit výdej"}
+        </button>
+      </div>
+    </ModalShell>
+  );
+}
+
 /* ---------------- Vyrobny plan ---------------- */
 
-function ProductionPlanView({ productionPlan, products, goodsReceipts, stockIssues, productionOutputs, prestavky, onNew, onEdit, onDelete, onDeleteOutput, onEditOutput, onDeletePrestavka }) {
+function ProductionPlanView({ productionPlan, products, goodsReceipts, stockIssues, productionOutputs, prestavky, pauzy, dochadzkaNastavenia, ccpKontroly, workers, onNew, onEdit, onDelete, onDeleteOutput, onEditOutput, onDeletePrestavka, onUpdatePrestavka, onDeletePauza, onUpdatePauza, onUpdateDochadzkaNastavenia }) {
   const [confirmDelete, setConfirmDelete] = useState(null);
   const [confirmDeleteOutput, setConfirmDeleteOutput] = useState(null);
   const [confirmDeletePrestavka, setConfirmDeletePrestavka] = useState(null);
+  const [editingPrestavka, setEditingPrestavka] = useState(null);
+  const [confirmDeletePauza, setConfirmDeletePauza] = useState(null);
+  const [editingPauza, setEditingPauza] = useState(null);
+  const [showDochadzkaNastavenia, setShowDochadzkaNastavenia] = useState(false);
   const [filterLinka, setFilterLinka] = useState("vsetko");
   const [tab, setTab] = useState("plan");
   const [showOlderPlan, setShowOlderPlan] = useState(false);
   const [showOlderOutputs, setShowOlderOutputs] = useState(false);
+  const [dochazkaMode, setDochazkaMode] = useState("prichod");
+  const [dochazkaView, setDochazkaView] = useState("mesic");
+  const [dochazkaMesic, setDochazkaMesic] = useState(() => {
+    const d = new Date();
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
+  });
+  const [expandedMeno, setExpandedMeno] = useState(null);
 
   // Zobrazuje sa len od vcerajska (aby sa nemuselo scrollovat cez tyzdne historie), buducnost
   // vzdy cela viditelna. Starsie zaznamy sa schovaju pod "Zobrazit starší" - export ostava
@@ -5344,7 +6668,12 @@ function ProductionPlanView({ productionPlan, products, goodsReceipts, stockIssu
   const rows = productionPlan
     .filter((r) => filterLinka === "vsetko" || r.linka === filterLinka)
     .slice()
-    .sort((a, b) => (parseSkDate(a.datum) || 0) - (parseSkDate(b.datum) || 0));
+    .sort((a, b) => {
+      const aHotovo = (a.stavVyroby || "caka") === "hotovo" ? 1 : 0;
+      const bHotovo = (b.stavVyroby || "caka") === "hotovo" ? 1 : 0;
+      if (aHotovo !== bHotovo) return aHotovo - bHotovo;
+      return (parseSkDate(a.datum) || 0) - (parseSkDate(b.datum) || 0);
+    });
   const recentRows = rows.filter((r) => !jeStarsie(r.datum));
   const olderRows = rows.filter((r) => jeStarsie(r.datum));
   const recentOutputs = (productionOutputs || []).filter((o) => !jeStarsie(o.datum));
@@ -5363,15 +6692,114 @@ function ProductionPlanView({ productionPlan, products, goodsReceipts, stockIssu
     await exportRowsToExcel(exportRows, "Výrobní záznamy", "Vyrobne_zaznamy", 16);
   }
 
-  async function exportPrestavkyToExcel() {
-    const exportRows = (prestavky || []).map((p) => ({
+  function prestavkaHours(p) {
+    const mins = durationMinutes(p.casZaciatku, p.casKonca);
+    return mins === null ? 0 : mins / 60;
+  }
+  function jeChybajuciOdchod(p) {
+    return !p.casKonca && p.datum !== todayStr();
+  }
+  function jeVMesiaci(datumStr, mesic) {
+    const d = parseSkDate(datumStr);
+    if (!d) return false;
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}` === mesic;
+  }
+
+  const vsetkyChybajuce = (prestavky || []).filter(jeChybajuciOdchod);
+  const mesicPrestavky = (prestavky || []).filter((p) => jeVMesiaci(p.datum, dochazkaMesic));
+  const dochadzkoveMena = Array.from(new Set([
+    ...(workers || []).filter((w) => w.typ === "vyroba" || w.typ === "sklad").map((w) => w.meno),
+    ...mesicPrestavky.map((p) => p.meno),
+  ])).sort((a, b) => a.localeCompare(b));
+  const workersByMeno = Object.fromEntries((workers || []).map((w) => [w.meno, w]));
+  const dochadzkaVypocet = summarizeMonth(mesicPrestavky, pauzy, workersByMeno, dochadzkaNastavenia);
+  const mesicSummary = dochadzkoveMena.map((meno) => {
+    const zaznamy = mesicPrestavky.filter((p) => p.meno === meno).slice().sort((a, b) => (parseSkDate(a.datum) || 0) - (parseSkDate(b.datum) || 0));
+    const v = dochadzkaVypocet[meno] || { celkemHod: 0, nocHod: 0, vikendHod: 0, sviatokHod: 0, prescasHod: 0 };
+    return {
+      meno,
+      zaznamy,
+      dni: new Set(zaznamy.map((p) => p.datum)).size,
+      hodiny: v.celkemHod,
+      nocHodiny: v.nocHod,
+      vikendHodiny: v.vikendHod,
+      sviatokHodiny: v.sviatokHod,
+      prescasHodiny: v.prescasHod,
+      chybajuce: zaznamy.filter(jeChybajuciOdchod).length,
+    };
+  }).filter((s) => s.zaznamy.length > 0 || dochazkaView === "mesic");
+
+  const pauzyChybajuce = (pauzy || []).filter(jeChybajuciOdchod);
+  const mesicPauzy = (pauzy || []).filter((p) => jeVMesiaci(p.datum, dochazkaMesic));
+  const pauzoveMena = Array.from(new Set([
+    ...(workers || []).filter((w) => w.typ === "vyroba" || w.typ === "sklad").map((w) => w.meno),
+    ...mesicPauzy.map((p) => p.meno),
+  ])).sort((a, b) => a.localeCompare(b));
+  const pauzySummary = pauzoveMena.map((meno) => {
+    const zaznamy = mesicPauzy.filter((p) => p.meno === meno).slice().sort((a, b) => (parseSkDate(a.datum) || 0) - (parseSkDate(b.datum) || 0));
+    return {
+      meno,
+      zaznamy,
+      dni: new Set(zaznamy.map((p) => p.datum)).size,
+      hodiny: zaznamy.reduce((s, p) => s + prestavkaHours(p), 0),
+      chybajuce: zaznamy.filter(jeChybajuciOdchod).length,
+    };
+  }).filter((s) => s.zaznamy.length > 0 || dochazkaView === "mesic");
+
+  async function exportDochazkaToExcel() {
+    const dennyRows = mesicPrestavky.slice().sort((a, b) => (parseSkDate(a.datum) || 0) - (parseSkDate(b.datum) || 0)).map((p) => ({
+      "Jméno": p.meno,
+      "Datum": p.datum,
+      "Příchod": p.casZaciatku,
+      "Odchod": p.casKonca || "",
+      "Hodiny": p.casKonca ? Math.round(prestavkaHours(p) * 100) / 100 : "",
+    }));
+    const summaryRows = mesicSummary.map((s) => ({
+      "Jméno": s.meno,
+      "Počet dní": s.dni,
+      "Celkem hodin": Math.round(s.hodiny * 100) / 100,
+      "Noční hodiny": Math.round(s.nocHodiny * 100) / 100,
+      "Víkendové hodiny": Math.round(s.vikendHodiny * 100) / 100,
+      "Sváteční hodiny": Math.round(s.sviatokHodiny * 100) / 100,
+      "Přesčas (nad 160h)": Math.round(s.prescasHodiny * 100) / 100,
+      "Chybějící odchod": s.chybajuce,
+    }));
+    const pauzyRows = mesicPauzy.slice().sort((a, b) => (parseSkDate(a.datum) || 0) - (parseSkDate(b.datum) || 0)).map((p) => ({
       "Jméno": p.meno,
       "Datum": p.datum,
       "Začátek": p.casZaciatku,
-      "Konec": p.casKonca || "probíhá",
-      "Trvání (min)": durationMinutes(p.casZaciatku, p.casKonca) ?? "",
+      "Konec": p.casKonca || "",
+      "Hodiny": p.casKonca ? Math.round(prestavkaHours(p) * 100) / 100 : "",
     }));
-    await exportRowsToExcel(exportRows, "Přestávky", "Přestávky", 16);
+    await exportSheetsToExcel(
+      [
+        { name: "Docházka", rows: dennyRows, colWidth: 16 },
+        { name: "Přestávky", rows: pauzyRows, colWidth: 16 },
+        { name: "Souhrn", rows: summaryRows, colWidth: 16 },
+      ],
+      "Dochazka_" + dochazkaMesic
+    );
+  }
+
+  async function exportCcpToExcel() {
+    const exportRows = (ccpKontroly || [])
+      .slice()
+      .sort((a, b) => (b.datum + b.cas).localeCompare(a.datum + a.cas))
+      .map((c) => ({
+        "Datum": c.datum,
+        "Čas": c.cas,
+        "Typ kontroly": c.typ === "zaciatok_zmeny" ? "Začátek směny" : "Změna produktu",
+        "Směna": c.smena === "den" ? "Denní" : c.smena === "noc" ? "Noční" : "",
+        "Linka": (PRODUCTION_LINKY.find((l) => l.value === c.linka) || {}).label || c.linka || "",
+        "Produkt": c.produktNazov || "",
+        "Fe": (c.fe || "").toUpperCase(),
+        "NonFe": (c.nonFe || "").toUpperCase(),
+        "S/S": (c.ss || "").toUpperCase(),
+        "Výsledek": c.vysledek === "neshoda" ? "NESHODA" : "OK",
+        "Nápravné opatření": c.naprava || "",
+        "Zkontrolovala": c.zkontrolovala,
+      }));
+    await exportRowsToExcel(exportRows, "CCP kontroly", "CCP_kontroly", 16);
   }
 
   async function exportPlanToExcel() {
@@ -5397,12 +6825,20 @@ function ProductionPlanView({ productionPlan, products, goodsReceipts, stockIssu
 
   function renderPlanRow(r) {
     const shortages = shortagesFor(r);
+    const zmenaAktivna = isPlanZmenaActive(r);
+    const zmenaText = formatZmenaText(r);
+    const jeHotovo = r.stavVyroby === "hotovo";
     return (
-      <tr key={r.id} className="border-t border-slate-100">
+      <tr key={r.id} className={"border-t border-slate-100 " + (zmenaAktivna ? "bg-red-50" : jeHotovo ? "bg-emerald-50" : "")}>
         <td className="px-3 py-2 whitespace-nowrap">{r.datum}</td>
         <td className="px-3 py-2 font-medium">
           {r.produktNazov}
           {shortages.length > 0 && <AlertCircle size={14} className="inline-block ml-1.5 text-red-500 align-text-bottom" />}
+          {zmenaAktivna && (
+            <div className="text-xs font-normal text-red-600 mt-0.5">
+              <span className="font-bold">Změněno:</span> {zmenaText}
+            </div>
+          )}
         </td>
         <td className="px-3 py-2 text-slate-500 whitespace-nowrap">{r.mnozstvo} {r.mnozstvoJednotka === "kartonů" ? "kartonů" : "paliet"}</td>
         <td className="px-3 py-2 text-slate-500 whitespace-nowrap">{r.terminDodania}</td>
@@ -5442,13 +6878,15 @@ function ProductionPlanView({ productionPlan, products, goodsReceipts, stockIssu
   const aktualnePrestavky = (prestavky || []).filter((p) => !p.casKonca);
   const PLAN_TAB_COLORS = {
     plan: "bg-rose-600 border-rose-600 shadow-rose-200",
-    zaznamy: "bg-teal-600 border-teal-600 shadow-teal-200",
+    "záznamy": "bg-teal-600 border-teal-600 shadow-teal-200",
     prestavky: "bg-amber-600 border-amber-600 shadow-amber-200",
+    ccp: "bg-indigo-600 border-indigo-600 shadow-indigo-200",
   };
   const PLAN_TABS = [
     { key: "plan", label: "Výrobní plán", icon: <ClipboardCheck size={18} /> },
     { key: "záznamy", label: "Výrobní záznamy", icon: <Factory size={18} /> },
-    { key: "prestavky", label: "Přestávky", icon: <Coffee size={18} />, badge: aktualnePrestavky.length || null },
+    { key: "prestavky", label: "Docházka", icon: <Coffee size={18} />, badge: aktualnePrestavky.length || null },
+    { key: "ccp", label: "CCP kontroly", icon: <ClipboardCheck size={18} /> },
   ];
 
   return (
@@ -5640,20 +7078,271 @@ function ProductionPlanView({ productionPlan, products, goodsReceipts, stockIssu
 
       {tab === "prestavky" && (
       <>
-      <div className="flex items-center justify-between mb-2">
-        <h2 className="text-sm font-semibold text-slate-500">Přestávky</h2>
-        <button onClick={exportPrestavkyToExcel} className="text-xs text-teal-700 hover:text-teal-900 font-medium flex items-center gap-1"><Download size={14} /> Export do Excelu</button>
+      <div className="flex items-center justify-between mb-2 flex-wrap gap-2">
+        <h2 className="text-sm font-semibold text-slate-500">Docházka</h2>
+        <div className="flex items-center gap-2 flex-wrap">
+          <div className="flex gap-1.5">
+            <button onClick={() => setDochazkaMode("prichod")} className={"text-xs px-2.5 py-1.5 rounded-md border " + (dochazkaMode === "prichod" ? "bg-amber-500 text-white border-amber-500" : "bg-white text-slate-700 border-slate-200")}>Příchod / odchod</button>
+            <button onClick={() => setDochazkaMode("pauza")} className={"text-xs px-2.5 py-1.5 rounded-md border " + (dochazkaMode === "pauza" ? "bg-orange-500 text-white border-orange-500" : "bg-white text-slate-700 border-slate-200")}>Přestávky</button>
+          </div>
+          <div className="flex gap-1.5">
+            <button onClick={() => setDochazkaView("mesic")} className={"text-xs px-2.5 py-1.5 rounded-md border " + (dochazkaView === "mesic" ? "bg-teal-700 text-white border-teal-700" : "bg-white text-slate-700 border-slate-200")}>Měsíční přehled</button>
+            <button onClick={() => setDochazkaView("denni")} className={"text-xs px-2.5 py-1.5 rounded-md border " + (dochazkaView === "denni" ? "bg-teal-700 text-white border-teal-700" : "bg-white text-slate-700 border-slate-200")}>Denní seznam</button>
+          </div>
+          <input type="month" value={dochazkaMesic} onChange={(e) => setDochazkaMesic(e.target.value)} className="text-xs border border-slate-200 rounded-md px-2 py-1.5" />
+          <button onClick={exportDochazkaToExcel} disabled={mesicPrestavky.length === 0 && mesicPauzy.length === 0} className="text-xs text-teal-700 hover:text-teal-900 disabled:opacity-50 disabled:cursor-not-allowed font-medium flex items-center gap-1"><Download size={14} /> Export do Excelu</button>
+          <IconButton title="Nastavení začátku směny" onClick={() => setShowDochadzkaNastavenia(true)}><Settings size={16} /></IconButton>
+        </div>
       </div>
+
+      {dochazkaMode === "prichod" && (
+      <>
+      {vsetkyChybajuce.length > 0 && (
+        <div className="mb-2 bg-red-50 text-red-700 text-xs px-3 py-2 rounded-md">
+          <div className="flex items-center gap-2 font-semibold mb-1"><AlertCircle size={14} /> Nedokončené záznamy (chybí odchod):</div>
+          <div className="flex flex-wrap gap-1.5">
+            {vsetkyChybajuce.map((p) => (
+              <button key={p.id} onClick={() => setEditingPrestavka(p)} className="bg-white border border-red-200 hover:bg-red-100 px-2 py-1 rounded-md">
+                {p.meno} ({p.datum} {p.casZaciatku})
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
       {(() => {
-        const aktualne = (prestavky || []).filter((p) => !p.casKonca);
+        const aktualne = (prestavky || []).filter((p) => !p.casKonca && p.datum === todayStr());
         return aktualne.length > 0 && (
           <div className="mb-2 bg-amber-50 text-amber-800 text-xs px-3 py-2 rounded-md flex items-center gap-2">
-            <AlertCircle size={14} /> Prave na prestavke: {aktualne.map((p) => p.meno).join(", ")}
+            <AlertCircle size={14} /> Právě v práci: {aktualne.map((p) => p.meno).join(", ")}
           </div>
         );
       })()}
-      {(prestavky || []).length === 0 ? (
-        <div className="bg-white border border-slate-200 rounded-lg p-6 text-center text-slate-400 text-sm">Zatím žádné záznamy přestávek.</div>
+
+      {dochazkaView === "mesic" && mesicSummary.length > 0 && (() => {
+        const firemnyPrescas = mesicSummary.reduce((s, r) => s + r.prescasHodiny, 0);
+        const firemneChybajuce = mesicSummary.reduce((s, r) => s + r.chybajuce, 0);
+        return (
+          <div className="mb-2 bg-slate-50 border border-slate-200 text-slate-600 text-xs px-3 py-2 rounded-md flex flex-wrap gap-x-4 gap-y-1">
+            <span><span className="font-semibold text-slate-700">{mesicSummary.length}</span> zaměstnanců</span>
+            <span>Přesčasy celkem: <span className={"font-semibold " + (firemnyPrescas > 0 ? "text-amber-700" : "text-slate-500")}>{Math.round(firemnyPrescas * 10) / 10} h</span></span>
+            <span>Chybějící odchody: <span className={"font-semibold " + (firemneChybajuce > 0 ? "text-red-700" : "text-slate-500")}>{firemneChybajuce}</span></span>
+          </div>
+        );
+      })()}
+
+      {dochazkaView === "mesic" ? (
+        mesicSummary.length === 0 ? (
+          <div className="bg-white border border-slate-200 rounded-lg p-6 text-center text-slate-400 text-sm">Za tento měsíc zatím žádné záznamy.</div>
+        ) : (
+          <div className="bg-white border border-slate-200 rounded-lg overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="bg-slate-100 text-slate-600 text-left">
+                  <th className="px-3 py-2 font-medium">Jméno</th>
+                  <th className="px-3 py-2 font-medium text-right">Počet dní</th>
+                  <th className="px-3 py-2 font-medium text-right">Celkem hodin</th>
+                  <th className="px-3 py-2 font-medium text-right">Noc</th>
+                  <th className="px-3 py-2 font-medium text-right">Víkend</th>
+                  <th className="px-3 py-2 font-medium text-right">Svátek</th>
+                  <th className="px-3 py-2 font-medium text-right">Přesčas</th>
+                  <th className="px-3 py-2 font-medium text-right">Chybějící odchod</th>
+                  <th className="px-3 py-2"></th>
+                </tr>
+              </thead>
+              <tbody>
+                {mesicSummary.map((s) => (
+                  <React.Fragment key={s.meno}>
+                    <tr className="border-t border-slate-100 cursor-pointer hover:bg-slate-50" onClick={() => setExpandedMeno(expandedMeno === s.meno ? null : s.meno)}>
+                      <td className="px-3 py-2 font-medium flex items-center gap-1.5">
+                        {expandedMeno === s.meno ? <ChevronUp size={14} /> : <ChevronDown size={14} />} {s.meno}
+                      </td>
+                      <td className="px-3 py-2 text-right text-slate-500">{s.dni}</td>
+                      <td className="px-3 py-2 text-right text-slate-500">{Math.round(s.hodiny * 10) / 10}</td>
+                      <td className="px-3 py-2 text-right text-slate-400">{Math.round(s.nocHodiny * 10) / 10}</td>
+                      <td className="px-3 py-2 text-right text-slate-400">{Math.round(s.vikendHodiny * 10) / 10}</td>
+                      <td className="px-3 py-2 text-right text-slate-400">{Math.round(s.sviatokHodiny * 10) / 10}</td>
+                      <td className="px-3 py-2 text-right">
+                        {s.prescasHodiny > 0 ? <span className="font-semibold text-amber-700">{Math.round(s.prescasHodiny * 10) / 10}</span> : <span className="text-slate-300">0</span>}
+                      </td>
+                      <td className="px-3 py-2 text-right">
+                        {s.chybajuce > 0 ? <span className="text-xs font-bold px-2 py-0.5 rounded-full bg-red-100 text-red-700">{s.chybajuce}</span> : <span className="text-slate-300">0</span>}
+                      </td>
+                      <td className="px-3 py-2"></td>
+                    </tr>
+                    {expandedMeno === s.meno && (
+                      <tr className="bg-slate-50">
+                        <td colSpan={9} className="px-3 py-2">
+                          {s.zaznamy.length === 0 ? (
+                            <div className="text-xs text-slate-400 py-2">Žádné záznamy v tomto měsíci.</div>
+                          ) : (
+                            <div className="space-y-1">
+                              {(() => {
+                                const typ = workersByMeno[s.meno]?.typ;
+                                const zaciatokZmeny = typ === "sklad" ? dochadzkaNastavenia?.zaciatokSklad : typ === "vyroba" ? dochadzkaNastavenia?.zaciatokVyroba : null;
+                                return s.zaznamy.map((p) => {
+                                  const vypocet = computeDayHours(p, pauzy, zaciatokZmeny);
+                                  const raw = shiftInterval(p.datum, p.casZaciatku, p.casKonca);
+                                  const clamped = raw && clampShiftStart(raw, zaciatokZmeny);
+                                  const orezano = raw && clamped && clamped.start.getTime() !== raw.start.getTime();
+                                  return (
+                                    <div key={p.id} className="flex items-center justify-between bg-white border border-slate-200 rounded-md px-3 py-1.5">
+                                      <div className="text-xs text-slate-600">
+                                        příchod do budovy {p.casZaciatku} - odchod {p.casKonca || <span className="text-red-600 font-medium">chybí odchod</span>} <span className="text-slate-400">({p.datum})</span>
+                                        {vypocet && (
+                                          <span className="text-slate-400">
+                                            {" "}
+                                            - k výplatě {formatMinutes(vypocet.totalMin)}
+                                            {orezano && ` (počítáno od ${zaciatokZmeny})`}
+                                          </span>
+                                        )}
+                                      </div>
+                                      <div className="flex gap-1">
+                                        <IconButton title="Upravit" onClick={() => setEditingPrestavka(p)}><Pencil size={14} /></IconButton>
+                                        <IconButton title="Smazat" onClick={() => setConfirmDeletePrestavka(p)}><Trash2 size={14} /></IconButton>
+                                      </div>
+                                    </div>
+                                  );
+                                });
+                              })()}
+                            </div>
+                          )}
+                        </td>
+                      </tr>
+                    )}
+                  </React.Fragment>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )
+      ) : (prestavky || []).length === 0 ? (
+        <div className="bg-white border border-slate-200 rounded-lg p-6 text-center text-slate-400 text-sm">Zatím žádné záznamy docházky.</div>
+      ) : (
+        <div className="bg-white border border-slate-200 rounded-lg overflow-hidden">
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="bg-slate-100 text-slate-600 text-left">
+                <th className="px-3 py-2 font-medium">Jméno</th>
+                <th className="px-3 py-2 font-medium">Datum</th>
+                <th className="px-3 py-2 font-medium">Příchod</th>
+                <th className="px-3 py-2 font-medium">Odchod</th>
+                <th className="px-3 py-2 font-medium">Trvání</th>
+                <th className="px-3 py-2"></th>
+              </tr>
+            </thead>
+            <tbody>
+              {prestavky.slice(0, 50).map((p) => {
+                const mins = durationMinutes(p.casZaciatku, p.casKonca);
+                return (
+                  <tr key={p.id} className="border-t border-slate-100">
+                    <td className="px-3 py-2 font-medium">{p.meno}</td>
+                    <td className="px-3 py-2 text-slate-500 whitespace-nowrap">{p.datum}</td>
+                    <td className="px-3 py-2 text-slate-500 whitespace-nowrap">{p.casZaciatku}</td>
+                    <td className="px-3 py-2 text-slate-500 whitespace-nowrap">{p.casKonca || <span className="text-amber-600 font-medium">probíhá</span>}</td>
+                    <td className="px-3 py-2 text-slate-500 whitespace-nowrap">{mins !== null ? formatMinutes(mins) : "-"}</td>
+                    <td className="px-3 py-2 text-right">
+                      <div className="flex justify-end gap-1">
+                        <IconButton title="Upravit" onClick={() => setEditingPrestavka(p)}><Pencil size={16} /></IconButton>
+                        <IconButton title="Smazat" onClick={() => setConfirmDeletePrestavka(p)}><Trash2 size={16} /></IconButton>
+                      </div>
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      )}
+      </>
+      )}
+
+      {dochazkaMode === "pauza" && (
+      <>
+      {pauzyChybajuce.length > 0 && (
+        <div className="mb-2 bg-red-50 text-red-700 text-xs px-3 py-2 rounded-md">
+          <div className="flex items-center gap-2 font-semibold mb-1"><AlertCircle size={14} /> Nedokončené přestávky (chybí konec):</div>
+          <div className="flex flex-wrap gap-1.5">
+            {pauzyChybajuce.map((p) => (
+              <button key={p.id} onClick={() => setEditingPauza(p)} className="bg-white border border-red-200 hover:bg-red-100 px-2 py-1 rounded-md">
+                {p.meno} ({p.datum} {p.casZaciatku})
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+      {(() => {
+        const aktualne = (pauzy || []).filter((p) => !p.casKonca && p.datum === todayStr());
+        return aktualne.length > 0 && (
+          <div className="mb-2 bg-orange-50 text-orange-800 text-xs px-3 py-2 rounded-md flex items-center gap-2">
+            <AlertCircle size={14} /> Právě na přestávce: {aktualne.map((p) => p.meno).join(", ")}
+          </div>
+        );
+      })()}
+
+      {dochazkaView === "mesic" ? (
+        pauzySummary.length === 0 ? (
+          <div className="bg-white border border-slate-200 rounded-lg p-6 text-center text-slate-400 text-sm">Za tento měsíc zatím žádné přestávky.</div>
+        ) : (
+          <div className="bg-white border border-slate-200 rounded-lg overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="bg-slate-100 text-slate-600 text-left">
+                  <th className="px-3 py-2 font-medium">Jméno</th>
+                  <th className="px-3 py-2 font-medium text-right">Počet dní</th>
+                  <th className="px-3 py-2 font-medium text-right">Celkem hodin</th>
+                  <th className="px-3 py-2 font-medium text-right">Chybějící konec</th>
+                  <th className="px-3 py-2"></th>
+                </tr>
+              </thead>
+              <tbody>
+                {pauzySummary.map((s) => (
+                  <React.Fragment key={s.meno}>
+                    <tr className="border-t border-slate-100 cursor-pointer hover:bg-slate-50" onClick={() => setExpandedMeno(expandedMeno === s.meno ? null : s.meno)}>
+                      <td className="px-3 py-2 font-medium flex items-center gap-1.5">
+                        {expandedMeno === s.meno ? <ChevronUp size={14} /> : <ChevronDown size={14} />} {s.meno}
+                      </td>
+                      <td className="px-3 py-2 text-right text-slate-500">{s.dni}</td>
+                      <td className="px-3 py-2 text-right text-slate-500">{Math.round(s.hodiny * 10) / 10}</td>
+                      <td className="px-3 py-2 text-right">
+                        {s.chybajuce > 0 ? <span className="text-xs font-bold px-2 py-0.5 rounded-full bg-red-100 text-red-700">{s.chybajuce}</span> : <span className="text-slate-300">0</span>}
+                      </td>
+                      <td className="px-3 py-2"></td>
+                    </tr>
+                    {expandedMeno === s.meno && (
+                      <tr className="bg-slate-50">
+                        <td colSpan={5} className="px-3 py-2">
+                          {s.zaznamy.length === 0 ? (
+                            <div className="text-xs text-slate-400 py-2">Žádné přestávky v tomto měsíci.</div>
+                          ) : (
+                            <div className="space-y-1">
+                              {s.zaznamy.map((p) => {
+                                const mins = durationMinutes(p.casZaciatku, p.casKonca);
+                                return (
+                                  <div key={p.id} className="flex items-center justify-between bg-white border border-slate-200 rounded-md px-3 py-1.5">
+                                    <div className="text-xs text-slate-600">
+                                      {p.datum}: {p.casZaciatku} - {p.casKonca || <span className="text-red-600 font-medium">chybí konec</span>}
+                                      {mins !== null && <span className="text-slate-400"> ({formatMinutes(mins)})</span>}
+                                    </div>
+                                    <div className="flex gap-1">
+                                      <IconButton title="Upravit" onClick={() => setEditingPauza(p)}><Pencil size={14} /></IconButton>
+                                      <IconButton title="Smazat" onClick={() => setConfirmDeletePauza(p)}><Trash2 size={14} /></IconButton>
+                                    </div>
+                                  </div>
+                                );
+                              })}
+                            </div>
+                          )}
+                        </td>
+                      </tr>
+                    )}
+                  </React.Fragment>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )
+      ) : (pauzy || []).length === 0 ? (
+        <div className="bg-white border border-slate-200 rounded-lg p-6 text-center text-slate-400 text-sm">Zatím žádné přestávky.</div>
       ) : (
         <div className="bg-white border border-slate-200 rounded-lg overflow-hidden">
           <table className="w-full text-sm">
@@ -5668,17 +7357,20 @@ function ProductionPlanView({ productionPlan, products, goodsReceipts, stockIssu
               </tr>
             </thead>
             <tbody>
-              {prestavky.slice(0, 50).map((p) => {
+              {pauzy.slice(0, 50).map((p) => {
                 const mins = durationMinutes(p.casZaciatku, p.casKonca);
                 return (
                   <tr key={p.id} className="border-t border-slate-100">
                     <td className="px-3 py-2 font-medium">{p.meno}</td>
                     <td className="px-3 py-2 text-slate-500 whitespace-nowrap">{p.datum}</td>
                     <td className="px-3 py-2 text-slate-500 whitespace-nowrap">{p.casZaciatku}</td>
-                    <td className="px-3 py-2 text-slate-500 whitespace-nowrap">{p.casKonca || <span className="text-amber-600 font-medium">probíhá</span>}</td>
-                    <td className="px-3 py-2 text-slate-500 whitespace-nowrap">{mins !== null ? mins + " min" : "-"}</td>
+                    <td className="px-3 py-2 text-slate-500 whitespace-nowrap">{p.casKonca || <span className="text-orange-600 font-medium">probíhá</span>}</td>
+                    <td className="px-3 py-2 text-slate-500 whitespace-nowrap">{mins !== null ? formatMinutes(mins) : "-"}</td>
                     <td className="px-3 py-2 text-right">
-                      <IconButton title="Smazat" onClick={() => setConfirmDeletePrestavka(p)}><Trash2 size={16} /></IconButton>
+                      <div className="flex justify-end gap-1">
+                        <IconButton title="Upravit" onClick={() => setEditingPauza(p)}><Pencil size={16} /></IconButton>
+                        <IconButton title="Smazat" onClick={() => setConfirmDeletePauza(p)}><Trash2 size={16} /></IconButton>
+                      </div>
                     </td>
                   </tr>
                 );
@@ -5687,9 +7379,12 @@ function ProductionPlanView({ productionPlan, products, goodsReceipts, stockIssu
           </table>
         </div>
       )}
+      </>
+      )}
+
       {confirmDeletePrestavka && (
-        <ModalShell title="Smazat záznam přestávky?" onClose={() => setConfirmDeletePrestavka(null)}>
-          <p className="text-sm text-slate-600 mb-4">Opravdu chcete smazat záznam přestávky pro "{confirmDeletePrestavka.meno}" ({confirmDeletePrestavka.datum})? Tuto akci nelze vrátit zpět.</p>
+        <ModalShell title="Smazat záznam docházky?" onClose={() => setConfirmDeletePrestavka(null)}>
+          <p className="text-sm text-slate-600 mb-4">Opravdu chcete smazat záznam docházky pro "{confirmDeletePrestavka.meno}" ({confirmDeletePrestavka.datum})? Tuto akci nelze vrátit zpět.</p>
           <div className="flex justify-end gap-2">
             <button onClick={() => setConfirmDeletePrestavka(null)} className="text-sm text-slate-500 px-3 py-2">Zrušit</button>
             <button onClick={() => { onDeletePrestavka(confirmDeletePrestavka.id); setConfirmDeletePrestavka(null); }} className="bg-red-600 hover:bg-red-700 text-white text-sm font-medium px-4 py-2 rounded-md flex items-center gap-1.5">
@@ -5698,9 +7393,148 @@ function ProductionPlanView({ productionPlan, products, goodsReceipts, stockIssu
           </div>
         </ModalShell>
       )}
+      {editingPrestavka && (
+        <PrestavkaEditModal
+          prestavka={editingPrestavka}
+          onClose={() => setEditingPrestavka(null)}
+          onSave={(patch) => { onUpdatePrestavka(editingPrestavka.id, patch); setEditingPrestavka(null); }}
+        />
+      )}
+      {confirmDeletePauza && (
+        <ModalShell title="Smazat záznam přestávky?" onClose={() => setConfirmDeletePauza(null)}>
+          <p className="text-sm text-slate-600 mb-4">Opravdu chcete smazat záznam přestávky pro "{confirmDeletePauza.meno}" ({confirmDeletePauza.datum})? Tuto akci nelze vrátit zpět.</p>
+          <div className="flex justify-end gap-2">
+            <button onClick={() => setConfirmDeletePauza(null)} className="text-sm text-slate-500 px-3 py-2">Zrušit</button>
+            <button onClick={() => { onDeletePauza(confirmDeletePauza.id); setConfirmDeletePauza(null); }} className="bg-red-600 hover:bg-red-700 text-white text-sm font-medium px-4 py-2 rounded-md flex items-center gap-1.5">
+              <Trash2 size={16} /> Ano, zmazat
+            </button>
+          </div>
+        </ModalShell>
+      )}
+      {editingPauza && (
+        <PrestavkaEditModal
+          prestavka={editingPauza}
+          title={"Upravit přestávku - " + editingPauza.meno}
+          onClose={() => setEditingPauza(null)}
+          onSave={(patch) => { onUpdatePauza(editingPauza.id, patch); setEditingPauza(null); }}
+        />
+      )}
+      {showDochadzkaNastavenia && (
+        <DochadzkaNastaveniaModal
+          nastavenia={dochadzkaNastavenia}
+          onClose={() => setShowDochadzkaNastavenia(false)}
+          onSave={(next) => { onUpdateDochadzkaNastavenia(next); setShowDochadzkaNastavenia(false); }}
+        />
+      )}
+      </>
+      )}
+
+      {tab === "ccp" && (
+      <>
+      <div className="flex items-center justify-between mb-2">
+        <h2 className="text-sm font-semibold text-slate-500">CCP kontroly detektoru kovu</h2>
+        <button onClick={exportCcpToExcel} disabled={(ccpKontroly || []).length === 0} className="text-xs text-teal-700 hover:text-teal-900 disabled:opacity-50 disabled:cursor-not-allowed font-medium flex items-center gap-1"><Download size={14} /> Export do Excelu</button>
+      </div>
+      {(ccpKontroly || []).length === 0 ? (
+        <div className="bg-white border border-slate-200 rounded-lg p-6 text-center text-slate-400 text-sm">Zatím žádné CCP kontroly.</div>
+      ) : (
+        <div className="bg-white border border-slate-200 rounded-lg overflow-x-auto">
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="bg-slate-100 text-slate-600 text-left">
+                <th className="px-3 py-2 font-medium whitespace-nowrap">Datum</th>
+                <th className="px-3 py-2 font-medium whitespace-nowrap">Čas</th>
+                <th className="px-3 py-2 font-medium whitespace-nowrap">Typ</th>
+                <th className="px-3 py-2 font-medium whitespace-nowrap">Linka</th>
+                <th className="px-3 py-2 font-medium">Produkt</th>
+                <th className="px-3 py-2 font-medium whitespace-nowrap">Fe / NonFe / S-S</th>
+                <th className="px-3 py-2 font-medium">Výsledek</th>
+                <th className="px-3 py-2 font-medium">Náprava</th>
+                <th className="px-3 py-2 font-medium whitespace-nowrap">Zkontrolovala</th>
+              </tr>
+            </thead>
+            <tbody>
+              {ccpKontroly.slice().sort((a, b) => (b.datum + b.cas).localeCompare(a.datum + a.cas)).map((c) => (
+                <tr key={c.id} className="border-t border-slate-100">
+                  <td className="px-3 py-2 whitespace-nowrap">{c.datum}</td>
+                  <td className="px-3 py-2 whitespace-nowrap text-slate-500">{c.cas}</td>
+                  <td className="px-3 py-2 whitespace-nowrap text-slate-500">
+                    {c.typ === "zaciatok_zmeny" ? `Začátek směny${c.smena ? " (" + (c.smena === "den" ? "denní" : "noční") + ")" : ""}` : "Změna produktu"}
+                  </td>
+                  <td className="px-3 py-2 whitespace-nowrap text-slate-500">{(PRODUCTION_LINKY.find((l) => l.value === c.linka) || {}).label || c.linka || "-"}</td>
+                  <td className="px-3 py-2">{c.produktNazov || "-"}</td>
+                  <td className="px-3 py-2 whitespace-nowrap text-slate-500">{(c.fe || "").toUpperCase()} / {(c.nonFe || "").toUpperCase()} / {(c.ss || "").toUpperCase()}</td>
+                  <td className="px-3 py-2">
+                    <span className={"text-xs font-bold px-2 py-0.5 rounded-full " + (c.vysledek === "neshoda" ? "bg-red-100 text-red-700" : "bg-emerald-100 text-emerald-700")}>
+                      {c.vysledek === "neshoda" ? "NESHODA" : "OK"}
+                    </span>
+                  </td>
+                  <td className="px-3 py-2 text-slate-500">{c.naprava || "-"}</td>
+                  <td className="px-3 py-2 whitespace-nowrap text-slate-500">{c.zkontrolovala}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
       </>
       )}
     </div>
+  );
+}
+
+function PrestavkaEditModal({ prestavka, title, onClose, onSave }) {
+  const [f, setF] = useState({ datum: prestavka.datum || "", casZaciatku: prestavka.casZaciatku || "", casKonca: prestavka.casKonca || "" });
+  const [error, setError] = useState("");
+
+  function save() {
+    if (!f.datum.trim()) { setError("Vyplňte datum."); return; }
+    if (!f.casZaciatku.trim()) { setError("Vyplňte čas příchodu."); return; }
+    setError("");
+    onSave({ datum: f.datum.trim(), casZaciatku: f.casZaciatku.trim(), casKonca: f.casKonca.trim() });
+  }
+
+  return (
+    <ModalShell title={title || "Upravit docházku - " + prestavka.meno} onClose={onClose}>
+      <DateField label="Datum" value={f.datum} onChange={(v) => setF({ ...f, datum: v })} />
+      <div className="grid grid-cols-2 gap-x-3">
+        <Field label="Příchod (HH:MM)" value={f.casZaciatku} onChange={(v) => setF({ ...f, casZaciatku: v })} />
+        <Field label="Odchod (HH:MM, nepovinné)" value={f.casKonca} onChange={(v) => setF({ ...f, casKonca: v })} />
+      </div>
+      {error && <div className="mb-3 bg-red-50 text-red-700 text-xs px-3 py-2 rounded-md flex items-center gap-2"><AlertCircle size={14} /> {error}</div>}
+      <div className="flex justify-end mt-2"><button onClick={save} className="bg-teal-700 hover:bg-teal-800 text-white text-sm font-medium px-4 py-2 rounded-md">Uložit</button></div>
+    </ModalShell>
+  );
+}
+
+function DochadzkaNastaveniaModal({ nastavenia, onClose, onSave }) {
+  const [f, setF] = useState({ zaciatokVyroba: nastavenia?.zaciatokVyroba || "06:00", zaciatokSklad: nastavenia?.zaciatokSklad || "06:00" });
+
+  function save() {
+    const zmeneno = f.zaciatokVyroba !== (nastavenia?.zaciatokVyroba || "06:00") || f.zaciatokSklad !== (nastavenia?.zaciatokSklad || "06:00");
+    if (zmeneno && !window.confirm("Změna začátku směny přepočítá i už uzavřené měsíce zpětně (mzdové hodiny se počítají vždy naživo z aktuálního nastavení). Pokud jste už nějaký měsíc odeslali do mezd, jeho čísla se tímto změní. Opravdu pokračovat?")) {
+      return;
+    }
+    onSave(f);
+  }
+
+  return (
+    <ModalShell title="Nastavení začátku směny" onClose={onClose}>
+      <p className="text-xs text-slate-500 mb-3">
+        Pokud pracovník ťukne příchod dříve než je zde nastavený začátek směny (max. 4 hodiny předem), do mzdových hodin se počítá až od tohoto času. Platí pouze pro měsíční přehled a export - denní seznam nadále ukazuje přesné ťuknuté časy.
+      </p>
+      <div className="grid grid-cols-2 gap-x-3">
+        <div className="mb-3">
+          <label className="block text-xs font-medium text-slate-500 mb-1">Začátek směny - Výroba</label>
+          <input type="time" value={f.zaciatokVyroba} onChange={(e) => setF({ ...f, zaciatokVyroba: e.target.value })} className="w-full border border-slate-200 rounded-md px-3 py-2 text-sm" />
+        </div>
+        <div className="mb-3">
+          <label className="block text-xs font-medium text-slate-500 mb-1">Začátek směny - Sklad</label>
+          <input type="time" value={f.zaciatokSklad} onChange={(e) => setF({ ...f, zaciatokSklad: e.target.value })} className="w-full border border-slate-200 rounded-md px-3 py-2 text-sm" />
+        </div>
+      </div>
+      <div className="flex justify-end mt-2"><button onClick={save} className="bg-teal-700 hover:bg-teal-800 text-white text-sm font-medium px-4 py-2 rounded-md">Uložit</button></div>
+    </ModalShell>
   );
 }
 
@@ -5712,9 +7546,17 @@ function ProductionPlanFormModal({ plan, products, goodsReceipts, stockIssues, c
     zapisal: currentUserName || "",
     ...plan,
   });
+  const [formError, setFormError] = useState("");
 
   const linkaProducts = products.filter((p) => p.linka === f.linka);
   const selectedProduct = products.find((p) => p.id === f.produktId);
+
+  function save() {
+    if (!f.produktId) { setFormError("Vyberte produkt."); return; }
+    if (!f.mnozstvo || !f.mnozstvo.toString().trim()) { setFormError("Zadejte množství."); return; }
+    setFormError("");
+    onSave({ ...f, id: formId });
+  }
 
   function pickProduct(id) {
     const p = products.find((x) => x.id === id);
@@ -5768,7 +7610,8 @@ function ProductionPlanFormModal({ plan, products, goodsReceipts, stockIssues, c
           <span>Mozny nedostatok materialu: {shortages.map((s) => s.material + " (" + s.mnozstvo + ")").join(", ")}</span>
         </div>
       )}
-      <div className="flex justify-end mt-2"><button onClick={() => onSave({ ...f, id: formId })} className="bg-teal-700 hover:bg-teal-800 text-white text-sm font-medium px-4 py-2 rounded-md">Uložit</button></div>
+      {formError && <div className="mb-3 bg-red-50 text-red-700 text-xs px-3 py-2 rounded-md flex items-center gap-2"><AlertCircle size={14} /> {formError}</div>}
+      <div className="flex justify-end mt-2"><button onClick={save} className="bg-teal-700 hover:bg-teal-800 text-white text-sm font-medium px-4 py-2 rounded-md">Uložit</button></div>
     </ModalShell>
   );
 }
@@ -5859,8 +7702,8 @@ function DashboardView({ orders, goodsReceipts, stockIssues, productionOutputs, 
               {upcoming.map(({ o }) => (
                 <div key={o.id} onClick={onGoToRegister} className="px-4 py-2.5 border-t border-slate-100 first:border-t-0 flex items-center justify-between cursor-pointer hover:bg-slate-50">
                   <div>
-                    <div className="font-medium text-sm">{o.zakaznik || "-"}</div>
-                    <div className="text-xs text-slate-400">{o.adresaDodaniaNazov}</div>
+                    <div className="font-medium text-sm">{o.adresaDodaniaNazov || "-"}</div>
+                    <div className="text-xs text-slate-400">{o.zakaznik}</div>
                   </div>
                   <div className="text-sm text-slate-600 whitespace-nowrap">{o.datumDodania}</div>
                 </div>
@@ -6140,6 +7983,7 @@ function PricelistView({ pricelist, pricelistArchive, onUpload, onDelete, onRest
       const parsed = await parsePricelistFile(buf);
       await onUpload({ ...parsed, fileName: file.name, uploadedAt: new Date().toISOString() });
     } catch (err) {
+      console.error(err);
       setError(err.message || "Nepodařilo se zpracovat soubor.");
     }
     setBusy(false);
@@ -6179,5 +8023,384 @@ function PricelistView({ pricelist, pricelistArchive, onUpload, onDelete, onRest
       <PricelistTable pricelist={pricelist} />
       <PricelistArchiveSection pricelistArchive={pricelistArchive} onRestore={onRestore} onDeleteEntry={onDeleteArchiveEntry} />
     </div>
+  );
+}
+
+const SW_PRICELIST_YEAR_RE = /\b(19|20)\d{2}\b/;
+
+function analyzeSwPricelistColumns(rows) {
+  if (!rows || !rows.length) return { headerRowIdx: -1, colYear: {}, currentYear: null };
+  let headerRowIdx = -1, bestCount = -1;
+  rows.forEach((row, ri) => {
+    const count = row.filter((c) => SW_PRICELIST_YEAR_RE.test(String(c))).length;
+    if (count > bestCount) { bestCount = count; headerRowIdx = ri; }
+  });
+  if (bestCount <= 0) return { headerRowIdx: -1, colYear: {}, currentYear: null };
+  const colYear = {};
+  let lastYear = null;
+  rows[headerRowIdx].forEach((cell, ci) => {
+    const m = String(cell).match(SW_PRICELIST_YEAR_RE);
+    if (m) lastYear = parseInt(m[0], 10);
+    if (lastYear !== null) colYear[ci] = lastYear;
+  });
+  const years = Object.values(colYear);
+  const currentYear = years.length ? Math.max(...years) : null;
+  return { headerRowIdx, colYear, currentYear };
+}
+
+function SwPricelistTable({ swPricelist }) {
+  const rows = swPricelist && swPricelist.rows;
+  const [showOldYears, setShowOldYears] = useState(false);
+  const { headerRowIdx, colYear, currentYear } = useMemo(() => analyzeSwPricelistColumns(rows), [rows]);
+
+  if (!rows || !rows.length) {
+    return (
+      <div className="bg-white border border-slate-200 rounded-lg p-10 text-center text-slate-500">
+        <FileSpreadsheet size={28} className="mx-auto mb-3 text-slate-300" />
+        Cenik zatim neni nahrany.
+      </div>
+    );
+  }
+
+  const hasOldYears = currentYear != null && Object.values(colYear).some((y) => y < currentYear);
+  const colCount = rows.reduce((max, r) => Math.max(max, r.length), 0);
+  const visibleCols = [];
+  for (let ci = 0; ci < colCount; ci++) {
+    const y = colYear[ci];
+    if (showOldYears || !hasOldYears || y == null || y === currentYear) visibleCols.push(ci);
+  }
+
+  return (
+    <div className="bg-white border border-slate-200 rounded-lg p-4">
+      <div className="flex items-center justify-between mb-3 gap-2 flex-wrap">
+        <div className="text-sm text-slate-600">
+          Nahrany subor: <b>{swPricelist.fileName}</b>
+          {swPricelist.uploadedAt ? " (" + formatDateTime(swPricelist.uploadedAt) + ")" : ""}
+        </div>
+        <div className="flex items-center gap-3">
+          {hasOldYears && (
+            <label className="flex items-center gap-1.5 text-xs text-slate-500 cursor-pointer select-none">
+              <input type="checkbox" checked={showOldYears} onChange={(e) => setShowOldYears(e.target.checked)} />
+              Zobrazit i starsi ceny
+            </label>
+          )}
+          <button onClick={() => openSwPricelistFile(swPricelist.path)} className="flex items-center gap-1.5 bg-white border border-slate-200 hover:bg-slate-50 text-slate-700 text-sm font-medium px-3 py-1.5 rounded-md">
+            <Download size={16} /> Stahnout
+          </button>
+        </div>
+      </div>
+      {currentYear != null && (
+        <div className="text-xs text-slate-400 mb-2">Aktualni ceny ({currentYear}) jsou zvyraznene rameckem.</div>
+      )}
+      <div className="overflow-auto max-h-[65vh] border border-slate-100 rounded-md">
+        <table className="text-xs w-full">
+          <tbody>
+            {rows.map((row, ri) => (
+              <tr key={ri} className={ri === (headerRowIdx >= 0 ? headerRowIdx : 0) ? "bg-slate-100 text-slate-600 font-medium sticky top-0" : "border-t border-slate-100"}>
+                {visibleCols.map((ci) => {
+                  const cell = row[ci];
+                  const y = colYear[ci];
+                  const isCurrent = currentYear != null && y === currentYear;
+                  const isOld = y != null && currentYear != null && y < currentYear;
+                  return (
+                    <td
+                      key={ci}
+                      className={"px-2 py-1 whitespace-nowrap " + (isCurrent ? "border-l-2 border-r-2 border-teal-300 bg-teal-50/60" : isOld ? "text-slate-400" : "")}
+                    >
+                      {cell === "" || cell == null ? "" : String(cell)}
+                    </td>
+                  );
+                })}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+
+function SwPricelistArchiveSection({ swPricelistArchive, onRestore, onDeleteEntry }) {
+  const [viewing, setViewing] = useState(null);
+  if (!swPricelistArchive.length) return null;
+  return (
+    <div className="mt-6">
+      <h2 className="text-sm font-semibold mb-2 text-slate-700">Archiv (predchozi verze)</h2>
+      <div className="bg-white border border-slate-200 rounded-lg overflow-hidden">
+        <table className="w-full text-sm">
+          <thead><tr className="bg-slate-100 text-slate-600 text-left"><th className="px-3 py-2 font-medium">Soubor</th><th className="px-3 py-2 font-medium">Archivovano</th><th className="px-3 py-2"></th></tr></thead>
+          <tbody>
+            {swPricelistArchive.map((entry) => (
+              <tr key={entry.id} className="border-t border-slate-100">
+                <td className="px-3 py-2">{entry.file_name || entry.data.fileName || "cenik"}</td>
+                <td className="px-3 py-2 text-slate-500">{formatDateTime(entry.archived_at)}</td>
+                <td className="px-3 py-2 text-right">
+                  <div className="flex justify-end gap-1">
+                    <IconButton title="Zobrazit" onClick={() => setViewing(entry)}><ClipboardList size={16} /></IconButton>
+                    <IconButton title="Stahnout" onClick={() => openSwPricelistFile(entry.data.path)}><Download size={16} /></IconButton>
+                    <IconButton title="Obnovit jako aktualni" onClick={() => onRestore(entry)}><CheckCircle2 size={16} /></IconButton>
+                    <IconButton title="Smazat natrvalo" onClick={() => onDeleteEntry(entry.id)}><Trash2 size={16} /></IconButton>
+                  </div>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+      {viewing && (
+        <ModalShell title={"Archivovany cenik - " + (viewing.file_name || viewing.data.fileName || "")} onClose={() => setViewing(null)} extraWide>
+          <SwPricelistTable swPricelist={viewing.data} />
+        </ModalShell>
+      )}
+    </div>
+  );
+}
+
+function SwPricelistView({ swPricelist, swPricelistArchive, onUpload, onRestore, onDeleteArchiveEntry, cennikJinychZakazniku, onSaveCennikJinychZakazniku, products }) {
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  const fileInputRef = useRef(null);
+
+  async function handleFile(e) {
+    const file = e.target.files && e.target.files[0];
+    if (!file) return;
+    setBusy(true);
+    setError("");
+    try {
+      const buf = await file.arrayBuffer();
+      const XLSX = await import("xlsx");
+      const wb = XLSX.read(buf, { type: "array" });
+      const sheetName = wb.SheetNames[0];
+      if (!sheetName) throw new Error("Soubor neobsahuje zadny list.");
+      const ws = wb.Sheets[sheetName];
+      const rows = XLSX.utils.sheet_to_json(ws, { header: 1, defval: "" });
+      if (!rows.length) throw new Error("Soubor je prazdny.");
+
+      const path = `${uid()}-${file.name}`;
+      const { error: uploadError } = await supabase.storage.from(SW_PRICELIST_BUCKET).upload(path, file, { contentType: file.type });
+      if (uploadError) throw uploadError;
+
+      await onUpload({ path, fileName: file.name, rows, uploadedAt: new Date().toISOString() });
+    } catch (err) {
+      console.error(err);
+      setError(err.message || "Nepodarilo se zpracovat soubor.");
+    }
+    setBusy(false);
+    if (fileInputRef.current) fileInputRef.current.value = "";
+  }
+
+  return (
+    <div>
+      <div className="flex items-center justify-between mb-4">
+        <h1 className="text-xl font-semibold">Ceník pro Stenger Waffeln GmbH</h1>
+        <label className="flex items-center gap-1.5 bg-teal-700 hover:bg-teal-800 text-white text-sm font-medium px-3 py-2 rounded-md cursor-pointer">
+          <Upload size={16} /> Nahrat cenik (Excel)
+          <input ref={fileInputRef} type="file" accept=".xlsx,.xls,.ods,.csv" className="hidden" onChange={handleFile} disabled={busy} />
+        </label>
+      </div>
+      <p className="text-xs text-slate-400 mb-3 max-w-2xl">
+        Puvodni soubor se ulozi cely (jde kdykoliv stahnout) a zaroven se zobrazi jako prochazetelny nahled nize. Pri nahrani noveho souboru se ten predchozi automaticky presune do archivu.
+      </p>
+      {error && (
+        <div className="mb-3 bg-red-50 text-red-700 text-sm px-3 py-2 rounded-md flex items-center gap-2">
+          <AlertCircle size={16} /> {error}
+        </div>
+      )}
+      {busy && (
+        <div className="mb-3 text-sm text-slate-500 flex items-center gap-2">
+          <Loader2 size={16} className="animate-spin" /> Zpracovavam soubor...
+        </div>
+      )}
+      <SwPricelistTable swPricelist={swPricelist} />
+      <SwPricelistArchiveSection swPricelistArchive={swPricelistArchive} onRestore={onRestore} onDeleteEntry={onDeleteArchiveEntry} />
+
+      <div className="mt-10 pt-6 border-t border-slate-200">
+        <h1 className="text-xl font-semibold mb-1">Ceník pro jiné zákazníky</h1>
+        <p className="text-xs text-slate-400 mb-4 max-w-2xl">Ruční evidence artiklových čísel a cen pro ostatní zákazníky (mimo Stenger Waffeln GmbH výše).</p>
+        <CennikJinychZakaznikuKalkulacka entries={cennikJinychZakazniku} />
+        <CennikJinychZakaznikuView entries={cennikJinychZakazniku} onSave={onSaveCennikJinychZakazniku} products={products} />
+      </div>
+    </div>
+  );
+}
+
+function CennikJinychZakaznikuKalkulacka({ entries }) {
+  const [hladanie, setHladanie] = useState("");
+  const [zakaznik, setZakaznik] = useState("");
+  const q = hladanie.trim().toLowerCase();
+  const z = zakaznik.trim().toLowerCase();
+  const matches = (q || z)
+    ? (entries || []).filter((e) => {
+        const matchQ = !q || (e.cisloArtiklu || "").toLowerCase().includes(q) || (e.nazovProduktu || "").toLowerCase().includes(q);
+        const matchZ = !z || (e.zakaznik || "").toLowerCase().includes(z);
+        return matchQ && matchZ;
+      })
+    : [];
+
+  return (
+    <div className="bg-white border border-slate-200 rounded-lg p-4 mb-4 max-w-2xl">
+      <h2 className="text-sm font-semibold mb-3">Rychlé vyhledání ceny</h2>
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-4">
+        <Field label="Artiklové číslo nebo název produktu" value={hladanie} onChange={setHladanie} />
+        <Field label="Zákazník" value={zakaznik} onChange={setZakaznik} />
+      </div>
+      {(q || z) && (
+        matches.length === 0 ? (
+          <div className="mt-1 text-sm text-amber-700 flex items-center gap-1.5"><AlertCircle size={14} /> Nenalezeno.</div>
+        ) : (
+          <div className="mt-2 space-y-1">
+            {matches.map((m) => (
+              <div key={m.id} className="bg-slate-50 rounded-md px-3 py-1.5">
+                <div className="text-sm flex items-center justify-between">
+                  <span>{m.nazovProduktu || "-"} <span className="text-slate-400">({m.cisloArtiklu || "-"})</span> - {m.zakaznik}</span>
+                  <span className="font-semibold text-teal-700">{formatEur(Number(String(m.cena).replace(",", ".")) || 0)}</span>
+                </div>
+                {m.poznamka && <div className="text-xs text-slate-500 mt-0.5">{m.poznamka}</div>}
+              </div>
+            ))}
+          </div>
+        )
+      )}
+    </div>
+  );
+}
+
+function emptyCennikEntryForm() {
+  return { cisloArtiklu: "", nazovProduktu: "", zakaznik: "", cena: "", poznamka: "" };
+}
+
+function CennikJinychZakaznikuView({ entries, onSave, products }) {
+  const [form, setForm] = useState(emptyCennikEntryForm());
+  const [formError, setFormError] = useState("");
+  const [editing, setEditing] = useState(null);
+  const [confirmDelete, setConfirmDelete] = useState(null);
+
+  function add() {
+    if (!form.cisloArtiklu.trim() && !form.nazovProduktu.trim()) { setFormError("Vyplňte artiklové číslo nebo název produktu."); return; }
+    if (!form.zakaznik.trim()) { setFormError("Vyplňte zákazníka."); return; }
+    if (!form.cena.trim()) { setFormError("Vyplňte cenu."); return; }
+    setFormError("");
+    onSave([...entries, { id: uid(), cisloArtiklu: form.cisloArtiklu.trim(), nazovProduktu: form.nazovProduktu.trim(), zakaznik: form.zakaznik.trim(), cena: form.cena.trim(), poznamka: form.poznamka.trim() }]);
+    setForm(emptyCennikEntryForm());
+  }
+  function remove(id) { onSave(entries.filter((e) => e.id !== id)); setConfirmDelete(null); }
+  function update(id, patch) { onSave(entries.map((e) => (e.id === id ? { ...e, ...patch } : e))); setEditing(null); }
+
+  function zmenNazovProduktu(value) {
+    const produkt = (products || []).find((p) => productLabel(p) === value);
+    setForm((f) => ({ ...f, nazovProduktu: value, cisloArtiklu: produkt ? produkt.cisloArtiklu || f.cisloArtiklu : f.cisloArtiklu }));
+  }
+
+  const sorted = (entries || []).slice().sort((a, b) => (a.zakaznik || "").localeCompare(b.zakaznik || "") || (a.nazovProduktu || "").localeCompare(b.nazovProduktu || ""));
+
+  return (
+    <div>
+      <div className="bg-white border border-slate-200 rounded-lg p-4 mb-4">
+        <div className="grid grid-cols-1 sm:grid-cols-4 gap-2 items-end">
+          <label><span className="block text-xs font-medium text-slate-500 mb-1">Artiklové číslo</span><input value={form.cisloArtiklu} onChange={(e) => setForm({ ...form, cisloArtiklu: e.target.value })} className="w-full border border-slate-200 rounded-md px-2.5 py-1.5 text-sm" /></label>
+          <label>
+            <span className="block text-xs font-medium text-slate-500 mb-1">Název produktu</span>
+            <input list="cennik-produkty-add" value={form.nazovProduktu} onChange={(e) => zmenNazovProduktu(e.target.value)} className="w-full border border-slate-200 rounded-md px-2.5 py-1.5 text-sm" />
+            <datalist id="cennik-produkty-add">
+              {(products || []).map((p) => <option key={p.id} value={productLabel(p)} />)}
+            </datalist>
+          </label>
+          <label><span className="block text-xs font-medium text-slate-500 mb-1">Zákazník</span><input value={form.zakaznik} onChange={(e) => setForm({ ...form, zakaznik: e.target.value })} className="w-full border border-slate-200 rounded-md px-2.5 py-1.5 text-sm" /></label>
+          <label><span className="block text-xs font-medium text-slate-500 mb-1">Cena (€)</span><input value={form.cena} onChange={(e) => setForm({ ...form, cena: e.target.value })} className="w-full border border-slate-200 rounded-md px-2.5 py-1.5 text-sm" /></label>
+        </div>
+        <div className="mt-2">
+          <label><span className="block text-xs font-medium text-slate-500 mb-1">Poznámka (např. "s dopravou", "bez dopravy", "palety za 12 EUR každá")</span><input value={form.poznamka} onChange={(e) => setForm({ ...form, poznamka: e.target.value })} className="w-full border border-slate-200 rounded-md px-2.5 py-1.5 text-sm" /></label>
+        </div>
+        <div className="mt-2 flex justify-end">
+          <button onClick={add} className="bg-teal-700 hover:bg-teal-800 text-white text-sm font-medium px-3 py-2 rounded-md flex items-center gap-1.5"><Plus size={16} /> Přidat</button>
+        </div>
+        {formError && <div className="mt-2 bg-red-50 text-red-700 text-xs px-3 py-2 rounded-md flex items-center gap-2"><AlertCircle size={14} /> {formError}</div>}
+      </div>
+      {sorted.length === 0 ? (
+        <div className="bg-white border border-slate-200 rounded-lg p-8 text-center text-slate-500">Zatím žádné položky.</div>
+      ) : (
+        <div className="bg-white border border-slate-200 rounded-lg overflow-x-auto">
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="bg-slate-100 text-slate-600 text-left">
+                <th className="px-3 py-2 font-medium">Artiklové číslo</th>
+                <th className="px-3 py-2 font-medium">Název produktu</th>
+                <th className="px-3 py-2 font-medium">Zákazník</th>
+                <th className="px-3 py-2 font-medium text-right">Cena</th>
+                <th className="px-3 py-2 font-medium">Poznámka</th>
+                <th className="px-3 py-2"></th>
+              </tr>
+            </thead>
+            <tbody>
+              {sorted.map((e) => (
+                <tr key={e.id} className="border-t border-slate-100">
+                  <td className="px-3 py-2">{e.cisloArtiklu || "-"}</td>
+                  <td className="px-3 py-2">{e.nazovProduktu || "-"}</td>
+                  <td className="px-3 py-2">{e.zakaznik}</td>
+                  <td className="px-3 py-2 text-right">{formatEur(Number(String(e.cena).replace(",", ".")) || 0)}</td>
+                  <td className="px-3 py-2 text-slate-500">{e.poznamka || "-"}</td>
+                  <td className="px-3 py-2 text-right">
+                    <div className="flex justify-end gap-1">
+                      <IconButton title="Upravit" onClick={() => setEditing(e)}><Pencil size={16} /></IconButton>
+                      <IconButton title="Smazat" onClick={() => setConfirmDelete(e)}><Trash2 size={16} /></IconButton>
+                    </div>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+      {editing && (
+        <CennikEntryEditModal entry={editing} products={products} onClose={() => setEditing(null)} onSave={(patch) => update(editing.id, patch)} />
+      )}
+      {confirmDelete && (
+        <ModalShell title="Smazat položku ceníku?" onClose={() => setConfirmDelete(null)}>
+          <p className="text-sm text-slate-600 mb-4">Opravdu chcete smazat "{confirmDelete.nazovProduktu || confirmDelete.cisloArtiklu}" pro zákazníka "{confirmDelete.zakaznik}"? Tuto akci nelze vrátit zpět.</p>
+          <div className="flex justify-end gap-2">
+            <button onClick={() => setConfirmDelete(null)} className="text-sm text-slate-500 px-3 py-2">Zrušit</button>
+            <button onClick={() => remove(confirmDelete.id)} className="bg-red-600 hover:bg-red-700 text-white text-sm font-medium px-4 py-2 rounded-md flex items-center gap-1.5">
+              <Trash2 size={16} /> Ano, smazat
+            </button>
+          </div>
+        </ModalShell>
+      )}
+    </div>
+  );
+}
+
+function CennikEntryEditModal({ entry, products, onClose, onSave }) {
+  const [f, setF] = useState({ cisloArtiklu: entry.cisloArtiklu || "", nazovProduktu: entry.nazovProduktu || "", zakaznik: entry.zakaznik || "", cena: entry.cena || "", poznamka: entry.poznamka || "" });
+  const [error, setError] = useState("");
+
+  function save() {
+    if (!f.cisloArtiklu.trim() && !f.nazovProduktu.trim()) { setError("Vyplňte artiklové číslo nebo název produktu."); return; }
+    if (!f.zakaznik.trim()) { setError("Vyplňte zákazníka."); return; }
+    if (!f.cena.trim()) { setError("Vyplňte cenu."); return; }
+    setError("");
+    onSave({ cisloArtiklu: f.cisloArtiklu.trim(), nazovProduktu: f.nazovProduktu.trim(), zakaznik: f.zakaznik.trim(), cena: f.cena.trim(), poznamka: f.poznamka.trim() });
+  }
+
+  function zmenNazovProduktu(value) {
+    const produkt = (products || []).find((p) => productLabel(p) === value);
+    setF((prev) => ({ ...prev, nazovProduktu: value, cisloArtiklu: produkt ? produkt.cisloArtiklu || prev.cisloArtiklu : prev.cisloArtiklu }));
+  }
+
+  return (
+    <ModalShell title="Upravit položku ceníku" onClose={onClose}>
+      <Field label="Artiklové číslo" value={f.cisloArtiklu} onChange={(v) => setF({ ...f, cisloArtiklu: v })} />
+      <label className="block mb-3">
+        <span className="block text-xs font-medium text-slate-500 mb-1">Název produktu</span>
+        <input list="cennik-produkty-edit" value={f.nazovProduktu} onChange={(e) => zmenNazovProduktu(e.target.value)} className="w-full border border-slate-200 rounded-md px-2.5 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-teal-600" />
+        <datalist id="cennik-produkty-edit">
+          {(products || []).map((p) => <option key={p.id} value={productLabel(p)} />)}
+        </datalist>
+      </label>
+      <Field label="Zákazník" value={f.zakaznik} onChange={(v) => setF({ ...f, zakaznik: v })} />
+      <Field label="Cena (€)" value={f.cena} onChange={(v) => setF({ ...f, cena: v })} />
+      <Field label="Poznámka" value={f.poznamka} onChange={(v) => setF({ ...f, poznamka: v })} />
+      {error && <div className="mb-3 bg-red-50 text-red-700 text-xs px-3 py-2 rounded-md flex items-center gap-2"><AlertCircle size={14} /> {error}</div>}
+      <div className="flex justify-end mt-2"><button onClick={save} className="bg-teal-700 hover:bg-teal-800 text-white text-sm font-medium px-4 py-2 rounded-md">Uložit</button></div>
+    </ModalShell>
   );
 }

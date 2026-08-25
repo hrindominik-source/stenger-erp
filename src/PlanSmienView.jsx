@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { Sun, Moon, Droplets, Plus, X, AlertTriangle, Trash2, Copy, ChevronLeft, ChevronRight, Printer, KeyRound, CalendarDays, Users2, CalendarOff, History as HistoryIcon, Upload, BarChart3, LogOut, ArrowLeftRight, LayoutDashboard } from 'lucide-react';
 import { supabase } from './supabaseClient.js';
 
@@ -17,7 +17,7 @@ function syncEmployeesWithOffice(existing, officeWorkers) {
     if (cur) {
       byId.set(w.id, { ...cur, name: w.meno });
     } else {
-      byId.set(w.id, { id: w.id, name: w.meno, roles: ['general'], weeklyMax: 4, active: true, pin: null });
+      byId.set(w.id, { id: w.id, name: w.meno, roles: ['general'], weeklyMax: 4, active: true });
     }
   });
   existing.forEach(e => {
@@ -29,7 +29,7 @@ function syncEmployeesWithOffice(existing, officeWorkers) {
 }
 
 const PRODUCTS = {
-  sacky:   { label: 'Sáčky',          total: 4 },
+  sacky:   { label: 'Sáčky (fólie)',  total: 4 },
   kybliky: { label: 'Kbelíky',        total: 6 },
   bulk:    { label: 'Bulk popcorn',   total: 5 },
 };
@@ -124,8 +124,22 @@ function shiftPeopleIds(shift) {
   ids.push(...shift.assigned.general, ...shift.extra);
   return ids;
 }
-function isOnAbsence(empId, date, absences) {
-  return absences.some(a => a.employeeId === empId && date >= a.from && date <= a.to);
+function clearShiftAssignments(shift) {
+  shift.assigned = { pos1: null, pos3: null, general: [] };
+  shift.extra = [];
+}
+/* shiftType je volitelny - ak sa neda a je to nocna zmena na prvom/poslednom dni
+   neprítomnosti, zohladnia sa priznaky nightOnFromOk/nightOnToOk (zamestnankyna
+   pri ziadosti oznacila, ze tuto konkretnu nocnu smenu na hranici obdobia este/uz zvladne). */
+function isOnAbsence(empId, date, absences, shiftType) {
+  return absences.some(a => {
+    if (a.employeeId !== empId || date < a.from || date > a.to) return false;
+    if (shiftType === 'night') {
+      if (date === a.from && a.nightOnFromOk) return false;
+      if (date === a.to && a.nightOnToOk) return false;
+    }
+    return true;
+  });
 }
 function weekShiftCount(week, empId) {
   return week.shifts.reduce((c, s) => c + (shiftPeopleIds(s).includes(empId) ? 1 : 0), 0);
@@ -176,7 +190,7 @@ function fillSingleRoleBlock(w, shiftsBlock, roleKey, employees, absences, allWe
 
     const eligible = (roleFlag, maxOverride) => employees.filter(e =>
       e.active && e.roles.includes(roleFlag) &&
-      !isOnAbsence(e.id, shift.date, absences) &&
+      !isOnAbsence(e.id, shift.date, absences, shift.type) &&
       !neighborIds.has(e.id) &&
       !usedInShift.has(e.id) &&
       weekShiftCount(w, e.id) < (maxOverride ?? e.weeklyMax)
@@ -186,7 +200,7 @@ function fillSingleRoleBlock(w, shiftsBlock, roleKey, employees, absences, allWe
       if (current) {
         const curEmp = employees.find(e => e.id === current);
         const stillOk = curEmp && curEmp.active && curEmp.roles.includes('pos1') &&
-          !isOnAbsence(current, shift.date, absences) && !neighborIds.has(current) && !usedInShift.has(current) &&
+          !isOnAbsence(current, shift.date, absences, shift.type) && !neighborIds.has(current) && !usedInShift.has(current) &&
           weekShiftCount(w, current) < curEmp.weeklyMax + 1;
         if (stillOk) { shift.assigned.pos1 = current; return; }
       }
@@ -199,7 +213,7 @@ function fillSingleRoleBlock(w, shiftsBlock, roleKey, employees, absences, allWe
       if (current) {
         const curEmp = employees.find(e => e.id === current);
         const stillOk = curEmp && curEmp.active && curEmp.roles.includes('pos3') &&
-          !isOnAbsence(current, shift.date, absences) && !neighborIds.has(current) && !usedInShift.has(current) &&
+          !isOnAbsence(current, shift.date, absences, shift.type) && !neighborIds.has(current) && !usedInShift.has(current) &&
           weekShiftCount(w, current) < curEmp.weeklyMax;
         if (stillOk) { shift.assigned.pos3 = current; return; }
       }
@@ -226,7 +240,7 @@ function fillGeneralBlock(w, shiftsBlock, employees, absences, allWeeks) {
       const e = employees.find(x => x.id === id);
       if (!e) return false;
       const usedInShift = new Set([...shiftPeopleIds(shift), ...extraExcluded]);
-      return e.active && e.roles.includes('general') && !isOnAbsence(id, shift.date, absences) &&
+      return e.active && e.roles.includes('general') && !isOnAbsence(id, shift.date, absences, shift.type) &&
         !neighborIds.has(id) && !usedInShift.has(id) && weekShiftCount(w, id) < e.weeklyMax;
     };
 
@@ -238,7 +252,7 @@ function fillGeneralBlock(w, shiftsBlock, employees, absences, allWeeks) {
       guard++;
       const usedInShift = new Set([...shiftPeopleIds(shift), ...chosen]);
       const pool = employees.filter(e => e.active && e.roles.includes('general') &&
-        !isOnAbsence(e.id, shift.date, absences) && !neighborIds.has(e.id) && !usedInShift.has(e.id) &&
+        !isOnAbsence(e.id, shift.date, absences, shift.type) && !neighborIds.has(e.id) && !usedInShift.has(e.id) &&
         weekShiftCount(w, e.id) < e.weeklyMax);
       const pick = pickBalanced(pool, weeksSnapshot, shift.type);
       if (!pick) break;
@@ -385,7 +399,7 @@ function ShiftRow({ week, shift, employees, absences, onSetProduct, onSetPos, on
   function warn(empId) {
     const emp = employees.find(e => e.id === empId);
     if (!emp) return null;
-    if (isOnAbsence(empId, shift.date, absences)) return 'Nepřítomná (dovolená/PN/jiné) v tento den';
+    if (isOnAbsence(empId, shift.date, absences, shift.type)) return 'Nepřítomná (dovolená/PN/jiné) v tento den';
     if (weekShiftCount(week, empId) > emp.weeklyMax) return `Nad rámec limitu (${emp.weeklyMax} směn/týden)`;
     return null;
   }
@@ -594,13 +608,19 @@ function LoginGate({ employees, onAdminLogin, onEmployeeLogin, onBack }) {
   const [pin, setPin] = useState('');
   const [empId, setEmpId] = useState('');
   const [error, setError] = useState('');
+  const [busy, setBusy] = useState(false);
 
-  function submitAdmin() {
-    if (!onAdminLogin(pin)) { setError('Nesprávný PIN.'); setPin(''); }
+  async function submitAdmin() {
+    setBusy(true);
+    const ok = await onAdminLogin(pin);
+    setBusy(false);
+    if (!ok) { setError('Nesprávný PIN.'); setPin(''); }
   }
-  function submitEmployee() {
+  async function submitEmployee() {
     if (!empId) { setError('Vyberte své jméno.'); return; }
-    const res = onEmployeeLogin(empId, pin);
+    setBusy(true);
+    const res = await onEmployeeLogin(empId, pin);
+    setBusy(false);
     if (!res.success) { setError(res.message || 'Nesprávný PIN.'); setPin(''); }
   }
 
@@ -634,7 +654,7 @@ function LoginGate({ employees, onAdminLogin, onEmployeeLogin, onBack }) {
               onKeyDown={e => e.key === 'Enter' && submitAdmin()}
               className="w-full border border-slate-200 rounded-md px-3 py-2 text-sm text-center tracking-widest focus:outline-none focus:ring-2 focus:ring-amber-600" />
             {error && <p className="text-xs text-rose-600">{error}</p>}
-            <button onClick={submitAdmin} className="w-full px-4 py-2 rounded-md bg-amber-600 text-white font-medium hover:bg-amber-700">Přihlásit se</button>
+            <button onClick={submitAdmin} disabled={busy} className="w-full px-4 py-2 rounded-md bg-amber-600 text-white font-medium hover:bg-amber-700 disabled:opacity-60">{busy ? 'Ověřuji...' : 'Přihlásit se'}</button>
           </>
         ) : (
           <>
@@ -648,7 +668,7 @@ function LoginGate({ employees, onAdminLogin, onEmployeeLogin, onBack }) {
               className="w-full border border-slate-200 rounded-md px-3 py-2 text-sm text-center tracking-widest focus:outline-none focus:ring-2 focus:ring-amber-600" />
             <p className="text-xs text-slate-400">Pokud se přihlašujete poprvé, zadaný PIN se vám nastaví natrvalo — zapamatujte si ho. Pokud jste ho zapomněli, požádejte vedoucího o reset.</p>
             {error && <p className="text-xs text-rose-600">{error}</p>}
-            <button onClick={submitEmployee} className="w-full px-4 py-2 rounded-md bg-amber-600 text-white font-medium hover:bg-amber-700">Přihlásit se</button>
+            <button onClick={submitEmployee} disabled={busy} className="w-full px-4 py-2 rounded-md bg-amber-600 text-white font-medium hover:bg-amber-700 disabled:opacity-60">{busy ? 'Ověřuji...' : 'Přihlásit se'}</button>
           </>
         )}
       </div>
@@ -657,7 +677,7 @@ function LoginGate({ employees, onAdminLogin, onEmployeeLogin, onBack }) {
 }
 
 function EmployeePortal({ employee, weeks, requests, onSubmitRequest, onLogout }) {
-  const [form, setForm] = useState({ from: '', to: '', reason: '' });
+  const [form, setForm] = useState({ from: '', to: '', reason: '', nightOnFromOk: false, nightOnToOk: false });
   const today = toISO(new Date());
   const myShifts = [];
   [...weeks].sort((a, b) => a.startDate.localeCompare(b.startDate)).forEach(w => {
@@ -672,8 +692,8 @@ function EmployeePortal({ employee, weeks, requests, onSubmitRequest, onLogout }
 
   function submit() {
     if (!form.from || !form.to) return;
-    onSubmitRequest(employee.id, form.from, form.to, form.reason);
-    setForm({ from: '', to: '', reason: '' });
+    onSubmitRequest(employee.id, form.from, form.to, form.reason, form.nightOnFromOk, form.nightOnToOk);
+    setForm({ from: '', to: '', reason: '', nightOnFromOk: false, nightOnToOk: false });
   }
 
   const myRequests = requests.filter(r => r.employeeId === employee.id).sort((a, b) => b.from.localeCompare(a.from));
@@ -720,6 +740,16 @@ function EmployeePortal({ employee, weeks, requests, onSubmitRequest, onLogout }
           </div>
           <label className="block text-xs text-slate-500 mb-1">Poznámka</label>
           <input value={form.reason} onChange={e => setForm(f => ({ ...f, reason: e.target.value }))} placeholder="např. dovolená / lékař" className="w-full border border-slate-300 rounded px-2 py-1.5 text-sm mb-3" />
+          <div className="space-y-1.5 mb-3">
+            <label className="flex items-center gap-1.5 text-xs text-slate-600">
+              <input type="checkbox" checked={form.nightOnFromOk} onChange={e => setForm(f => ({ ...f, nightOnFromOk: e.target.checked }))} />
+              Noční směnu z předchozího dne (přechází do {form.from ? formatSk(form.from) : 'prvního dne'}) ještě zvládnu
+            </label>
+            <label className="flex items-center gap-1.5 text-xs text-slate-600">
+              <input type="checkbox" checked={form.nightOnToOk} onChange={e => setForm(f => ({ ...f, nightOnToOk: e.target.checked }))} />
+              Noční směnu v poslední den ({form.to ? formatSk(form.to) : 'poslední den'}) ještě zvládnu
+            </label>
+          </div>
           <button onClick={submit} className="px-4 py-2 rounded-md bg-amber-600 text-white text-sm font-medium hover:bg-amber-700">Odeslat žádost nadřízenému</button>
         </div>
 
@@ -730,7 +760,10 @@ function EmployeePortal({ employee, weeks, requests, onSubmitRequest, onLogout }
             {myRequests.map(r => (
               <div key={r.id} className="flex items-center justify-between text-sm border-b border-slate-100 pb-2 last:border-0">
                 <div>
-                  <div className="text-slate-700">{formatSk(r.from)} – {formatSk(r.to)}</div>
+                  <div className="text-slate-700">
+                    {formatSk(r.from)} – {formatSk(r.to)}
+                    {(r.nightOnFromOk || r.nightOnToOk) && <span className="ml-1.5 text-indigo-600 text-xs">(noční OK)</span>}
+                  </div>
                   {r.reason && <div className="text-xs text-slate-400">{r.reason}</div>}
                 </div>
                 <span className={`text-xs font-medium px-2 py-1 rounded ${statusColor[r.status]}`}>{statusLabel[r.status]}</span>
@@ -875,10 +908,16 @@ function WeekMatrixTable({ week, employees }) {
                   return (
                     <td key={e.id} className={`text-center border border-slate-200 ${nightBg}`}>
                       {role && (
-                        <span className="relative inline-block">
-                          <span className={`inline-block w-3 h-3 rounded-full ${dotClass[role]}`} />
-                          {role === 'pos3' && <sup className="text-[9px] text-purple-600 ml-0.5">3</sup>}
-                        </span>
+                        role === 'gen' ? (
+                          <span className={`inline-block w-3 h-3 rounded-full ${dotClass.gen}`} title="Ostatní" />
+                        ) : (
+                          <span
+                            className={`inline-flex items-center justify-center w-5 h-5 rounded-full text-white text-[10px] font-bold leading-none ${dotClass[role]}`}
+                            title={role === 'pos1' ? 'Hrncová' : 'Pozice 3'}
+                          >
+                            {role === 'pos1' ? 'H' : '3'}
+                          </span>
+                        )
                       )}
                     </td>
                   );
@@ -946,7 +985,9 @@ function PrehladTab({ weeks, employees, onGotoWeek }) {
   );
 }
 
-function PlannerTab({ weeks, activeWeek, employees, absences, setActiveWeekId, onNav, onCreateWeek, onGotoWeek, onToggleSunday, onAutoFill, onClearRefill, onSetProduct, onSetPos, onAddGeneral, onRemoveGeneral, onAddExtra, onRemoveExtra, onClearShift, onExport, onShowPreview }) {
+function PlannerTab({ weeks, activeWeek, employees, absences, setActiveWeekId, onNav, onCreateWeek, onGotoWeek, onToggleSunday, onAutoFill, onClearRefill, onClearOnly, onSetProduct, onSetPos, onAddGeneral, onRemoveGeneral, onAddExtra, onRemoveExtra, onClearShift, onExport, onShowPreview }) {
+  const [planTwoWeeks, setPlanTwoWeeks] = useState(false);
+
   if (!activeWeek) {
     return (
       <div className="text-center py-10 text-slate-500">
@@ -956,7 +997,6 @@ function PlannerTab({ weeks, activeWeek, employees, absences, setActiveWeekId, o
     );
   }
   const sortedWeeks = [...weeks].sort((a, b) => a.startDate.localeCompare(b.startDate));
-  const [planTwoWeeks, setPlanTwoWeeks] = useState(false);
   const secondWeekStart = addDays(activeWeek.startDate, 7);
   const secondWeek = weeks.find(w => w.id === secondWeekStart) || null;
 
@@ -983,6 +1023,7 @@ function PlannerTab({ weeks, activeWeek, employees, absences, setActiveWeekId, o
         <div className="ml-auto flex gap-2">
           <button onClick={() => onAutoFill(activeWeek.id)} className="px-3 py-2 text-sm rounded-md bg-amber-600 text-white hover:bg-amber-700">Doplnit prázdná místa</button>
           <button onClick={onShowPreview} className="px-3 py-2 text-sm rounded border border-slate-300 hover:bg-slate-100 flex items-center gap-1"><Printer className="w-4 h-4" />Ukázat/exportovat náhled</button>
+          <button onClick={() => onClearOnly(activeWeek.id)} className="px-3 py-2 text-sm rounded border border-red-200 text-red-700 hover:bg-red-50">Vyčistit</button>
           <button onClick={() => onClearRefill(activeWeek.id)} className="px-3 py-2 text-sm rounded border border-slate-300 hover:bg-slate-100">Vyčistit a přeplánovat</button>
           <button onClick={onExport} className="px-3 py-2 text-sm rounded border border-slate-300 hover:bg-slate-100 flex items-center gap-1"><Copy className="w-4 h-4" />Export (text)</button>
         </div>
@@ -1006,6 +1047,7 @@ function PlannerTab({ weeks, activeWeek, employees, absences, setActiveWeekId, o
             {secondWeek ? (
               <div className="ml-auto flex gap-2">
                 <button onClick={() => onAutoFill(secondWeek.id)} className="px-3 py-1.5 text-xs rounded-md bg-amber-600 text-white hover:bg-amber-700">Doplnit prázdná místa</button>
+                <button onClick={() => onClearOnly(secondWeek.id)} className="px-3 py-1.5 text-xs rounded border border-red-200 text-red-700 hover:bg-red-50">Vyčistit</button>
                 <button onClick={() => onClearRefill(secondWeek.id)} className="px-3 py-1.5 text-xs rounded border border-slate-300 hover:bg-slate-100">Vyčistit a přeplánovat</button>
               </div>
             ) : (
@@ -1032,7 +1074,14 @@ function PlannerTab({ weeks, activeWeek, employees, absences, setActiveWeekId, o
   );
 }
 
-function EmployeesTab({ employees, onToggleActive, onUpdateMax, onUpdateRoles, adminPin, onChangeAdminPin, onResetPin }) {
+function EmployeesTab({ employees, onToggleActive, onUpdateMax, onUpdateRoles, onChangeAdminPin, onResetPin }) {
+  const [pinMsg, setPinMsg] = useState('');
+  async function handleResetPin(id) {
+    const adminPin = window.prompt('Pro reset PINu zaměstnance zadejte svůj admin PIN:');
+    if (adminPin === null) return;
+    const res = await onResetPin(id, adminPin);
+    setPinMsg(res.success ? 'PIN byl zresetován.' : res.message);
+  }
   const ROLE_OPTIONS = [
     { key: 'pos1', label: 'Hrncová' },
     { key: 'pos1-backup', label: 'Hrncová – záskok' },
@@ -1045,6 +1094,7 @@ function EmployeesTab({ employees, onToggleActive, onUpdateMax, onUpdateRoles, a
     onUpdateRoles(emp.id, roles);
   }
   const [adminPinInput, setAdminPinInput] = useState('');
+  const [currentAdminPinInput, setCurrentAdminPinInput] = useState('');
   return (
     <div className="space-y-6">
       <div className="bg-amber-50 border border-amber-200 text-amber-800 text-xs px-3 py-2 rounded-md">
@@ -1076,11 +1126,9 @@ function EmployeesTab({ employees, onToggleActive, onUpdateMax, onUpdateRoles, a
                   </button>
                 </td>
                 <td className="px-3 py-2 text-right whitespace-nowrap">
-                  {e.pin && (
-                    <button onClick={() => onResetPin(e.id)} title="Resetovat PIN (zapomenutý) — nastaví si nový při dalším přihlášení" className="p-1 rounded text-slate-400 hover:text-amber-600">
-                      <KeyRound className="w-4 h-4" />
-                    </button>
-                  )}
+                  <button onClick={() => handleResetPin(e.id)} title="Resetovat PIN (zapomenutý) — nastaví si nový při dalším přihlášení" className="p-1 rounded text-slate-400 hover:text-amber-600">
+                    <KeyRound className="w-4 h-4" />
+                  </button>
                 </td>
               </tr>
             ))}
@@ -1095,12 +1143,26 @@ function EmployeesTab({ employees, onToggleActive, onUpdateMax, onUpdateRoles, a
         <h3 className="font-semibold mb-2">PIN pro přihlášení vedoucího</h3>
         <div className="flex gap-2 items-end flex-wrap">
           <div>
+            <label className="block text-xs text-slate-500 mb-1">Současný PIN</label>
+            <input value={currentAdminPinInput} onChange={e => setCurrentAdminPinInput(e.target.value)} type="password" className="border border-slate-300 rounded px-2 py-1.5 text-sm w-32" placeholder="ověření" />
+          </div>
+          <div>
             <label className="block text-xs text-slate-500 mb-1">Nový PIN (min. 4 znaky)</label>
             <input value={adminPinInput} onChange={e => setAdminPinInput(e.target.value)} className="border border-slate-300 rounded px-2 py-1.5 text-sm w-32" placeholder="např. 4521" />
           </div>
-          <button onClick={() => { onChangeAdminPin(adminPinInput); setAdminPinInput(''); }} className="px-3 py-1.5 text-sm rounded-md bg-amber-600 text-white hover:bg-amber-700">Uložit</button>
+          <button
+            onClick={async () => {
+              const res = await onChangeAdminPin(currentAdminPinInput, adminPinInput);
+              setPinMsg(res.success ? 'PIN byl změněn.' : res.message);
+              if (res.success) { setAdminPinInput(''); setCurrentAdminPinInput(''); }
+            }}
+            className="px-3 py-1.5 text-sm rounded-md bg-amber-600 text-white hover:bg-amber-700"
+          >
+            Uložit
+          </button>
         </div>
-        <p className="text-xs text-slate-400 mt-1">Tento PIN slouží ke vstupu do celé appky (mimo zaměstnanecké sekce). Aktuální PIN: <span className="font-mono">{adminPin}</span></p>
+        {pinMsg && <p className="text-xs text-slate-600 mt-2">{pinMsg}</p>}
+        <p className="text-xs text-slate-400 mt-1">Pro změnu PINu je potřeba zadat ten současný. Pokud ho zapomenete, kontaktujte administrátora databáze.</p>
       </div>
     </div>
   );
@@ -1118,7 +1180,11 @@ function AbsencesTab({ employees, absences, absForm, setAbsForm, onAdd, onRemove
             <div key={r.id} className="flex items-center justify-between text-sm border-b border-slate-100 pb-2 last:border-0">
               <div>
                 <div className="font-medium text-slate-700">{getEmpNameFrom(employees, r.employeeId)}</div>
-                <div className="text-xs text-slate-500">{formatSk(r.from)} – {formatSk(r.to)}{r.reason ? ` · ${r.reason}` : ''}</div>
+                <div className="text-xs text-slate-500">
+                  {formatSk(r.from)} – {formatSk(r.to)}{r.reason ? ` · ${r.reason}` : ''}
+                  {r.nightOnFromOk && <span className="ml-1.5 text-indigo-600">(noční {formatSk(r.from)} OK)</span>}
+                  {r.nightOnToOk && <span className="ml-1.5 text-indigo-600">(noční {formatSk(r.to)} OK)</span>}
+                </div>
               </div>
               <div className="flex gap-2">
                 <button onClick={() => onApprove(r.id)} className="px-2 py-1 text-xs rounded bg-emerald-600 text-white hover:bg-emerald-700">Schválit</button>
@@ -1153,6 +1219,16 @@ function AbsencesTab({ employees, absences, absForm, setAbsForm, onAdd, onRemove
           </div>
           <button onClick={onAdd} className="px-3 py-1.5 text-sm rounded-md bg-amber-600 text-white hover:bg-amber-700">Přidat</button>
         </div>
+        <div className="mt-2 space-y-1.5">
+          <label className="flex items-center gap-1.5 text-xs text-slate-600">
+            <input type="checkbox" checked={absForm.nightOnFromOk} onChange={e => setAbsForm(f => ({ ...f, nightOnFromOk: e.target.checked }))} />
+            Noční směnu z předchozího dne ještě zvládne
+          </label>
+          <label className="flex items-center gap-1.5 text-xs text-slate-600">
+            <input type="checkbox" checked={absForm.nightOnToOk} onChange={e => setAbsForm(f => ({ ...f, nightOnToOk: e.target.checked }))} />
+            Noční směnu v poslední den ještě zvládne
+          </label>
+        </div>
       </div>
       <div className="bg-white border border-slate-200 rounded-lg overflow-hidden">
         <table className="w-full text-sm">
@@ -1163,8 +1239,8 @@ function AbsencesTab({ employees, absences, absForm, setAbsForm, onAdd, onRemove
             {absences.slice().sort((a, b) => a.from.localeCompare(b.from)).map(a => (
               <tr key={a.id} className="border-t border-slate-100">
                 <td className="px-3 py-2 font-medium">{getEmpNameFrom(employees, a.employeeId)}</td>
-                <td className="px-3 py-2">{formatSk(a.from)}</td>
-                <td className="px-3 py-2">{formatSk(a.to)}</td>
+                <td className="px-3 py-2">{formatSk(a.from)}{a.nightOnFromOk && <span className="ml-1 text-indigo-600 text-xs">(noční OK)</span>}</td>
+                <td className="px-3 py-2">{formatSk(a.to)}{a.nightOnToOk && <span className="ml-1 text-indigo-600 text-xs">(noční OK)</span>}</td>
                 <td className="px-3 py-2 text-slate-500">{a.reason}</td>
                 <td className="px-3 py-2 text-right"><button onClick={() => onRemove(a.id)} className="text-slate-400 hover:text-rose-600"><Trash2 className="w-4 h-4" /></button></td>
               </tr>
@@ -1317,16 +1393,16 @@ export default function PlanSmienView({ onBack }) {
   const [employees, setEmployees] = useState([]);
   const [absences, setAbsences] = useState([]);
   const [requests, setRequests] = useState([]);
-  const [adminPin, setAdminPin] = useState('1234');
   const [loginRole, setLoginRole] = useState(null);
   const [loginEmployeeId, setLoginEmployeeId] = useState(null);
   const [weeks, setWeeks] = useState([]);
   const [activeWeekId, setActiveWeekId] = useState(null);
   const [tab, setTab] = useState('prehlad');
   const [loaded, setLoaded] = useState(false);
+  const [saveError, setSaveError] = useState(false);
   const [exportText, setExportText] = useState(null);
   const [showPreview, setShowPreview] = useState(false);
-  const [absForm, setAbsForm] = useState({ employeeId: '', from: '', to: '', reason: '' });
+  const [absForm, setAbsForm] = useState({ employeeId: '', from: '', to: '', reason: '', nightOnFromOk: false, nightOnToOk: false });
 
   useEffect(() => {
     let cancelled = false;
@@ -1340,7 +1416,6 @@ export default function PlanSmienView({ onBack }) {
           if (!cancelled) {
             setAbsences(d.absences || []);
             setRequests(d.requests || []);
-            setAdminPin(d.adminPin || '1234');
             const ws = d.weeks && d.weeks.length ? d.weeks : [generateWeek(mondayOf(toISO(new Date())), false)];
             setWeeks(ws);
             setActiveWeekId(d.activeWeekId || ws[ws.length - 1].id);
@@ -1351,6 +1426,7 @@ export default function PlanSmienView({ onBack }) {
           setActiveWeekId(w.id);
         }
       } catch (e) {
+        console.error(e);
         if (!cancelled) {
           const w = generateWeek(mondayOf(toISO(new Date())), false);
           setWeeks([w]);
@@ -1364,6 +1440,7 @@ export default function PlanSmienView({ onBack }) {
           .filter(w => w.typ === 'vyroba');
         if (!cancelled) setEmployees(syncEmployeesWithOffice(savedEmployees, officeWorkers));
       } catch (e) {
+        console.error(e);
         if (!cancelled) setEmployees(savedEmployees);
       }
       if (!cancelled) setLoaded(true);
@@ -1371,11 +1448,16 @@ export default function PlanSmienView({ onBack }) {
     return () => { cancelled = true; };
   }, []);
 
+  const saveReqIdRef = useRef(0);
   useEffect(() => {
     if (!loaded) return;
-    const payload = { employees, absences, requests, adminPin, weeks, activeWeekId };
-    supabase.from('plan_smien').update({ data: payload, updated_at: new Date().toISOString() }).eq('id', 1).then(() => {});
-  }, [employees, absences, requests, adminPin, weeks, activeWeekId, loaded]);
+    const payload = { employees, absences, requests, weeks, activeWeekId };
+    const reqId = ++saveReqIdRef.current;
+    supabase.from('plan_smien').update({ data: payload, updated_at: new Date().toISOString() }).eq('id', 1).then(({ error }) => {
+      if (reqId !== saveReqIdRef.current) return;
+      setSaveError(!!error);
+    });
+  }, [employees, absences, requests, weeks, activeWeekId, loaded]);
 
   const activeWeek = weeks.find(w => w.id === activeWeekId) || null;
 
@@ -1392,7 +1474,7 @@ export default function PlanSmienView({ onBack }) {
   function removeGeneral(weekId, shiftId, empId) { updateShift(weekId, shiftId, s => { s.assigned.general = s.assigned.general.filter(id => id !== empId); return s; }); }
   function addExtra(weekId, shiftId, empId) { updateShift(weekId, shiftId, s => { if (!s.extra.includes(empId)) s.extra.push(empId); return s; }); }
   function removeExtra(weekId, shiftId, empId) { updateShift(weekId, shiftId, s => { s.extra = s.extra.filter(id => id !== empId); return s; }); }
-  function clearShiftAssignment(weekId, shiftId) { updateShift(weekId, shiftId, s => { s.assigned = { pos1: null, pos3: null, general: [] }; s.extra = []; return s; }); }
+  function clearShiftAssignment(weekId, shiftId) { updateShift(weekId, shiftId, s => { clearShiftAssignments(s); return s; }); }
 
   function autoFillCurrentWeek(weekId) {
     const week = weeks.find(w => w.id === (weekId || (activeWeek && activeWeek.id)));
@@ -1404,9 +1486,17 @@ export default function PlanSmienView({ onBack }) {
     const week = weeks.find(w => w.id === (weekId || (activeWeek && activeWeek.id)));
     if (!week) return;
     const cleared = cloneWeek(week);
-    cleared.shifts.forEach(s => { s.assigned = { pos1: null, pos3: null, general: [] }; s.extra = []; });
+    cleared.shifts.forEach(clearShiftAssignments);
     const filled = autoFillWeek(cleared, employees, absences, weeks.map(w => (w.id === cleared.id ? cleared : w)));
     setWeeks(ws => ws.map(w => (w.id === filled.id ? filled : w)));
+  }
+  function clearWeekOnly(weekId) {
+    const week = weeks.find(w => w.id === (weekId || (activeWeek && activeWeek.id)));
+    if (!week) return;
+    if (!window.confirm('Opravdu vyčistit celý týden? Všechna přiřazení budou smazána.')) return;
+    const cleared = cloneWeek(week);
+    cleared.shifts.forEach(clearShiftAssignments);
+    setWeeks(ws => ws.map(w => (w.id === cleared.id ? cleared : w)));
   }
   function toggleExtraSunday() {
     if (!activeWeek) return;
@@ -1452,7 +1542,7 @@ export default function PlanSmienView({ onBack }) {
   function addAbsence() {
     if (!absForm.employeeId || !absForm.from || !absForm.to) return;
     setAbsences(as => [...as, { id: 'a' + Date.now(), ...absForm }]);
-    setAbsForm({ employeeId: '', from: '', to: '', reason: '' });
+    setAbsForm({ employeeId: '', from: '', to: '', reason: '', nightOnFromOk: false, nightOnToOk: false });
   }
   function removeAbsence(id) { setAbsences(as => as.filter(a => a.id !== id)); }
   function importHistoryWeeks(newWeeks) {
@@ -1464,33 +1554,52 @@ export default function PlanSmienView({ onBack }) {
     });
   }
 
-  function attemptAdminLogin(pin) {
-    if (pin === adminPin) { setLoginRole('admin'); return true; }
+  async function attemptAdminLogin(pin) {
+    const { data: ok, error } = await supabase.rpc('plan_smien_verify_admin_pin', { p_pin: pin });
+    if (error) return false;
+    if (ok) { setLoginRole('admin'); return true; }
     return false;
   }
-  function attemptEmployeeLogin(employeeId, pin) {
+  async function attemptEmployeeLogin(employeeId, pin) {
     const emp = employees.find(e => e.id === employeeId);
     if (!emp) return { success: false, message: 'Neznámý zaměstnanec.' };
-    if (!emp.pin) {
+    const { data: hasPin, error: hasErr } = await supabase.rpc('plan_smien_has_employee_pin', { p_employee_id: employeeId });
+    if (hasErr) return { success: false, message: 'Chyba připojení, zkuste to znovu.' };
+    if (!hasPin) {
       if (!pin || pin.length < 4) return { success: false, message: 'Zvolte si PIN, alespoň 4 znaky.' };
-      setEmployees(es => es.map(x => (x.id === employeeId ? { ...x, pin } : x)));
+      const { data: set, error } = await supabase.rpc('plan_smien_set_employee_pin', { p_employee_id: employeeId, p_pin: pin });
+      if (error || !set) return { success: false, message: 'Nepodařilo se uložit PIN, zkuste to znovu.' };
       setLoginRole('employee');
       setLoginEmployeeId(employeeId);
       return { success: true };
     }
-    if (emp.pin === pin) { setLoginRole('employee'); setLoginEmployeeId(employeeId); return { success: true }; }
+    const { data: ok, error: verErr } = await supabase.rpc('plan_smien_verify_employee_pin', { p_employee_id: employeeId, p_pin: pin });
+    if (verErr) return { success: false, message: 'Chyba připojení, zkuste to znovu.' };
+    if (ok) { setLoginRole('employee'); setLoginEmployeeId(employeeId); return { success: true }; }
     return { success: false, message: 'Nesprávný PIN.' };
   }
   function logout() { setLoginRole(null); setLoginEmployeeId(null); }
-  function resetEmployeePin(id) { setEmployees(es => es.map(e => (e.id === id ? { ...e, pin: null } : e))); }
-  function changeAdminPin(newPin) { if (newPin && newPin.length >= 4) setAdminPin(newPin); }
-  function submitAbsenceRequest(employeeId, from, to, reason) {
-    setRequests(rs => [...rs, { id: 'r' + Date.now(), employeeId, from, to, reason, status: 'pending' }]);
+  async function resetEmployeePin(id, adminPin) {
+    if (!adminPin) return { success: false, message: 'Zadejte admin PIN.' };
+    const { data: ok, error } = await supabase.rpc('plan_smien_reset_employee_pin', { p_admin_pin: adminPin, p_employee_id: id });
+    if (error) return { success: false, message: 'Chyba připojení, zkuste to znovu.' };
+    if (!ok) return { success: false, message: 'Nesprávný admin PIN.' };
+    return { success: true };
+  }
+  async function changeAdminPin(currentPin, newPin) {
+    if (!newPin || newPin.length < 4) return { success: false, message: 'Nový PIN musí mít alespoň 4 znaky.' };
+    const { data: ok, error } = await supabase.rpc('plan_smien_set_admin_pin', { p_current_pin: currentPin, p_new_pin: newPin });
+    if (error) return { success: false, message: 'Chyba připojení, zkuste to znovu.' };
+    if (!ok) return { success: false, message: 'Nesprávný současný PIN.' };
+    return { success: true };
+  }
+  function submitAbsenceRequest(employeeId, from, to, reason, nightOnFromOk, nightOnToOk) {
+    setRequests(rs => [...rs, { id: 'r' + Date.now(), employeeId, from, to, reason, nightOnFromOk, nightOnToOk, status: 'pending' }]);
   }
   function approveRequest(id) {
     const req = requests.find(r => r.id === id);
     if (!req) return;
-    setAbsences(as => [...as, { id: 'a' + Date.now(), employeeId: req.employeeId, from: req.from, to: req.to, reason: req.reason }]);
+    setAbsences(as => [...as, { id: 'a' + Date.now(), employeeId: req.employeeId, from: req.from, to: req.to, reason: req.reason, nightOnFromOk: req.nightOnFromOk, nightOnToOk: req.nightOnToOk }]);
     setRequests(rs => rs.map(r => (r.id === id ? { ...r, status: 'approved' } : r)));
   }
   function rejectRequest(id) { setRequests(rs => rs.map(r => (r.id === id ? { ...r, status: 'rejected' } : r))); }
@@ -1573,6 +1682,11 @@ export default function PlanSmienView({ onBack }) {
           </nav>
         </div>
       </header>
+      {saveError && (
+        <div className="bg-red-600 text-white text-sm text-center py-2 px-4">
+          Poslední změna se nepodařilo uložit. Zkuste akci zopakovat; pokud to nepomůže, zkontrolujte připojení k internetu.
+        </div>
+      )}
       <main className="p-4 md:p-6 max-w-6xl mx-auto">
         {tab === 'prehlad' && (
           <PrehladTab weeks={weeks} employees={employees} onGotoWeek={gotoWeekContaining} />
@@ -1581,7 +1695,7 @@ export default function PlanSmienView({ onBack }) {
           <PlannerTab
             weeks={weeks} activeWeek={activeWeek} employees={employees} absences={absences}
             setActiveWeekId={setActiveWeekId} onNav={gotoAdjacentWeek} onCreateWeek={createNewWeek} onGotoWeek={gotoWeekContaining}
-            onToggleSunday={toggleExtraSunday} onAutoFill={autoFillCurrentWeek} onClearRefill={clearAndRefillWeek}
+            onToggleSunday={toggleExtraSunday} onAutoFill={autoFillCurrentWeek} onClearRefill={clearAndRefillWeek} onClearOnly={clearWeekOnly}
             onSetProduct={setProduct} onSetPos={setPos} onAddGeneral={addGeneral} onRemoveGeneral={removeGeneral}
             onAddExtra={addExtra} onRemoveExtra={removeExtra} onClearShift={clearShiftAssignment} onExport={copyExport}
             onShowPreview={() => setShowPreview(true)}
@@ -1590,7 +1704,7 @@ export default function PlanSmienView({ onBack }) {
         {tab === 'employees' && (
           <EmployeesTab employees={employees} onToggleActive={toggleActive} onUpdateMax={updateWeeklyMax}
             onUpdateRoles={updateEmployeeRoles}
-            adminPin={adminPin} onChangeAdminPin={changeAdminPin} onResetPin={resetEmployeePin} />
+            onChangeAdminPin={changeAdminPin} onResetPin={resetEmployeePin} />
         )}
         {tab === 'absences' && (
           <AbsencesTab employees={employees} absences={absences} absForm={absForm} setAbsForm={setAbsForm} onAdd={addAbsence} onRemove={removeAbsence}

@@ -1,5 +1,11 @@
 import { describe, it, expect } from "vitest";
-import { extractCityFromAddress, formatDateTime, parseSkDate, isoFromSkDateStr, skDateStrFromIso, durationMinutes } from "./utils.js";
+import { extractCityFromAddress, formatDateTime, parseSkDate, isoFromSkDateStr, skDateStrFromIso, durationMinutes, formatMinutes, computeNextDue, daysUntil } from "./utils.js";
+
+function skDateFromOffset(days) {
+  const d = new Date();
+  d.setDate(d.getDate() + days);
+  return `${String(d.getDate()).padStart(2, "0")}.${String(d.getMonth() + 1).padStart(2, "0")}.${d.getFullYear()}`;
+}
 
 describe("durationMinutes", () => {
   it("vypocita rozdiel v minutach", () => {
@@ -14,6 +20,26 @@ describe("durationMinutes", () => {
 
   it("zvladne prestavku cez polnoc", () => {
     expect(durationMinutes("23:50", "00:05")).toBe(15);
+  });
+});
+
+describe("formatMinutes", () => {
+  it("zobrazi len minuty ak je to menej nez hodina", () => {
+    expect(formatMinutes(45)).toBe("45 min");
+    expect(formatMinutes(0)).toBe("0 min");
+  });
+
+  it("zobrazi hodiny a minuty", () => {
+    expect(formatMinutes(281)).toBe("4 h 41 min");
+  });
+
+  it("zobrazi len hodiny ak su minuty presne 0", () => {
+    expect(formatMinutes(120)).toBe("2 h");
+  });
+
+  it("vrati prazdny retazec pre null/undefined", () => {
+    expect(formatMinutes(null)).toBe("");
+    expect(formatMinutes(undefined)).toBe("");
   });
 });
 
@@ -58,6 +84,36 @@ describe("extractCityFromAddress", () => {
 
   it("funguje aj s viacriadkovou adresou", () => {
     expect(extractCityFromAddress("Hlavna 1\n811 01 Bratislava\nSlovensko")).toBe("BRATISLAVA");
+  });
+});
+
+describe("computeNextDue", () => {
+  it("pripocita dni/tyzdne/mesiace/roky k poslednemu datumu", () => {
+    expect(computeNextDue("01.01.2026", "dni", 10)).toBe("11.01.2026");
+    expect(computeNextDue("01.01.2026", "tyzdne", 2)).toBe("15.01.2026");
+    expect(computeNextDue("01.01.2026", "mesiace", 1)).toBe("01.02.2026");
+    expect(computeNextDue("01.01.2026", "roky", 1)).toBe("01.01.2027");
+  });
+
+  it("vrati prazdny retazec pre neplatny vstup", () => {
+    expect(computeNextDue("", "dni", 10)).toBe("");
+    expect(computeNextDue("01.01.2026", "dni", 0)).toBe("");
+    expect(computeNextDue("01.01.2026", "nieco", 5)).toBe("");
+  });
+});
+
+describe("daysUntil", () => {
+  it("vrati kladne cislo pre datum v buducnosti", () => {
+    expect(daysUntil(skDateFromOffset(5))).toBe(5);
+  });
+
+  it("vrati zaporne cislo pre datum po terminu", () => {
+    expect(daysUntil(skDateFromOffset(-5))).toBe(-5);
+  });
+
+  it("vrati null pre neplatny vstup", () => {
+    expect(daysUntil("")).toBeNull();
+    expect(daysUntil("nieco")).toBeNull();
   });
 });
 
