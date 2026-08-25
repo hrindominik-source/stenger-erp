@@ -5384,6 +5384,9 @@ function ProductModal({ product, existingReceipts, existingIssues, onClose, onSa
         <Field label="Ks v kartonu" value={f.ksVKartone} onChange={(v) => setF({ ...f, ksVKartone: v })} />
         <Field label="Kartonů na paletě" value={f.kartonovNaPalete} onChange={(v) => setF({ ...f, kartonovNaPalete: v })} />
       </div>
+      {(parseFloat(f.ksVKartone) > 0 && parseFloat(f.kartonovNaPalete) > 0) && (
+        <div className="text-xs text-slate-400 mb-3 -mt-2">Ks na paletě (dopočteno): {Math.round(parseFloat(f.ksVKartone) * parseFloat(f.kartonovNaPalete))}</div>
+      )}
       <div className="grid grid-cols-2 gap-x-3">
         <Field label="Naše artiklové číslo (SNC)" value={f.cisloArtiklu} onChange={(v) => setF({ ...f, cisloArtiklu: v })} />
         <Field label="Artiklové číslo Stenger Waffeln (Sage 100)" value={f.cisloArtikluSW} onChange={(v) => setF({ ...f, cisloArtikluSW: v })} />
