@@ -1,9 +1,10 @@
 import React, { useState, useEffect, useCallback, useRef } from "react";
-import { LogOut, ArrowLeft, Loader2, AlertCircle, LayoutDashboard, ListChecks, CalendarClock, Plus, Trash2, CheckCircle2, ChevronDown, ChevronUp } from "lucide-react";
+import { LogOut, ArrowLeft, Loader2, AlertCircle, LayoutDashboard, ListChecks, CalendarClock, Plus, Trash2, CheckCircle2, ChevronDown, ChevronUp, Upload, FileCheck } from "lucide-react";
 import { supabase } from "./supabaseClient.js";
 import { todayStr, uid, computeNextDue, daysUntil, isoFromSkDateStr, skDateStrFromIso } from "./lib/utils.js";
 
 const POLL_MS = 10000;
+const KVALITA_DOKUMENTY_BUCKET = "kvalita-dokumenty";
 
 const FREKVENCIA_OPTIONS = [
   { value: "dni", label: "Dní" },
@@ -17,8 +18,21 @@ const TERMIN_TYP_OPTIONS = [
   { value: "vzv_kontrola", label: "Kontrola VZV" },
   { value: "vzv_skolenie", label: "Školení VZV" },
   { value: "skolenie", label: "Školení" },
+  { value: "ifs_certifikat", label: "IFS certifikát" },
+  { value: "rspo_certifikat", label: "RSPO certifikát" },
+  { value: "ifs_audit", label: "IFS audit" },
+  { value: "kalibrace", label: "Kalibrace/měření" },
+  { value: "revize_zarizeni", label: "Revize zařízení" },
+  { value: "ddd", label: "DDD (deratizace/dezinsekce)" },
+  { value: "rozbor_vody", label: "Rozbor vody" },
   { value: "ine_bozp", label: "Jiné BOZP" },
 ];
+
+async function openKvalitaDokument(path) {
+  if (!path) return;
+  const { data, error } = await supabase.storage.from(KVALITA_DOKUMENTY_BUCKET).createSignedUrl(path, 3600);
+  if (!error && data) window.open(data.signedUrl, "_blank");
+}
 
 function frekvenciaLabel(typ) {
   return (FREKVENCIA_OPTIONS.find((f) => f.value === typ) || {}).label || typ || "";
@@ -459,6 +473,22 @@ function TerminyTab({ terminy, onSaveTermin, onUpdateTermin, onDeleteTermin }) {
   const [form, setForm] = useState(emptyTerminForm());
   const [formError, setFormError] = useState("");
   const [filterTyp, setFilterTyp] = useState("vsetko");
+  const [uploadingId, setUploadingId] = useState(null);
+
+  async function uploadDokument(termin, file) {
+    if (!file) return;
+    setUploadingId(termin.id);
+    try {
+      const ext = (file.name.split(".").pop() || "pdf").toLowerCase();
+      const path = `${termin.id}/${Date.now()}.${ext}`;
+      const { error } = await supabase.storage.from(KVALITA_DOKUMENTY_BUCKET).upload(path, file, { upsert: true, contentType: file.type });
+      if (error) throw error;
+      onUpdateTermin({ ...termin, dokumentPath: path, dokumentNazovSuboru: file.name });
+    } catch (e) {
+      console.error(e);
+    }
+    setUploadingId(null);
+  }
 
   function submit() {
     if (!form.predmet.trim()) { setFormError("Vyplňte, koho/čeho se termín týká."); return; }
@@ -555,6 +585,7 @@ function TerminyTab({ terminy, onSaveTermin, onUpdateTermin, onDeleteTermin }) {
                 <th className="px-3 py-2 font-medium">Poslední</th>
                 <th className="px-3 py-2 font-medium">Frekvence</th>
                 <th className="px-3 py-2 font-medium">Další termín</th>
+                <th className="px-3 py-2 font-medium">Dokument</th>
                 <th className="px-3 py-2"></th>
               </tr>
             </thead>
@@ -580,6 +611,22 @@ function TerminyTab({ terminy, onSaveTermin, onUpdateTermin, onDeleteTermin }) {
                     </td>
                     <td className="px-3 py-2 whitespace-nowrap text-slate-500">{k.frekvenciaHodnota} {frekvenciaLabel(k.frekvenciaTyp).toLowerCase()}</td>
                     <td className="px-3 py-2 whitespace-nowrap font-medium">{nextDue || "-"}</td>
+                    <td className="px-3 py-2 whitespace-nowrap">
+                      {k.dokumentPath ? (
+                        <div className="flex items-center gap-1.5">
+                          <button onClick={() => openKvalitaDokument(k.dokumentPath)} title={k.dokumentNazovSuboru} className="text-xs text-teal-700 hover:text-teal-900 font-medium flex items-center gap-1"><FileCheck size={14} /> Otevřít</button>
+                          <label className="text-xs text-slate-400 hover:text-slate-700 cursor-pointer">
+                            (nahradit)
+                            <input type="file" accept=".pdf,image/*" className="hidden" onChange={(e) => uploadDokument(k, e.target.files && e.target.files[0])} />
+                          </label>
+                        </div>
+                      ) : (
+                        <label className="text-xs bg-slate-100 hover:bg-slate-200 text-slate-700 px-2 py-1 rounded-md font-medium flex items-center gap-1 w-fit cursor-pointer">
+                          {uploadingId === k.id ? <Loader2 size={14} className="animate-spin" /> : <Upload size={14} />} Nahrát
+                          <input type="file" accept=".pdf,image/*" className="hidden" disabled={uploadingId === k.id} onChange={(e) => uploadDokument(k, e.target.files && e.target.files[0])} />
+                        </label>
+                      )}
+                    </td>
                     <td className="px-3 py-2 text-right"><button onClick={() => onDeleteTermin(k.id)} className="text-slate-400 hover:text-red-600"><Trash2 size={16} /></button></td>
                   </tr>
                 );

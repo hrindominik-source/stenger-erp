@@ -1382,3 +1382,15 @@ create policy "kvalita_terminy_office_all" on public.kvalita_terminy
 drop trigger if exists audit_kvalita_terminy on public.kvalita_terminy;
 create trigger audit_kvalita_terminy after insert or update or delete on public.kvalita_terminy
   for each row execute function public.audit_trigger();
+
+-- Priloha dokumentu (napr. IFS certifikat, RSPO certifikat) k terminu -
+-- subor v Storage, referencia v kvalita_terminy.data (dokumentPath/dokumentNazovSuboru).
+insert into storage.buckets (id, name, public)
+values ('kvalita-dokumenty', 'kvalita-dokumenty', false)
+on conflict (id) do nothing;
+
+drop policy if exists "kvalita_dokumenty_files_office" on storage.objects;
+create policy "kvalita_dokumenty_files_office" on storage.objects
+  for all
+  using (bucket_id = 'kvalita-dokumenty' and public.current_role() = 'office')
+  with check (bucket_id = 'kvalita-dokumenty' and public.current_role() = 'office');
