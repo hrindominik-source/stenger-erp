@@ -345,6 +345,12 @@ function ddmmFromSkDateStr(str) {
   const d = parseSkDate(str) || new Date();
   return `${String(d.getDate()).padStart(2, "0")}${String(d.getMonth() + 1).padStart(2, "0")}`;
 }
+// Rozpozna, ci je miesto dodania v Nemecku (podla textu adresy/nazvu miesta dodania) -
+// pouziva sa na vyber spravneho zoznamu NVE emailov (Nemecko vs. export mimo Nemecka).
+function isGermanDelivery(order) {
+  const text = `${order.adresaDodania || ""} ${order.adresaDodaniaNazov || ""}`;
+  return /německo|nemecko|germany|deutschland|\bD-\s?\d{5}\b/i.test(text);
+}
 function subtractBusinessDays(date, days) {
   const d = new Date(date);
   let remaining = days;
@@ -615,7 +621,7 @@ function OfficeApp({ userFullName, userEmail, onSignOut }) {
   const [company, setCompany] = useState({
     nazov: "", adresa: "", ico: "", dic: "", tel: "", kontaktnaOsoba: "", email: "", apiKey: "",
     posledneCisloDopravy: 60400, posledneCisloDodaciehoListu: 60400,
-    nveEmaily: [],
+    nveEmaily: [], nveEmailyExport: [],
   });
   const [pricelist, setPricelist] = useState(null);
   const [pricelistArchive, setPricelistArchive] = useState([]);
@@ -3780,22 +3786,31 @@ function NveListModal({ order, company, onClose, onSave, onSent }) {
   const dodakRef = order.nemeckyDodakCislo || order.cisloObjednavkyDopravy;
   const [dodak, setDodak] = useState(order.nemeckyDodakCislo || "");
 
-  function applyDodakToSubject() {
-    const ref = dodak.trim() || order.cisloObjednavkyDopravy;
-    onSave({ nemeckyDodakCislo: dodak.trim() });
-    setSubject(`NVE list - ${ref}${mesto ? " - " + mesto : ""}`);
+  function baseFileName(name) {
+    if (!name) return "";
+    const idx = name.lastIndexOf(".");
+    return idx > 0 ? name.slice(0, idx) : name;
+  }
+  function subjectFor(fileName) {
+    const nazov = baseFileName(fileName) || dodakRef;
+    return `NVE list - ${nazov}${mesto ? " - " + mesto : ""}`;
   }
 
-  const defaultTo = (company.nveEmaily || []).map((e) => e.email).join(", ");
+  function applyDodakToSubject() {
+    onSave({ nemeckyDodakCislo: dodak.trim() });
+  }
+
+  const jeNemecko = isGermanDelivery(order);
+  const defaultTo = ((jeNemecko ? company.nveEmaily : company.nveEmailyExport) || []).map((e) => e.email).join(", ");
   const [to, setTo] = useState(last ? last.to : defaultTo);
-  const [subject, setSubject] = useState(last ? last.subject : `NVE list - ${dodakRef}${mesto ? " - " + mesto : ""}`);
+  const [subject, setSubject] = useState(last ? last.subject : subjectFor(order.nveListFileName));
   const [body, setBody] = useState(
     last ? last.body :
-    `Ahoj,\n\n` +
-    `v příloze posíláme NVE list k objednávce č. ${order.cisloObjednavkyDopravy}${order.zakaznik ? " (" + order.zakaznik + ")" : ""}.\n` +
-    `Dodací list: ${dodakRef}${mesto ? ", místo dodání: " + mesto : ""}\n\n` +
-    `POZOR: příloha se nepřipojuje automaticky - před odesláním nezapomeňte ručně připojit stažený soubor${order.nveListFileName ? ' "' + order.nveListFileName + '"' : ""}.\n\n` +
-    `S pozdravem`
+    `Hello,\n\n` +
+    `please find attached the NVE list for order no. ${order.cisloObjednavkyDopravy}${order.zakaznik ? " (" + order.zakaznik + ")" : ""}.\n` +
+    `Delivery note: ${dodakRef}${mesto ? ", place of delivery: " + mesto : ""}\n\n` +
+    `NOTE: the attachment is not added automatically - before sending, please remember to manually attach the downloaded file${order.nveListFileName ? ` "${order.nveListFileName}"` : ""}.\n\n` +
+    `Best regards`
   );
 
   async function handleFile(e) {
@@ -3809,6 +3824,7 @@ function NveListModal({ order, company, onClose, onSave, onSent }) {
       const { error: uploadError } = await supabase.storage.from(NVE_LISTS_BUCKET).upload(path, file, { upsert: true, contentType: file.type });
       if (uploadError) throw uploadError;
       await onSave({ nveListPath: path, nveListFileName: file.name, nveListUploadedAt: new Date().toISOString() });
+      if (!last) setSubject(subjectFor(file.name));
     } catch (err) {
       console.error(err);
       setError("Nahrání souboru se nezdařilo, zkuste to znovu.");
@@ -3823,7 +3839,7 @@ function NveListModal({ order, company, onClose, onSave, onSent }) {
         <span className="block text-xs font-medium text-slate-500 mb-1">Číslo německého dodacího listu (Lieferschein DE od kolegů) - nepovinné, jen pokud se zboží posílá přes ně (např. Stenger Waffeln)</span>
         <div className="flex gap-1.5">
           <input value={dodak} onChange={(e) => setDodak(e.target.value)} placeholder="např. 2206-22007895" className="flex-1 border border-slate-200 rounded-md px-2.5 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-teal-600" />
-          <button type="button" onClick={applyDodakToSubject} className="text-xs bg-slate-100 hover:bg-slate-200 text-slate-700 px-3 py-1.5 rounded-md font-medium whitespace-nowrap">Uložit a doplnit do předmětu</button>
+          <button type="button" onClick={applyDodakToSubject} className="text-xs bg-slate-100 hover:bg-slate-200 text-slate-700 px-3 py-1.5 rounded-md font-medium whitespace-nowrap">Uložit</button>
         </div>
       </div>
       <div className="mb-3">
@@ -3850,6 +3866,11 @@ function NveListModal({ order, company, onClose, onSave, onSent }) {
       )}
       {last && <div className="mb-3 bg-emerald-50 text-emerald-800 text-xs px-3 py-2 rounded-md flex items-center gap-2"><CheckCircle2 size={14} /> Naposledy odesláno {formatDateTime(last.datum)} na {last.to}</div>}
 
+      <div className="mb-2 text-xs text-slate-500">
+        Podle místa dodání rozpoznáno jako: <b>{jeNemecko ? "Německo" : "Export (mimo Německo)"}</b> - pokud to neodpovídá, přidejte e-maily ručně z druhé skupiny níže.
+      </div>
+      <EmailQuickPicks emaily={company.nveEmaily} value={to} onPick={setTo} />
+      <EmailQuickPicks emaily={company.nveEmailyExport} value={to} onPick={setTo} />
       <Field label="E-mail (komu) - oddělte čárkou při více adresách" value={to} onChange={setTo} />
       <Field label="Předmět" value={subject} onChange={setSubject} />
       <Field label="Text zprávy" value={body} onChange={setBody} textarea rows={8} />
@@ -7801,6 +7822,16 @@ function CompanyView({ company, onSave }) {
               </div>
             </div>
           )}
+          {(company.nveEmailyExport || []).length > 0 && (
+            <div className="mt-4 pt-4 border-t border-slate-100">
+              <div className="text-xs font-medium text-slate-500 mb-1.5">NVE list - preddefinovane emaily (Export mimo Nemecka)</div>
+              <div className="space-y-1">
+                {company.nveEmailyExport.map((e, i) => (
+                  <div key={i} className="text-sm"><b>{e.label}:</b> {e.email}</div>
+                ))}
+              </div>
+            </div>
+          )}
           <button onClick={() => { setF(company); setEditing(true); }} className="flex items-center gap-1.5 bg-teal-700 hover:bg-teal-800 text-white text-sm font-medium px-4 py-2 rounded-md mt-4">
             <Pencil size={16} /> Upravit
           </button>
@@ -7825,6 +7856,11 @@ function CompanyView({ company, onSave }) {
           emaily={f.nveEmaily}
           onChange={(list) => setF({ ...f, nveEmaily: list })}
           caption="NVE list - přednastavené e-maily kolegům do Německa (např. Sklad DE) - při více adresách najednou je oddělte čárkou"
+        />
+        <EmailListEditor
+          emaily={f.nveEmailyExport || []}
+          onChange={(list) => setF({ ...f, nveEmailyExport: list })}
+          caption="NVE list - přednastavené e-maily pro export mimo Německo - při více adresách najednou je oddělte čárkou"
         />
         <div className="grid grid-cols-2 gap-x-3">
           <Field label="Poslední použité číslo objednávky dopravy" value={String(f.posledneCisloDopravy)} onChange={(v) => setF({ ...f, posledneCisloDopravy: parseInt(v) || 0 })} />
