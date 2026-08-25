@@ -3339,10 +3339,13 @@ function TransportModal({ order, carriers, company, onClose, onSent, onUpdateCar
   const [to, setTo] = useState(last ? last.to : (carrier ? carrier.email : ""));
   const [manageEmails, setManageEmails] = useState(false);
   function pickCarrier(id) {
+    const c = carriers.find((x) => x.id === id);
     setCarrierId(id);
     if (!last) {
-      const c = carriers.find((x) => x.id === id);
       setTo(c ? c.email : "");
+      const oldName = carrier ? carrier.nazov : "[dopravce]";
+      const newName = c ? c.nazov : "[dopravce]";
+      setBody((prev) => prev.replace(`PRO: ${oldName}`, `PRO: ${newName}`));
     }
   }
   const [subject, setSubject] = useState(last ? last.subject : `Objednávka přepravy č. ${order.cisloObjednavkyDopravy}`);
@@ -5841,10 +5844,13 @@ function MaterialTransportModal({ order, carriers, suppliers, company, currentUs
   const [to, setTo] = useState(last ? last.to : (carrier ? carrier.email : ""));
   const [manageEmails, setManageEmails] = useState(false);
   function pickCarrier(id) {
+    const c = carriers.find((x) => x.id === id);
     setCarrierId(id);
     if (!last) {
-      const c = carriers.find((x) => x.id === id);
       setTo(c ? c.email : "");
+      const oldGreeting = `Dobrý den${carrier ? " " + carrier.nazov : ""},`;
+      const newGreeting = `Dobrý den${c ? " " + c.nazov : ""},`;
+      setBody((prev) => prev.replace(oldGreeting, newGreeting));
     }
   }
   const [subject, setSubject] = useState(last ? last.subject : `Objednávka přepravy č. ${order.cisloObjednavkyDopravy}`);
