@@ -423,13 +423,17 @@ Odpovedz VYLUCNE JSON objektom v tomto presnom tvare (bez ciarok naviac, bez mar
   "hmotnost": "celkova hmotnost v kg ako text, ak je priamo uvedena v dokumente, inak prazdny retazec (nepocitaj ju z max. vahy palety)",
   "popisTovaru": "strucny popis objednaneho tovaru - zluc nazvy vsetkych poloziek z tabulky (stlpec Bezeichnung/Artikelnr)",
   "mnozstvo": "mnozstvo/pocet kusov ako text - ak je viac poloziek, strucne zhrni (napr. '192 KRT American Style popcorn sweet')",
-  "poznamka": "akakolvek dalsia dolezita poznamka z objednavky (napr. specialne baliace/dodacie podmienky), inak prazdny retazec"
+  "poznamka": "akakolvek dalsia dolezita poznamka z objednavky (napr. specialne baliace/dodacie podmienky), inak prazdny retazec",
+  "polozky": [
+    { "popis": "presny nazov polozky ako v dokumente (stlpec Bezeichnung)", "artikel": "cislo artiklu polozky presne ako v dokumente (stlpec Artikelnr./Art.-Nr./Artikel) - POZOR: ak je cislo kvoli formatovaniu tabulky rozdelene na viac riadkov (napr. posledna cislica je zalomena na samostatny riadok hned pod/za cislom), SPOJ ich do jedneho spravneho cisla, nikdy neodrezavaj poslednu cislicu", "palet": "pocet paliet tejto konkretnej polozky ako text, len ak je to v dokumente uvedene osobitne pre kazdu polozku (zriedkave), inak prazdny retazec", "karton": "mnozstvo tejto polozky ako text - hodnota zo stlpca Menge/ME s jednotkou KRT/karton" }
+  ]
 }
 Ak nejaky udaj v texte chyba, nechaj ho ako prazdny retazec "". Neodhaduj veci, ktore tam nie su.
 Dolezite rozlisenie cisiel:
 - "cisloObjednavkyZakaznika" (Belegnummer) a "mercareonRef" (ORDER-N° retazca) su DVE ROZDIELNE cisla z roznych casti dokumentu - nezamienaj ich.
 - "pocetPaliet" (Europaletten) a "pocetPaletovychMiest" (Stellplatze) su tiez dve rozdielne cisla z riadku 'Doppelstockpal. = Europaletten = Stellplatze' - pri dvojitom stohovani je pocet paliet dvojnasobny oproti poctu miest.
-- "pocetKartonov" je uplne iny, samostatny udaj - sucet vsetkych KRT mnozstiev z tabulky poloziek.`;
+- "pocetKartonov" je uplne iny, samostatny udaj - sucet vsetkych KRT mnozstiev z tabulky poloziek.
+Dolezite k "polozky": ak dokument obsahuje jasnu tabulku jednotlivych poloziek (stlpce typu Pos./Artikelnr./Bezeichnung/Menge), vytiahni KAZDU polozku ako samostatny zaznam v poli "polozky" - toto pole ma prednost pred "popisTovaru" pri zobrazovani na dodacom liste. Ak dokument nema ziadnu jasnu tabulku poloziek (len volny text bez struktury), nechaj "polozky" ako prazdne pole [].`;
 
 const INVOICE_EXTRACT_INSTRUCTIONS = `Si asistent, ktory z faktury od dodavatela (PDF dokument alebo obrazok) vytiahne strukturovane udaje pre sklad/ucstovnictvo.
 Odpovedz VYLUCNE JSON objektom v tomto presnom tvare (bez ciarok naviac, bez markdown, bez vysvetlenia):
@@ -3047,8 +3051,12 @@ function NewOrderPage({ onClose, onSave, defaultAdresaNakladky, customers, compa
       const result = await callClaude([...blocks, { type: "text", text: EXTRACT_INSTRUCTIONS }], company.apiKey);
       setSourceBlocks(blocks);
       const matchedCustomer = customers.find((c) => c.nazov.trim().toLowerCase() === (result.zakaznik || "").trim().toLowerCase());
-      let polozky = [];
-      if (matchedCustomer && matchedCustomer.katalog && matchedCustomer.katalog.length > 0) {
+      // Primarne pouzi polozky priamo z dokumentu (tabulka Pos./Artikelnr./Bezeichnung) -
+      // funguje aj bez toho, aby mal zakaznik uz vopred vyplneny katalog. Katalogovy
+      // druhy AI krok je len zalozna moznost pre nestrukturovane objednavky (volny text
+      // bez tabulky), kde primarna extrakcia nevrati ziadne polozky.
+      let polozky = result.polozky || [];
+      if (polozky.length === 0 && matchedCustomer && matchedCustomer.katalog && matchedCustomer.katalog.length > 0) {
         try {
           const itemsResult = await callClaude([...blocks, { type: "text", text: buildItemsInstructions(matchedCustomer.katalog) }], company.apiKey);
           polozky = itemsResult.polozky || [];
