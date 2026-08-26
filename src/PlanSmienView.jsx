@@ -864,7 +864,7 @@ function WeekMatrixTable({ week, employees }) {
     return null;
   }
   const shiftTypeIcon = { day: Sun, night: Moon, sanitation: Droplets };
-  const roleMark = { pos1: 'H', pos3: '3' };
+  const dotClass = { pos1: 'bg-amber-600', pos3: 'bg-purple-600', gen: 'bg-teal-600' };
   const colWidth = Math.max(24, Math.floor((297 - 20 - 60) / Math.max(1, activeEmployees.length)));
 
   if (activeEmployees.length === 0) {
@@ -912,14 +912,16 @@ function WeekMatrixTable({ week, employees }) {
                   return (
                     <td key={e.id} className={`text-center border border-slate-200 ${nightBg}`}>
                       {role && (
-                        <span className="relative inline-flex" title={role === 'pos1' ? 'Hrncová' : role === 'pos3' ? 'Pozice 3' : 'Ostatní'}>
-                          <span className="w-4 h-4 rounded-full border-2 border-slate-900 bg-white inline-block" />
-                          {roleMark[role] && (
-                            <span className="absolute -bottom-1.5 -right-1.5 text-[9px] font-bold text-slate-900 leading-none bg-white px-px">
-                              {roleMark[role]}
-                            </span>
-                          )}
-                        </span>
+                        role === 'gen' ? (
+                          <span className={`inline-block w-3 h-3 rounded-full ${dotClass.gen}`} title="Ostatní" />
+                        ) : (
+                          <span
+                            className={`inline-flex items-center justify-center w-5 h-5 rounded-full text-white text-[10px] font-bold leading-none ${dotClass[role]}`}
+                            title={role === 'pos1' ? 'Hrncová' : 'Pozice 3'}
+                          >
+                            {role === 'pos1' ? 'H' : '3'}
+                          </span>
+                        )
                       )}
                     </td>
                   );
@@ -930,22 +932,10 @@ function WeekMatrixTable({ week, employees }) {
         </tbody>
       </table>
 
-      <div className="mt-3 pt-2 border-t border-slate-200 flex gap-5 text-xs text-slate-500 flex-wrap items-center">
-        <span className="flex items-center gap-1.5">
-          <span className="relative inline-flex">
-            <span className="w-4 h-4 rounded-full border-2 border-slate-900 bg-white inline-block" />
-            <span className="absolute -bottom-1.5 -right-1.5 text-[9px] font-bold text-slate-900 leading-none bg-white px-px">H</span>
-          </span>
-          Hrncová
-        </span>
-        <span className="flex items-center gap-1.5">
-          <span className="relative inline-flex">
-            <span className="w-4 h-4 rounded-full border-2 border-slate-900 bg-white inline-block" />
-            <span className="absolute -bottom-1.5 -right-1.5 text-[9px] font-bold text-slate-900 leading-none bg-white px-px">3</span>
-          </span>
-          Pozice 3
-        </span>
-        <span className="flex items-center gap-1.5"><span className="w-4 h-4 rounded-full border-2 border-slate-900 bg-white inline-block" />Ostatní</span>
+      <div className="mt-3 pt-2 border-t border-slate-200 flex gap-5 text-xs text-slate-500 flex-wrap">
+        <span className="flex items-center gap-1"><span className="w-2.5 h-2.5 rounded-full bg-amber-600 inline-block" />Hrncová</span>
+        <span className="flex items-center gap-1"><span className="w-2.5 h-2.5 rounded-full bg-purple-600 inline-block" />Pozice 3</span>
+        <span className="flex items-center gap-1"><span className="w-2.5 h-2.5 rounded-full bg-teal-600 inline-block" />Ostatní</span>
         <span className="flex items-center gap-1"><Sun className="w-3.5 h-3.5" />Denní</span>
         <span className="flex items-center gap-1"><Moon className="w-3.5 h-3.5" />Noční</span>
         <span className="flex items-center gap-1"><Droplets className="w-3.5 h-3.5" />Sanitace</span>
@@ -966,8 +956,8 @@ function WeekMatrixSheet({ week }) {
   );
 }
 
-function PrehladTab({ weeks, employees, onGotoWeek }) {
-  const [weekStart, setWeekStart] = useState(() => mondayOf(toISO(new Date())));
+function PrehladTab({ weeks, employees, onGotoWeek, activeWeekId }) {
+  const [weekStart, setWeekStart] = useState(() => activeWeekId || mondayOf(toISO(new Date())));
   const week = weeks.find((w) => w.id === weekStart) || null;
   const isCurrentWeek = weekStart === mondayOf(toISO(new Date()));
 
@@ -1706,7 +1696,7 @@ export default function PlanSmienView({ onBack }) {
       )}
       <main className="p-4 md:p-6 max-w-6xl mx-auto">
         {tab === 'prehlad' && (
-          <PrehladTab weeks={weeks} employees={employees} onGotoWeek={gotoWeekContaining} />
+          <PrehladTab weeks={weeks} employees={employees} onGotoWeek={gotoWeekContaining} activeWeekId={activeWeekId} />
         )}
         {tab === 'planner' && (
           <PlannerTab
