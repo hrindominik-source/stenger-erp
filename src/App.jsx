@@ -18,6 +18,7 @@ const KvalitaView = lazy(() => import("./KvalitaView.jsx"));
 import { extractCityFromAddress, todayStr, uid, parseSkDate, isoFromSkDateStr, skDateStrFromIso, durationMinutes, formatMinutes } from "./lib/utils.js";
 import { parsePricelistFile, computeTransportPrice, computeTransportPriceForCity, formatEur } from "./lib/pricelist.js";
 import { buildLieferscheinXlsx } from "./lib/lieferscheinXlsx.js";
+import { buildCmrXlsx } from "./lib/cmrXlsx.js";
 import { parseSupplierCatalogFile, mergeSupplierCatalog } from "./lib/supplierCatalog.js";
 import { exportRowsToExcel, exportSheetsToExcel } from "./lib/exportExcel.js";
 import { computeStockLevels, computeProductionIssues, extraKnownMaterials, materialPicksForSupplier, allKnownMaterials, suggestReceiptMatches, UNIT_QUICK_PICKS } from "./lib/inventory.js";
@@ -2183,6 +2184,7 @@ function OfficeApp({ userFullName, userEmail, onSignOut }) {
           carriers={carriers}
           customers={customers}
           company={company}
+          products={products}
           onClose={() => setCmrOrder(null)}
           onDone={(info, action) => {
             updateOrder(cmrOrder.id, { cmrInfo: info });
@@ -4053,7 +4055,7 @@ function LsGermanyModal({ order, onClose, onSave }) {
 /* ---------------- CMR (print only) ---------------- */
 
 
-function CmrModal({ order, carriers, customers, company, onClose, onDone }) {
+function CmrModal({ order, carriers, customers, company, products, onClose, onDone }) {
   const last = order.cmrInfo;
   const carrier = carriers.find((c) => c.id === order.dopravcaId);
   const customer = customers.find((c) => c.id === order.zakaznikId);
@@ -4088,16 +4090,21 @@ function CmrModal({ order, carriers, customers, company, onClose, onDone }) {
     downloadText(`CMR_${order.cisloObjednavkyDopravy.replace("/", "-")}.txt`, body);
     onDone({ subject: "CMR", body, to: "stiahnute", datum: new Date().toISOString() }, "download");
   }
+  async function handleDownloadXlsx() {
+    await buildCmrXlsx({ order, company, carrier, products });
+    onDone({ subject: "CMR", body, to: "stiahnute (Excel)", datum: new Date().toISOString() }, "download");
+  }
 
   return (
     <ModalShell title={"CMR - " + order.cisloObjednavkyDopravy} onClose={onClose} wide>
       <PrintDocument id={printId} title="CMR - MEZINÁRODNÍ NÁKLADNÍ LIST" body={body} />
       {last && <div className="mb-3 bg-emerald-50 text-emerald-800 text-xs px-3 py-2 rounded-md flex items-center gap-2"><CheckCircle2 size={14} /> Naposledy připraveno {formatDateTime(last.datum)}</div>}
-      <p className="text-xs text-slate-400 mb-3">Obsahový podklad podle údajů objednávky, číslování odpovídá polím CMR listu, nejde o certifikovaný tiskopis.</p>
+      <p className="text-xs text-slate-400 mb-3">Tlačítko "Stáhnout Excel" vyplní přesnou šablonu CMR (stejný formulář, jaký používáte dnes) - místo dodání, počet palet a datum nakládky se doplní automaticky z objednávky. Text níže je jen záložní textový podklad.</p>
       <Field label="Text dokumentu" value={body} onChange={setBody} textarea />
-      <div className="flex justify-end gap-2 mt-2">
+      <div className="flex justify-end gap-2 mt-2 flex-wrap">
         <button onClick={onClose} className="text-sm text-slate-500 px-3 py-2">Zrušit</button>
-        <button onClick={handleDownload} className="bg-white border border-slate-200 hover:bg-slate-50 text-slate-700 text-sm font-medium px-4 py-2 rounded-md flex items-center gap-1.5"><Download size={16} /> Stáhnout</button>
+        <button onClick={handleDownloadXlsx} className="bg-white border border-slate-200 hover:bg-slate-50 text-slate-700 text-sm font-medium px-4 py-2 rounded-md flex items-center gap-1.5"><Download size={16} /> Stáhnout Excel</button>
+        <button onClick={handleDownload} className="bg-white border border-slate-200 hover:bg-slate-50 text-slate-700 text-sm font-medium px-4 py-2 rounded-md flex items-center gap-1.5"><Download size={16} /> Stáhnout text</button>
         <button onClick={handlePrint} className="bg-teal-700 hover:bg-teal-800 text-white text-sm font-medium px-4 py-2 rounded-md flex items-center gap-1.5"><Printer size={16} /> Vytisknout</button>
       </div>
     </ModalShell>
