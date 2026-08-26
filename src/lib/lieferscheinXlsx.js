@@ -164,7 +164,7 @@ export async function buildLieferscheinXlsx({ order, company, customer, carrierN
     if (it.produkt && it.produkt.inhlt) set(`C${r0 + 1}`, it.produkt.inhlt);
     const eanLine = it.produkt ? [it.produkt.eanKarton && `EAN karton: ${it.produkt.eanKarton}`, it.produkt.eanUnit && `EAN kus: ${it.produkt.eanUnit}`].filter(Boolean).join("   ") : "";
     if (eanLine) set(`C${r0 + 2}`, eanLine, { size: 9 });
-    if (it.produkt && it.produkt.rspo) set(`C${r0 + 3}`, "BVC-RSPO-CZ009581");
+    if (it.produkt && it.produkt.rspo) set(`C${r0 + 3}`, "BVC-RSPO-CZ009581, PALMÖL MB");
     set(`G${r0}`, computeKusyFromKarton(it.karton, it.produkt), { bold: true });
     merge(`G${r0}`, `G${r3}`);
     set(`H${r0}`, it.artikel, { bold: true });

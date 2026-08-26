@@ -622,7 +622,7 @@ export default function MiniERP() {
 
 const CENOTVORBA_ALLOWED_EMAILS = ["dh@stenger.eu"];
 const AUDIT_LOG_ALLOWED_EMAILS = ["dh@stenger.eu"];
-const RSPO_CERT_CODE = "BVC-RSPO-CZ009581";
+const RSPO_CERT_CODE = "BVC-RSPO-CZ009581, PALMÖL MB";
 
 function OfficeApp({ userFullName, userEmail, onSignOut }) {
   const [view, setView] = useState("dashboard"); // dashboard | register | carriers | customers | company | ...
