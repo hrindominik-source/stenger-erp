@@ -179,10 +179,37 @@ function pickBalanced(cands, weeksSnapshot, shiftType) {
   return scored[0].e;
 }
 
+/* Kolega pri rucnom planovani nerotuje ludi kvoli "spravodlivemu" vyrovnavaniu poctu zmien -
+   drzi tu istu osobu na tej istej pozicii/tyme z tyzdna na tyzden, pokial je k dispozicii, a mení
+   iba pri absencii/preplneni limitu. Preto sa najprv skusi predchadzajuci tyzden, pickBalanced
+   je az zaloha pre volne/uvolnene miesta. */
+function priorWeekShiftOfType(allWeeks, week, shiftType) {
+  const prevWeek = allWeeks.find(w => w.id === addDays(week.startDate, -7));
+  if (!prevWeek) return null;
+  return prevWeek.shifts.find(s => s.type === shiftType && shiftTotal(s) > 0) || null;
+}
+function priorRoleHolder(allWeeks, week, shiftType, roleKey) {
+  const shift = priorWeekShiftOfType(allWeeks, week, shiftType);
+  return shift ? shift.assigned[roleKey] : null;
+}
+function priorGeneralTeam(allWeeks, week, shiftType) {
+  const shift = priorWeekShiftOfType(allWeeks, week, shiftType);
+  return shift ? shift.assigned.general.slice() : [];
+}
+/* Kontinuita ma prednost, ale nie za cenu neobmedzeneho drift-u - ak by niekto mal uz o vela viac
+   zmien nez najmenej vyuzity clovek z rovnakej pozicie, radsej sa prepne na vyvazenie. */
+const BALANCE_DRIFT_LIMIT = 2;
+function withinDriftLimit(currentId, altCands, weeksSnapshot) {
+  if (altCands.length === 0) return true;
+  const curTotal = globalStats(weeksSnapshot, currentId).total;
+  const minAltTotal = Math.min(...altCands.map(e => globalStats(weeksSnapshot, e.id).total));
+  return curTotal - minAltTotal <= BALANCE_DRIFT_LIMIT;
+}
+
 /* Vyplni jednu poziciu (hrncova alebo pozicia 3) pre vsetky zmeny rovnakeho typu (den/noc/sanitacia) v tyzdni,
    pricom sa snazi co najdlhsie drzat tu istu osobu (blok zmien za sebou), kym je to mozne. */
 function fillSingleRoleBlock(w, shiftsBlock, roleKey, employees, absences, allWeeks) {
-  let current = null;
+  let current = shiftsBlock.length ? priorRoleHolder(allWeeks, w, shiftsBlock[0].type, roleKey) : null;
   shiftsBlock.forEach(shift => {
     const total = shiftTotal(shift);
     if (total === 0) return;
@@ -201,27 +228,28 @@ function fillSingleRoleBlock(w, shiftsBlock, roleKey, employees, absences, allWe
     );
 
     if (roleKey === 'pos1') {
+      let cands = eligible('pos1');
       if (current) {
         const curEmp = employees.find(e => e.id === current);
         const stillOk = curEmp && curEmp.active && curEmp.roles.includes('pos1') &&
           !isOnAbsence(current, shift.date, absences, shift.type) && !neighborIds.has(current) && !usedInShift.has(current) &&
           weekShiftCount(w, current) < curEmp.weeklyMax + 1;
-        if (stillOk) { shift.assigned.pos1 = current; return; }
+        if (stillOk && withinDriftLimit(current, cands.filter(e => e.id !== current), weeksSnapshot)) { shift.assigned.pos1 = current; return; }
       }
-      let cands = eligible('pos1');
       if (cands.length === 0) cands = eligible('pos1', Infinity).filter(e => weekShiftCount(w, e.id) < e.weeklyMax + 1);
       if (cands.length === 0) cands = eligible('pos1-backup');
       const pick = pickBalanced(cands, weeksSnapshot, shift.type);
       if (pick) { shift.assigned.pos1 = pick.id; current = pick.id; } else current = null;
     } else {
+      const cands = eligible('pos3');
       if (current) {
         const curEmp = employees.find(e => e.id === current);
         const stillOk = curEmp && curEmp.active && curEmp.roles.includes('pos3') &&
           !isOnAbsence(current, shift.date, absences, shift.type) && !neighborIds.has(current) && !usedInShift.has(current) &&
           weekShiftCount(w, current) < curEmp.weeklyMax;
-        if (stillOk) { shift.assigned.pos3 = current; return; }
+        if (stillOk && withinDriftLimit(current, cands.filter(e => e.id !== current), weeksSnapshot)) { shift.assigned.pos3 = current; return; }
       }
-      const pick = pickBalanced(eligible('pos3'), weeksSnapshot, shift.type);
+      const pick = pickBalanced(cands, weeksSnapshot, shift.type);
       if (pick) { shift.assigned.pos3 = pick.id; current = pick.id; } else current = null;
     }
   });
@@ -229,7 +257,7 @@ function fillSingleRoleBlock(w, shiftsBlock, roleKey, employees, absences, allWe
 
 /* Vyplni ostatne pozicie pre vsetky zmeny rovnakeho typu, so snahou udrzat rovnaky "tim" v bloku za sebou. */
 function fillGeneralBlock(w, shiftsBlock, employees, absences, allWeeks) {
-  let team = [];
+  let team = shiftsBlock.length ? priorGeneralTeam(allWeeks, w, shiftsBlock[0].type) : [];
   shiftsBlock.forEach(shift => {
     const total = shiftTotal(shift);
     if (total === 0) return;
@@ -247,9 +275,17 @@ function fillGeneralBlock(w, shiftsBlock, employees, absences, allWeeks) {
       return e.active && e.roles.includes('general') && !isOnAbsence(id, shift.date, absences, shift.type) &&
         !neighborIds.has(id) && !usedInShift.has(id) && weekShiftCount(w, id) < e.weeklyMax;
     };
+    const generalPool = (excludeIds) => {
+      const excluded = new Set([...shiftPeopleIds(shift), ...excludeIds]);
+      return employees.filter(e => e.active && e.roles.includes('general') && !excluded.has(e.id) &&
+        !isOnAbsence(e.id, shift.date, absences, shift.type) && !neighborIds.has(e.id) && weekShiftCount(w, e.id) < e.weeklyMax);
+    };
 
     const chosen = [...already];
-    team.forEach(id => { if (chosen.length < needed && !chosen.includes(id) && isEligible(id, chosen)) chosen.push(id); });
+    team.forEach(id => {
+      if (chosen.length < needed && !chosen.includes(id) && isEligible(id, chosen) &&
+        withinDriftLimit(id, generalPool(chosen), weeksSnapshot)) chosen.push(id);
+    });
 
     let guard = 0;
     while (chosen.length < needed && guard < 30) {
