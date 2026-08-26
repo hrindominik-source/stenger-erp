@@ -6,18 +6,24 @@
 // nedotknuty presne tak, ako je v sablone.
 const TEMPLATE_URL = "/templates/CMR_template.xlsx";
 
+// Pouziva Date.UTC/getUTCDay namiesto lokalneho casu: exceljs pri zapise
+// datumu do xlsx pocita seriove cislo z UTC casu Date objektu, takze pri
+// lokalnom konstruktore na stroji s kladnym UTC posunom (napr. CEST +2) by
+// sa datum v subore posunul o den spat - a pravidelne tak vysiel vikend
+// namiesto spravneho pracovneho dna.
 function parseSkDateLocal(str) {
   const m = String(str || "").match(/(\d{1,2})\.(\d{1,2})\.(\d{4})/);
   if (!m) return null;
-  return new Date(parseInt(m[3], 10), parseInt(m[2], 10) - 1, parseInt(m[1], 10));
+  return new Date(Date.UTC(parseInt(m[3], 10), parseInt(m[2], 10) - 1, parseInt(m[1], 10)));
 }
 
+// Datum nakladky nesmie nikdy pripadnut na vikend - preskakuje soboty/nedele.
 function subtractBusinessDaysLocal(date, days) {
-  const d = new Date(date);
+  const d = new Date(date.getTime());
   let remaining = days;
   while (remaining > 0) {
-    d.setDate(d.getDate() - 1);
-    const day = d.getDay();
+    d.setUTCDate(d.getUTCDate() - 1);
+    const day = d.getUTCDay();
     if (day !== 0 && day !== 6) remaining--;
   }
   return d;
@@ -74,8 +80,10 @@ export async function buildCmrXlsx({ order, company, carrier, products }) {
     ws.getCell("E32").value = subtractBusinessDaysLocal(dodaniaDate, 2);
   }
 
-  // pripojene doklady - cislo dodacieho listu
-  ws.getCell("E36").value = order.cisloDodaciehoListu || "";
+  // pripojene doklady - cislo LS Germany (zadava sa rucne cez ikonu "LS
+  // Germany", zostava prazdne kym nie je vyplnene - nema sa nahradzovat
+  // ceskym cislom dodacieho listu)
+  ws.getCell("E36").value = order.nemeckyDodakCislo || "";
 
   // celkovy pocet paliet - vzorce v sablone (I56, O41) si druhy vyskyt aj
   // hmotnost odvodia automaticky z tejto bunky
