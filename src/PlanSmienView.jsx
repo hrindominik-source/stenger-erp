@@ -1099,10 +1099,13 @@ function EmployeesTab({ employees, onToggleActive, onUpdateMax, onUpdateRoles, o
   }
   const [adminPinInput, setAdminPinInput] = useState('');
   const [currentAdminPinInput, setCurrentAdminPinInput] = useState('');
+  const activeEmployees = employees.filter(e => e.active);
+  const inactiveCount = employees.length - activeEmployees.length;
   return (
     <div className="space-y-6">
       <div className="bg-amber-50 border border-amber-200 text-amber-800 text-xs px-3 py-2 rounded-md">
         Seznam jmen (kdo všechno existuje) se přebírá z ERP → Pracovníci (typ „Výroba“) — přidávání, přejmenování i mazání dělejte tam, automaticky se projeví i ve Výrobě, Přestávkách i tu. Tady nastavíte jen jejich roli, maximální počet směn za týden a PIN.
+        {inactiveCount > 0 && <span> ({inactiveCount} neaktivních/starých záznamů je v seznamu skryto.)</span>}
       </div>
 
       <div className="bg-white border border-slate-200 rounded-lg overflow-hidden overflow-x-auto">
@@ -1111,7 +1114,7 @@ function EmployeesTab({ employees, onToggleActive, onUpdateMax, onUpdateRoles, o
             <tr><th className="text-left px-3 py-2">Jméno</th><th className="text-left px-3 py-2">Pozice</th><th className="text-left px-3 py-2">Max/týden</th><th className="text-left px-3 py-2">Stav</th><th></th></tr>
           </thead>
           <tbody>
-            {employees.map(e => (
+            {activeEmployees.map(e => (
               <tr key={e.id} className="border-t border-slate-100">
                 <td className="px-3 py-2 font-medium whitespace-nowrap">{e.name}</td>
                 <td className="px-3 py-2 text-xs text-slate-500">
@@ -1136,7 +1139,7 @@ function EmployeesTab({ employees, onToggleActive, onUpdateMax, onUpdateRoles, o
                 </td>
               </tr>
             ))}
-            {employees.length === 0 && (
+            {activeEmployees.length === 0 && (
               <tr><td colSpan={5} className="px-3 py-6 text-center text-slate-400">Zatím žádný zaměstnanec. Přidejte ho v ERP → Pracovníci (typ „Výroba“).</td></tr>
             )}
           </tbody>
