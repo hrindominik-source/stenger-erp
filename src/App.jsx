@@ -364,6 +364,12 @@ function pickEmailsByKeyword(emaily, keywords) {
   const matched = (emaily || []).filter((e) => keywords.some((k) => (e.label || "").toLowerCase().includes(k)));
   return matched.map((e) => e.email).join(", ");
 }
+// Predvoleny dopravca v objednavke dopravy - Dorys, ak existuje, inak prvy v zozname.
+function defaultCarrierId(carriers) {
+  const dorys = (carriers || []).find((c) => (c.nazov || "").toLowerCase().includes("dorys"));
+  if (dorys) return dorys.id;
+  return carriers && carriers[0] ? carriers[0].id : "";
+}
 function subtractBusinessDays(date, days) {
   const d = new Date(date);
   let remaining = days;
@@ -3408,7 +3414,7 @@ function EmailQuickPicks({ emaily, value, onPick }) {
 
 function TransportModal({ order, carriers, company, onClose, onSent, onUpdateCarrierEmails }) {
   const last = order.dopravaOdoslanaInfo;
-  const [carrierId, setCarrierId] = useState(order.dopravcaId || (carriers[0] ? carriers[0].id : ""));
+  const [carrierId, setCarrierId] = useState(order.dopravcaId || defaultCarrierId(carriers));
   const carrier = carriers.find((c) => c.id === carrierId);
   const [to, setTo] = useState(last ? last.to : defaultEmailFor(carrier));
   const [manageEmails, setManageEmails] = useState(false);
@@ -5958,7 +5964,7 @@ function MaterialOrderFormModal({ order, suppliers, company, onClose, onSave }) 
 
 function MaterialTransportModal({ order, carriers, suppliers, company, currentUserName, onClose, onSent, onUpdateCarrierEmails }) {
   const last = order.dopravaOdoslanaInfo;
-  const [carrierId, setCarrierId] = useState(order.dopravcaId || (carriers[0] ? carriers[0].id : ""));
+  const [carrierId, setCarrierId] = useState(order.dopravcaId || defaultCarrierId(carriers));
   const carrier = carriers.find((c) => c.id === carrierId);
   const supplier = (suppliers || []).find((s) => s.id === order.dodavatelId);
   const materialTypStr = materialTypText(supplier ? supplier.typ : null, MATERIAL_ORDER_EMAIL_I18N.sk);
