@@ -85,6 +85,11 @@ describe("extractCityFromAddress", () => {
   it("funguje aj s viacriadkovou adresou", () => {
     expect(extractCityFromAddress("Hlavna 1\n811 01 Bratislava\nSlovensko")).toBe("BRATISLAVA");
   });
+
+  it("preskoci samostatny riadok s nazvom krajiny na konci adresy", () => {
+    expect(extractCityFromAddress("Mesonweg 2\n3542AL UTRECHT\nNIEDERLANDE")).toBe("UTRECHT");
+    expect(extractCityFromAddress("Edekastraße 1\n76437 Rastatt\nDEUTSCHLAND")).toBe("RASTATT");
+  });
 });
 
 describe("computeNextDue", () => {

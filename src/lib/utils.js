@@ -81,17 +81,24 @@ export function daysUntil(dateStr) {
   return Math.round((d.getTime() - today.getTime()) / 86400000);
 }
 
+// Riadok, ktory je len samostatny nazov krajiny (bez cisiel) - ak je posledny
+// v adrese, treba ho preskocit, lebo hladame mesto, nie krajinu.
+const COUNTRY_ONLY_LINE = /^(niederlande|deutschland|frankreich|österreich|polska|schweiz|belgie|belgium|nederland|france|germany|austria|poland|switzerland|italia|italien|tschechische republik|slowakei|nemecko|francuzsko|rakusko|polsko|svajciarsko|belgicko)$/i;
+
 export function extractCityFromAddress(adresa) {
   if (!adresa) return "";
-  const text = String(adresa);
+  let segments = String(adresa).split(/[\n,]/).map((l) => l.trim()).filter(Boolean);
+  while (segments.length > 1 && COUNTRY_ONLY_LINE.test(segments[segments.length - 1])) {
+    segments = segments.slice(0, -1);
+  }
+  const text = segments.join("\n");
   const postalMatch = text.match(/(\d[\d\s]{2,6}\d)\s+([A-Za-zÀ-ÿ][A-Za-zÀ-ÿ\s\-.']*)/);
   if (postalMatch) {
     const city = postalMatch[2].split(/[,\n]/)[0].trim();
     if (city) return city.toUpperCase();
   }
-  const segments = text.split(/[\n,]/).map((l) => l.trim()).filter(Boolean);
   if (segments.length === 0) return "";
   const last = segments[segments.length - 1];
-  const cleaned = last.replace(/^[A-Z]{0,3}-?\s*\d{3,6}\s*/i, "").trim();
+  const cleaned = last.replace(/^[A-Z]{0,3}-?\s*\d{3,6}\s*[A-Za-z]{0,3}\s*/i, "").trim();
   return (cleaned || last).toUpperCase();
 }
