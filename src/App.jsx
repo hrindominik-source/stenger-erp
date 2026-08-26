@@ -351,6 +351,13 @@ function isGermanDelivery(order) {
   const text = `${order.adresaDodania || ""} ${order.adresaDodaniaNazov || ""}`;
   return /německo|nemecko|germany|deutschland|\bD-\s?\d{5}\b/i.test(text);
 }
+// Vyberie z ucelovych emailov (napr. zakaznika) tie, ktorych "ucel" (label)
+// obsahuje niektore z klucovych slov (napr. "leh"/"cc" pre Nemecko, "export"
+// pre zvysok) - pouziva sa na predvyplnenie "Komu" podla krajiny dodania.
+function pickEmailsByKeyword(emaily, keywords) {
+  const matched = (emaily || []).filter((e) => keywords.some((k) => (e.label || "").toLowerCase().includes(k)));
+  return matched.map((e) => e.email).join(", ");
+}
 function subtractBusinessDays(date, days) {
   const d = new Date(date);
   let remaining = days;
@@ -3689,7 +3696,9 @@ function DeliveryModal({ order, customers, carriers, company, pricelist, product
   const customer = customers.find((c) => c.id === order.zakaznikId);
   const carrier = carriers.find((c) => c.id === order.dopravcaId);
   const printId = "print-lieferschein-" + order.id;
-  const defaultEmail = (customer && customer.email) ? customer.email : (order.zakaznikEmail || "");
+  const jeNemecko = isGermanDelivery(order);
+  const keywordMatched = pickEmailsByKeyword(customer && customer.emaily, jeNemecko ? ["leh", "cc"] : ["export"]);
+  const defaultEmail = keywordMatched || defaultEmailFor(customer) || (customer && customer.email) || order.zakaznikEmail || "";
   const [email, setEmail] = useState(last ? last.to : defaultEmail);
   const mesto = extractCityFromAddress(order.adresaDodania) || order.adresaDodaniaNazov || "";
   const [subject, setSubject] = useState(last ? last.subject : `Lieferschein / Dodací list č. ${order.cisloDodaciehoListu}${mesto ? " - " + mesto : ""}`);
@@ -3720,7 +3729,7 @@ function DeliveryModal({ order, customers, carriers, company, pricelist, product
       <LieferscheinPrintTable id={printId} company={company} customer={customer} order={order} carrierName={carrier ? carrier.nazov : ""} transportPrice={transportPrice} products={products} />
       {last && <div className="mb-3 bg-emerald-50 text-emerald-800 text-xs px-3 py-2 rounded-md flex items-center gap-2"><CheckCircle2 size={14} /> Naposledy odesláno {formatDateTime(last.datum)} na {last.to}</div>}
       <p className="text-xs text-slate-400 mb-3">Náhled nahoře odpovídá přesnému formátu vašeho Lieferscheinu - klikněte na "Stáhnout Excel" (přesná kopie vaší šablony) a stažený soubor ručně přiložte v Outlooku k e-mailu, který se otevře tlačítkem "Odeslat" (mailto odkaz nepodporuje automatickou přílohu).</p>
-      <EmailQuickPicks emaily={customer ? customer.emaily : []} value={email} onPick={setEmail} />
+      <EmailQuickPicks emaily={generalPlusPurposeEmails(customer)} value={email} onPick={setEmail} />
       <Field label="E-mail (kolegové v Německu)" value={email} onChange={setEmail} type="email" />
       <Field label="Předmět" value={subject} onChange={setSubject} />
       <Field label="Text zprávy (e-mail)" value={body} onChange={setBody} textarea />
