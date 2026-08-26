@@ -15,6 +15,7 @@ const SkladView = lazy(() => import("./SkladView.jsx"));
 const VyrobaView = lazy(() => import("./VyrobaView.jsx"));
 const PlanSmienView = lazy(() => import("./PlanSmienView.jsx"));
 const KvalitaView = lazy(() => import("./KvalitaView.jsx"));
+const UctovnictviView = lazy(() => import("./UctovnictviView.jsx"));
 import { extractCityFromAddress, todayStr, uid, parseSkDate, isoFromSkDateStr, skDateStrFromIso, durationMinutes, formatMinutes } from "./lib/utils.js";
 import { parsePricelistFile, computeTransportPrice, computeTransportPriceForCity, formatEur } from "./lib/pricelist.js";
 import { buildLieferscheinXlsx } from "./lib/lieferscheinXlsx.js";
@@ -515,6 +516,15 @@ const APP_LAUNCHER_CARDS = [
     shadow: "shadow-violet-500/40",
     ring: "hover:border-violet-300",
   },
+  {
+    key: "uctovnictvi",
+    label: "Účetnictví",
+    desc: "Připravujeme",
+    icon: <Calculator size={30} />,
+    badge: "from-sky-400 to-sky-600",
+    shadow: "shadow-sky-500/40",
+    ring: "hover:border-sky-300",
+  },
 ];
 
 function AppLauncher({ onChoose }) {
@@ -613,6 +623,24 @@ export default function MiniERP() {
     return (
       <Suspense fallback={lazyFallback}>
         <KvalitaView fullName={profile.full_name} onSignOut={signOut} onBack={switchApp} />
+      </Suspense>
+    );
+  }
+  if (appChoice === "uctovnictvi") {
+    if (profile?.role !== "office") {
+      return (
+        <div className="min-h-screen flex flex-col items-center justify-center gap-3 px-4 text-center text-slate-600">
+          <AlertCircle size={24} className="text-red-500" />
+          <p className="max-w-sm text-sm">Nemáte oprávnění zobrazit tuto sekci.</p>
+          <button onClick={switchApp} className="flex items-center gap-1.5 text-sm text-teal-700 hover:text-teal-900">
+            <ArrowLeft size={14} /> Zpět na výběr appky
+          </button>
+        </div>
+      );
+    }
+    return (
+      <Suspense fallback={lazyFallback}>
+        <UctovnictviView fullName={profile.full_name} onSignOut={signOut} onBack={switchApp} />
       </Suspense>
     );
   }
