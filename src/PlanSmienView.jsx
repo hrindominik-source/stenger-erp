@@ -9,13 +9,17 @@ import { supabase } from './supabaseClient.js';
    preberá sa z ERP (Pracovnici, typ "Vyroba") cez syncEmployeesWithOffice
    nizsie. Tu sa uklada len co k danej osobe patri specificky pre planovanie zmien
    (roly, max. zmien/tyzden, PIN, docasne vyradenie z rozpisu). */
+// Zamestnanec ve vyrobe (Zaměstnanci v Stenger ONE) je jediny zdroj pravdy o tom,
+// kdo aktualne existuje - kdyz ho office prida (nebo znovu prida po drivejsim
+// odebrani), musi byt v planovaci appce vzdy aktivni, ne jen pri prvnim vytvoreni
+// zaznamu. Role (hrncova/pozice3/ostatni) se pri opetovnem vyskytu neresetuji.
 function syncEmployeesWithOffice(existing, officeWorkers) {
   const officeIds = new Set(officeWorkers.map(w => w.id));
   const byId = new Map(existing.map(e => [e.id, e]));
   officeWorkers.forEach(w => {
     const cur = byId.get(w.id);
     if (cur) {
-      byId.set(w.id, { ...cur, name: w.meno });
+      byId.set(w.id, { ...cur, name: w.meno, active: true });
     } else {
       byId.set(w.id, { id: w.id, name: w.meno, roles: ['general'], weeklyMax: 4, active: true });
     }
