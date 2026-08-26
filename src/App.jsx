@@ -3749,7 +3749,7 @@ function DeliveryModal({ order, customers, carriers, company, pricelist, product
   const printId = "print-lieferschein-" + order.id;
   const jeNemecko = isGermanDelivery(order);
   const keywordMatched = pickEmailsByKeyword(customer && customer.emaily, jeNemecko ? ["leh", "cc"] : ["export"]);
-  const defaultEmail = keywordMatched || defaultEmailFor(customer) || (customer && customer.email) || order.zakaznikEmail || "";
+  const defaultEmail = keywordMatched || defaultEmailFor(customer) || order.zakaznikEmail || "";
   const [email, setEmail] = useState(last ? last.to : defaultEmail);
   const mesto = extractCityFromAddress(order.adresaDodania) || order.adresaDodaniaNazov || "";
   const [subject, setSubject] = useState(last ? last.subject : `Lieferschein / Dodací list č. ${order.cisloDodaciehoListu}${mesto ? " - " + mesto : ""}`);
