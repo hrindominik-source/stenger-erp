@@ -1771,6 +1771,7 @@ function OfficeApp({ userFullName, userEmail, onSignOut }) {
             customers={customers}
             products={products}
             company={company}
+            orders={orders}
           />
         )}
         {view === "register" && editingOrder && (
@@ -3024,7 +3025,7 @@ function PageShell({ title, onBack, children }) {
   );
 }
 
-function NewOrderPage({ onClose, onSave, defaultAdresaNakladky, customers, products, company }) {
+function NewOrderPage({ onClose, onSave, defaultAdresaNakladky, customers, products, company, orders }) {
   const [mode, setMode] = useState("text");
   const [text, setText] = useState("");
   const [file, setFile] = useState(null);
@@ -3130,8 +3131,16 @@ function NewOrderPage({ onClose, onSave, defaultAdresaNakladky, customers, produ
 
   if (extracted) {
     const customer = customers.find((c) => c.id === extracted.zakaznikId);
+    const cislo = (extracted.cisloObjednavkyZakaznika || "").trim();
+    const duplicateOrder = cislo ? (orders || []).find((o) => (o.cisloObjednavkyZakaznika || "").trim() === cislo) : null;
     return (
       <PageShell title="Zkontrolujte údaje před uložením" onBack={() => setExtracted(null)}>
+        {duplicateOrder && (
+          <div className="mb-4 bg-amber-50 text-amber-800 text-sm px-3 py-2 rounded-md flex items-center gap-2">
+            <AlertCircle size={16} />
+            Objednávka s číslem "{cislo}" už v registru existuje ({duplicateOrder.cisloDodaciehoListu || duplicateOrder.id}, zákazník {duplicateOrder.zakaznik || "?"}) - zkontrolujte, zda nejde o duplicitu, než ji uložíte znovu.
+          </div>
+        )}
         <div className="flex flex-col lg:flex-row gap-6">
         <div className="lg:w-1/2">
         <SelectField
