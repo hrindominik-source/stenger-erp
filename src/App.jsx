@@ -5772,7 +5772,7 @@ function MaterialOrdersView({ materialOrders, suppliers, carriers, onNew, onEdit
               {materialOrders.map((o) => {
                 const carrierMissing = carriers.length === 0;
                 const supplier = suppliers.find((s) => s.id === o.dodavatelId);
-                const supplierEmailMissing = !supplier || !supplier.email;
+                const supplierEmailMissing = !supplier || !(supplier.email || defaultEmailFor(supplier));
                 return (
                   <tr key={o.id} onClick={() => onEdit(o)} className="border-t-2 border-slate-300 hover:brightness-95 cursor-pointer">
                     <td className="px-3 py-2 font-medium whitespace-nowrap">{o.cisloObjednavkyDopravy}</td>
