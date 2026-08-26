@@ -346,10 +346,16 @@ function ddmmFromSkDateStr(str) {
   return `${String(d.getDate()).padStart(2, "0")}${String(d.getMonth() + 1).padStart(2, "0")}`;
 }
 // Rozpozna, ci je miesto dodania v Nemecku (podla textu adresy/nazvu miesta dodania) -
-// pouziva sa na vyber spravneho zoznamu NVE emailov (Nemecko vs. export mimo Nemecka).
+// pouziva sa na vyber spravneho zoznamu NVE/dodaci-list emailov (Nemecko vs. export).
+// Nemecke adresy v tychto dokumentoch casto krajinu vobec neuvadzaju (napr. len
+// "76437 Rastatt"), zatial co zahranicne adresy krajinu takmer vzdy explicitne
+// pisu (napr. "FRANKREICH") - preto je predvolena hodnota Nemecko a na export sa
+// prepne len ak adresa vyslovne spomina inu krajinu.
 function isGermanDelivery(order) {
   const text = `${order.adresaDodania || ""} ${order.adresaDodaniaNazov || ""}`;
-  return /německo|nemecko|germany|deutschland|\bD-\s?\d{5}\b/i.test(text);
+  const foreignCountry = /frankreich|france|francúzsko|francie|österreich|rakousko|polska|polsko|italia|itálie|nederland|holandsko|belgie|belgium|schweiz|švýcarsko|\bCH-\d{4}\b|\bA-\d{4}\b|\bF-\d{5}\b|\bPL-\d{2}-?\d{3}\b|\bNL-\d{4}\b|\bB-\d{4}\b/i.test(text);
+  if (foreignCountry) return false;
+  return true;
 }
 // Vyberie z ucelovych emailov (napr. zakaznika) tie, ktorych "ucel" (label)
 // obsahuje niektore z klucovych slov (napr. "leh"/"cc" pre Nemecko, "export"
