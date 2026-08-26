@@ -58,12 +58,24 @@ export async function buildLieferscheinXlsx({ order, company, customer, carrierN
   const wb = new ExcelJS.Workbook();
   const ws = wb.addWorksheet("List1");
 
-  ws.getColumn(1).width = 9.4;
-  ws.getColumn(2).width = 7.4;
-  ws.getColumn(3).width = 10.1;
+  // presne rovnake sirky stlpcov a nastavenie tlace ako v realnej sablone
+  // zakaznika (GERWISCH.xlsx), aby sa tlac/format A4 zhodovali
+  ws.getColumn(1).width = 9.42578125;
+  ws.getColumn(2).width = 7.42578125;
+  ws.getColumn(3).width = 10.140625;
   ws.getColumn(5).width = 8;
-  ws.getColumn(6).width = 10.6;
-  ws.getColumn(7).width = 12.6;
+  ws.getColumn(6).width = 10.5703125;
+  ws.getColumn(7).width = 12.5703125;
+  ws.pageSetup = { paperSize: 9, orientation: "portrait", fitToPage: true, fitToWidth: 1, fitToHeight: 1, scale: 100, margins: { left: 0.7, right: 0.7, top: 0.787401575, bottom: 0.787401575, header: 0.3, footer: 0.3 } };
+  ws.getRow(2).height = 24;
+  ws.getRow(5).height = 15.75;
+  ws.getRow(6).height = 15.75;
+  ws.getRow(7).height = 16.5;
+  ws.getRow(8).height = 15.75;
+  ws.getRow(9).height = 15.75;
+  ws.getRow(10).height = 15.75;
+  ws.getRow(11).height = 16.5;
+  ws.getRow(13).height = 15;
 
   function set(a, value, opts = {}) {
     const cell = ws.getCell(a);
@@ -101,6 +113,7 @@ export async function buildLieferscheinXlsx({ order, company, customer, carrierN
   merge("H2", "I2");
 
   set("D3", "Lieferadresse/adresa dodání", { size: 10 });
+  ws.getCell("D3").font = { name: "Arial", size: 10, color: { argb: "FF222222" } };
   merge("D3", "F3");
   set("D4", order.adresaDodaniaNazov, { bold: true, size: 10 });
   const dodaciaAdresa = addressLines(order.adresaDodania, 2);
@@ -139,6 +152,7 @@ export async function buildLieferscheinXlsx({ order, company, customer, carrierN
   merge("C15", "F15");
   set("G15", "STK", { bold: true });
   set("H15", "AKRTIKEL LIEF.NUM.", { bold: true });
+  ws.getRow(15).height = 13.5;
   borderRect(col("A"), 15, col("I"), 15, { top: true, bottom: true });
   [col("A"), col("B"), col("F"), col("G"), col("H")].forEach((c) => {
     ws.getCell(15, c).border = { ...ws.getCell(15, c).border, right: THIN };
@@ -156,6 +170,7 @@ export async function buildLieferscheinXlsx({ order, company, customer, carrierN
   items.forEach((it, i) => {
     const r0 = ITEMS_START_ROW + i * 4;
     const r3 = r0 + 3;
+    for (let r = r0; r <= r3; r++) ws.getRow(r).height = 13.5;
     set(`A${r0}`, it.paletEffective, { bold: true });
     merge(`A${r0}`, `A${r3}`);
     set(`B${r0}`, it.karton, { bold: true });
@@ -181,6 +196,7 @@ export async function buildLieferscheinXlsx({ order, company, customer, carrierN
   borderRect(col("A"), 2, col("I"), lastRow, { left: true, right: true });
 
   const summaryRow = lastRow + 2;
+  ws.getRow(summaryRow).height = 15.75;
   const sumPaliet = items.reduce((s, it) => s + (parseFloat(it.paletEffective) || 0), 0);
   const totalPaliet = sumPaliet > 0 ? sumPaliet : (order.pocetPaliet || 0);
   set(`A${summaryRow}`, order.pocetPaletovychMiest || 0, { bold: true, size: 12 });
