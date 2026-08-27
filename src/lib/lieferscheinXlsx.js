@@ -9,6 +9,7 @@
 const MAX_ITEMS = 6;
 const ITEMS_START_ROW = 16;
 const THIN = { style: "thin" };
+const MEDIUM = { style: "medium", color: { argb: "FF000000" } };
 
 function col(letter) {
   return letter.charCodeAt(0) - 64;
@@ -60,22 +61,24 @@ export async function buildLieferscheinXlsx({ order, company, customer, carrierN
 
   // presne rovnake sirky stlpcov a nastavenie tlace ako v realnej sablone
   // zakaznika (GERWISCH.xlsx), aby sa tlac/format A4 zhodovali
-  ws.getColumn(1).width = 9.42578125;
-  ws.getColumn(2).width = 7.42578125;
-  ws.getColumn(3).width = 10.140625;
+  ws.getColumn(1).width = 9.453125;
+  ws.getColumn(2).width = 7.453125;
+  ws.getColumn(3).width = 10.1796875;
   ws.getColumn(5).width = 8;
-  ws.getColumn(6).width = 10.5703125;
-  ws.getColumn(7).width = 12.5703125;
+  ws.getColumn(6).width = 10.54296875;
+  ws.getColumn(7).width = 12.54296875;
   ws.pageSetup = { paperSize: 9, orientation: "portrait", fitToPage: true, fitToWidth: 1, fitToHeight: 1, scale: 100, margins: { left: 0.7, right: 0.7, top: 0.787401575, bottom: 0.787401575, header: 0.3, footer: 0.3 } };
+  ws.getRow(1).height = 15;
   ws.getRow(2).height = 24;
-  ws.getRow(5).height = 15.75;
-  ws.getRow(6).height = 15.75;
-  ws.getRow(7).height = 16.5;
-  ws.getRow(8).height = 15.75;
-  ws.getRow(9).height = 15.75;
-  ws.getRow(10).height = 15.75;
-  ws.getRow(11).height = 16.5;
-  ws.getRow(13).height = 15;
+  ws.getRow(4).height = 26;
+  ws.getRow(5).height = 16;
+  ws.getRow(6).height = 16;
+  ws.getRow(7).height = 16;
+  ws.getRow(8).height = 32;
+  ws.getRow(9).height = 10;
+  ws.getRow(10).height = 16;
+  ws.getRow(11).height = 16;
+  ws.getRow(13).height = 17;
 
   function set(a, value, opts = {}) {
     const cell = ws.getCell(a);
@@ -87,16 +90,16 @@ export async function buildLieferscheinXlsx({ order, company, customer, carrierN
   function merge(a1, a2) {
     ws.mergeCells(`${a1}:${a2}`);
   }
-  // pridá thin border na dany okraj vsetkych buniek v obdlzniku a1:a2 (top/bottom/left/right)
-  function borderRect(colFrom, rowFrom, colTo, rowTo, sides) {
+  // pridá border (default thin, volitelne medium) na dany okraj vsetkych buniek v obdlzniku a1:a2
+  function borderRect(colFrom, rowFrom, colTo, rowTo, sides, style = THIN) {
     for (let r = rowFrom; r <= rowTo; r++) {
       for (let c = colFrom; c <= colTo; c++) {
         const cell = ws.getCell(r, c);
         const b = { ...(cell.border || {}) };
-        if (sides.top && r === rowFrom) b.top = THIN;
-        if (sides.bottom && r === rowTo) b.bottom = THIN;
-        if (sides.left && c === colFrom) b.left = THIN;
-        if (sides.right && c === colTo) b.right = THIN;
+        if (sides.top && r === rowFrom) b.top = style;
+        if (sides.bottom && r === rowTo) b.bottom = style;
+        if (sides.left && c === colFrom) b.left = style;
+        if (sides.right && c === colTo) b.right = style;
         cell.border = b;
       }
     }
@@ -115,7 +118,8 @@ export async function buildLieferscheinXlsx({ order, company, customer, carrierN
   set("D3", "Lieferadresse/adresa dodání", { size: 10 });
   ws.getCell("D3").font = { name: "Arial", size: 10, color: { argb: "FF222222" } };
   merge("D3", "F3");
-  set("D4", order.adresaDodaniaNazov, { bold: true, size: 10 });
+  set("D4", order.adresaDodaniaNazov, { bold: true, size: 10, align: { vertical: "middle", wrapText: true } });
+  merge("D4", "F4");
   const dodaciaAdresa = addressLines(order.adresaDodania, 2);
   set("D5", dodaciaAdresa[0], { bold: true, size: 10 });
   set("D6", dodaciaAdresa[1], { bold: true, size: 10 });
@@ -125,17 +129,34 @@ export async function buildLieferscheinXlsx({ order, company, customer, carrierN
   set("A7", company.nazov, { bold: true, size: 12 });
   set("G7", customer ? customer.nazov : (order.zakaznik || ""), { bold: true });
   const dodavatelAdresa = addressLines(company.adresa, 2);
-  set("A8", dodavatelAdresa[0], { size: 12 });
-  set("A9", dodavatelAdresa[1], { size: 12 });
+  set("A8", dodavatelAdresa.join("\n"), { size: 11, align: { vertical: "top", wrapText: true } });
+  merge("A8", "C8");
+  merge("A9", "C9");
   const odberatelAdresa = addressLines(customer ? customer.adresa : "", 2);
-  set("G8", odberatelAdresa[0]);
-  set("G9", odberatelAdresa[1]);
+  set("G8", odberatelAdresa.join("\n"), { size: 9, align: { vertical: "middle", wrapText: true } });
+  merge("G8", "I8");
+  merge("G9", "I9");
   set("A10", "IČO:" + (company.ico || ""), { size: 12 });
   merge("A10", "B10");
   set("G10", customer && customer.dic ? "Ust.-Id Nr." + customer.dic : "");
   set("A11", "DIČ:" + (company.dic || ""), { size: 12 });
   merge("A11", "B11");
-  borderRect(col("A"), 6, col("I"), 11, { bottom: true }); // zavrie LIEFERANT/ABNEHMER blok
+
+  // medium ramik okolo celej hlavicky (adresa dodania + LIEFERANT/ABNEHMER blok), presne
+  // podla realneho, rucne opraveneho vzoru - volanie je nizsie, AZ PO celodokumentovom
+  // tenkom ramiku, inak by ho ten tenky prepisal
+  function applyHeaderFrame() {
+    borderRect(col("A"), 2, col("I"), 2, { top: true }, MEDIUM);
+    borderRect(col("A"), 11, col("I"), 11, { bottom: true }, MEDIUM);
+    borderRect(col("A"), 2, col("A"), 2, { left: true }, MEDIUM);
+    borderRect(col("I"), 2, col("I"), 2, { right: true }, MEDIUM);
+    borderRect(col("A"), 6, col("A"), 11, { left: true }, MEDIUM);
+    borderRect(col("I"), 6, col("I"), 11, { right: true }, MEDIUM);
+    borderRect(col("C"), 2, col("C"), 2, { right: true }, MEDIUM);
+    borderRect(col("D"), 3, col("D"), 11, { left: true }, MEDIUM);
+    borderRect(col("F"), 3, col("F"), 11, { right: true }, MEDIUM);
+    borderRect(col("G"), 2, col("I"), 2, { top: true, bottom: true, left: true, right: true }, MEDIUM);
+  }
 
   set("A13", "Lieferungstag:", { bold: true });
   merge("A13", "B13");
@@ -152,7 +173,7 @@ export async function buildLieferscheinXlsx({ order, company, customer, carrierN
   merge("C15", "F15");
   set("G15", "STK", { bold: true });
   set("H15", "AKRTIKEL LIEF.NUM.", { bold: true });
-  ws.getRow(15).height = 13.5;
+  ws.getRow(15).height = 15;
   borderRect(col("A"), 15, col("I"), 15, { top: true, bottom: true });
   [col("A"), col("B"), col("F"), col("G"), col("H")].forEach((c) => {
     ws.getCell(15, c).border = { ...ws.getCell(15, c).border, right: THIN };
@@ -170,13 +191,20 @@ export async function buildLieferscheinXlsx({ order, company, customer, carrierN
   items.forEach((it, i) => {
     const r0 = ITEMS_START_ROW + i * 4;
     const r3 = r0 + 3;
-    for (let r = r0; r <= r3; r++) ws.getRow(r).height = 13.5;
+    ws.getRow(r0).height = 30;
+    ws.getRow(r0 + 1).height = 12;
+    ws.getRow(r0 + 2).height = 12;
+    ws.getRow(r0 + 3).height = 15;
     set(`A${r0}`, it.paletEffective, { bold: true });
     merge(`A${r0}`, `A${r3}`);
     set(`B${r0}`, it.karton, { bold: true });
     merge(`B${r0}`, `B${r3}`);
-    set(`C${r0}`, it.popis, { bold: true });
-    if (it.produkt && it.produkt.inhlt) set(`C${r0 + 1}`, it.produkt.inhlt);
+    set(`C${r0}`, it.popis, { bold: true, size: 9, align: { vertical: "middle", wrapText: true } });
+    merge(`C${r0}`, `F${r0}`);
+    if (it.produkt && it.produkt.inhlt) {
+      set(`C${r0 + 1}`, it.produkt.inhlt, { size: 9, align: { vertical: "middle", wrapText: true } });
+      merge(`C${r0 + 1}`, `F${r0 + 1}`);
+    }
     const eanLine = it.produkt ? [it.produkt.eanKarton && `EAN karton: ${it.produkt.eanKarton}`, it.produkt.eanUnit && `EAN kus: ${it.produkt.eanUnit}`].filter(Boolean).join("   ") : "";
     if (eanLine) set(`C${r0 + 2}`, eanLine, { size: 9 });
     if (it.produkt && it.produkt.rspo) set(`C${r0 + 3}`, "BVC-RSPO-CZ009581, PALMÖL MB");
@@ -194,9 +222,11 @@ export async function buildLieferscheinXlsx({ order, company, customer, carrierN
   const lastRow = ITEMS_START_ROW + itemsUsed * 4 - 1;
   // vonkajsi ramik dokumentu (od hlavicky po posledny riadok pred suctom) - lavy/pravy okraj
   borderRect(col("A"), 2, col("I"), lastRow, { left: true, right: true });
+  // az teraz medium ramik hlavicky - musi prepisat vyssi tenky ramik na svojich riadkoch
+  applyHeaderFrame();
 
   const summaryRow = lastRow + 2;
-  ws.getRow(summaryRow).height = 15.75;
+  ws.getRow(summaryRow).height = 16;
   const sumPaliet = items.reduce((s, it) => s + (parseFloat(it.paletEffective) || 0), 0);
   const totalPaliet = sumPaliet > 0 ? sumPaliet : (order.pocetPaliet || 0);
   set(`A${summaryRow}`, order.pocetPaletovychMiest || 0, { bold: true, size: 12 });
