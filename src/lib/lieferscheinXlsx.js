@@ -15,6 +15,16 @@ function col(letter) {
   return letter.charCodeAt(0) - 64;
 }
 
+// Excelove "shrinkToFit" a "wrapText" su vzajomne nezlucitelne vlastnosti
+// jednej bunky (nemozno mat oboje naraz). Pre skutocne viacriadkove polia
+// (adresy, popis polozky) preto namiesto shrinkToFit zmensujeme font podla
+// dlzky textu, aby sa vosiel do pevnej vysky riadkov sablony bez orezania.
+function fitFontSize(text, baseSize, minSize, threshold) {
+  const len = String(text || "").length;
+  if (len <= threshold) return baseSize;
+  return Math.max(minSize, Math.round(baseSize * (threshold / len)));
+}
+
 function addressLines(text, max) {
   const lines = String(text || "").split("\n").map((l) => l.trim()).filter(Boolean);
   if (lines.length <= max) return lines;
@@ -118,7 +128,7 @@ export async function buildLieferscheinXlsx({ order, company, customer, carrierN
   set("D3", "Lieferadresse/adresa dodání", { size: 10 });
   ws.getCell("D3").font = { name: "Arial", size: 10, color: { argb: "FF222222" } };
   merge("D3", "F3");
-  set("D4", order.adresaDodaniaNazov, { bold: true, size: 10, align: { vertical: "middle", wrapText: true } });
+  set("D4", order.adresaDodaniaNazov, { bold: true, size: 10, align: { vertical: "middle", horizontal: "left", shrinkToFit: true } });
   merge("D4", "F4");
   const dodaciaAdresa = addressLines(order.adresaDodania, 2);
   set("D5", dodaciaAdresa[0], { bold: true, size: 10 });
@@ -126,14 +136,16 @@ export async function buildLieferscheinXlsx({ order, company, customer, carrierN
 
   set("A6", "LIEFERANT:", { size: 12 });
   set("G6", "ABNEHMER/ODBĚRATEL");
-  set("A7", company.nazov, { bold: true, size: 12 });
-  set("G7", customer ? customer.nazov : (order.zakaznik || ""), { bold: true });
+  set("A7", company.nazov, { bold: true, size: 12, align: { shrinkToFit: true } });
+  set("G7", customer ? customer.nazov : (order.zakaznik || ""), { bold: true, align: { shrinkToFit: true } });
   const dodavatelAdresa = addressLines(company.adresa, 2);
-  set("A8", dodavatelAdresa.join("\n"), { size: 11, align: { vertical: "top", wrapText: true } });
+  const dodavatelAdresaText = dodavatelAdresa.join("\n");
+  set("A8", dodavatelAdresaText, { size: fitFontSize(dodavatelAdresaText, 11, 8, 70), align: { vertical: "top", wrapText: true } });
   merge("A8", "C8");
   merge("A9", "C9");
   const odberatelAdresa = addressLines(customer ? customer.adresa : "", 2);
-  set("G8", odberatelAdresa.join("\n"), { size: 9, align: { vertical: "middle", wrapText: true } });
+  const odberatelAdresaText = odberatelAdresa.join("\n");
+  set("G8", odberatelAdresaText, { size: fitFontSize(odberatelAdresaText, 9, 7, 70), align: { vertical: "middle", wrapText: true } });
   merge("G8", "I8");
   merge("G9", "I9");
   set("A10", "IČO:" + (company.ico || ""), { size: 12 });
@@ -199,10 +211,10 @@ export async function buildLieferscheinXlsx({ order, company, customer, carrierN
     merge(`A${r0}`, `A${r3}`);
     set(`B${r0}`, it.karton, { bold: true });
     merge(`B${r0}`, `B${r3}`);
-    set(`C${r0}`, it.popis, { bold: true, size: 9, align: { vertical: "middle", wrapText: true } });
+    set(`C${r0}`, it.popis, { bold: true, size: fitFontSize(it.popis, 9, 7, 45), align: { vertical: "middle", wrapText: true } });
     merge(`C${r0}`, `F${r0}`);
     if (it.produkt && it.produkt.inhlt) {
-      set(`C${r0 + 1}`, it.produkt.inhlt, { size: 9, align: { vertical: "middle", wrapText: true } });
+      set(`C${r0 + 1}`, it.produkt.inhlt, { size: fitFontSize(it.produkt.inhlt, 9, 7, 45), align: { vertical: "middle", wrapText: true } });
       merge(`C${r0 + 1}`, `F${r0 + 1}`);
     }
     const eanLine = it.produkt ? [it.produkt.eanKarton && `EAN karton: ${it.produkt.eanKarton}`, it.produkt.eanUnit && `EAN kus: ${it.produkt.eanUnit}`].filter(Boolean).join("   ") : "";
