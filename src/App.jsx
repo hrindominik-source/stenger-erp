@@ -360,10 +360,15 @@ function isGermanDelivery(order) {
   return true;
 }
 // Vyberie z ucelovych emailov (napr. zakaznika) tie, ktorych "ucel" (label)
-// obsahuje niektore z klucovych slov (napr. "leh"/"cc" pre Nemecko, "export"
-// pre zvysok) - pouziva sa na predvyplnenie "Komu" podla krajiny dodania.
+// ALEBO samotna emailova adresa obsahuje niektore z klucovych slov (napr.
+// "leh"/"cc" pre Nemecko, "export" pre zvysok) - pouziva sa na predvyplnenie
+// "Komu" podla krajiny dodania. Hlada aj v adrese, lebo casto je klucove slovo
+// prirodzene sucastou samotneho emailu (napr. "leh-info@..."), nie popisu -
+// oba popisy mozu byt aj rovnake ("Zasielanie dodacieho listu pre Nemecko").
 function pickEmailsByKeyword(emaily, keywords) {
-  const matched = (emaily || []).filter((e) => keywords.some((k) => (e.label || "").toLowerCase().includes(k)));
+  const matched = (emaily || []).filter((e) =>
+    keywords.some((k) => (e.label || "").toLowerCase().includes(k) || (e.email || "").toLowerCase().includes(k))
+  );
   return matched.map((e) => e.email).join(", ");
 }
 // Predvoleny dopravca v objednavke dopravy - Dorys, ak existuje, inak prvy v zozname.
@@ -658,7 +663,21 @@ export default function MiniERP() {
       </Suspense>
     );
   }
-  return <OfficeApp userFullName={profile?.full_name || ""} userEmail={session?.user?.email || ""} onSignOut={signOut} />;
+  // Fail-closed: OfficeApp (plny pristup - zakaznici, ceny, mazanie, export) sa
+  // pusti len pri presne role "office", nie ako vychodzi fallback pre vsetko
+  // ostatne (null/prazdna rola, preklep, buduca nova rola).
+  if (profile?.role === "office") {
+    return <OfficeApp userFullName={profile?.full_name || ""} userEmail={session?.user?.email || ""} onSignOut={signOut} />;
+  }
+  return (
+    <div className="min-h-screen flex flex-col items-center justify-center gap-3 px-4 text-center text-slate-600">
+      <AlertCircle size={24} className="text-red-500" />
+      <p className="max-w-sm text-sm">Váš účet nemá přiřazenou platnou roli v systému. Kontaktujte administrátora.</p>
+      <button onClick={signOut} className="flex items-center gap-1.5 text-sm text-teal-700 hover:text-teal-900">
+        <LogOut size={14} /> Odhlásit
+      </button>
+    </div>
+  );
 }
 
 const CENOTVORBA_ALLOWED_EMAILS = ["dh@stenger.eu"];
@@ -749,9 +768,10 @@ function OfficeApp({ userFullName, userEmail, onSignOut }) {
   }, []);
 
   useEffect(() => {
+    let cancelled = false;
     (async () => {
       try {
-        const [ordersRes, carriersRes, customersRes, companyRes, pricelistRes, suppliersRes, materialOrdersRes, pricelistArchiveRes, goodsReceiptsRes, stockIssuesRes, productsRes, productionPlanRes, productionOutputsRes, prestavkyRes, pauzyRes, dochadzkaNastaveniaRes, workersRes, ulohyRes, expedicniaZaznamyRes, designsRes, swPricelistRes, swPricelistArchiveRes, navodyRes, reklamaceRes, ccpKontrolyRes, cennikJinychZakaznikuRes] = await Promise.all([
+        const fetchAllPromise = Promise.all([
           supabase.from("orders").select("*").order("created_at", { ascending: false }),
           supabase.from("carriers").select("*"),
           supabase.from("customers").select("*"),
@@ -779,22 +799,34 @@ function OfficeApp({ userFullName, userEmail, onSignOut }) {
           supabase.from("ccp_kontroly").select("*").order("created_at", { ascending: false }),
           supabase.from("cennik_jini_zakaznici").select("*"),
         ]);
+        // Timeout - ak niektory z 26 dopytov "zavesi" (nie hard error, len nekonecne
+        // cakanie), appka by inak zostala navzdy na "Nacitam..." bez akejkolvek
+        // spatnej vazby.
+        const timeoutPromise = new Promise((_, reject) => {
+          setTimeout(() => reject(new Error("Časový limit načítání dat vypršel.")), 30000);
+        });
+        const [ordersRes, carriersRes, customersRes, companyRes, pricelistRes, suppliersRes, materialOrdersRes, pricelistArchiveRes, goodsReceiptsRes, stockIssuesRes, productsRes, productionPlanRes, productionOutputsRes, prestavkyRes, pauzyRes, dochadzkaNastaveniaRes, workersRes, ulohyRes, expedicniaZaznamyRes, designsRes, swPricelistRes, swPricelistArchiveRes, navodyRes, reklamaceRes, ccpKontrolyRes, cennikJinychZakaznikuRes] = await Promise.race([fetchAllPromise, timeoutPromise]);
+        if (cancelled) return;
+        // Kazda tabulka sa nastavi nezavisle od ostatnych (rovnaky pristup ako uz
+        // malo 22 z 26 datasetov) - zlyhanie jednej (napr. kratky network blip) uz
+        // neblokuje zvysok appky, len sa oznaci ako neuplne nacitane data.
+        if (!ordersRes.error) setOrders((ordersRes.data || []).map((row) => ({ ...row.data, stavExpedicie: row.stav_expedicie })));
+        if (!carriersRes.error) setCarriers((carriersRes.data || []).map((row) => row.data));
+        if (!customersRes.error) setCustomers((customersRes.data || []).map((row) => row.data));
+        if (companyRes.data) {
+          setCompany((prev) => ({
+            ...prev,
+            ...companyRes.data.data,
+            posledneCisloDopravy: companyRes.data.posledne_cislo_dopravy,
+            posledneCisloDodaciehoListu: companyRes.data.posledne_cislo_dodacieho_listu,
+            posledneCisloObjednavky: companyRes.data.posledne_cislo_objednavky,
+            posledneCisloObjednavkyMaterial: companyRes.data.posledne_cislo_objednavky_material,
+          }));
+        }
         if (ordersRes.error || carriersRes.error || customersRes.error || companyRes.error) {
-          setLoadError("Nepodařilo se načíst uložená data.");
-        } else {
-          setOrders((ordersRes.data || []).map((row) => ({ ...row.data, stavExpedicie: row.stav_expedicie })));
-          setCarriers((carriersRes.data || []).map((row) => row.data));
-          setCustomers((customersRes.data || []).map((row) => row.data));
-          if (companyRes.data) {
-            setCompany((prev) => ({
-              ...prev,
-              ...companyRes.data.data,
-              posledneCisloDopravy: companyRes.data.posledne_cislo_dopravy,
-              posledneCisloDodaciehoListu: companyRes.data.posledne_cislo_dodacieho_listu,
-              posledneCisloObjednavky: companyRes.data.posledne_cislo_objednavky,
-              posledneCisloObjednavkyMaterial: companyRes.data.posledne_cislo_objednavky_material,
-            }));
-          }
+          setLoadError("Některá data se nepodařilo načíst, zkuste obnovit stránku.");
+        }
+        {
           if (pricelistRes.data && pricelistRes.data.data && pricelistRes.data.data.buckets) {
             setPricelist(pricelistRes.data.data);
           }
@@ -825,11 +857,15 @@ function OfficeApp({ userFullName, userEmail, onSignOut }) {
           if (!designsRes.error) setDesigns((designsRes.data || []).map((row) => row.data));
         }
       } catch (e) {
+        if (cancelled) return;
         console.error(e);
         setLoadError("Nepodařilo se načíst uložená data.");
       }
-      setReady(true);
+      if (!cancelled) setReady(true);
     })();
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   useEffect(() => {
@@ -911,6 +947,7 @@ function OfficeApp({ userFullName, userEmail, onSignOut }) {
     }
   }
   async function persistCompany(next) {
+    const prev = company;
     setCompany(next);
     const { posledneCisloDopravy, posledneCisloDodaciehoListu, posledneCisloObjednavky, ...rest } = next;
     try {
@@ -927,6 +964,7 @@ function OfficeApp({ userFullName, userEmail, onSignOut }) {
       setToast("Údaje o firmě byly uloženy.");
     } catch (e) {
       console.error(e);
+      setCompany(prev);
       setLoadError("Uložení se nezdařilo, zkuste to znovu.");
     }
   }
@@ -961,24 +999,28 @@ function OfficeApp({ userFullName, userEmail, onSignOut }) {
 
   async function persistPricelist(next) {
     if (!(await archiveCurrentPricelist())) return;
+    const prev = pricelist;
     setPricelist(next);
     try {
       const { error } = await supabase.from("pricelist").update({ data: next }).eq("id", 1);
       if (error) throw error;
     } catch (e) {
       console.error(e);
+      setPricelist(prev);
       setLoadError("Uložení ceníku se nezdařilo, zkuste to znovu.");
     }
   }
 
   async function deletePricelist() {
     if (!(await archiveCurrentPricelist())) return;
+    const prev = pricelist;
     setPricelist({});
     try {
       const { error } = await supabase.from("pricelist").update({ data: {} }).eq("id", 1);
       if (error) throw error;
     } catch (e) {
       console.error(e);
+      setPricelist(prev);
       setLoadError("Smazání ceníku se nezdařilo, zkuste to znovu.");
     }
   }
@@ -1015,12 +1057,14 @@ function OfficeApp({ userFullName, userEmail, onSignOut }) {
 
   async function persistSwPricelist(next) {
     if (!(await archiveCurrentSwPricelist())) return;
+    const prev = swPricelist;
     setSwPricelist(next);
     try {
       const { error } = await supabase.from("sw_pricelist").update({ data: next }).eq("id", 1);
       if (error) throw error;
     } catch (e) {
       console.error(e);
+      setSwPricelist(prev);
       setLoadError("Ulozeni ceniku SW GmbH se nezdarilo, zkuste to znovu.");
     }
   }
@@ -1048,18 +1092,21 @@ function OfficeApp({ userFullName, userEmail, onSignOut }) {
       if (error) throw error;
     } catch (e) {
       console.error(e);
+      setNavody((prev) => prev.filter((n) => n.id !== navod.id));
       setLoadError("Uložení návodu se nezdařilo, zkuste to znovu.");
     }
     return navod;
   }
 
   async function deleteNavod(id) {
-    setNavody((prev) => prev.filter((n) => n.id !== id));
+    const prev = navody;
+    setNavody((p) => p.filter((n) => n.id !== id));
     try {
       const { error } = await supabase.from("navody").delete().eq("id", id);
       if (error) throw error;
     } catch (e) {
       console.error(e);
+      setNavody(prev);
       setLoadError("Smazání návodu se nezdařilo, zkuste to znovu.");
     }
   }
@@ -1102,11 +1149,13 @@ function OfficeApp({ userFullName, userEmail, onSignOut }) {
       if (error) throw error;
     } catch (e) {
       console.error(e);
+      setReklamace((prev) => prev.map((r) => (r.id === id ? current : r)));
       setLoadError("Uložení reklamace se nezdařilo, zkuste to znovu.");
     }
   }
 
   async function deleteReklamace(id) {
+    const prevList = reklamace;
     const rec = reklamace.find((r) => r.id === id);
     setReklamace((prev) => prev.filter((r) => r.id !== id));
     try {
@@ -1115,6 +1164,7 @@ function OfficeApp({ userFullName, userEmail, onSignOut }) {
       if (rec && rec.issueId) await deleteStockIssue(rec.issueId);
     } catch (e) {
       console.error(e);
+      setReklamace(prevList);
       setLoadError("Smazání reklamace se nezdařilo, zkuste to znovu.");
     }
   }
@@ -1229,6 +1279,7 @@ function OfficeApp({ userFullName, userEmail, onSignOut }) {
       if (error) throw error;
     } catch (e) {
       console.error(e);
+      setMaterialOrders((prev) => prev.filter((o) => o.id !== order.id));
       setLoadError("Uložení objednávky se nezdařilo, zkuste to znovu.");
     }
     setShowNewMaterialOrder(false);
@@ -1244,17 +1295,20 @@ function OfficeApp({ userFullName, userEmail, onSignOut }) {
       if (error) throw error;
     } catch (e) {
       console.error(e);
+      setMaterialOrders((prev) => prev.map((o) => (o.id === id ? current : o)));
       setLoadError("Uložení se nezdařilo, zkuste to znovu.");
     }
   }
 
   async function deleteMaterialOrder(id) {
-    setMaterialOrders((prev) => prev.filter((o) => o.id !== id));
+    const prev = materialOrders;
+    setMaterialOrders((p) => p.filter((o) => o.id !== id));
     try {
       const { error } = await supabase.from("material_orders").delete().eq("id", id);
       if (error) throw error;
     } catch (e) {
       console.error(e);
+      setMaterialOrders(prev);
       setLoadError("Uložení se nezdařilo, zkuste to znovu.");
     }
   }
@@ -1267,6 +1321,7 @@ function OfficeApp({ userFullName, userEmail, onSignOut }) {
       if (error) throw error;
     } catch (e) {
       console.error(e);
+      setUlohy((prev) => prev.filter((u) => u.id !== uloha.id));
       setLoadError("Uložení úkolu se nezdařilo, zkuste to znovu.");
     }
   }
@@ -1281,17 +1336,20 @@ function OfficeApp({ userFullName, userEmail, onSignOut }) {
       if (error) throw error;
     } catch (e) {
       console.error(e);
+      setUlohy((prev) => prev.map((u) => (u.id === id ? current : u)));
       setLoadError("Uložení se nezdařilo, zkuste to znovu.");
     }
   }
 
   async function deleteUloha(id) {
-    setUlohy((prev) => prev.filter((u) => u.id !== id));
+    const prev = ulohy;
+    setUlohy((p) => p.filter((u) => u.id !== id));
     try {
       const { error } = await supabase.from("ulohy").delete().eq("id", id);
       if (error) throw error;
     } catch (e) {
       console.error(e);
+      setUlohy(prev);
       setLoadError("Uložení se nezdařilo, zkuste to znovu.");
     }
   }
@@ -1307,17 +1365,20 @@ function OfficeApp({ userFullName, userEmail, onSignOut }) {
       if (error) throw error;
     } catch (e) {
       console.error(e);
+      setExpedicniaZaznamy((prev) => prev.map((z) => (z.id === id ? current : z)));
       setLoadError("Uložení se nezdařilo, zkuste to znovu.");
     }
   }
 
   async function deleteExpedicniaZaznam(id) {
-    setExpedicniaZaznamy((prev) => prev.filter((z) => z.id !== id));
+    const prev = expedicniaZaznamy;
+    setExpedicniaZaznamy((p) => p.filter((z) => z.id !== id));
     try {
       const { error } = await supabase.from("expedicia_zaznamy").delete().eq("id", id);
       if (error) throw error;
     } catch (e) {
       console.error(e);
+      setExpedicniaZaznamy(prev);
       setLoadError("Uložení se nezdařilo, zkuste to znovu.");
     }
   }
@@ -1330,6 +1391,7 @@ function OfficeApp({ userFullName, userEmail, onSignOut }) {
       if (error) throw error;
     } catch (e) {
       console.error(e);
+      setDesigns((prev) => prev.filter((d) => d.id !== design.id));
       setLoadError("Uložení se nezdařilo, zkuste to znovu.");
     }
     return design;
@@ -1345,17 +1407,20 @@ function OfficeApp({ userFullName, userEmail, onSignOut }) {
       if (error) throw error;
     } catch (e) {
       console.error(e);
+      setDesigns((prev) => prev.map((d) => (d.id === id ? current : d)));
       setLoadError("Uložení se nezdařilo, zkuste to znovu.");
     }
   }
 
   async function deleteDesign(id) {
-    setDesigns((prev) => prev.filter((d) => d.id !== id));
+    const prev = designs;
+    setDesigns((p) => p.filter((d) => d.id !== id));
     try {
       const { error } = await supabase.from("designs").delete().eq("id", id);
       if (error) throw error;
     } catch (e) {
       console.error(e);
+      setDesigns(prev);
       setLoadError("Uložení se nezdařilo, zkuste to znovu.");
     }
   }
@@ -1368,6 +1433,7 @@ function OfficeApp({ userFullName, userEmail, onSignOut }) {
       if (error) throw error;
     } catch (e) {
       console.error(e);
+      setGoodsReceipts((prev) => prev.filter((r) => r.id !== receipt.id));
       setLoadError("Uložení se nezdařilo, zkuste to znovu.");
     }
     setShowNewGoodsReceipt(false);
@@ -1384,17 +1450,20 @@ function OfficeApp({ userFullName, userEmail, onSignOut }) {
       if (error) throw error;
     } catch (e) {
       console.error(e);
+      setGoodsReceipts((prev) => prev.map((r) => (r.id === id ? current : r)));
       setLoadError("Uložení se nezdařilo, zkuste to znovu.");
     }
   }
 
   async function deleteGoodsReceipt(id) {
-    setGoodsReceipts((prev) => prev.filter((r) => r.id !== id));
+    const prev = goodsReceipts;
+    setGoodsReceipts((p) => p.filter((r) => r.id !== id));
     try {
       const { error } = await supabase.from("goods_receipts").delete().eq("id", id);
       if (error) throw error;
     } catch (e) {
       console.error(e);
+      setGoodsReceipts(prev);
       setLoadError("Uložení se nezdařilo, zkuste to znovu.");
     }
   }
@@ -1407,6 +1476,7 @@ function OfficeApp({ userFullName, userEmail, onSignOut }) {
       if (error) throw error;
     } catch (e) {
       console.error(e);
+      setStockIssues((prev) => prev.filter((i) => i.id !== issue.id));
       setLoadError("Uložení se nezdařilo, zkuste to znovu.");
     }
     return issue;
@@ -1422,6 +1492,7 @@ function OfficeApp({ userFullName, userEmail, onSignOut }) {
       if (error) throw error;
     } catch (e) {
       console.error(e);
+      setStockIssues((prev) => prev.map((i) => (i.id === id ? current : i)));
       setLoadError("Uložení se nezdařilo, zkuste to znovu.");
     }
   }
@@ -1433,12 +1504,14 @@ function OfficeApp({ userFullName, userEmail, onSignOut }) {
   }
 
   async function deleteStockIssue(id) {
-    setStockIssues((prev) => prev.filter((i) => i.id !== id));
+    const prev = stockIssues;
+    setStockIssues((p) => p.filter((i) => i.id !== id));
     try {
       const { error } = await supabase.from("stock_issues").delete().eq("id", id);
       if (error) throw error;
     } catch (e) {
       console.error(e);
+      setStockIssues(prev);
       setLoadError("Uložení se nezdařilo, zkuste to znovu.");
     }
   }
@@ -1451,6 +1524,7 @@ function OfficeApp({ userFullName, userEmail, onSignOut }) {
       if (error) throw error;
     } catch (e) {
       console.error(e);
+      setProductionPlan((prev) => prev.filter((p) => p.id !== plan.id));
       setLoadError("Uložení se nezdařilo, zkuste to znovu.");
     }
     setShowNewProductionPlan(false);
@@ -1474,17 +1548,20 @@ function OfficeApp({ userFullName, userEmail, onSignOut }) {
       if (error) throw error;
     } catch (e) {
       console.error(e);
+      setProductionPlan((prev) => prev.map((p) => (p.id === id ? current : p)));
       setLoadError("Uložení se nezdařilo, zkuste to znovu.");
     }
   }
 
   async function deleteProductionPlan(id) {
-    setProductionPlan((prev) => prev.filter((p) => p.id !== id));
+    const prev = productionPlan;
+    setProductionPlan((p) => p.filter((x) => x.id !== id));
     try {
       const { error } = await supabase.from("production_plan").delete().eq("id", id);
       if (error) throw error;
     } catch (e) {
       console.error(e);
+      setProductionPlan(prev);
       setLoadError("Uložení se nezdařilo, zkuste to znovu.");
     }
   }
@@ -1492,6 +1569,8 @@ function OfficeApp({ userFullName, userEmail, onSignOut }) {
   // Zmazanie zaznamu skutocnej vyroby zaroven zrusi vydaje surovin, ktore pri jeho
   // ulozeni automaticky vznikli (korekcia preklepov zapisanych na tablete vo vyrobe).
   async function deleteProductionOutput(output) {
+    const prevOutputs = productionOutputs;
+    const prevIssues = stockIssues;
     setProductionOutputs((prev) => prev.filter((o) => o.id !== output.id));
     setStockIssues((prev) => prev.filter((i) => !(output.issueIds || []).includes(i.id)));
     try {
@@ -1503,6 +1582,8 @@ function OfficeApp({ userFullName, userEmail, onSignOut }) {
       if (error) throw error;
     } catch (e) {
       console.error(e);
+      setProductionOutputs(prevOutputs);
+      setStockIssues(prevIssues);
       setLoadError("Smazání se nezdařilo, zkuste to znovu.");
     }
   }
@@ -1515,12 +1596,11 @@ function OfficeApp({ userFullName, userEmail, onSignOut }) {
     const merged = { ...current, ...patch };
     const product = products.find((p) => p.id === merged.produktId);
     const newIssues = computeProductionIssues({ mnozstvo: merged.mnozstvo, mnozstvoJednotka: "paliet" }, product);
+    // Poradie je zamerne: najprv vlozit NOVE vydaje, stare zmazat az po uspesnom
+    // zapise - ak zlyhá insert v polovici, stare vydaje ostavaju nedotknute
+    // namiesto toho, aby appka mala uz zmazane stare a len ciastocne nove.
+    const newIssueIds = [];
     try {
-      if ((current.issueIds || []).length) {
-        const { error: delErr } = await supabase.from("stock_issues").delete().in("id", current.issueIds);
-        if (delErr) throw delErr;
-      }
-      const newIssueIds = [];
       for (const issue of newIssues) {
         const issueId = uid();
         const { error: insErr } = await supabase.from("stock_issues").insert({
@@ -1544,11 +1624,20 @@ function OfficeApp({ userFullName, userEmail, onSignOut }) {
       const finalMerged = { ...merged, issueIds: newIssueIds };
       const { error: updErr } = await supabase.from("production_outputs").update({ data: finalMerged }).eq("id", id);
       if (updErr) throw updErr;
+      if ((current.issueIds || []).length) {
+        const { error: delErr } = await supabase.from("stock_issues").delete().in("id", current.issueIds);
+        if (delErr) throw delErr;
+      }
       setProductionOutputs((prev) => prev.map((o) => (o.id === id ? finalMerged : o)));
       const { data: freshIssues, error: fetchErr } = await supabase.from("stock_issues").select("*").order("created_at", { ascending: false });
       if (!fetchErr) setStockIssues((freshIssues || []).map((r) => r.data));
     } catch (e) {
       console.error(e);
+      // Kompenzacne zmazanie ciastocne vlozenych novych vydajov, aby DB neostala v
+      // nekonzistentnom stave (stare aj nove vydaje naraz = dvojite pocitanie zasob).
+      if (newIssueIds.length) {
+        await supabase.from("stock_issues").delete().in("id", newIssueIds).then(null, (delErr) => console.error(delErr));
+      }
       setLoadError("Uložení se nezdařilo, zkuste to znovu.");
     }
   }
@@ -1682,6 +1771,7 @@ function OfficeApp({ userFullName, userEmail, onSignOut }) {
       dodaciListOdoslany: "Nie",
       stavExpedicie: "Neexpedovana",
     };
+    const prevCompany = company;
     setCompany((prev) => ({ ...prev, posledneCisloDopravy: dopravaNum, posledneCisloDodaciehoListu: dodakNum }));
     setOrders((prev) => [order, ...prev]);
     try {
@@ -1689,7 +1779,14 @@ function OfficeApp({ userFullName, userEmail, onSignOut }) {
       if (error) throw error;
     } catch (e) {
       console.error(e);
+      // Poznamka: cisla dopravy/dodacieho listu boli uz atomicky pridelene v RPC
+      // vyssie a v DB sekvencii zostavaju "spalene" aj pri zlyhani tohto insertu -
+      // to sa da opravit len na strane Postgres funkcie. Tu aspon vratime lokalny
+      // stav, aby appka neukazovala objednavku, ktora v DB neexistuje.
+      setOrders((prev) => prev.filter((o) => o.id !== order.id));
+      setCompany(prevCompany);
       setLoadError("Uložení objednávky se nezdařilo, zkuste to znovu.");
+      return;
     }
     setShowNewOrder(false);
   }
@@ -1705,16 +1802,19 @@ function OfficeApp({ userFullName, userEmail, onSignOut }) {
       if (error) throw error;
     } catch (e) {
       console.error(e);
+      setOrders((prev) => prev.map((o) => (o.id === id ? current : o)));
       setLoadError("Uložení se nezdařilo, zkuste to znovu.");
     }
   }
   async function deleteOrder(id) {
-    setOrders((prev) => prev.filter((o) => o.id !== id));
+    const prev = orders;
+    setOrders((p) => p.filter((o) => o.id !== id));
     try {
       const { error } = await supabase.from("orders").delete().eq("id", id);
       if (error) throw error;
     } catch (e) {
       console.error(e);
+      setOrders(prev);
       setLoadError("Uložení se nezdařilo, zkuste to znovu.");
     }
   }
@@ -2065,9 +2165,7 @@ function OfficeApp({ userFullName, userEmail, onSignOut }) {
           suppliers={suppliers}
           onClose={() => setShowInvoiceUpload(false)}
           onApply={async (updates) => {
-            for (const u of updates) {
-              await updateGoodsReceipt(u.receiptId, u.patch);
-            }
+            await Promise.all(updates.map((u) => updateGoodsReceipt(u.receiptId, u.patch)));
             setToast(`Cena doplněna k ${updates.length} příjmu(ům) zboží.`);
           }}
           onAddToSupplierCatalog={async (supplierId, popisList) => {
@@ -2282,34 +2380,41 @@ function buildMailto(to, subject, body) {
   return `mailto:${encodeURIComponent(to)}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
 }
 
-async function openGoodsReceiptPhoto(path) {
+// Otvori prazdny tab SYNCHRONNE pred await (aby ho Safari/iné prehliadače
+// neblokovali ako popup), a az po ziskani signed URL ho presmeruje. Pri
+// zlyhani (vyprsana session, zmazany subor, RLS) da najavo chybu namiesto
+// ticheho "nic sa nestalo".
+async function openSignedFile(bucket, path, opts) {
   if (!path) return;
-  const { data, error } = await supabase.storage.from(GOODS_RECEIPT_PHOTOS_BUCKET).createSignedUrl(path, 3600);
-  if (!error && data) window.open(data.signedUrl, "_blank");
+  const tab = window.open("", "_blank");
+  const { data, error } = await supabase.storage.from(bucket).createSignedUrl(path, 3600, opts);
+  if (error || !data) {
+    if (tab) tab.close();
+    window.alert("Soubor se nepodařilo otevřít. Zkuste to znovu.");
+    return;
+  }
+  if (tab) tab.location.href = data.signedUrl;
+  else window.open(data.signedUrl, "_blank");
+}
+
+async function openGoodsReceiptPhoto(path) {
+  return openSignedFile(GOODS_RECEIPT_PHOTOS_BUCKET, path);
 }
 
 async function openNveListFile(path) {
-  if (!path) return;
-  const { data, error } = await supabase.storage.from(NVE_LISTS_BUCKET).createSignedUrl(path, 3600, { download: true });
-  if (!error && data) window.open(data.signedUrl, "_blank");
+  return openSignedFile(NVE_LISTS_BUCKET, path, { download: true });
 }
 
 async function openInvoiceFile(path) {
-  if (!path) return;
-  const { data, error } = await supabase.storage.from(INVOICES_BUCKET).createSignedUrl(path, 3600, { download: true });
-  if (!error && data) window.open(data.signedUrl, "_blank");
+  return openSignedFile(INVOICES_BUCKET, path, { download: true });
 }
 
 async function openDesignFile(path) {
-  if (!path) return;
-  const { data, error } = await supabase.storage.from(DESIGNS_BUCKET).createSignedUrl(path, 3600);
-  if (!error && data) window.open(data.signedUrl, "_blank");
+  return openSignedFile(DESIGNS_BUCKET, path);
 }
 
 async function openSwPricelistFile(path) {
-  if (!path) return;
-  const { data, error } = await supabase.storage.from(SW_PRICELIST_BUCKET).createSignedUrl(path, 3600, { download: true });
-  if (!error && data) window.open(data.signedUrl, "_blank");
+  return openSignedFile(SW_PRICELIST_BUCKET, path, { download: true });
 }
 
 function downloadText(filename, content) {
@@ -2716,6 +2821,46 @@ function RegisterView({ orders, carriers, customers, expedicniaZaznamy, products
   const [confirmDelete, setConfirmDelete] = useState(null);
   const [detailOrder, setDetailOrder] = useState(null);
 
+  const [search, setSearch] = useState("");
+  const [zakaznikFilter, setZakaznikFilter] = useState("");
+  const [stavDopravyFilter, setStavDopravyFilter] = useState("");
+  const [stavDodaciListFilter, setStavDodaciListFilter] = useState("");
+  const [stavExpedicieFilter, setStavExpedicieFilter] = useState("");
+  const [datumOd, setDatumOd] = useState("");
+  const [datumDo, setDatumDo] = useState("");
+
+  const uniqueZakaznici = useMemo(
+    () => [...customers].map((c) => c.nazov).filter(Boolean).sort((a, b) => a.localeCompare(b)),
+    [customers]
+  );
+  const hasActiveFilters = !!(search || zakaznikFilter || stavDopravyFilter || stavDodaciListFilter || stavExpedicieFilter || datumOd || datumDo);
+  function resetFilters() {
+    setSearch(""); setZakaznikFilter(""); setStavDopravyFilter(""); setStavDodaciListFilter(""); setStavExpedicieFilter(""); setDatumOd(""); setDatumDo("");
+  }
+
+  const filteredOrders = useMemo(() => {
+    const searchLower = search.trim().toLowerCase();
+    const datumOdParsed = datumOd ? new Date(datumOd) : null;
+    const datumDoParsed = datumDo ? new Date(datumDo) : null;
+    return orders.filter((o) => {
+      if (searchLower) {
+        const hay = [o.cisloObjednavky, o.cisloObjednavkyDopravy, o.cisloDodaciehoListu, o.cisloObjednavkyZakaznika, o.zakaznik, o.adresaDodaniaNazov, o.adresaDodania].filter(Boolean).join(" ").toLowerCase();
+        if (!hay.includes(searchLower)) return false;
+      }
+      if (zakaznikFilter && o.zakaznik !== zakaznikFilter) return false;
+      if (stavDopravyFilter && o.stavDopravy !== stavDopravyFilter) return false;
+      if (stavDodaciListFilter && (o.dodaciListOdoslany === "Ano" ? "Odoslany" : "Neodoslany") !== stavDodaciListFilter) return false;
+      if (stavExpedicieFilter && (o.stavExpedicie === "Expedovana" ? "Expedovana" : "Neexpedovana") !== stavExpedicieFilter) return false;
+      if (datumOdParsed || datumDoParsed) {
+        const d = parseSkDate(o.datumDodania);
+        if (!d) return false;
+        if (datumOdParsed && d < datumOdParsed) return false;
+        if (datumDoParsed && d > datumDoParsed) return false;
+      }
+      return true;
+    });
+  }, [orders, search, zakaznikFilter, stavDopravyFilter, stavDodaciListFilter, stavExpedicieFilter, datumOd, datumDo]);
+
   const batchZaznamy = (expedicniaZaznamy || []).filter((z) => z.typ !== "doprava" && z.typ !== "celkova" && z.typ !== "kontrola");
   const dopravaByOrder = new Map();
   (expedicniaZaznamy || []).filter((z) => z.typ === "doprava").forEach((z) => { dopravaByOrder.set(z.orderId, z); });
@@ -2796,6 +2941,65 @@ function RegisterView({ orders, carriers, customers, expedicniaZaznamy, products
           Zatím žádné objednávky. Klikněte na "Nová objednávka" a vložte text nebo soubor.
         </div>
       ) : (
+        <>
+          <div className="bg-white border border-slate-200 rounded-lg p-3 mb-4 flex flex-wrap gap-3 items-end">
+            <label className="flex-1 min-w-[220px]">
+              <span className="block text-xs font-medium text-slate-500 mb-1">Hledat</span>
+              <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Číslo objednávky, zákazník, místo dodání..." className="w-full border border-slate-200 rounded-md px-2.5 py-1.5 text-sm" />
+            </label>
+            <label className="min-w-[160px]">
+              <span className="block text-xs font-medium text-slate-500 mb-1">Zákazník</span>
+              <select value={zakaznikFilter} onChange={(e) => setZakaznikFilter(e.target.value)} className="w-full border border-slate-200 rounded-md px-2.5 py-1.5 text-sm">
+                <option value="">Vše</option>
+                {uniqueZakaznici.map((z) => <option key={z} value={z}>{z}</option>)}
+              </select>
+            </label>
+            <label className="min-w-[150px]">
+              <span className="block text-xs font-medium text-slate-500 mb-1">Stav dopravy</span>
+              <select value={stavDopravyFilter} onChange={(e) => setStavDopravyFilter(e.target.value)} className="w-full border border-slate-200 rounded-md px-2.5 py-1.5 text-sm">
+                <option value="">Vše</option>
+                {Object.keys(STATUS_TRANSPORT).map((s) => <option key={s} value={s}>{s}</option>)}
+              </select>
+            </label>
+            <label className="min-w-[150px]">
+              <span className="block text-xs font-medium text-slate-500 mb-1">Dodací list</span>
+              <select value={stavDodaciListFilter} onChange={(e) => setStavDodaciListFilter(e.target.value)} className="w-full border border-slate-200 rounded-md px-2.5 py-1.5 text-sm">
+                <option value="">Vše</option>
+                <option value="Odoslany">Odesláno</option>
+                <option value="Neodoslany">Neodesláno</option>
+              </select>
+            </label>
+            <label className="min-w-[150px]">
+              <span className="block text-xs font-medium text-slate-500 mb-1">Expedice</span>
+              <select value={stavExpedicieFilter} onChange={(e) => setStavExpedicieFilter(e.target.value)} className="w-full border border-slate-200 rounded-md px-2.5 py-1.5 text-sm">
+                <option value="">Vše</option>
+                <option value="Expedovana">Expedovana</option>
+                <option value="Neexpedovana">Neexpedovana</option>
+              </select>
+            </label>
+            <label className="min-w-[130px]">
+              <span className="block text-xs font-medium text-slate-500 mb-1">Dodání od</span>
+              <input type="date" value={datumOd} onChange={(e) => setDatumOd(e.target.value)} className="w-full border border-slate-200 rounded-md px-2.5 py-1.5 text-sm" />
+            </label>
+            <label className="min-w-[130px]">
+              <span className="block text-xs font-medium text-slate-500 mb-1">Dodání do</span>
+              <input type="date" value={datumDo} onChange={(e) => setDatumDo(e.target.value)} className="w-full border border-slate-200 rounded-md px-2.5 py-1.5 text-sm" />
+            </label>
+            {hasActiveFilters && (
+              <button onClick={resetFilters} className="text-xs text-slate-500 hover:text-slate-700 px-2 py-1.5">
+                Zrušit filtry
+              </button>
+            )}
+          </div>
+          {hasActiveFilters && (
+            <div className="text-xs text-slate-400 mb-2">{filteredOrders.length} z {orders.length} objednávek</div>
+          )}
+          {filteredOrders.length === 0 ? (
+            <div className="bg-white border border-slate-200 rounded-lg p-10 text-center text-slate-500">
+              <ClipboardList size={28} className="mx-auto mb-3 text-slate-300" />
+              Žádné objednávky neodpovídají zadaným filtrům.
+            </div>
+          ) : (
         <div className="bg-white border border-slate-200 rounded-lg overflow-x-auto">
           <table className="w-full text-sm">
             <thead>
@@ -2810,7 +3014,7 @@ function RegisterView({ orders, carriers, customers, expedicniaZaznamy, products
               </tr>
             </thead>
             <tbody>
-              {orders.map((o) => {
+              {filteredOrders.map((o) => {
                 const carrierMissing = carriers.length === 0;
                 const emailMissing = !o.zakaznikEmail;
                 const orderBatches = batchZaznamy.filter((z) => z.orderId === o.id);
@@ -2888,6 +3092,8 @@ function RegisterView({ orders, carriers, customers, expedicniaZaznamy, products
             </tbody>
           </table>
         </div>
+          )}
+        </>
       )}
       {confirmDelete && (
         <ModalShell title="Smazat objednávku?" onClose={() => setConfirmDelete(null)}>
@@ -3677,53 +3883,53 @@ function buildLieferscheinHtml({ company, customer, order, carrierName, transpor
   const totalPaliet = sumPaliet > 0 ? sumPaliet : (order.pocetPaliet || 0);
   const itemRows = items.map((it) => {
     const p = it.produkt;
-    const eanLine = p ? [p.eanKarton && `EAN karton: ${p.eanKarton}`, p.eanUnit && `EAN kus: ${p.eanUnit}`].filter(Boolean).join("   ") : "";
+    const eanLine = p ? [p.eanKarton && `EAN karton: ${escapeHtml(p.eanKarton)}`, p.eanUnit && `EAN kus: ${escapeHtml(p.eanUnit)}`].filter(Boolean).join("   ") : "";
     return `
     <tr style="border-bottom:1px solid #eee;vertical-align:top;">
-      <td style="padding:3px;">${it.paletEffective || ""}</td>
-      <td style="padding:3px;">${it.karton || ""}</td>
+      <td style="padding:3px;">${escapeHtml(it.paletEffective)}</td>
+      <td style="padding:3px;">${escapeHtml(it.karton)}</td>
       <td style="padding:3px;">
-        <div>${it.popis || ""}</div>
-        ${p && p.inhlt ? `<div style="font-size:9px;color:#555;white-space:pre-wrap;">${p.inhlt}</div>` : ""}
+        <div>${escapeHtml(it.popis)}</div>
+        ${p && p.inhlt ? `<div style="font-size:9px;color:#555;white-space:pre-wrap;">${escapeHtml(p.inhlt)}</div>` : ""}
         ${eanLine ? `<div style="font-size:9px;color:#555;">${eanLine}</div>` : ""}
         ${p && p.rspo ? `<div style="font-size:9px;color:#555;">${RSPO_CERT_CODE}</div>` : ""}
       </td>
-      <td style="padding:3px;">${computeKusyFromKarton(it.karton, p) ?? ""}</td>
-      <td style="padding:3px;">${it.artikel || ""}</td>
+      <td style="padding:3px;">${escapeHtml(computeKusyFromKarton(it.karton, p) ?? "")}</td>
+      <td style="padding:3px;">${escapeHtml(it.artikel)}</td>
     </tr>`;
   }).join("");
   return `
     <div style="font-family:Arial,sans-serif;font-size:11px;color:#111;max-width:760px;">
       <div style="text-align:right;">
-        ${order.cisloObjednavkyDopravy}${transportPrice && transportPrice.matched ? "   " + formatEur(transportPrice.total) : ""}
+        ${escapeHtml(order.cisloObjednavkyDopravy)}${transportPrice && transportPrice.matched ? "   " + escapeHtml(formatEur(transportPrice.total)) : ""}
       </div>
       <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-top:2px;">
-        <div style="font-weight:bold;">${company.nazov || ""}</div>
-        <div style="font-weight:bold;font-size:16px;">LIEFERSCHEIN <span style="font-weight:normal;font-size:12px;">Nr: ${order.cisloDodaciehoListu}</span></div>
+        <div style="font-weight:bold;">${escapeHtml(company.nazov)}</div>
+        <div style="font-weight:bold;font-size:16px;">LIEFERSCHEIN <span style="font-weight:normal;font-size:12px;">Nr: ${escapeHtml(order.cisloDodaciehoListu)}</span></div>
       </div>
       <div style="margin-top:8px;text-align:right;">
         <div style="font-style:italic;font-size:10px;">Lieferadresse/adresa dodání</div>
-        <div style="font-weight:bold;">${order.adresaDodaniaNazov || ""}</div>
-        <div style="white-space:pre-wrap;">${order.adresaDodania || ""}</div>
+        <div style="font-weight:bold;">${escapeHtml(order.adresaDodaniaNazov)}</div>
+        <div style="white-space:pre-wrap;">${escapeHtml(order.adresaDodania)}</div>
       </div>
       <div style="display:flex;margin-top:12px;gap:16px;">
         <div style="width:50%;">
           <div style="font-weight:bold;">LIEFERANT:</div>
-          <div>${company.nazov || ""}</div>
-          <div style="white-space:pre-wrap;">${company.adresa || ""}</div>
-          <div>IČO: ${company.ico || ""}</div>
-          <div>DIČ: ${company.dic || ""}</div>
+          <div>${escapeHtml(company.nazov)}</div>
+          <div style="white-space:pre-wrap;">${escapeHtml(company.adresa)}</div>
+          <div>IČO: ${escapeHtml(company.ico)}</div>
+          <div>DIČ: ${escapeHtml(company.dic)}</div>
         </div>
         <div style="width:50%;">
           <div style="font-weight:bold;">ABNEHMER/ODBĚRATEL</div>
-          <div>${customer ? customer.nazov : (order.zakaznik || "")}</div>
-          <div style="white-space:pre-wrap;">${customer ? customer.adresa || "" : ""}</div>
-          <div>${customer && customer.dic ? "Ust.-Id Nr. " + customer.dic : ""}</div>
+          <div>${escapeHtml(customer ? customer.nazov : (order.zakaznik || ""))}</div>
+          <div style="white-space:pre-wrap;">${escapeHtml(customer ? customer.adresa || "" : "")}</div>
+          <div>${customer && customer.dic ? "Ust.-Id Nr. " + escapeHtml(customer.dic) : ""}</div>
         </div>
       </div>
       <div style="display:flex;border-bottom:1px solid #ddd;padding:2px 0;margin-top:12px;">
-        <div style="width:50%;">Lieferungstag: <b>${order.datumDodania || ""}</b></div>
-        <div style="width:50%;">Bestellung: <b>${order.cisloObjednavkyZakaznika || ""}</b></div>
+        <div style="width:50%;">Lieferungstag: <b>${escapeHtml(order.datumDodania)}</b></div>
+        <div style="width:50%;">Bestellung: <b>${escapeHtml(order.cisloObjednavkyZakaznika)}</b></div>
       </div>
       <table style="width:100%;border-collapse:collapse;margin-top:10px;font-size:10.5px;">
         <thead><tr style="border-bottom:2px solid #333;text-align:left;">
@@ -3732,11 +3938,11 @@ function buildLieferscheinHtml({ company, customer, order, carrierName, transpor
         <tbody>${itemRows}</tbody>
       </table>
       <div style="margin-top:14px;font-weight:bold;">
-        ${order.pocetPaletovychMiest || 0} Doppelstockpal. = ${totalPaliet} europaletten = ${order.pocetPaletovychMiest || 0} stallplätze
+        ${escapeHtml(order.pocetPaletovychMiest || 0)} Doppelstockpal. = ${escapeHtml(totalPaliet)} europaletten = ${escapeHtml(order.pocetPaletovychMiest || 0)} stallplätze
       </div>
       <div style="display:flex;margin-top:20px;gap:16px;">
-        <div style="width:33%;"><div>vystavil/ausgestellt von:</div><div>${company.email || ""}</div></div>
-        <div style="width:33%;"><div>TRANSPORT: ${carrierName || ""}</div><div>NUMBER TRUCK: ________________</div><div style="margin-top:6px;">EUROPALETTEN</div><div>ACCEPTED: ______</div><div>RELEASSED: ______</div><div>DEBT: ______</div></div>
+        <div style="width:33%;"><div>vystavil/ausgestellt von:</div><div>${escapeHtml(company.email)}</div></div>
+        <div style="width:33%;"><div>TRANSPORT: ${escapeHtml(carrierName)}</div><div>NUMBER TRUCK: ________________</div><div style="margin-top:6px;">EUROPALETTEN</div><div>ACCEPTED: ______</div><div>RELEASSED: ______</div><div>DEBT: ______</div></div>
         <div style="width:33%;"><div>odběratel / abnehmer:</div></div>
       </div>
     </div>`;
@@ -3748,8 +3954,13 @@ function DeliveryModal({ order, customers, carriers, company, pricelist, product
   const carrier = carriers.find((c) => c.id === order.dopravcaId);
   const printId = "print-lieferschein-" + order.id;
   const jeNemecko = isGermanDelivery(order);
+  // Obecny email zakaznika (customer.email) sa NIKDY nepredvypna automaticky -
+  // rovnaky pravidlo ako defaultEmailFor pre dopravcu/dodavatela. Dostupny je
+  // len ako samostatne tlacidlo "Obecny" v EmailQuickPicks, ktore si user musi
+  // vybrat rucne. Automaticky sa predvyplni len presne ucelovy email (podla
+  // jeNemecko) alebo email, ktory uz bol pri objednavke zachyteny/pouzity skor.
   const keywordMatched = pickEmailsByKeyword(customer && customer.emaily, jeNemecko ? ["leh", "cc"] : ["export"]);
-  const defaultEmail = keywordMatched || defaultEmailFor(customer) || order.zakaznikEmail || "";
+  const defaultEmail = keywordMatched || order.zakaznikEmail || "";
   const [email, setEmail] = useState(last ? last.to : defaultEmail);
   const mesto = extractCityFromAddress(order.adresaDodania) || order.adresaDodaniaNazov || "";
   const [subject, setSubject] = useState(last ? last.subject : `Lieferschein / Dodací list č. ${order.cisloDodaciehoListu}${mesto ? " - " + mesto : ""}`);
@@ -3799,7 +4010,17 @@ function DeliveryModal({ order, customers, carriers, company, pricelist, product
 
 /* ---------------- Paletovy listok (print only) ---------------- */
 
+// Pouziva sa vsade tam, kde sa vola nedovryhodny (uzivatelom zadany) text priamo
+// do HTML sablony pre tlac/stiahnutie/dangerouslySetInnerHTML - bez tohto by sa
+// napr. znacka v adrese/mieste dodania mohla vykonat ako HTML/skript.
+function escapeHtml(value) {
+  return String(value ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+}
+
 function buildPalletHtml({ cislo, nalozeno, miesto }) {
+  cislo = escapeHtml(cislo);
+  nalozeno = escapeHtml(nalozeno);
+  miesto = escapeHtml(miesto);
   const L = "width:58%;padding-right:10px;";
   const R = "width:42%;";
   const row = "display:flex;padding:3px 0;border-bottom:1px solid #ddd;";
@@ -5717,6 +5938,45 @@ function AuditLogView() {
 
 function MaterialOrdersView({ materialOrders, suppliers, carriers, onNew, onEdit, onSend, onSendSupplier, onDelete }) {
   const [confirmDelete, setConfirmDelete] = useState(null);
+
+  const [search, setSearch] = useState("");
+  const [dodavatelFilter, setDodavatelFilter] = useState("");
+  const [stavObjednavkyFilter, setStavObjednavkyFilter] = useState("");
+  const [stavDopravyFilter, setStavDopravyFilter] = useState("");
+  const [terminOd, setTerminOd] = useState("");
+  const [terminDo, setTerminDo] = useState("");
+
+  const uniqueDodavatelia = useMemo(
+    () => [...new Set(materialOrders.map((o) => o.dodavatel).filter(Boolean))].sort((a, b) => a.localeCompare(b)),
+    [materialOrders]
+  );
+  const hasActiveFilters = !!(search || dodavatelFilter || stavObjednavkyFilter || stavDopravyFilter || terminOd || terminDo);
+  function resetFilters() {
+    setSearch(""); setDodavatelFilter(""); setStavObjednavkyFilter(""); setStavDopravyFilter(""); setTerminOd(""); setTerminDo("");
+  }
+
+  const filteredMaterialOrders = useMemo(() => {
+    const searchLower = search.trim().toLowerCase();
+    const terminOdParsed = terminOd ? new Date(terminOd) : null;
+    const terminDoParsed = terminDo ? new Date(terminDo) : null;
+    return materialOrders.filter((o) => {
+      if (searchLower) {
+        const hay = [o.cisloObjednavkyDopravy, o.dodavatel, o.adresaVyzdvihnutia, o.popisMaterialu, o.adresaDodaniaNazov, o.adresaDodania].filter(Boolean).join(" ").toLowerCase();
+        if (!hay.includes(searchLower)) return false;
+      }
+      if (dodavatelFilter && o.dodavatel !== dodavatelFilter) return false;
+      if (stavObjednavkyFilter && (o.stavObjednavky || "Neodoslana") !== stavObjednavkyFilter) return false;
+      if (stavDopravyFilter && o.stavDopravy !== stavDopravyFilter) return false;
+      if (terminOdParsed || terminDoParsed) {
+        const d = parseSkDate(o.terminDodania);
+        if (!d) return false;
+        if (terminOdParsed && d < terminOdParsed) return false;
+        if (terminDoParsed && d > terminDoParsed) return false;
+      }
+      return true;
+    });
+  }, [materialOrders, search, dodavatelFilter, stavObjednavkyFilter, stavDopravyFilter, terminOd, terminDo]);
+
   async function exportToExcel() {
     const rows = materialOrders.map((o) => ({
       "Číslo dopravy": o.cisloObjednavkyDopravy,
@@ -5755,6 +6015,56 @@ function MaterialOrdersView({ materialOrders, suppliers, carriers, onNew, onEdit
           Zatím žádné objednávky surovin/obalů.
         </div>
       ) : (
+        <>
+          <div className="bg-white border border-slate-200 rounded-lg p-3 mb-4 flex flex-wrap gap-3 items-end">
+            <label className="flex-1 min-w-[220px]">
+              <span className="block text-xs font-medium text-slate-500 mb-1">Hledat</span>
+              <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Číslo dopravy, dodavatel, materiál..." className="w-full border border-slate-200 rounded-md px-2.5 py-1.5 text-sm" />
+            </label>
+            <label className="min-w-[160px]">
+              <span className="block text-xs font-medium text-slate-500 mb-1">Dodavatel</span>
+              <select value={dodavatelFilter} onChange={(e) => setDodavatelFilter(e.target.value)} className="w-full border border-slate-200 rounded-md px-2.5 py-1.5 text-sm">
+                <option value="">Vše</option>
+                {uniqueDodavatelia.map((d) => <option key={d} value={d}>{d}</option>)}
+              </select>
+            </label>
+            <label className="min-w-[150px]">
+              <span className="block text-xs font-medium text-slate-500 mb-1">Stav objednávky</span>
+              <select value={stavObjednavkyFilter} onChange={(e) => setStavObjednavkyFilter(e.target.value)} className="w-full border border-slate-200 rounded-md px-2.5 py-1.5 text-sm">
+                <option value="">Vše</option>
+                {Object.keys(STATUS_MATERIAL_OBJEDNAVKA).map((s) => <option key={s} value={s}>{s}</option>)}
+              </select>
+            </label>
+            <label className="min-w-[150px]">
+              <span className="block text-xs font-medium text-slate-500 mb-1">Stav dopravy</span>
+              <select value={stavDopravyFilter} onChange={(e) => setStavDopravyFilter(e.target.value)} className="w-full border border-slate-200 rounded-md px-2.5 py-1.5 text-sm">
+                <option value="">Vše</option>
+                {Object.keys(STATUS_MATERIAL_DOPRAVA).map((s) => <option key={s} value={s}>{s}</option>)}
+              </select>
+            </label>
+            <label className="min-w-[130px]">
+              <span className="block text-xs font-medium text-slate-500 mb-1">Termín od</span>
+              <input type="date" value={terminOd} onChange={(e) => setTerminOd(e.target.value)} className="w-full border border-slate-200 rounded-md px-2.5 py-1.5 text-sm" />
+            </label>
+            <label className="min-w-[130px]">
+              <span className="block text-xs font-medium text-slate-500 mb-1">Termín do</span>
+              <input type="date" value={terminDo} onChange={(e) => setTerminDo(e.target.value)} className="w-full border border-slate-200 rounded-md px-2.5 py-1.5 text-sm" />
+            </label>
+            {hasActiveFilters && (
+              <button onClick={resetFilters} className="text-xs text-slate-500 hover:text-slate-700 px-2 py-1.5">
+                Zrušit filtry
+              </button>
+            )}
+          </div>
+          {hasActiveFilters && (
+            <div className="text-xs text-slate-400 mb-2">{filteredMaterialOrders.length} z {materialOrders.length} objednávek</div>
+          )}
+          {filteredMaterialOrders.length === 0 ? (
+            <div className="bg-white border border-slate-200 rounded-lg p-10 text-center text-slate-500">
+              <Boxes size={28} className="mx-auto mb-3 text-slate-300" />
+              Žádné objednávky neodpovídají zadaným filtrům.
+            </div>
+          ) : (
         <div className="bg-white border border-slate-200 rounded-lg overflow-x-auto">
           <table className="w-full text-sm">
             <thead>
@@ -5769,7 +6079,7 @@ function MaterialOrdersView({ materialOrders, suppliers, carriers, onNew, onEdit
               </tr>
             </thead>
             <tbody>
-              {materialOrders.map((o) => {
+              {filteredMaterialOrders.map((o) => {
                 const carrierMissing = carriers.length === 0;
                 const supplier = suppliers.find((s) => s.id === o.dodavatelId);
                 const supplierEmailMissing = !supplier || !(supplier.email || defaultEmailFor(supplier));
@@ -5823,6 +6133,8 @@ function MaterialOrdersView({ materialOrders, suppliers, carriers, onNew, onEdit
             </tbody>
           </table>
         </div>
+          )}
+        </>
       )}
       {confirmDelete && (
         <ModalShell title="Smazat objednávku?" onClose={() => setConfirmDelete(null)}>
@@ -6149,9 +6461,17 @@ function InvoiceUploadModal({ receipts, company, suppliers, onClose, onApply, on
       ];
       const data = await callClaude(blocks, company.apiKey);
       const mena = (data.mena || "CZK").toUpperCase().trim() || "CZK";
-      const rateInfo = await getCnbRate(data.datumFaktury, mena, import.meta.env.VITE_SUPABASE_URL, import.meta.env.VITE_SUPABASE_ANON_KEY);
       setExtracted({ ...data, mena });
-      setKurz(rateInfo);
+      // Kurz ČNB sa dohladava samostatne - jeho zlyhanie (napr. vikend/sviatok bez
+      // kurzu pre danu menu) nesmie zahodit uz uspesne extrahovane data z faktury.
+      try {
+        const rateInfo = await getCnbRate(data.datumFaktury, mena, import.meta.env.VITE_SUPABASE_URL, import.meta.env.VITE_SUPABASE_ANON_KEY);
+        setKurz(rateInfo);
+      } catch (rateErr) {
+        console.error(rateErr);
+        setKurz(null);
+        setError("Kurz ČNB se nepodařilo načíst, doplňte prosím ručně.");
+      }
       setMatches(
         (data.polozky || []).map((it) => {
           const suggestions = suggestReceiptMatches(it, data.dodavatel, receipts);
@@ -7014,7 +7334,7 @@ function ProductionPlanView({ productionPlan, products, goodsReceipts, stockIssu
   async function exportCcpToExcel() {
     const exportRows = (ccpKontroly || [])
       .slice()
-      .sort((a, b) => (b.datum + b.cas).localeCompare(a.datum + a.cas))
+      .sort((a, b) => ((parseSkDate(b.datum)?.getTime() || 0) - (parseSkDate(a.datum)?.getTime() || 0)) || (b.cas || "").localeCompare(a.cas || ""))
       .map((c) => ({
         "Datum": c.datum,
         "Čas": c.cas,
@@ -7684,7 +8004,7 @@ function ProductionPlanView({ productionPlan, products, goodsReceipts, stockIssu
               </tr>
             </thead>
             <tbody>
-              {ccpKontroly.slice().sort((a, b) => (b.datum + b.cas).localeCompare(a.datum + a.cas)).map((c) => (
+              {ccpKontroly.slice().sort((a, b) => ((parseSkDate(b.datum)?.getTime() || 0) - (parseSkDate(a.datum)?.getTime() || 0)) || (b.cas || "").localeCompare(a.cas || "")).map((c) => (
                 <tr key={c.id} className="border-t border-slate-100">
                   <td className="px-3 py-2 whitespace-nowrap">{c.datum}</td>
                   <td className="px-3 py-2 whitespace-nowrap text-slate-500">{c.cas}</td>

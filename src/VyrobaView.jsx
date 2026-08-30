@@ -920,8 +920,12 @@ function DochazkaTab() {
   const cfg = DOCHAZKA_MODES[mode];
   const records = mode === "prichod" ? prestavky : pauzy;
 
-  function activeFor(meno) {
-    return records.find((p) => p.meno === meno && !p.casKonca);
+  // Ak zaznam ma workerId, paruje sa prednostne cez neho (nie cez meno) - dvaja
+  // pracovnici s rovnakym menom by sa inak vzajomne "krizili" v aktivnom stave.
+  // Stare zaznamy bez workerId (zapisane pred zavedenim tohto pola) sa stale
+  // paruju cez meno, aby sa nezobrazovali ako navzdy "otvorene".
+  function activeFor(meno, workerId) {
+    return records.find((p) => !p.casKonca && (workerId && p.workerId ? p.workerId === workerId : p.meno === meno));
   }
 
   async function deleteRecord(id) {
@@ -940,7 +944,7 @@ function DochazkaTab() {
   async function toggle(meno, workerId) {
     setBusyMeno(meno);
     setError("");
-    const activeRec = activeFor(meno);
+    const activeRec = activeFor(meno, workerId);
     try {
       if (activeRec) {
         const next = { ...activeRec, casKonca: nowTimeStr() };
@@ -1004,7 +1008,7 @@ function DochazkaTab() {
   const today = todayStr();
   const todayRecords = records.filter((p) => p.datum === today).sort((a, b) => (b.casZaciatku || "").localeCompare(a.casZaciatku || ""));
   const active = cfg.hlidatStare
-    ? records.filter((p) => !p.casKonca).sort((a, b) => (b.datum + b.casZaciatku).localeCompare(a.datum + a.casZaciatku))
+    ? records.filter((p) => !p.casKonca).sort((a, b) => ((parseSkDate(b.datum)?.getTime() || 0) - (parseSkDate(a.datum)?.getTime() || 0)) || (b.casZaciatku || "").localeCompare(a.casZaciatku || ""))
     : todayRecords.filter((p) => !p.casKonca);
 
   return (
@@ -1045,7 +1049,7 @@ function DochazkaTab() {
       ) : (
         <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 mb-5">
           {workers.map((w) => {
-            const isActive = !!activeFor(w.meno);
+            const isActive = !!activeFor(w.meno, w.id);
             return (
               <button
                 key={w.id}

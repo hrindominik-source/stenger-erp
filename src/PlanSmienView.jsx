@@ -1491,16 +1491,38 @@ export default function PlanSmienView({ onBack }) {
     return () => { cancelled = true; };
   }, []);
 
+  // Debounce autosave - bez neho sa pri rychlom priradovani smien odosielal jeden
+  // zapis na kazdu zmenu stavu, a paralelne requesty mohli na server dorazit v
+  // inom poradi nez boli odoslane (novsi zapis by tichy prepisal starsim).
   const saveReqIdRef = useRef(0);
+  const saveTimeoutRef = useRef(null);
+  const latestPayloadRef = useRef(null);
   useEffect(() => {
     if (!loaded) return;
     const payload = { employees, absences, requests, weeks, activeWeekId };
-    const reqId = ++saveReqIdRef.current;
-    supabase.from('plan_smien').update({ data: payload, updated_at: new Date().toISOString() }).eq('id', 1).then(({ error }) => {
-      if (reqId !== saveReqIdRef.current) return;
-      setSaveError(!!error);
-    });
+    latestPayloadRef.current = payload;
+    if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current);
+    saveTimeoutRef.current = setTimeout(() => {
+      saveTimeoutRef.current = null;
+      const reqId = ++saveReqIdRef.current;
+      supabase.from('plan_smien').update({ data: payload, updated_at: new Date().toISOString() }).eq('id', 1).then(({ error }) => {
+        if (reqId !== saveReqIdRef.current) return;
+        setSaveError(!!error);
+      });
+    }, 1000);
   }, [employees, absences, requests, weeks, activeWeekId, loaded]);
+
+  // Flush pripadny cakajuci (debounced) zapis pri opusteni zalozky, aby posledna
+  // uprava tesne pred odchodom neostala tiche neulozena.
+  useEffect(() => {
+    return () => {
+      if (saveTimeoutRef.current && latestPayloadRef.current) {
+        clearTimeout(saveTimeoutRef.current);
+        // Komponent uz bude odmountovany - nevolat setState, len fire-and-forget zapis.
+        supabase.from('plan_smien').update({ data: latestPayloadRef.current, updated_at: new Date().toISOString() }).eq('id', 1).then(({ error }) => { if (error) console.error(error); });
+      }
+    };
+  }, []);
 
   const activeWeek = weeks.find(w => w.id === activeWeekId) || null;
 

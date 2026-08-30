@@ -14,8 +14,10 @@ export function formatDateTime(iso) {
   return `${String(d.getDate()).padStart(2, "0")}.${String(d.getMonth() + 1).padStart(2, "0")}.${d.getFullYear()} ${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
 }
 
+// crypto.randomUUID() namiesto Date.now()+Math.random() - povodny format bol
+// uhadnutelny na sekundy (pouziva sa aj ako cesta k suborom v Supabase Storage).
 export function uid() {
-  return Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
+  return crypto.randomUUID();
 }
 
 export function parseSkDate(str) {

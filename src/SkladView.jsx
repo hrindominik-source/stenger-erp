@@ -2554,8 +2554,10 @@ function DochazkaTab() {
   const cfg = DOCHAZKA_MODES[mode];
   const records = mode === "prichod" ? prestavky : pauzy;
 
-  function activeFor(meno) {
-    return records.find((p) => p.meno === meno && !p.casKonca);
+  // Ak zaznam ma workerId, paruje sa prednostne cez neho (nie cez meno) - dvaja
+  // pracovnici s rovnakym menom by sa inak vzajomne "krizili" v aktivnom stave.
+  function activeFor(meno, workerId) {
+    return records.find((p) => !p.casKonca && (workerId && p.workerId ? p.workerId === workerId : p.meno === meno));
   }
 
   async function deleteRecord(id) {
@@ -2574,7 +2576,7 @@ function DochazkaTab() {
   async function toggle(meno, workerId) {
     setBusyMeno(meno);
     setError("");
-    const activeRec = activeFor(meno);
+    const activeRec = activeFor(meno, workerId);
     try {
       if (activeRec) {
         const next = { ...activeRec, casKonca: nowTimeStr() };
@@ -2638,7 +2640,7 @@ function DochazkaTab() {
   const today = todayStr();
   const todayRecords = records.filter((p) => p.datum === today).sort((a, b) => (b.casZaciatku || "").localeCompare(a.casZaciatku || ""));
   const active = cfg.hlidatStare
-    ? records.filter((p) => !p.casKonca).sort((a, b) => (b.datum + b.casZaciatku).localeCompare(a.datum + a.casZaciatku))
+    ? records.filter((p) => !p.casKonca).sort((a, b) => ((parseSkDate(b.datum)?.getTime() || 0) - (parseSkDate(a.datum)?.getTime() || 0)) || (b.casZaciatku || "").localeCompare(a.casZaciatku || ""))
     : todayRecords.filter((p) => !p.casKonca);
   const bigBtn = "text-base font-semibold px-4 py-3.5 rounded-xl border-2 text-center active:scale-[0.98] transition-transform";
 
@@ -2678,12 +2680,12 @@ function DochazkaTab() {
       {workers.length === 0 ? (
         <div className="text-sm text-slate-400 mb-5">Zatím žádní pracovníci (doplní office v Pracovnících, typ "Sklad").</div>
       ) : (() => {
-        const zastupujuciSkryti = workers.filter((w) => w.zaskok && !activeFor(w.meno));
-        const zobrazit = ukazatZaskok ? workers : workers.filter((w) => !w.zaskok || activeFor(w.meno));
+        const zastupujuciSkryti = workers.filter((w) => w.zaskok && !activeFor(w.meno, w.id));
+        const zobrazit = ukazatZaskok ? workers : workers.filter((w) => !w.zaskok || activeFor(w.meno, w.id));
         return (
           <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 mb-5">
             {zobrazit.map((w) => {
-              const isActive = !!activeFor(w.meno);
+              const isActive = !!activeFor(w.meno, w.id);
               return (
                 <button
                   key={w.id}
