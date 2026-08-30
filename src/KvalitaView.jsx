@@ -1,7 +1,8 @@
 import React, { useState, useEffect, useCallback, useRef } from "react";
-import { LogOut, ArrowLeft, Loader2, AlertCircle, LayoutDashboard, ListChecks, CalendarClock, Plus, Trash2, CheckCircle2, ChevronDown, ChevronUp, Upload, FileCheck } from "lucide-react";
+import { LogOut, ArrowLeft, Loader2, AlertCircle, LayoutDashboard, ListChecks, CalendarClock, Plus, Trash2, CheckCircle2, ChevronDown, ChevronUp, Upload, FileCheck, Download, Pencil } from "lucide-react";
 import { supabase } from "./supabaseClient.js";
 import { todayStr, uid, computeNextDue, daysUntil, isoFromSkDateStr, skDateStrFromIso } from "./lib/utils.js";
+import { exportRowsToExcel } from "./lib/exportExcel.js";
 
 const POLL_MS = 10000;
 const KVALITA_DOKUMENTY_BUCKET = "kvalita-dokumenty";
@@ -14,19 +15,76 @@ const FREKVENCIA_OPTIONS = [
 ];
 
 const TERMIN_TYP_OPTIONS = [
-  { value: "zdravotna_prehliadka", label: "Zdravotní prohlídka" },
-  { value: "vzv_kontrola", label: "Kontrola VZV" },
-  { value: "vzv_skolenie", label: "Školení VZV" },
-  { value: "skolenie", label: "Školení" },
-  { value: "ifs_certifikat", label: "IFS certifikát" },
-  { value: "rspo_certifikat", label: "RSPO certifikát" },
-  { value: "ifs_audit", label: "IFS audit" },
-  { value: "kalibrace", label: "Kalibrace/měření" },
-  { value: "revize_zarizeni", label: "Revize zařízení" },
-  { value: "ddd", label: "DDD (deratizace/dezinsekce)" },
-  { value: "rozbor_vody", label: "Rozbor vody" },
-  { value: "ine_bozp", label: "Jiné BOZP" },
+  { value: "zdravotna_prehliadka", label: "Zdravotní prohlídka", group: "zdravie" },
+  { value: "vzv_kontrola", label: "Kontrola VZV", group: "zdravie" },
+  { value: "vzv_skolenie", label: "Školení VZV", group: "zdravie" },
+  { value: "skolenie", label: "Školení", group: "zdravie" },
+  { value: "ifs_certifikat", label: "IFS certifikát", group: "certifikacia" },
+  { value: "rspo_certifikat", label: "RSPO certifikát", group: "certifikacia" },
+  { value: "ifs_audit", label: "IFS audit", group: "certifikacia" },
+  { value: "kvalita_haccp", label: "Kvalita/HACCP", group: "certifikacia" },
+  { value: "elektro", label: "Elektro", group: "elektro_vtz" },
+  { value: "vtz", label: "VTZ", group: "elektro_vtz" },
+  { value: "poziarna_ochrana", label: "Požární ochrana", group: "po" },
+  { value: "sklad", label: "Sklad", group: "sklad" },
+  { value: "chladenie_vzt", label: "Chlazení/VZT", group: "chladenie" },
+  { value: "kalibrace", label: "Kalibrace/měření", group: "metrologia" },
+  { value: "detektor_kovov", label: "Detektor kovů", group: "detektor" },
+  { value: "ddd", label: "DDD (deratizace/dezinsekce)", group: "hygiena" },
+  { value: "rozbor_vody", label: "Rozbor vody", group: "hygiena" },
+  { value: "hygiena", label: "Hygiena (stěry/rozbory)", group: "hygiena" },
+  { value: "bozp", label: "BOZP", group: "bozp" },
+  { value: "ine_bozp", label: "Jiné BOZP", group: "bozp" },
+  { value: "revize_zarizeni", label: "Revize zařízení", group: "ostatne" },
 ];
+
+const TERMIN_GROUP_META = {
+  zdravie: { label: "Zdraví a školení", badge: "bg-sky-100 text-sky-700", dot: "bg-sky-500" },
+  certifikacia: { label: "Certifikace a audity", badge: "bg-violet-100 text-violet-700", dot: "bg-violet-500" },
+  elektro_vtz: { label: "Elektro a VTZ", badge: "bg-amber-100 text-amber-700", dot: "bg-amber-500" },
+  po: { label: "Požární ochrana", badge: "bg-rose-100 text-rose-700", dot: "bg-rose-500" },
+  sklad: { label: "Sklad", badge: "bg-indigo-100 text-indigo-700", dot: "bg-indigo-500" },
+  chladenie: { label: "Chlazení/VZT", badge: "bg-cyan-100 text-cyan-700", dot: "bg-cyan-500" },
+  metrologia: { label: "Metrologie", badge: "bg-emerald-100 text-emerald-700", dot: "bg-emerald-500" },
+  detektor: { label: "Detektor kovů", badge: "bg-fuchsia-100 text-fuchsia-700", dot: "bg-fuchsia-500" },
+  hygiena: { label: "Hygiena", badge: "bg-lime-100 text-lime-800", dot: "bg-lime-500" },
+  bozp: { label: "BOZP", badge: "bg-orange-100 text-orange-700", dot: "bg-orange-500" },
+  ostatne: { label: "Ostatní", badge: "bg-slate-100 text-slate-700", dot: "bg-slate-400" },
+};
+
+const TERMIN_TYP_GROUPED = Object.keys(TERMIN_GROUP_META)
+  .map((group) => ({ group, label: TERMIN_GROUP_META[group].label, options: TERMIN_TYP_OPTIONS.filter((o) => o.group === group) }))
+  .filter((g) => g.options.length > 0);
+
+function terminGroupOf(typ) {
+  return (TERMIN_TYP_OPTIONS.find((t) => t.value === typ) || {}).group || "ostatne";
+}
+function terminGroupBadgeClass(typ) {
+  return (TERMIN_GROUP_META[terminGroupOf(typ)] || TERMIN_GROUP_META.ostatne).badge;
+}
+
+const TERMIN_STATUS_META = {
+  po_terminu: { label: "Po termínu", cls: "bg-red-100 text-red-700" },
+  blizi_se: { label: "Blíží se", cls: "bg-amber-100 text-amber-700" },
+  v_poradku: { label: "V pořádku", cls: "bg-emerald-100 text-emerald-700" },
+  neznamy: { label: "Bez termínu", cls: "bg-slate-100 text-slate-500" },
+};
+
+function terminStatusOf(k) {
+  const nextDue = computeNextDue(k.datumPoslednej, k.frekvenciaTyp, k.frekvenciaHodnota);
+  const diff = daysUntil(nextDue);
+  if (diff === null) return { key: "neznamy", nextDue, diff };
+  if (diff < 0) return { key: "po_terminu", nextDue, diff };
+  if (diff <= (Number(k.notifikaciaDniPred) || 0)) return { key: "blizi_se", nextDue, diff };
+  return { key: "v_poradku", nextDue, diff };
+}
+
+function terminStatusLabel(status) {
+  if (status.key === "po_terminu") return `Po termínu ${-status.diff} dní`;
+  if (status.key === "blizi_se") return status.diff === 0 ? "Dnes" : `Za ${status.diff} dní`;
+  if (status.key === "v_poradku") return "V pořádku";
+  return "Bez termínu";
+}
 
 async function openKvalitaDokument(path) {
   if (!path) return;
@@ -468,12 +526,74 @@ function emptyTerminForm() {
   return { typ: "zdravotna_prehliadka", nazov: "", predmet: "", datumPoslednej: todayStr(), frekvenciaTyp: "roky", frekvenciaHodnota: "1", notifikaciaDniPred: "30", notifikaciaOpakovaniePoDnoch: "5", poznamka: "" };
 }
 
+function TerminFormFields({ values, onChange }) {
+  return (
+    <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-4">
+      <label className="block mb-2">
+        <span className="block text-xs font-medium text-slate-500 mb-1">Kategorie</span>
+        <select value={values.typ} onChange={(e) => onChange({ ...values, typ: e.target.value })} className="w-full border border-slate-200 rounded-md px-2.5 py-1.5 text-sm">
+          {TERMIN_TYP_GROUPED.map((g) => (
+            <optgroup key={g.group} label={g.label}>
+              {g.options.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+            </optgroup>
+          ))}
+        </select>
+      </label>
+      <label className="block mb-2">
+        <span className="block text-xs font-medium text-slate-500 mb-1">Koho/čeho se týká (jméno, VZV č. ...)</span>
+        <input value={values.predmet} onChange={(e) => onChange({ ...values, predmet: e.target.value })} className="w-full border border-slate-200 rounded-md px-2.5 py-1.5 text-sm" />
+      </label>
+      <label className="block mb-2 sm:col-span-2">
+        <span className="block text-xs font-medium text-slate-500 mb-1">Název / poznámka (nepovinné)</span>
+        <input value={values.nazov} onChange={(e) => onChange({ ...values, nazov: e.target.value })} className="w-full border border-slate-200 rounded-md px-2.5 py-1.5 text-sm" />
+      </label>
+      <label className="block mb-2">
+        <span className="block text-xs font-medium text-slate-500 mb-1">Datum poslední revize/prohlídky</span>
+        <input type="date" value={isoFromSkDateStr(values.datumPoslednej)} onChange={(e) => onChange({ ...values, datumPoslednej: skDateStrFromIso(e.target.value) })} className="w-full border border-slate-200 rounded-md px-2.5 py-1.5 text-sm" />
+      </label>
+      <div className="flex gap-2 mb-2">
+        <label className="w-1/2">
+          <span className="block text-xs font-medium text-slate-500 mb-1">Frekvence - každých</span>
+          <input value={values.frekvenciaHodnota} onChange={(e) => onChange({ ...values, frekvenciaHodnota: e.target.value })} className="w-full border border-slate-200 rounded-md px-2.5 py-1.5 text-sm" />
+        </label>
+        <label className="w-1/2">
+          <span className="block text-xs font-medium text-slate-500 mb-1">&nbsp;</span>
+          <select value={values.frekvenciaTyp} onChange={(e) => onChange({ ...values, frekvenciaTyp: e.target.value })} className="w-full border border-slate-200 rounded-md px-2.5 py-1.5 text-sm">
+            {FREKVENCIA_OPTIONS.map((f) => <option key={f.value} value={f.value}>{f.label}</option>)}
+          </select>
+        </label>
+      </div>
+      <label className="block mb-2">
+        <span className="block text-xs font-medium text-slate-500 mb-1">Upozornit kolik dní předem</span>
+        <input value={values.notifikaciaDniPred} onChange={(e) => onChange({ ...values, notifikaciaDniPred: e.target.value })} className="w-full border border-slate-200 rounded-md px-2.5 py-1.5 text-sm" />
+      </label>
+      <label className="block mb-2">
+        <span className="block text-xs font-medium text-slate-500 mb-1">Poznámka</span>
+        <input value={values.poznamka} onChange={(e) => onChange({ ...values, poznamka: e.target.value })} className="w-full border border-slate-200 rounded-md px-2.5 py-1.5 text-sm" />
+      </label>
+    </div>
+  );
+}
+
+function TerminStatCard({ label, value, tone, alert }) {
+  return (
+    <div className={"bg-white rounded-lg px-4 py-3 border " + (alert && value > 0 ? "border-red-400" : "border-slate-200")}>
+      <div className={"text-2xl font-bold " + tone}>{value}</div>
+      <div className="text-xs text-slate-500 mt-0.5">{label}</div>
+    </div>
+  );
+}
+
 function TerminyTab({ terminy, onSaveTermin, onUpdateTermin, onDeleteTermin }) {
   const [formOpen, setFormOpen] = useState(false);
   const [form, setForm] = useState(emptyTerminForm());
   const [formError, setFormError] = useState("");
   const [filterTyp, setFilterTyp] = useState("vsetko");
+  const [filterStav, setFilterStav] = useState("vsetko");
   const [uploadingId, setUploadingId] = useState(null);
+  const [editingId, setEditingId] = useState(null);
+  const [editForm, setEditForm] = useState(null);
+  const [editError, setEditError] = useState("");
 
   async function uploadDokument(termin, file) {
     if (!file) return;
@@ -500,71 +620,122 @@ function TerminyTab({ terminy, onSaveTermin, onUpdateTermin, onDeleteTermin }) {
     setFormOpen(false);
   }
 
-  const filtered = filterTyp === "vsetko" ? terminy : terminy.filter((t) => t.typ === filterTyp);
-  const sorted = filtered.slice().sort((a, b) => {
-    const da = daysUntil(computeNextDue(a.datumPoslednej, a.frekvenciaTyp, a.frekvenciaHodnota));
-    const db = daysUntil(computeNextDue(b.datumPoslednej, b.frekvenciaTyp, b.frekvenciaHodnota));
-    return (da ?? 9999) - (db ?? 9999);
+  function startEdit(k) {
+    setEditingId(k.id);
+    setEditForm({
+      typ: k.typ,
+      nazov: k.nazov || "",
+      predmet: k.predmet || "",
+      datumPoslednej: k.datumPoslednej,
+      frekvenciaTyp: k.frekvenciaTyp,
+      frekvenciaHodnota: String(k.frekvenciaHodnota ?? ""),
+      notifikaciaDniPred: String(k.notifikaciaDniPred ?? ""),
+      poznamka: k.poznamka || "",
+    });
+    setEditError("");
+    setFormOpen(false);
+  }
+  function cancelEdit() {
+    setEditingId(null);
+    setEditForm(null);
+    setEditError("");
+  }
+  function saveEdit() {
+    if (!editForm.predmet.trim()) { setEditError("Vyplňte, koho/čeho se termín týká."); return; }
+    if (!editForm.datumPoslednej) { setEditError("Vyplňte datum poslední revize/prohlídky."); return; }
+    if (!Number(editForm.frekvenciaHodnota)) { setEditError("Vyplňte frekvenci."); return; }
+    const current = terminy.find((t) => t.id === editingId);
+    if (!current) { cancelEdit(); return; }
+    onUpdateTermin({ ...current, ...editForm });
+    cancelEdit();
+  }
+
+  const withStatus = terminy.map((k) => ({ k, status: terminStatusOf(k) }));
+  const stats = withStatus.reduce((acc, { status }) => {
+    acc[status.key] = (acc[status.key] || 0) + 1;
+    return acc;
+  }, {});
+
+  const filteredWithStatus = withStatus.filter(({ k, status }) => {
+    if (filterTyp !== "vsetko" && k.typ !== filterTyp) return false;
+    if (filterStav !== "vsetko" && status.key !== filterStav) return false;
+    return true;
   });
+  const sortedWithStatus = filteredWithStatus.slice().sort((a, b) => (a.status.diff ?? 9999) - (b.status.diff ?? 9999));
+
+  async function exportToExcel() {
+    const rows = sortedWithStatus.map(({ k, status }) => ({
+      "Kategorie": terminTypLabel(k.typ),
+      "Předmět": k.predmet || "",
+      "Název / poznámka": k.nazov || "",
+      "Datum poslední revize": k.datumPoslednej || "",
+      "Frekvence": `${k.frekvenciaHodnota} ${frekvenciaLabel(k.frekvenciaTyp).toLowerCase()}`,
+      "Další termín": status.nextDue || "",
+      "Dní do termínu": status.diff ?? "",
+      "Upozornit dní předem": k.notifikaciaDniPred || "",
+      "Poznámka": k.poznamka || "",
+      "Dokument nahrán": k.dokumentPath ? "Ano" : "Ne",
+    }));
+    await exportRowsToExcel(rows, "Termíny", "Terminy_BOZP");
+  }
+
+  const hasActiveFilters = filterTyp !== "vsetko" || filterStav !== "vsetko";
 
   return (
     <div>
       <div className="flex items-center justify-between mb-4 flex-wrap gap-2">
         <h1 className="text-xl font-semibold">Termíny / BOZP</h1>
-        <button onClick={() => setFormOpen((v) => !v)} className="flex items-center gap-1.5 bg-teal-700 hover:bg-teal-800 text-white text-sm font-medium px-3 py-2 rounded-md">
-          <Plus size={16} /> Nový termín
-        </button>
+        <div className="flex gap-2">
+          <button onClick={exportToExcel} disabled={terminy.length === 0} title={terminy.length === 0 ? "Zatím žádné termíny" : "Exportovat do Excelu"} className="flex items-center gap-1.5 bg-white border border-slate-200 hover:bg-slate-50 disabled:opacity-50 disabled:cursor-not-allowed text-slate-700 text-sm font-medium px-3 py-2 rounded-md">
+            <Download size={16} /> Export do Excelu
+          </button>
+          <button onClick={() => { setFormOpen((v) => !v); cancelEdit(); }} className="flex items-center gap-1.5 bg-teal-700 hover:bg-teal-800 text-white text-sm font-medium px-3 py-2 rounded-md">
+            <Plus size={16} /> Nový termín
+          </button>
+        </div>
       </div>
 
-      <div className="flex gap-2 flex-wrap mb-4">
-        <button onClick={() => setFilterTyp("vsetko")} className={"text-xs px-3 py-1.5 rounded-md border " + (filterTyp === "vsetko" ? "bg-teal-700 text-white border-teal-700" : "bg-white text-slate-700 border-slate-200")}>Vše</button>
-        {TERMIN_TYP_OPTIONS.map((o) => (
-          <button key={o.value} onClick={() => setFilterTyp(o.value)} className={"text-xs px-3 py-1.5 rounded-md border " + (filterTyp === o.value ? "bg-teal-700 text-white border-teal-700" : "bg-white text-slate-700 border-slate-200")}>{o.label}</button>
-        ))}
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-4">
+        <TerminStatCard label="Po termínu" value={stats.po_terminu || 0} tone="text-red-600" alert />
+        <TerminStatCard label="Blíží se" value={stats.blizi_se || 0} tone="text-amber-600" />
+        <TerminStatCard label="V pořádku" value={stats.v_poradku || 0} tone="text-emerald-600" />
+        <TerminStatCard label="Celkem" value={terminy.length} tone="text-slate-700" />
+      </div>
+
+      <div className="bg-white border border-slate-200 rounded-lg p-3 mb-4 flex flex-wrap gap-3 items-end">
+        <label className="min-w-[220px]">
+          <span className="block text-xs font-medium text-slate-500 mb-1">Kategorie</span>
+          <select value={filterTyp} onChange={(e) => setFilterTyp(e.target.value)} className="w-full border border-slate-200 rounded-md px-2.5 py-1.5 text-sm">
+            <option value="vsetko">Všechny kategorie</option>
+            {TERMIN_TYP_GROUPED.map((g) => (
+              <optgroup key={g.group} label={g.label}>
+                {g.options.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+              </optgroup>
+            ))}
+          </select>
+        </label>
+        <label className="min-w-[160px]">
+          <span className="block text-xs font-medium text-slate-500 mb-1">Stav</span>
+          <select value={filterStav} onChange={(e) => setFilterStav(e.target.value)} className="w-full border border-slate-200 rounded-md px-2.5 py-1.5 text-sm">
+            <option value="vsetko">Všechny stavy</option>
+            <option value="po_terminu">Po termínu</option>
+            <option value="blizi_se">Blíží se</option>
+            <option value="v_poradku">V pořádku</option>
+          </select>
+        </label>
+        {hasActiveFilters && (
+          <button onClick={() => { setFilterTyp("vsetko"); setFilterStav("vsetko"); }} className="text-xs text-slate-500 hover:text-slate-700 px-2 py-1.5">
+            Zrušit filtry
+          </button>
+        )}
+        {hasActiveFilters && (
+          <div className="text-xs text-slate-400 ml-auto">{sortedWithStatus.length} z {terminy.length} termínů</div>
+        )}
       </div>
 
       {formOpen && (
         <div className="bg-white border border-slate-200 rounded-lg p-4 mb-4">
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-4">
-            <label className="block mb-2">
-              <span className="block text-xs font-medium text-slate-500 mb-1">Typ</span>
-              <select value={form.typ} onChange={(e) => setForm({ ...form, typ: e.target.value })} className="w-full border border-slate-200 rounded-md px-2.5 py-1.5 text-sm">
-                {TERMIN_TYP_OPTIONS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
-              </select>
-            </label>
-            <label className="block mb-2">
-              <span className="block text-xs font-medium text-slate-500 mb-1">Koho/čeho se týká (jméno, VZV č. ...)</span>
-              <input value={form.predmet} onChange={(e) => setForm({ ...form, predmet: e.target.value })} className="w-full border border-slate-200 rounded-md px-2.5 py-1.5 text-sm" />
-            </label>
-            <label className="block mb-2 sm:col-span-2">
-              <span className="block text-xs font-medium text-slate-500 mb-1">Název / poznámka (nepovinné)</span>
-              <input value={form.nazov} onChange={(e) => setForm({ ...form, nazov: e.target.value })} className="w-full border border-slate-200 rounded-md px-2.5 py-1.5 text-sm" />
-            </label>
-            <label className="block mb-2">
-              <span className="block text-xs font-medium text-slate-500 mb-1">Datum poslední revize/prohlídky</span>
-              <input type="date" value={isoFromSkDateStr(form.datumPoslednej)} onChange={(e) => setForm({ ...form, datumPoslednej: skDateStrFromIso(e.target.value) })} className="w-full border border-slate-200 rounded-md px-2.5 py-1.5 text-sm" />
-            </label>
-            <div className="flex gap-2 mb-2">
-              <label className="w-1/2">
-                <span className="block text-xs font-medium text-slate-500 mb-1">Frekvence - každých</span>
-                <input value={form.frekvenciaHodnota} onChange={(e) => setForm({ ...form, frekvenciaHodnota: e.target.value })} className="w-full border border-slate-200 rounded-md px-2.5 py-1.5 text-sm" />
-              </label>
-              <label className="w-1/2">
-                <span className="block text-xs font-medium text-slate-500 mb-1">&nbsp;</span>
-                <select value={form.frekvenciaTyp} onChange={(e) => setForm({ ...form, frekvenciaTyp: e.target.value })} className="w-full border border-slate-200 rounded-md px-2.5 py-1.5 text-sm">
-                  {FREKVENCIA_OPTIONS.map((f) => <option key={f.value} value={f.value}>{f.label}</option>)}
-                </select>
-              </label>
-            </div>
-            <label className="block mb-2">
-              <span className="block text-xs font-medium text-slate-500 mb-1">Upozornit kolik dní předem</span>
-              <input value={form.notifikaciaDniPred} onChange={(e) => setForm({ ...form, notifikaciaDniPred: e.target.value })} className="w-full border border-slate-200 rounded-md px-2.5 py-1.5 text-sm" />
-            </label>
-            <label className="block mb-2">
-              <span className="block text-xs font-medium text-slate-500 mb-1">Poznámka</span>
-              <input value={form.poznamka} onChange={(e) => setForm({ ...form, poznamka: e.target.value })} className="w-full border border-slate-200 rounded-md px-2.5 py-1.5 text-sm" />
-            </label>
-          </div>
+          <TerminFormFields values={form} onChange={setForm} />
           {formError && <div className="mb-2 text-xs text-red-700 flex items-center gap-1.5"><AlertCircle size={12} /> {formError}</div>}
           <div className="flex justify-end gap-2">
             <button onClick={() => { setFormOpen(false); setForm(emptyTerminForm()); setFormError(""); }} className="text-sm text-slate-500 px-3 py-2">Zrušit</button>
@@ -573,66 +744,63 @@ function TerminyTab({ terminy, onSaveTermin, onUpdateTermin, onDeleteTermin }) {
         </div>
       )}
 
-      {sorted.length === 0 ? (
-        <div className="bg-white border border-slate-200 rounded-lg p-8 text-center text-slate-500">Žádné termíny.</div>
+      {sortedWithStatus.length === 0 ? (
+        <div className="bg-white border border-slate-200 rounded-lg p-8 text-center text-slate-500">
+          {terminy.length === 0 ? "Žádné termíny." : "Žádné termíny neodpovídají zadaným filtrům."}
+        </div>
       ) : (
-        <div className="bg-white border border-slate-200 rounded-lg overflow-hidden">
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="bg-slate-100 text-slate-600 text-left">
-                <th className="px-3 py-2 font-medium">Typ</th>
-                <th className="px-3 py-2 font-medium">Koho/čeho se týká</th>
-                <th className="px-3 py-2 font-medium">Poslední</th>
-                <th className="px-3 py-2 font-medium">Frekvence</th>
-                <th className="px-3 py-2 font-medium">Další termín</th>
-                <th className="px-3 py-2 font-medium">Dokument</th>
-                <th className="px-3 py-2"></th>
-              </tr>
-            </thead>
-            <tbody>
-              {sorted.map((k) => {
-                const nextDue = computeNextDue(k.datumPoslednej, k.frekvenciaTyp, k.frekvenciaHodnota);
-                const diff = daysUntil(nextDue);
-                const tone = diff !== null && diff < 0 ? "bg-red-50" : diff !== null && diff <= (Number(k.notifikaciaDniPred) || 0) ? "bg-amber-50" : "";
-                return (
-                  <tr key={k.id} className={"border-t border-slate-100 " + tone}>
-                    <td className="px-3 py-2 whitespace-nowrap">{terminTypLabel(k.typ)}</td>
-                    <td className="px-3 py-2">
-                      <div className="font-medium">{k.predmet}</div>
-                      {k.nazov && <div className="text-xs text-slate-400">{k.nazov}</div>}
-                    </td>
-                    <td className="px-3 py-2 whitespace-nowrap">
-                      <input
-                        type="date"
-                        value={isoFromSkDateStr(k.datumPoslednej)}
-                        onChange={(e) => onUpdateTermin({ ...k, datumPoslednej: skDateStrFromIso(e.target.value) })}
-                        className="border border-slate-200 rounded px-2 py-1 text-xs"
-                      />
-                    </td>
-                    <td className="px-3 py-2 whitespace-nowrap text-slate-500">{k.frekvenciaHodnota} {frekvenciaLabel(k.frekvenciaTyp).toLowerCase()}</td>
-                    <td className="px-3 py-2 whitespace-nowrap font-medium">{nextDue || "-"}</td>
-                    <td className="px-3 py-2 whitespace-nowrap">
-                      {k.dokumentPath ? (
-                        <div className="flex items-center gap-1.5">
-                          <button onClick={() => openKvalitaDokument(k.dokumentPath)} title={k.dokumentNazovSuboru} className="text-xs text-teal-700 hover:text-teal-900 font-medium flex items-center gap-1"><FileCheck size={14} /> Otevřít</button>
-                          <label className="text-xs text-slate-400 hover:text-slate-700 cursor-pointer">
-                            (nahradit)
-                            <input type="file" accept=".pdf,image/*" className="hidden" onChange={(e) => uploadDokument(k, e.target.files && e.target.files[0])} />
-                          </label>
-                        </div>
-                      ) : (
-                        <label className="text-xs bg-slate-100 hover:bg-slate-200 text-slate-700 px-2 py-1 rounded-md font-medium flex items-center gap-1 w-fit cursor-pointer">
-                          {uploadingId === k.id ? <Loader2 size={14} className="animate-spin" /> : <Upload size={14} />} Nahrát
-                          <input type="file" accept=".pdf,image/*" className="hidden" disabled={uploadingId === k.id} onChange={(e) => uploadDokument(k, e.target.files && e.target.files[0])} />
+        <div className="flex flex-col gap-3">
+          {sortedWithStatus.map(({ k, status }) => (
+            <div key={k.id} className={"bg-white rounded-lg p-4 border " + (status.key === "po_terminu" ? "border-red-400" : "border-slate-200")}>
+              {editingId === k.id ? (
+                <>
+                  <TerminFormFields values={editForm} onChange={setEditForm} />
+                  {editError && <div className="mb-2 text-xs text-red-700 flex items-center gap-1.5"><AlertCircle size={12} /> {editError}</div>}
+                  <div className="flex justify-end gap-2">
+                    <button onClick={cancelEdit} className="text-sm text-slate-500 px-3 py-2">Zrušit</button>
+                    <button onClick={saveEdit} className="bg-teal-700 hover:bg-teal-800 text-white text-sm font-medium px-4 py-2 rounded-md">Uložit</button>
+                  </div>
+                </>
+              ) : (
+                <div className="flex items-start justify-between gap-4 flex-wrap">
+                  <div className="flex-1 min-w-[240px]">
+                    <div className="flex items-center gap-2 flex-wrap mb-1.5">
+                      <span className={"text-[11px] font-semibold px-2 py-0.5 rounded-full whitespace-nowrap " + terminGroupBadgeClass(k.typ)}>{terminTypLabel(k.typ)}</span>
+                      <span className={"text-[11px] font-semibold px-2 py-0.5 rounded-full whitespace-nowrap " + TERMIN_STATUS_META[status.key].cls}>{terminStatusLabel(status)}</span>
+                    </div>
+                    <div className="font-medium text-slate-800">{k.predmet}</div>
+                    {k.nazov && <div className="text-sm text-slate-500">{k.nazov}</div>}
+                    {k.poznamka && <div className="text-xs text-slate-400 mt-1">{k.poznamka}</div>}
+                  </div>
+
+                  <div className="text-sm text-right">
+                    <div className="text-xs text-slate-400">Poslední: {k.datumPoslednej || "-"}</div>
+                    <div className="font-semibold text-slate-800">Další: {status.nextDue || "-"}</div>
+                    <div className="text-xs text-slate-400">Frekvence: {k.frekvenciaHodnota}&times; {frekvenciaLabel(k.frekvenciaTyp).toLowerCase()}</div>
+                  </div>
+
+                  <div className="flex items-center gap-1.5 flex-wrap justify-end">
+                    {k.dokumentPath ? (
+                      <div className="flex items-center gap-1.5">
+                        <button onClick={() => openKvalitaDokument(k.dokumentPath)} title={k.dokumentNazovSuboru} className="text-xs text-teal-700 hover:text-teal-900 font-medium flex items-center gap-1"><FileCheck size={14} /> Otevřít</button>
+                        <label className="text-xs text-slate-400 hover:text-slate-700 cursor-pointer">
+                          (nahradit)
+                          <input type="file" accept=".pdf,image/*" className="hidden" onChange={(e) => uploadDokument(k, e.target.files && e.target.files[0])} />
                         </label>
-                      )}
-                    </td>
-                    <td className="px-3 py-2 text-right"><button onClick={() => onDeleteTermin(k.id)} className="text-slate-400 hover:text-red-600"><Trash2 size={16} /></button></td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
+                      </div>
+                    ) : (
+                      <label className="text-xs bg-slate-100 hover:bg-slate-200 text-slate-700 px-2 py-1 rounded-md font-medium flex items-center gap-1 w-fit cursor-pointer">
+                        {uploadingId === k.id ? <Loader2 size={14} className="animate-spin" /> : <Upload size={14} />} Nahrát
+                        <input type="file" accept=".pdf,image/*" className="hidden" disabled={uploadingId === k.id} onChange={(e) => uploadDokument(k, e.target.files && e.target.files[0])} />
+                      </label>
+                    )}
+                    <button onClick={() => startEdit(k)} title="Upravit termín" className="text-slate-400 hover:text-teal-700 p-1"><Pencil size={16} /></button>
+                    <button onClick={() => onDeleteTermin(k.id)} title="Smazat termín" className="text-slate-400 hover:text-red-600 p-1"><Trash2 size={16} /></button>
+                  </div>
+                </div>
+              )}
+            </div>
+          ))}
         </div>
       )}
     </div>
