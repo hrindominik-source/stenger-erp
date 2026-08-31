@@ -508,7 +508,7 @@ function OrderDetailModal({ order, products, carriers, dispatches, finishedStock
   const linkaProducts = products.filter((p) => p.linka === linka);
   const selectedProduct = products.find((p) => p.id === produktId);
   const stockRow = selectedProduct ? finishedStock.find((r) => r.produktId === selectedProduct.id) : null;
-  const batchDispatches = dispatches.filter((d) => d.typ !== "celkova" && d.typ !== "doprava");
+  const batchDispatches = dispatches.filter((d) => d.typ !== "celkova" && d.typ !== "doprava" && d.typ !== "kontrola");
   const overallPhotos = dispatches.filter((d) => d.typ === "celkova");
   const nalozeneSpolu = batchDispatches.reduce((sum, d) => sum + (parseFloat(d.pocetPaliet) || 0), 0);
   const planovanePaliet = parseFloat(order.pocet_paliet) || 0;
@@ -945,6 +945,11 @@ function OrderDetailModal({ order, products, carriers, dispatches, finishedStock
                   <PackageCheck size={18} /> Ložná plocha zkontrolována - OK{order.stav_expedicie === "Expedovana" ? " - expedice potvrzena" : ""}
                 </div>
               )
+            ) : batchDispatches.length === 0 ? (
+              <div className="text-sm text-slate-500 flex items-center gap-2">
+                <AlertCircle size={16} className="text-amber-500 shrink-0" />
+                Nejprve zaznamenejte alespoň jednu naloženou dávku (výše), teprve poté lze potvrdit expedici.
+              </div>
             ) : (
               <>
                 <label className="flex items-start gap-2 text-sm text-slate-700 mb-3 cursor-pointer">

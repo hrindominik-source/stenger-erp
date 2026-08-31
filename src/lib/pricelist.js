@@ -52,6 +52,27 @@ export async function parsePricelistFile(arrayBuffer) {
   };
 }
 
+// Cennik casto ma mesto zapisane skratene (napr. "BINGEN"), zatial co appka
+// z adresy objednavky vytiahne cely nazov (napr. "BINGEN AM RHEIN") - presna
+// zhoda retazcov by v takom pripade cenu nenasla. Tolerujeme preto aj pripad,
+// ked jeden nazov zacina druhym a hned za spolocnou castou nasleduje medzera/
+// pomlcka (aby sa "BINGEN" nezhodlo s nesuvisiacim "BINGENDORF").
+function citiesLooselyMatch(a, b) {
+  if (a === b) return true;
+  const [shorter, longer] = a.length <= b.length ? [a, b] : [b, a];
+  if (!shorter || !longer.startsWith(shorter)) return false;
+  const nextChar = longer[shorter.length];
+  return nextChar === " " || nextChar === "-" || nextChar === "/";
+}
+
+function findCityPrices(cities, city) {
+  if (cities[city]) return cities[city];
+  const match = Object.keys(cities)
+    .filter((k) => citiesLooselyMatch(k, city))
+    .sort((a, b) => b.length - a.length)[0];
+  return match ? cities[match] : null;
+}
+
 export function computeTransportPriceForCity(cityRaw, pocetPaletovychMiest, paletyZpat, pricelist) {
   if (!pricelist || !pricelist.buckets || !pricelist.buckets.length) {
     return { matched: false, reason: "Cennik doprav nie je nahraty." };
@@ -66,7 +87,7 @@ export function computeTransportPriceForCity(cityRaw, pocetPaletovychMiest, pale
   }
   const bucket = pricelist.buckets[bucketIndex];
   const city = String(cityRaw || "").trim().toUpperCase();
-  const cityPrices = city ? pricelist.cities[city] : null;
+  const cityPrices = city ? findCityPrices(pricelist.cities, city) : null;
   const basePrice = cityPrices ? cityPrices[bucketIndex] : null;
   if (basePrice === null || basePrice === undefined) {
     return { matched: false, reason: `Mesto "${city || "?"}" nenajdene v cenniku pre rozsah ${bucket.label}.`, city, bucketLabel: bucket.label };
@@ -89,4 +110,10 @@ export function computeTransportPrice(order, pricelist, extractCityFromAddress) 
 
 export function formatEur(n) {
   return n.toFixed(2).replace(".", ",") + " €";
+}
+
+// Bez znaku meny - pouziva sa na dodacom liste, kde je cislo urcene len pre
+// internu potrebu (uctovnictvo), nie ako viditelna cena pre partnera/dopravcu.
+export function formatPriceNumber(n) {
+  return n.toFixed(2).replace(".", ",");
 }

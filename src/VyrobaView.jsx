@@ -497,6 +497,15 @@ function PrehladTab() {
   }, [fetchPlan]);
 
   async function setStatus(row, stavVyroby) {
+    if (stavVyroby !== "caka") {
+      const smena = dnesnaSmena();
+      const today = todayStr();
+      const maKontroluPreLinku = ccpKontroly.some((k) => k.typ === "zaciatok_zmeny" && k.datum === today && k.smena === smena && k.linka === row.linka);
+      if (!maKontroluPreLinku) {
+        setError("Nejprve proveďte kontrolu detektoru kovu pro linku " + (PRODUCTION_LINKY.find((l) => l.value === row.linka) || {}).label + " (výše).");
+        return;
+      }
+    }
     setSavingId(row.id);
     const next = { ...row, stavVyroby };
     setPlan((prev) => prev.map((r) => (r.id === row.id ? next : r)));
@@ -751,11 +760,14 @@ function PrehladTab() {
                   <div className="text-xs text-red-600 mb-3 -mt-2">{zmenaText}</div>
                 )}
                 <div className="grid grid-cols-3 gap-2">
-                  {VYROBA_STATUS_OPTIONS.map((opt) => (
+                  {VYROBA_STATUS_OPTIONS.map((opt) => {
+                    const rLineChybaKontrola = opt.value !== "caka" && !ccpKontroly.some((k) => k.typ === "zaciatok_zmeny" && k.datum === today && k.smena === smena && k.linka === r.linka);
+                    return (
                     <button
                       key={opt.value}
                       onClick={() => setStatus(r, opt.value)}
-                      disabled={savingId === r.id}
+                      disabled={savingId === r.id || rLineChybaKontrola}
+                      title={rLineChybaKontrola ? "Nejprve proveďte kontrolu detektoru kovu pro tuto linku (výše)" : undefined}
                       className={
                         "text-sm font-semibold px-3 py-2.5 rounded-lg border-2 disabled:opacity-60 " +
                         (stav === opt.value
@@ -769,7 +781,8 @@ function PrehladTab() {
                     >
                       {opt.label}
                     </button>
-                  ))}
+                    );
+                  })}
                 </div>
                 {(() => {
                   const ccp = ccpKontroly.find((k) => k.planId === r.id);

@@ -471,19 +471,35 @@ function ChecklistyTab({ fullName, templates, submissions, onSaveTemplate, onUpd
 }
 
 function ChecklistFillForm({ template, fullName, onCancel, onSave }) {
-  const [odpovede, setOdpovede] = useState(template.polozky.map((p) => ({ text: p.text, ok: true, poznamka: "" })));
+  const [odpovede, setOdpovede] = useState(template.polozky.map((p) => ({ text: p.text, ok: null, poznamka: "" })));
   const [vyplnil, setVyplnil] = useState(fullName || "");
   const [poznamka, setPoznamka] = useState("");
+  const [error, setError] = useState("");
 
-  function toggle(i) {
+  function setOk(i, value) {
     const next = odpovede.slice();
-    next[i] = { ...next[i], ok: !next[i].ok };
+    next[i] = { ...next[i], ok: value };
     setOdpovede(next);
   }
   function setNote(i, v) {
     const next = odpovede.slice();
     next[i] = { ...next[i], poznamka: v };
     setOdpovede(next);
+  }
+
+  const neposudene = odpovede.filter((o) => o.ok === null).length;
+
+  function handleSave() {
+    if (!vyplnil.trim()) {
+      setError("Vyplňte, kdo kontrolu provedl.");
+      return;
+    }
+    if (neposudene > 0) {
+      setError(`Posuďte ještě ${neposudene} nezaškrtnutou položku(y) (OK / Nevyhovuje).`);
+      return;
+    }
+    setError("");
+    onSave({ id: uid(), templateId: template.id, datum: todayStr(), vyplnil: vyplnil.trim(), odpovede, poznamka: poznamka.trim() });
   }
 
   return (
@@ -494,10 +510,13 @@ function ChecklistFillForm({ template, fullName, onCancel, onSave }) {
       </label>
       <div className="space-y-1.5 mb-2">
         {odpovede.map((o, i) => (
-          <div key={i} className="flex items-center gap-2 bg-white border border-slate-200 rounded-md px-2.5 py-1.5">
-            <input type="checkbox" checked={o.ok} onChange={() => toggle(i)} />
+          <div key={i} className={"flex items-center gap-2 bg-white border rounded-md px-2.5 py-1.5 " + (o.ok === null ? "border-amber-300" : "border-slate-200")}>
             <span className="text-sm flex-1">{o.text}</span>
-            {!o.ok && (
+            <div className="flex gap-1 shrink-0">
+              <button type="button" onClick={() => setOk(i, true)} className={"text-xs font-medium px-2 py-1 rounded-md border " + (o.ok === true ? "bg-emerald-600 text-white border-emerald-600" : "bg-white text-slate-500 border-slate-200")}>OK</button>
+              <button type="button" onClick={() => setOk(i, false)} className={"text-xs font-medium px-2 py-1 rounded-md border " + (o.ok === false ? "bg-red-600 text-white border-red-600" : "bg-white text-slate-500 border-slate-200")}>Nevyhovuje</button>
+            </div>
+            {o.ok === false && (
               <input value={o.poznamka} onChange={(e) => setNote(i, e.target.value)} placeholder="Poznámka k neshodě" className="w-48 border border-slate-200 rounded px-2 py-1 text-xs" />
             )}
           </div>
@@ -507,12 +526,10 @@ function ChecklistFillForm({ template, fullName, onCancel, onSave }) {
         <span className="block text-xs font-medium text-slate-500 mb-1">Poznámka (nepovinné)</span>
         <input value={poznamka} onChange={(e) => setPoznamka(e.target.value)} className="w-full border border-slate-200 rounded-md px-2.5 py-1.5 text-sm" />
       </label>
+      {error && <div className="mb-2 text-xs text-red-700">{error}</div>}
       <div className="flex justify-end gap-2">
         <button onClick={onCancel} className="text-sm text-slate-500 px-3 py-2">Zrušit</button>
-        <button
-          onClick={() => onSave({ id: uid(), templateId: template.id, datum: todayStr(), vyplnil: vyplnil.trim() || "-", odpovede, poznamka: poznamka.trim() })}
-          className="bg-teal-700 hover:bg-teal-800 text-white text-sm font-medium px-4 py-2 rounded-md"
-        >
+        <button onClick={handleSave} className="bg-teal-700 hover:bg-teal-800 text-white text-sm font-medium px-4 py-2 rounded-md">
           Uložit vyplnění
         </button>
       </div>

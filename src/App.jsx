@@ -17,7 +17,7 @@ const PlanSmienView = lazy(() => import("./PlanSmienView.jsx"));
 const KvalitaView = lazy(() => import("./KvalitaView.jsx"));
 const UctovnictviView = lazy(() => import("./UctovnictviView.jsx"));
 import { extractCityFromAddress, todayStr, uid, parseSkDate, isoFromSkDateStr, skDateStrFromIso, durationMinutes, formatMinutes } from "./lib/utils.js";
-import { parsePricelistFile, computeTransportPrice, computeTransportPriceForCity, formatEur } from "./lib/pricelist.js";
+import { parsePricelistFile, computeTransportPrice, computeTransportPriceForCity, formatEur, formatPriceNumber } from "./lib/pricelist.js";
 import { buildLieferscheinXlsx } from "./lib/lieferscheinXlsx.js";
 import { buildCmrXlsx } from "./lib/cmrXlsx.js";
 import { parseSupplierCatalogFile, mergeSupplierCatalog } from "./lib/supplierCatalog.js";
@@ -3046,8 +3046,9 @@ function RegisterView({ orders, carriers, customers, expedicniaZaznamy, products
                     <td className="px-3 py-2" onClick={(e) => e.stopPropagation()}>
                       <button
                         onClick={() => onToggleExpedicia(o)}
-                        title="Kliknutím přepnete stav expedice"
-                        className={"text-xs font-medium px-2 py-1 rounded-full whitespace-nowrap border border-transparent hover:brightness-95 " + (STATUS_EXPEDICIA[o.stavExpedicie] || STATUS_EXPEDICIA["Neexpedovana"])}
+                        disabled={o.stavExpedicie !== "Expedovana" && orderBatches.length === 0}
+                        title={o.stavExpedicie !== "Expedovana" && orderBatches.length === 0 ? "Nejprve zaznamenejte alespoň jednu naloženou dávku (Detail expedice)" : "Kliknutím přepnete stav expedice"}
+                        className={"text-xs font-medium px-2 py-1 rounded-full whitespace-nowrap border border-transparent hover:brightness-95 disabled:opacity-50 disabled:cursor-not-allowed " + (STATUS_EXPEDICIA[o.stavExpedicie] || STATUS_EXPEDICIA["Neexpedovana"])}
                       >
                         {o.stavExpedicie === "Expedovana" ? "Expedovana" : "Neexpedovana"}
                       </button>
@@ -3781,7 +3782,7 @@ function LieferscheinPrintTable({ id, company, customer, order, carrierName, tra
       <div style={{ fontFamily: "Arial, sans-serif", fontSize: "11px", color: "#111", maxWidth: "760px" }}>
         <div style={{ textAlign: "right" }}>
           {order.cisloObjednavkyDopravy}
-          {transportPrice && transportPrice.matched ? "   " + formatEur(transportPrice.total) : ""}
+          {transportPrice && transportPrice.matched ? "   " + formatPriceNumber(transportPrice.total) : ""}
         </div>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginTop: "2px" }}>
           <div style={{ fontWeight: "bold" }}>{company.nazov}</div>
@@ -3835,7 +3836,7 @@ function LieferscheinPrintTable({ id, company, customer, order, carrierName, tra
                   {it.produkt?.inhlt && <div style={{ fontSize: "9px", color: "#555", whiteSpace: "pre-wrap" }}>{it.produkt.inhlt}</div>}
                   {(it.produkt?.eanKarton || it.produkt?.eanUnit) && (
                     <div style={{ fontSize: "9px", color: "#555" }}>
-                      {[it.produkt.eanKarton && `EAN karton: ${it.produkt.eanKarton}`, it.produkt.eanUnit && `EAN kus: ${it.produkt.eanUnit}`].filter(Boolean).join("   ")}
+                      {[it.produkt.eanKarton && `EAN UK: ${it.produkt.eanKarton}`, it.produkt.eanUnit && `EAN VE: ${it.produkt.eanUnit}`].filter(Boolean).join("   ")}
                     </div>
                   )}
                   {it.produkt?.rspo && <div style={{ fontSize: "9px", color: "#555" }}>{RSPO_CERT_CODE}</div>}
@@ -3883,7 +3884,7 @@ function buildLieferscheinHtml({ company, customer, order, carrierName, transpor
   const totalPaliet = sumPaliet > 0 ? sumPaliet : (order.pocetPaliet || 0);
   const itemRows = items.map((it) => {
     const p = it.produkt;
-    const eanLine = p ? [p.eanKarton && `EAN karton: ${escapeHtml(p.eanKarton)}`, p.eanUnit && `EAN kus: ${escapeHtml(p.eanUnit)}`].filter(Boolean).join("   ") : "";
+    const eanLine = p ? [p.eanKarton && `EAN UK: ${escapeHtml(p.eanKarton)}`, p.eanUnit && `EAN VE: ${escapeHtml(p.eanUnit)}`].filter(Boolean).join("   ") : "";
     return `
     <tr style="border-bottom:1px solid #eee;vertical-align:top;">
       <td style="padding:3px;">${escapeHtml(it.paletEffective)}</td>
@@ -3901,7 +3902,7 @@ function buildLieferscheinHtml({ company, customer, order, carrierName, transpor
   return `
     <div style="font-family:Arial,sans-serif;font-size:11px;color:#111;max-width:760px;">
       <div style="text-align:right;">
-        ${escapeHtml(order.cisloObjednavkyDopravy)}${transportPrice && transportPrice.matched ? "   " + escapeHtml(formatEur(transportPrice.total)) : ""}
+        ${escapeHtml(order.cisloObjednavkyDopravy)}${transportPrice && transportPrice.matched ? "   " + escapeHtml(formatPriceNumber(transportPrice.total)) : ""}
       </div>
       <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-top:2px;">
         <div style="font-weight:bold;">${escapeHtml(company.nazov)}</div>

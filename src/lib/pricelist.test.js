@@ -48,6 +48,18 @@ describe("computeTransportPriceForCity", () => {
     const result = computeTransportPriceForCity("Neznamemesto", 2, false, pricelist);
     expect(result.matched).toBe(false);
   });
+
+  it("najde cenu aj ked cennik ma mesto skratene a adresa cely nazov (BINGEN vs BINGEN AM RHEIN)", () => {
+    const pricelistSkrateny = { ...pricelist, cities: { ...pricelist.cities, BINGEN: [80, 120] } };
+    const result = computeTransportPriceForCity("Bingen am Rhein", 2, false, pricelistSkrateny);
+    expect(result).toMatchObject({ matched: true, basePrice: 80 });
+  });
+
+  it("nezhoduje nesuvisiace mesto so spolocnym prefixom (BINGEN vs BINGENDORF)", () => {
+    const pricelistSkrateny = { ...pricelist, cities: { ...pricelist.cities, BINGEN: [80, 120] } };
+    const result = computeTransportPriceForCity("Bingendorf", 2, false, pricelistSkrateny);
+    expect(result.matched).toBe(false);
+  });
 });
 
 describe("formatEur", () => {

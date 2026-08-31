@@ -6,6 +6,8 @@
 // Pouziva exceljs (nie xlsx/SheetJS) - SheetJS free verzia nevie zapisovat
 // styly bunky (oramovanie, tucne pismo) do .xlsx suboru, exceljs ano.
 
+import { formatPriceNumber } from "./pricelist.js";
+
 const MAX_ITEMS = 6;
 const ITEMS_START_ROW = 16;
 const THIN = { style: "thin" };
@@ -117,7 +119,7 @@ export async function buildLieferscheinXlsx({ order, company, customer, carrierN
 
   // hlavicka
   set("G1", order.cisloObjednavkyDopravy, { size: 10 });
-  if (transportPrice && transportPrice.matched) set("I1", transportPrice.total);
+  if (transportPrice && transportPrice.matched) set("I1", formatPriceNumber(transportPrice.total));
   set("A2", company.nazov, { bold: true, size: 14 });
   set("D2", "LIEFERSCHEIN ", { bold: true, size: 18 });
   merge("D2", "F2");
@@ -138,16 +140,19 @@ export async function buildLieferscheinXlsx({ order, company, customer, carrierN
   set("G6", "ABNEHMER/ODBĚRATEL");
   set("A7", company.nazov, { bold: true, size: 12, align: { shrinkToFit: true } });
   set("G7", customer ? customer.nazov : (order.zakaznik || ""), { bold: true, align: { shrinkToFit: true } });
+  // Zlucene AZ CEZ oba riadky (8 aj 9) do JEDNEJ bunky - predtym boli A8:C8 a
+  // A9:C9 dva samostatne (aj ked susedne) zlucenia, takze zalomeny text mal v
+  // Exceli reálne k dispozicii len vysku riadku 8 (32) a orezaval sa, hoci pod
+  // nim bolo dalsich 10 bodov v riadku 9, ktore sa ako samostatna bunka nedali
+  // vyuzit. Jeden zlucenim cez oba riadky text spravne vyuzije celu vysku.
   const dodavatelAdresa = addressLines(company.adresa, 2);
   const dodavatelAdresaText = dodavatelAdresa.join("\n");
   set("A8", dodavatelAdresaText, { size: fitFontSize(dodavatelAdresaText, 11, 8, 70), align: { vertical: "top", wrapText: true } });
-  merge("A8", "C8");
-  merge("A9", "C9");
+  merge("A8", "C9");
   const odberatelAdresa = addressLines(customer ? customer.adresa : "", 2);
   const odberatelAdresaText = odberatelAdresa.join("\n");
   set("G8", odberatelAdresaText, { size: fitFontSize(odberatelAdresaText, 9, 7, 70), align: { vertical: "middle", wrapText: true } });
-  merge("G8", "I8");
-  merge("G9", "I9");
+  merge("G8", "I9");
   set("A10", "IČO:" + (company.ico || ""), { size: 12 });
   merge("A10", "B10");
   set("G10", customer && customer.dic ? "Ust.-Id Nr." + customer.dic : "");
@@ -211,13 +216,29 @@ export async function buildLieferscheinXlsx({ order, company, customer, carrierN
     merge(`A${r0}`, `A${r3}`);
     set(`B${r0}`, it.karton, { bold: true });
     merge(`B${r0}`, `B${r3}`);
-    set(`C${r0}`, it.popis, { bold: true, size: fitFontSize(it.popis, 9, 7, 45), align: { vertical: "middle", wrapText: true } });
-    merge(`C${r0}`, `F${r0}`);
-    if (it.produkt && it.produkt.inhlt) {
-      set(`C${r0 + 1}`, it.produkt.inhlt, { size: fitFontSize(it.produkt.inhlt, 9, 7, 45), align: { vertical: "middle", wrapText: true } });
-      merge(`C${r0 + 1}`, `F${r0 + 1}`);
+    // Nazov produktu (r0) a obsah baleni (r0+1) su zlucene do JEDNEJ bunky cez
+    // oba riadky (rovnaky dovod ako pri adresach vyssie - inak by mal zalomeny
+    // text k dispozicii len vysku jedneho riadku a orezaval sa). Tucne meno a
+    // normalny obsah v tej istej bunke rieši rich text (dva rôzne fonty v
+    // jednej hodnote bunky).
+    merge(`C${r0}`, `F${r0 + 1}`);
+    const popisCell = ws.getCell(`C${r0}`);
+    const popisSize = fitFontSize(it.popis, 9, 7, 45);
+    const inhltText = it.produkt && it.produkt.inhlt ? it.produkt.inhlt : "";
+    if (inhltText) {
+      const inhltSize = fitFontSize(inhltText, 9, 7, 45);
+      popisCell.value = {
+        richText: [
+          { font: { bold: true, size: popisSize }, text: it.popis || "" },
+          { font: { size: inhltSize }, text: "\n" + inhltText },
+        ],
+      };
+    } else if (it.popis) {
+      popisCell.value = it.popis;
+      popisCell.font = { bold: true, size: popisSize };
     }
-    const eanLine = it.produkt ? [it.produkt.eanKarton && `EAN karton: ${it.produkt.eanKarton}`, it.produkt.eanUnit && `EAN kus: ${it.produkt.eanUnit}`].filter(Boolean).join("   ") : "";
+    popisCell.alignment = { vertical: "middle", wrapText: true };
+    const eanLine = it.produkt ? [it.produkt.eanKarton && `EAN UK: ${it.produkt.eanKarton}`, it.produkt.eanUnit && `EAN VE: ${it.produkt.eanUnit}`].filter(Boolean).join("   ") : "";
     if (eanLine) set(`C${r0 + 2}`, eanLine, { size: 9 });
     if (it.produkt && it.produkt.rspo) set(`C${r0 + 3}`, "BVC-RSPO-CZ009581, PALMÖL MB");
     set(`G${r0}`, computeKusyFromKarton(it.karton, it.produkt), { bold: true });
