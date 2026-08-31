@@ -302,25 +302,6 @@ $body$;
 grant execute on function public.next_order_numbers() to authenticated;
 
 -- ============================================================
--- 8. Realtime - povolit zmeny na orders pre supabase-js .channel(...) subscriptions
--- ============================================================
-do $$
-begin
-  if not exists (
-    select 1 from pg_publication_tables
-    where pubname = 'supabase_realtime' and schemaname = 'public' and tablename = 'orders'
-  ) then
-    alter publication supabase_realtime add table public.orders;
-  end if;
-  if not exists (
-    select 1 from pg_publication_tables
-    where pubname = 'supabase_realtime' and schemaname = 'public' and tablename = 'expedicia_zaznamy'
-  ) then
-    alter publication supabase_realtime add table public.expedicia_zaznamy;
-  end if;
-end $$;
-
--- ============================================================
 -- 10. suppliers (dodavatelia) - jednoduchy zoznam, rovnaky princip ako customers/carriers
 -- ============================================================
 create table if not exists public.suppliers (
@@ -579,6 +560,25 @@ create policy "expedicia_zaznamy_all" on public.expedicia_zaznamy
   for all
   using (public.current_role() in ('office', 'sklad'))
   with check (public.current_role() in ('office', 'sklad'));
+
+-- ============================================================
+-- 8. Realtime - povolit zmeny na orders pre supabase-js .channel(...) subscriptions
+-- ============================================================
+do $$
+begin
+  if not exists (
+    select 1 from pg_publication_tables
+    where pubname = 'supabase_realtime' and schemaname = 'public' and tablename = 'orders'
+  ) then
+    alter publication supabase_realtime add table public.orders;
+  end if;
+  if not exists (
+    select 1 from pg_publication_tables
+    where pubname = 'supabase_realtime' and schemaname = 'public' and tablename = 'expedicia_zaznamy'
+  ) then
+    alter publication supabase_realtime add table public.expedicia_zaznamy;
+  end if;
+end $$;
 
 -- Sklad potrebuje precitat, kolko sa cim vyrobilo, aby vedel spocitat stav
 -- zasob hotovych vyrobkov (vyrobene - expedovane) na obrazovke Expedicia.
