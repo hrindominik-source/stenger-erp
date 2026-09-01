@@ -12,10 +12,15 @@ import { jsPDF } from "jspdf";
 // tak vyzera presne tak, ako v prehliadaci, bez ohladu na diakritiku.
 export function downloadTextAsPdf(filename, subject, body) {
   return new Promise((resolve, reject) => {
+    // Ostava v normalnom viewporte (0,0), aby ho html2canvas vedelo spravne
+    // vykreslit - zaporny z-index ho len schova za obsah stranky, namiesto
+    // aby sa posunul mimo viditelnu oblast (to html2canvas nezvladalo a
+    // vysledok bol prazdny obrazok/PDF).
     const container = document.createElement("div");
     container.style.position = "fixed";
-    container.style.left = "-10000px";
+    container.style.left = "0";
     container.style.top = "0";
+    container.style.zIndex = "-1000";
     container.style.width = "700px";
     container.style.padding = "0";
     container.style.background = "#ffffff";
