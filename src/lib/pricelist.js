@@ -133,6 +133,8 @@ export function formatEur(n) {
 
 // Bez znaku meny - pouziva sa na dodacom liste, kde je cislo urcene len pre
 // internu potrebu (uctovnictvo), nie ako viditelna cena pre partnera/dopravcu.
+// Cennik dopravy je teraz vzdy v celych eurach, takze sa "553" nezobrazuje
+// zbytocne ako "553,00" - desatiny sa ukazu len ak cena naozaj nie je cele cislo.
 export function formatPriceNumber(n) {
-  return n.toFixed(2).replace(".", ",");
+  return Number.isInteger(n) ? String(n) : n.toFixed(2).replace(".", ",");
 }
