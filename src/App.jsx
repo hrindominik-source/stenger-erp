@@ -25,6 +25,7 @@ import { exportRowsToExcel, exportSheetsToExcel } from "./lib/exportExcel.js";
 import { computeStockLevels, computeProductionIssues, extraKnownMaterials, materialPicksForSupplier, allKnownMaterials, suggestReceiptMatches, UNIT_QUICK_PICKS } from "./lib/inventory.js";
 import { diffProductionPlanFields, isPlanZmenaActive, formatZmenaText } from "./lib/planZmena.js";
 import { getCnbRate } from "./lib/exchangeRate.js";
+import { downloadTextAsPdf } from "./lib/textPdf.js";
 import { summarizeMonth, computeDayHours, shiftInterval, clampShiftStart } from "./lib/dochadzka.js";
 
 const STATUS_ORDER = {
@@ -63,7 +64,7 @@ const EMPTY_ORDER = {
   pocetPaliet: "",
   pocetPaletovychMiest: "",
   pocetKartonov: "",
-  vyskaPalety: "",
+  vyskaPalety: "266",
   hmotnost: "",
   paletyZpat: true,
   popisTovaru: "",
@@ -1754,7 +1755,7 @@ function OfficeApp({ userFullName, userEmail, onSignOut }) {
       pocetPaliet: fields.pocetPaliet || "",
       pocetPaletovychMiest: fields.pocetPaletovychMiest || "",
       pocetKartonov: fields.pocetKartonov || "",
-      vyskaPalety: fields.vyskaPalety || "",
+      vyskaPalety: fields.vyskaPalety || "266",
       hmotnost: fields.hmotnost || "",
       paletyZpat: fields.paletyZpat !== undefined ? fields.paletyZpat : true,
       popisTovaru: fields.popisTovaru || "",
@@ -3682,12 +3683,9 @@ function TransportModal({ order, carriers, company, onClose, onSent, onUpdateCar
     `IČ: ${company.ico || ""}  DIČ: ${company.dic || ""}  TEL: ${company.tel || ""}\n\n` +
     `PRO: ${carrier ? carrier.nazov : "[dopravce]"}  NEOZNAMOVAT ODESÍLATELE!!\n\n` +
     `OBJEDNÁVKA Č. ${order.cisloObjednavkyDopravy}\n\n` +
-    `Objednávám: DOPRAVU na ${order.pocetPaliet || "[doplňte]"} europalet` +
-    (order.pocetPaletovychMiest ? ` (${order.pocetPaletovychMiest} paletových míst)` : "") +
-    (order.vyskaPalety ? `, výška palety ${order.vyskaPalety} cm` : "") +
-    `, hmotnost ${order.hmotnost || "[doplňte]"} kg.\n` +
+    `Objednávám: DOPRAVU na ${order.pocetPaletovychMiest || "[doplňte]"} europalet, výška palety ${order.vyskaPalety || "266"} cm.\n` +
     (order.pocetKartonov ? `Počet kartonů: ${order.pocetKartonov}\n` : "") +
-    `Palety zpět: ${order.paletyZpat ? "ANO" : "NE"}\n` +
+    `Palety zpět: ${order.paletyZpat ? `ANO ${order.pocetPaliet || ""}` : "NE"}\n` +
     (order.mercareonRef ? `Mercareon/Transporeon ref.: ${order.mercareonRef}\n` : "") +
     `\nNAKLÁDKA: ${company.nazov || "[Název společnosti]"}\n${company.adresa || ""}\n` +
     `Datum nakládky: ${nakladkaDateFromDodanie(order.datumDodania)}\n\n` +
@@ -3718,6 +3716,9 @@ function TransportModal({ order, carriers, company, onClose, onSent, onUpdateCar
       <Field label="Text zprávy" value={body} onChange={setBody} textarea rows={18} />
       <div className="flex justify-end gap-2 mt-2">
         <button onClick={onClose} className="text-sm text-slate-500 px-3 py-2">Zrušit</button>
+        <button onClick={() => downloadTextAsPdf(`Objednavka_dopravy_${order.cisloObjednavkyDopravy.replace("/", "-")}.pdf`, subject, body)} className="bg-white border border-slate-200 hover:bg-slate-50 text-slate-700 text-sm font-medium px-4 py-2 rounded-md flex items-center gap-1.5">
+          <Download size={16} /> Stáhnout PDF
+        </button>
         <a href={to ? buildMailto(to, subject, body) : "#"} onClick={() => to && onSent(carrierId, { subject, body, to, datum: new Date().toISOString() })} className={"bg-teal-700 hover:bg-teal-800 text-white text-sm font-medium px-4 py-2 rounded-md flex items-center gap-1.5 " + (!to ? "opacity-50 pointer-events-none" : "")}>
           <Truck size={16} /> Odeslat dopravci
         </a>
