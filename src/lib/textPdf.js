@@ -45,10 +45,17 @@ export async function downloadTextAsPdf(filename, subject, body) {
   document.body.appendChild(container);
 
   try {
+    // container je "position: fixed", takze bez explicitnej vysky by
+    // html2canvas orezal zabery na vysku viewportu (okna) namiesto na
+    // skutocnu vysku obsahu - posledny riadok tak niekedy vypadol.
+    const contentHeight = container.scrollHeight;
+
     const canvas = await html2canvas(container, {
       scale: 2,
       backgroundColor: "#ffffff",
       windowWidth: 700,
+      windowHeight: contentHeight,
+      height: contentHeight,
     });
 
     const doc = new jsPDF({ unit: "mm", format: "a4" });
