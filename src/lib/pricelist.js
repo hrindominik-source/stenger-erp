@@ -10,6 +10,25 @@ export async function parsePricelistFile(arrayBuffer) {
   const rows = XLSX.utils.sheet_to_json(ws, { header: 1, defval: "" });
   if (!rows.length) throw new Error("Subor je prazdny.");
 
+  // Excel drzi popri zobrazenej (zaokruhlenej) hodnote bunky aj jej plnu
+  // podkladovu presnost (napr. vysledok vzorca s desatinami, i ked format
+  // bunky ukazuje cele cislo bez desatin) - sheet_to_json cita tu presnu
+  // podkladovu hodnotu, nie to, co pouzivatel realne vidi a odsuhlasil v
+  // Exceli. Preto sa pre cisla prednostne pouzije naformatovany text bunky
+  // (ws[adresa].w), presne ako ho Excel zobrazuje.
+  const range = XLSX.utils.decode_range(ws["!ref"] || "A1");
+  for (let r = range.s.r; r <= range.e.r; r++) {
+    for (let c = range.s.c; c <= range.e.c; c++) {
+      const cell = ws[XLSX.utils.encode_cell({ r, c })];
+      if (cell && cell.t === "n" && typeof cell.w === "string") {
+        const displayed = parseFloat(cell.w.replace(/\s/g, "").replace(",", "."));
+        if (!isNaN(displayed) && rows[r - range.s.r]) {
+          rows[r - range.s.r][c - range.s.c] = displayed;
+        }
+      }
+    }
+  }
+
   const header = rows[0];
   const buckets = [];
   for (let i = 1; i < header.length; i++) {
