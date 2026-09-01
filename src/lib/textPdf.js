@@ -38,6 +38,9 @@ export async function downloadTextAsPdf(filename, subject, body) {
   bodyEl.style.lineHeight = "1.5";
   bodyEl.style.whiteSpace = "pre-wrap";
   bodyEl.style.wordBreak = "break-word";
+  // Bez tejto rezervy koncilo posledne riadky presne na hranici vysky
+  // containeru a html2canvas ho pri zaokruhlovani obcas orezal.
+  bodyEl.style.paddingBottom = "20px";
   bodyEl.textContent = body || "";
 
   container.appendChild(subjectEl);
