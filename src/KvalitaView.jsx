@@ -331,9 +331,14 @@ function PrehledTab({ templates, submissions, terminy, onGoToChecklisty, onGoToT
 /* ---------------- Checklisty ---------------- */
 
 function emptyTemplateForm() {
-  return { nazov: "", polozky: [""], frekvenciaTyp: "mesiace", frekvenciaHodnota: "1" };
+  return { nazov: "", polozky: [{ text: "", type: "boolean", legendaId: "" }], legendy: [], frekvenciaTyp: "mesiace", frekvenciaHodnota: "1" };
 }
 
+// Vecsina checklistov je jednoduche "OK / Nevyhovuje", ale niektore tlacene
+// formulare (napr. evidence deratizace) hodnotia kazdu polozku kodom z
+// legendy (A-D, 1-5...) namiesto ano/nie - legenda sa definuje na urovni
+// sablony a polozka na nu len odkazuje (legendaId), aby sa dala zdielat
+// medzi viacerymi polozkami rovnakeho typu (napr. vsetky mucholapky).
 function ChecklistyTab({ fullName, templates, submissions, onSaveTemplate, onUpdateTemplate, onDeleteTemplate, onSaveSubmission }) {
   const [formOpen, setFormOpen] = useState(false);
   const [form, setForm] = useState(emptyTemplateForm());
@@ -341,24 +346,68 @@ function ChecklistyTab({ fullName, templates, submissions, onSaveTemplate, onUpd
   const [fillId, setFillId] = useState(null);
   const [openHistoryId, setOpenHistoryId] = useState(null);
 
-  function updatePolozka(i, v) {
+  function updatePolozka(i, patch) {
     const next = form.polozky.slice();
-    next[i] = v;
+    next[i] = { ...next[i], ...patch };
     setForm({ ...form, polozky: next });
   }
-  function addPolozka() { setForm({ ...form, polozky: [...form.polozky, ""] }); }
+  function addPolozka() { setForm({ ...form, polozky: [...form.polozky, { text: "", type: "boolean", legendaId: "" }] }); }
   function removePolozka(i) { setForm({ ...form, polozky: form.polozky.filter((_, idx) => idx !== i) }); }
 
+  function addLegenda() {
+    setForm({ ...form, legendy: [...form.legendy, { id: uid(), nazov: "", kody: [{ kod: "", popis: "" }] }] });
+  }
+  function updateLegenda(li, patch) {
+    const next = form.legendy.slice();
+    next[li] = { ...next[li], ...patch };
+    setForm({ ...form, legendy: next });
+  }
+  function removeLegenda(li) {
+    const removed = form.legendy[li];
+    setForm({
+      ...form,
+      legendy: form.legendy.filter((_, idx) => idx !== li),
+      polozky: form.polozky.map((p) => (p.legendaId === removed.id ? { ...p, type: "boolean", legendaId: "" } : p)),
+    });
+  }
+  function addKod(li) {
+    const next = form.legendy.slice();
+    next[li] = { ...next[li], kody: [...next[li].kody, { kod: "", popis: "" }] };
+    setForm({ ...form, legendy: next });
+  }
+  function updateKod(li, ki, patch) {
+    const next = form.legendy.slice();
+    const kody = next[li].kody.slice();
+    kody[ki] = { ...kody[ki], ...patch };
+    next[li] = { ...next[li], kody };
+    setForm({ ...form, legendy: next });
+  }
+  function removeKod(li, ki) {
+    const next = form.legendy.slice();
+    next[li] = { ...next[li], kody: next[li].kody.filter((_, idx) => idx !== ki) };
+    setForm({ ...form, legendy: next });
+  }
+
   function submitTemplate() {
-    const polozky = form.polozky.map((p) => p.trim()).filter(Boolean);
+    const polozky = form.polozky
+      .map((p) => ({
+        text: p.text.trim(),
+        type: p.type === "legenda" && p.legendaId ? "legenda" : "boolean",
+        legendaId: p.type === "legenda" && p.legendaId ? p.legendaId : null,
+      }))
+      .filter((p) => p.text);
     if (!form.nazov.trim()) { setFormError("Vyplňte název checklistu."); return; }
     if (polozky.length === 0) { setFormError("Přidejte alespoň jednu položku."); return; }
     if (!Number(form.frekvenciaHodnota)) { setFormError("Vyplňte frekvenci."); return; }
+    const legendy = form.legendy
+      .map((l) => ({ id: l.id, nazov: l.nazov.trim(), kody: l.kody.map((k) => ({ kod: k.kod.trim(), popis: k.popis.trim() })).filter((k) => k.kod) }))
+      .filter((l) => l.nazov && l.kody.length > 0);
     setFormError("");
     onSaveTemplate({
       id: uid(),
       nazov: form.nazov.trim(),
-      polozky: polozky.map((text) => ({ text })),
+      polozky,
+      legendy,
       frekvenciaTyp: form.frekvenciaTyp,
       frekvenciaHodnota: form.frekvenciaHodnota,
       aktivny: true,
@@ -383,11 +432,47 @@ function ChecklistyTab({ fullName, templates, submissions, onSaveTemplate, onUpd
             <span className="block text-xs font-medium text-slate-500 mb-1">Název checklistu</span>
             <input value={form.nazov} onChange={(e) => setForm({ ...form, nazov: e.target.value })} className="w-full border border-slate-200 rounded-md px-2.5 py-1.5 text-sm" />
           </label>
+          <div className="mb-3 border border-slate-100 rounded-md p-3 bg-slate-50">
+            <div className="flex items-center justify-between mb-2">
+              <span className="block text-xs font-medium text-slate-500">Legendy (kódy hodnocení, např. A/B/C/D nebo 1-5)</span>
+              <button onClick={addLegenda} className="text-xs text-teal-700 hover:text-teal-900 flex items-center gap-1"><Plus size={12} /> Přidat legendu</button>
+            </div>
+            {form.legendy.length === 0 && <div className="text-xs text-slate-400">Zatím žádné legendy - položky budou typu Ano/Ne.</div>}
+            {form.legendy.map((l, li) => (
+              <div key={l.id} className="bg-white border border-slate-200 rounded-md p-2.5 mb-2 last:mb-0">
+                <div className="flex gap-2 mb-1.5">
+                  <input value={l.nazov} onChange={(e) => updateLegenda(li, { nazov: e.target.value })} placeholder="Název legendy (např. Hodnocení stavu)" className="flex-1 border border-slate-200 rounded-md px-2.5 py-1.5 text-sm" />
+                  <button onClick={() => removeLegenda(li)} className="text-slate-400 hover:text-red-600"><Trash2 size={16} /></button>
+                </div>
+                {l.kody.map((k, ki) => (
+                  <div key={ki} className="flex gap-2 mb-1 pl-2">
+                    <input value={k.kod} onChange={(e) => updateKod(li, ki, { kod: e.target.value })} placeholder="Kód (A, 1...)" className="w-20 border border-slate-200 rounded-md px-2 py-1 text-xs" />
+                    <input value={k.popis} onChange={(e) => updateKod(li, ki, { popis: e.target.value })} placeholder="Popis (např. bez závad)" className="flex-1 border border-slate-200 rounded-md px-2 py-1 text-xs" />
+                    <button onClick={() => removeKod(li, ki)} className="text-slate-400 hover:text-red-600"><Trash2 size={14} /></button>
+                  </div>
+                ))}
+                <button onClick={() => addKod(li)} className="text-xs text-teal-700 hover:text-teal-900 flex items-center gap-1 mt-1 pl-2"><Plus size={10} /> Přidat kód</button>
+              </div>
+            ))}
+          </div>
+
           <div className="mb-2">
             <span className="block text-xs font-medium text-slate-500 mb-1">Položky checklistu</span>
             {form.polozky.map((p, i) => (
               <div key={i} className="flex gap-2 mb-1.5">
-                <input value={p} onChange={(e) => updatePolozka(i, e.target.value)} className="flex-1 border border-slate-200 rounded-md px-2.5 py-1.5 text-sm" placeholder={`Položka ${i + 1}`} />
+                <input value={p.text} onChange={(e) => updatePolozka(i, { text: e.target.value })} className="flex-1 border border-slate-200 rounded-md px-2.5 py-1.5 text-sm" placeholder={`Položka ${i + 1}`} />
+                <select
+                  value={p.type === "legenda" && p.legendaId ? p.legendaId : "boolean"}
+                  onChange={(e) => {
+                    const v = e.target.value;
+                    if (v === "boolean") updatePolozka(i, { type: "boolean", legendaId: "" });
+                    else updatePolozka(i, { type: "legenda", legendaId: v });
+                  }}
+                  className="w-44 border border-slate-200 rounded-md px-2 py-1.5 text-xs shrink-0"
+                >
+                  <option value="boolean">Ano / Ne</option>
+                  {form.legendy.filter((l) => l.nazov.trim()).map((l) => <option key={l.id} value={l.id}>{l.nazov}</option>)}
+                </select>
                 <button onClick={() => removePolozka(i)} className="text-slate-400 hover:text-red-600"><Trash2 size={16} /></button>
               </div>
             ))}
@@ -471,7 +556,10 @@ function ChecklistyTab({ fullName, templates, submissions, onSaveTemplate, onUpd
 }
 
 function ChecklistFillForm({ template, fullName, onCancel, onSave }) {
-  const [odpovede, setOdpovede] = useState(template.polozky.map((p) => ({ text: p.text, ok: null, poznamka: "" })));
+  const legendy = template.legendy || [];
+  const [odpovede, setOdpovede] = useState(
+    template.polozky.map((p) => ({ text: p.text, type: p.type === "legenda" && p.legendaId ? "legenda" : "boolean", legendaId: p.legendaId || null, ok: null, hodnota: null, poznamka: "" }))
+  );
   const [vyplnil, setVyplnil] = useState(fullName || "");
   const [poznamka, setPoznamka] = useState("");
   const [error, setError] = useState("");
@@ -481,13 +569,18 @@ function ChecklistFillForm({ template, fullName, onCancel, onSave }) {
     next[i] = { ...next[i], ok: value };
     setOdpovede(next);
   }
+  function setHodnota(i, kod) {
+    const next = odpovede.slice();
+    next[i] = { ...next[i], hodnota: kod };
+    setOdpovede(next);
+  }
   function setNote(i, v) {
     const next = odpovede.slice();
     next[i] = { ...next[i], poznamka: v };
     setOdpovede(next);
   }
 
-  const neposudene = odpovede.filter((o) => o.ok === null).length;
+  const neposudene = odpovede.filter((o) => (o.type === "legenda" ? !o.hodnota : o.ok === null)).length;
 
   function handleSave() {
     if (!vyplnil.trim()) {
@@ -495,7 +588,7 @@ function ChecklistFillForm({ template, fullName, onCancel, onSave }) {
       return;
     }
     if (neposudene > 0) {
-      setError(`Posuďte ještě ${neposudene} nezaškrtnutou položku(y) (OK / Nevyhovuje).`);
+      setError(`Posuďte ještě ${neposudene} nezaškrtnutou položku(y).`);
       return;
     }
     setError("");
@@ -508,19 +601,60 @@ function ChecklistFillForm({ template, fullName, onCancel, onSave }) {
         <span className="block text-xs font-medium text-slate-500 mb-1">Vyplnil(a)</span>
         <input value={vyplnil} onChange={(e) => setVyplnil(e.target.value)} className="w-full border border-slate-200 rounded-md px-2.5 py-1.5 text-sm" />
       </label>
-      <div className="space-y-1.5 mb-2">
-        {odpovede.map((o, i) => (
-          <div key={i} className={"flex items-center gap-2 bg-white border rounded-md px-2.5 py-1.5 " + (o.ok === null ? "border-amber-300" : "border-slate-200")}>
-            <span className="text-sm flex-1">{o.text}</span>
-            <div className="flex gap-1 shrink-0">
-              <button type="button" onClick={() => setOk(i, true)} className={"text-xs font-medium px-2 py-1 rounded-md border " + (o.ok === true ? "bg-emerald-600 text-white border-emerald-600" : "bg-white text-slate-500 border-slate-200")}>OK</button>
-              <button type="button" onClick={() => setOk(i, false)} className={"text-xs font-medium px-2 py-1 rounded-md border " + (o.ok === false ? "bg-red-600 text-white border-red-600" : "bg-white text-slate-500 border-slate-200")}>Nevyhovuje</button>
+      {legendy.length > 0 && (
+        <div className="mb-2 flex flex-wrap gap-2">
+          {legendy.map((l) => (
+            <div key={l.id} className="text-[11px] text-slate-500 bg-white border border-slate-200 rounded-md px-2 py-1">
+              <span className="font-semibold text-slate-600">{l.nazov}: </span>
+              {l.kody.map((k, idx) => (
+                <span key={k.kod}>
+                  {idx > 0 ? ", " : ""}
+                  <b>{k.kod}</b>={k.popis}
+                </span>
+              ))}
             </div>
-            {o.ok === false && (
-              <input value={o.poznamka} onChange={(e) => setNote(i, e.target.value)} placeholder="Poznámka k neshodě" className="w-48 border border-slate-200 rounded px-2 py-1 text-xs" />
-            )}
-          </div>
-        ))}
+          ))}
+        </div>
+      )}
+      <div className="space-y-1.5 mb-2">
+        {odpovede.map((o, i) => {
+          const legenda = o.type === "legenda" ? legendy.find((l) => l.id === o.legendaId) : null;
+          const nezodpovedane = o.type === "legenda" ? !o.hodnota : o.ok === null;
+          return (
+            <div key={i} className={"bg-white border rounded-md px-2.5 py-1.5 " + (nezodpovedane ? "border-amber-300" : "border-slate-200")}>
+              <div className="flex items-center gap-2">
+                <span className="text-sm flex-1">{o.text}</span>
+                {legenda ? (
+                  <div className="flex gap-1 flex-wrap shrink-0 justify-end">
+                    {legenda.kody.map((k) => (
+                      <button
+                        key={k.kod}
+                        type="button"
+                        title={k.popis}
+                        onClick={() => setHodnota(i, k.kod)}
+                        className={"text-xs font-medium px-2 py-1 rounded-md border " + (o.hodnota === k.kod ? "bg-teal-700 text-white border-teal-700" : "bg-white text-slate-500 border-slate-200")}
+                      >
+                        {k.kod}
+                      </button>
+                    ))}
+                  </div>
+                ) : (
+                  <div className="flex gap-1 shrink-0">
+                    <button type="button" onClick={() => setOk(i, true)} className={"text-xs font-medium px-2 py-1 rounded-md border " + (o.ok === true ? "bg-emerald-600 text-white border-emerald-600" : "bg-white text-slate-500 border-slate-200")}>OK</button>
+                    <button type="button" onClick={() => setOk(i, false)} className={"text-xs font-medium px-2 py-1 rounded-md border " + (o.ok === false ? "bg-red-600 text-white border-red-600" : "bg-white text-slate-500 border-slate-200")}>Nevyhovuje</button>
+                  </div>
+                )}
+              </div>
+              {legenda ? (
+                <input value={o.poznamka} onChange={(e) => setNote(i, e.target.value)} placeholder="Náprava (nepovinné)" className="mt-1.5 w-full border border-slate-200 rounded px-2 py-1 text-xs" />
+              ) : (
+                o.ok === false && (
+                  <input value={o.poznamka} onChange={(e) => setNote(i, e.target.value)} placeholder="Poznámka k neshodě" className="mt-1.5 w-48 border border-slate-200 rounded px-2 py-1 text-xs" />
+                )
+              )}
+            </div>
+          );
+        })}
       </div>
       <label className="block mb-2">
         <span className="block text-xs font-medium text-slate-500 mb-1">Poznámka (nepovinné)</span>
