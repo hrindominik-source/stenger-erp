@@ -334,162 +334,237 @@ function emptyTemplateForm() {
   return { nazov: "", polozky: [{ text: "", type: "boolean", legendaId: "" }], legendy: [], frekvenciaTyp: "mesiace", frekvenciaHodnota: "1" };
 }
 
+function templateFormFromRecord(t) {
+  return {
+    nazov: t.nazov || "",
+    polozky: (t.polozky && t.polozky.length ? t.polozky : [{ text: "", type: "boolean", legendaId: "" }]).map((p) => ({ text: p.text, type: p.type || "boolean", legendaId: p.legendaId || "" })),
+    legendy: (t.legendy || []).map((l) => ({ id: l.id, nazov: l.nazov, kody: l.kody.map((k) => ({ ...k })) })),
+    frekvenciaTyp: t.frekvenciaTyp || "mesiace",
+    frekvenciaHodnota: String(t.frekvenciaHodnota ?? "1"),
+  };
+}
+
+// Validuje a oreze formularove hodnoty na ulozitelny tvar sablony (polozky +
+// legendy), spolocne pre vytvorenie aj upravu checklistu.
+function buildTemplatePayload(values) {
+  const polozky = values.polozky
+    .map((p) => ({
+      text: p.text.trim(),
+      type: p.type === "legenda" && p.legendaId ? "legenda" : "boolean",
+      legendaId: p.type === "legenda" && p.legendaId ? p.legendaId : null,
+    }))
+    .filter((p) => p.text);
+  if (!values.nazov.trim()) return { error: "Vyplňte název checklistu." };
+  if (polozky.length === 0) return { error: "Přidejte alespoň jednu položku." };
+  if (!Number(values.frekvenciaHodnota)) return { error: "Vyplňte frekvenci." };
+  const legendy = values.legendy
+    .map((l) => ({ id: l.id, nazov: l.nazov.trim(), kody: l.kody.map((k) => ({ kod: k.kod.trim(), popis: k.popis.trim() })).filter((k) => k.kod) }))
+    .filter((l) => l.nazov && l.kody.length > 0);
+  return {
+    payload: {
+      nazov: values.nazov.trim(),
+      polozky,
+      legendy,
+      frekvenciaTyp: values.frekvenciaTyp,
+      frekvenciaHodnota: values.frekvenciaHodnota,
+    },
+  };
+}
+
+// Kazde vyplnenie si nesie vlastnu kopiu poloziek (text/typ/legendaId) tak,
+// ako vyzerali v case vyplnenia - union naprieC historiou tak zvladne aj
+// checklisty, ktore sa medzitym upravovali (pridane/ubrane polozky).
+async function exportChecklistHistory(template, submissions) {
+  const history = submissions.filter((s) => s.templateId === template.id).slice().sort((a, b) => daysUntil(a.datum) - daysUntil(b.datum));
+  if (history.length === 0) return;
+  const itemTexts = [];
+  const seen = new Set();
+  for (const s of history) {
+    for (const o of s.odpovede || []) {
+      if (!seen.has(o.text)) { seen.add(o.text); itemTexts.push(o.text); }
+    }
+  }
+  const rows = history.map((s) => {
+    const row = { Datum: s.datum, Vyplnil: s.vyplnil };
+    for (const text of itemTexts) {
+      const o = (s.odpovede || []).find((x) => x.text === text);
+      row[text] = o ? (o.type === "legenda" ? o.hodnota || "" : o.ok === true ? "OK" : o.ok === false ? "Nevyhovuje" : "") : "";
+      row[`${text} - náprava/poznámka`] = o ? o.poznamka || "" : "";
+    }
+    row["Celková poznámka"] = s.poznamka || "";
+    return row;
+  });
+  await exportRowsToExcel(rows, template.nazov.slice(0, 31), template.nazov.replace(/[^a-z0-9]+/gi, "_") || "checklist");
+}
+
 // Vecsina checklistov je jednoduche "OK / Nevyhovuje", ale niektore tlacene
 // formulare (napr. evidence deratizace) hodnotia kazdu polozku kodom z
 // legendy (A-D, 1-5...) namiesto ano/nie - legenda sa definuje na urovni
 // sablony a polozka na nu len odkazuje (legendaId), aby sa dala zdielat
 // medzi viacerymi polozkami rovnakeho typu (napr. vsetky mucholapky).
+function TemplateFormFields({ values, onChange }) {
+  function updatePolozka(i, patch) {
+    const next = values.polozky.slice();
+    next[i] = { ...next[i], ...patch };
+    onChange({ ...values, polozky: next });
+  }
+  function addPolozka() { onChange({ ...values, polozky: [...values.polozky, { text: "", type: "boolean", legendaId: "" }] }); }
+  function removePolozka(i) { onChange({ ...values, polozky: values.polozky.filter((_, idx) => idx !== i) }); }
+
+  function addLegenda() {
+    onChange({ ...values, legendy: [...values.legendy, { id: uid(), nazov: "", kody: [{ kod: "", popis: "" }] }] });
+  }
+  function updateLegenda(li, patch) {
+    const next = values.legendy.slice();
+    next[li] = { ...next[li], ...patch };
+    onChange({ ...values, legendy: next });
+  }
+  function removeLegenda(li) {
+    const removed = values.legendy[li];
+    onChange({
+      ...values,
+      legendy: values.legendy.filter((_, idx) => idx !== li),
+      polozky: values.polozky.map((p) => (p.legendaId === removed.id ? { ...p, type: "boolean", legendaId: "" } : p)),
+    });
+  }
+  function addKod(li) {
+    const next = values.legendy.slice();
+    next[li] = { ...next[li], kody: [...next[li].kody, { kod: "", popis: "" }] };
+    onChange({ ...values, legendy: next });
+  }
+  function updateKod(li, ki, patch) {
+    const next = values.legendy.slice();
+    const kody = next[li].kody.slice();
+    kody[ki] = { ...kody[ki], ...patch };
+    next[li] = { ...next[li], kody };
+    onChange({ ...values, legendy: next });
+  }
+  function removeKod(li, ki) {
+    const next = values.legendy.slice();
+    next[li] = { ...next[li], kody: next[li].kody.filter((_, idx) => idx !== ki) };
+    onChange({ ...values, legendy: next });
+  }
+
+  return (
+    <>
+      <label className="block mb-2">
+        <span className="block text-xs font-medium text-slate-500 mb-1">Název checklistu</span>
+        <input value={values.nazov} onChange={(e) => onChange({ ...values, nazov: e.target.value })} className="w-full border border-slate-200 rounded-md px-2.5 py-1.5 text-sm" />
+      </label>
+      <div className="mb-3 border border-slate-100 rounded-md p-3 bg-slate-50">
+        <div className="flex items-center justify-between mb-2">
+          <span className="block text-xs font-medium text-slate-500">Legendy (kódy hodnocení, např. A/B/C/D nebo 1-5)</span>
+          <button onClick={addLegenda} className="text-xs text-teal-700 hover:text-teal-900 flex items-center gap-1"><Plus size={12} /> Přidat legendu</button>
+        </div>
+        {values.legendy.length === 0 && <div className="text-xs text-slate-400">Zatím žádné legendy - položky budou typu Ano/Ne.</div>}
+        {values.legendy.map((l, li) => (
+          <div key={l.id} className="bg-white border border-slate-200 rounded-md p-2.5 mb-2 last:mb-0">
+            <div className="flex gap-2 mb-1.5">
+              <input value={l.nazov} onChange={(e) => updateLegenda(li, { nazov: e.target.value })} placeholder="Název legendy (např. Hodnocení stavu)" className="flex-1 border border-slate-200 rounded-md px-2.5 py-1.5 text-sm" />
+              <button onClick={() => removeLegenda(li)} className="text-slate-400 hover:text-red-600"><Trash2 size={16} /></button>
+            </div>
+            {l.kody.map((k, ki) => (
+              <div key={ki} className="flex gap-2 mb-1 pl-2">
+                <input value={k.kod} onChange={(e) => updateKod(li, ki, { kod: e.target.value })} placeholder="Kód (A, 1...)" className="w-20 border border-slate-200 rounded-md px-2 py-1 text-xs" />
+                <input value={k.popis} onChange={(e) => updateKod(li, ki, { popis: e.target.value })} placeholder="Popis (např. bez závad)" className="flex-1 border border-slate-200 rounded-md px-2 py-1 text-xs" />
+                <button onClick={() => removeKod(li, ki)} className="text-slate-400 hover:text-red-600"><Trash2 size={14} /></button>
+              </div>
+            ))}
+            <button onClick={() => addKod(li)} className="text-xs text-teal-700 hover:text-teal-900 flex items-center gap-1 mt-1 pl-2"><Plus size={10} /> Přidat kód</button>
+          </div>
+        ))}
+      </div>
+
+      <div className="mb-2">
+        <span className="block text-xs font-medium text-slate-500 mb-1">Položky checklistu</span>
+        {values.polozky.map((p, i) => (
+          <div key={i} className="flex gap-2 mb-1.5">
+            <input value={p.text} onChange={(e) => updatePolozka(i, { text: e.target.value })} className="flex-1 border border-slate-200 rounded-md px-2.5 py-1.5 text-sm" placeholder={`Položka ${i + 1}`} />
+            <select
+              value={p.type === "legenda" && p.legendaId ? p.legendaId : "boolean"}
+              onChange={(e) => {
+                const v = e.target.value;
+                if (v === "boolean") updatePolozka(i, { type: "boolean", legendaId: "" });
+                else updatePolozka(i, { type: "legenda", legendaId: v });
+              }}
+              className="w-44 border border-slate-200 rounded-md px-2 py-1.5 text-xs shrink-0"
+            >
+              <option value="boolean">Ano / Ne</option>
+              {values.legendy.filter((l) => l.nazov.trim()).map((l) => <option key={l.id} value={l.id}>{l.nazov}</option>)}
+            </select>
+            <button onClick={() => removePolozka(i)} className="text-slate-400 hover:text-red-600"><Trash2 size={16} /></button>
+          </div>
+        ))}
+        <button onClick={addPolozka} className="text-xs text-teal-700 hover:text-teal-900 flex items-center gap-1 mt-1"><Plus size={12} /> Přidat položku</button>
+      </div>
+      <div className="flex gap-2 items-end mb-1">
+        <label className="w-40">
+          <span className="block text-xs font-medium text-slate-500 mb-1">Frekvence - každých</span>
+          <input value={values.frekvenciaHodnota} onChange={(e) => onChange({ ...values, frekvenciaHodnota: e.target.value })} className="w-full border border-slate-200 rounded-md px-2.5 py-1.5 text-sm" />
+        </label>
+        <label className="w-40">
+          <span className="block text-xs font-medium text-slate-500 mb-1">&nbsp;</span>
+          <select value={values.frekvenciaTyp} onChange={(e) => onChange({ ...values, frekvenciaTyp: e.target.value })} className="w-full border border-slate-200 rounded-md px-2.5 py-1.5 text-sm">
+            {FREKVENCIA_OPTIONS.map((f) => <option key={f.value} value={f.value}>{f.label}</option>)}
+          </select>
+        </label>
+      </div>
+    </>
+  );
+}
+
 function ChecklistyTab({ fullName, templates, submissions, onSaveTemplate, onUpdateTemplate, onDeleteTemplate, onSaveSubmission }) {
   const [formOpen, setFormOpen] = useState(false);
   const [form, setForm] = useState(emptyTemplateForm());
   const [formError, setFormError] = useState("");
   const [fillId, setFillId] = useState(null);
   const [openHistoryId, setOpenHistoryId] = useState(null);
-
-  function updatePolozka(i, patch) {
-    const next = form.polozky.slice();
-    next[i] = { ...next[i], ...patch };
-    setForm({ ...form, polozky: next });
-  }
-  function addPolozka() { setForm({ ...form, polozky: [...form.polozky, { text: "", type: "boolean", legendaId: "" }] }); }
-  function removePolozka(i) { setForm({ ...form, polozky: form.polozky.filter((_, idx) => idx !== i) }); }
-
-  function addLegenda() {
-    setForm({ ...form, legendy: [...form.legendy, { id: uid(), nazov: "", kody: [{ kod: "", popis: "" }] }] });
-  }
-  function updateLegenda(li, patch) {
-    const next = form.legendy.slice();
-    next[li] = { ...next[li], ...patch };
-    setForm({ ...form, legendy: next });
-  }
-  function removeLegenda(li) {
-    const removed = form.legendy[li];
-    setForm({
-      ...form,
-      legendy: form.legendy.filter((_, idx) => idx !== li),
-      polozky: form.polozky.map((p) => (p.legendaId === removed.id ? { ...p, type: "boolean", legendaId: "" } : p)),
-    });
-  }
-  function addKod(li) {
-    const next = form.legendy.slice();
-    next[li] = { ...next[li], kody: [...next[li].kody, { kod: "", popis: "" }] };
-    setForm({ ...form, legendy: next });
-  }
-  function updateKod(li, ki, patch) {
-    const next = form.legendy.slice();
-    const kody = next[li].kody.slice();
-    kody[ki] = { ...kody[ki], ...patch };
-    next[li] = { ...next[li], kody };
-    setForm({ ...form, legendy: next });
-  }
-  function removeKod(li, ki) {
-    const next = form.legendy.slice();
-    next[li] = { ...next[li], kody: next[li].kody.filter((_, idx) => idx !== ki) };
-    setForm({ ...form, legendy: next });
-  }
+  const [editingId, setEditingId] = useState(null);
+  const [editForm, setEditForm] = useState(null);
+  const [editError, setEditError] = useState("");
 
   function submitTemplate() {
-    const polozky = form.polozky
-      .map((p) => ({
-        text: p.text.trim(),
-        type: p.type === "legenda" && p.legendaId ? "legenda" : "boolean",
-        legendaId: p.type === "legenda" && p.legendaId ? p.legendaId : null,
-      }))
-      .filter((p) => p.text);
-    if (!form.nazov.trim()) { setFormError("Vyplňte název checklistu."); return; }
-    if (polozky.length === 0) { setFormError("Přidejte alespoň jednu položku."); return; }
-    if (!Number(form.frekvenciaHodnota)) { setFormError("Vyplňte frekvenci."); return; }
-    const legendy = form.legendy
-      .map((l) => ({ id: l.id, nazov: l.nazov.trim(), kody: l.kody.map((k) => ({ kod: k.kod.trim(), popis: k.popis.trim() })).filter((k) => k.kod) }))
-      .filter((l) => l.nazov && l.kody.length > 0);
+    const { error, payload } = buildTemplatePayload(form);
+    if (error) { setFormError(error); return; }
     setFormError("");
-    onSaveTemplate({
-      id: uid(),
-      nazov: form.nazov.trim(),
-      polozky,
-      legendy,
-      frekvenciaTyp: form.frekvenciaTyp,
-      frekvenciaHodnota: form.frekvenciaHodnota,
-      aktivny: true,
-      vytvorene: todayStr(),
-    });
+    onSaveTemplate({ id: uid(), ...payload, aktivny: true, vytvorene: todayStr() });
     setForm(emptyTemplateForm());
     setFormOpen(false);
+  }
+
+  function startEdit(t) {
+    setEditingId(t.id);
+    setEditForm(templateFormFromRecord(t));
+    setEditError("");
+    setFormOpen(false);
+    setFillId(null);
+  }
+  function cancelEdit() {
+    setEditingId(null);
+    setEditForm(null);
+    setEditError("");
+  }
+  function saveEdit() {
+    const { error, payload } = buildTemplatePayload(editForm);
+    if (error) { setEditError(error); return; }
+    const current = templates.find((t) => t.id === editingId);
+    if (!current) { cancelEdit(); return; }
+    onUpdateTemplate({ ...current, ...payload });
+    cancelEdit();
   }
 
   return (
     <div>
       <div className="flex items-center justify-between mb-4">
         <h1 className="text-xl font-semibold">Checklisty</h1>
-        <button onClick={() => setFormOpen((v) => !v)} className="flex items-center gap-1.5 bg-teal-700 hover:bg-teal-800 text-white text-sm font-medium px-3 py-2 rounded-md">
+        <button onClick={() => { setFormOpen((v) => !v); cancelEdit(); }} className="flex items-center gap-1.5 bg-teal-700 hover:bg-teal-800 text-white text-sm font-medium px-3 py-2 rounded-md">
           <Plus size={16} /> Nový checklist
         </button>
       </div>
 
       {formOpen && (
         <div className="bg-white border border-slate-200 rounded-lg p-4 mb-4">
-          <label className="block mb-2">
-            <span className="block text-xs font-medium text-slate-500 mb-1">Název checklistu</span>
-            <input value={form.nazov} onChange={(e) => setForm({ ...form, nazov: e.target.value })} className="w-full border border-slate-200 rounded-md px-2.5 py-1.5 text-sm" />
-          </label>
-          <div className="mb-3 border border-slate-100 rounded-md p-3 bg-slate-50">
-            <div className="flex items-center justify-between mb-2">
-              <span className="block text-xs font-medium text-slate-500">Legendy (kódy hodnocení, např. A/B/C/D nebo 1-5)</span>
-              <button onClick={addLegenda} className="text-xs text-teal-700 hover:text-teal-900 flex items-center gap-1"><Plus size={12} /> Přidat legendu</button>
-            </div>
-            {form.legendy.length === 0 && <div className="text-xs text-slate-400">Zatím žádné legendy - položky budou typu Ano/Ne.</div>}
-            {form.legendy.map((l, li) => (
-              <div key={l.id} className="bg-white border border-slate-200 rounded-md p-2.5 mb-2 last:mb-0">
-                <div className="flex gap-2 mb-1.5">
-                  <input value={l.nazov} onChange={(e) => updateLegenda(li, { nazov: e.target.value })} placeholder="Název legendy (např. Hodnocení stavu)" className="flex-1 border border-slate-200 rounded-md px-2.5 py-1.5 text-sm" />
-                  <button onClick={() => removeLegenda(li)} className="text-slate-400 hover:text-red-600"><Trash2 size={16} /></button>
-                </div>
-                {l.kody.map((k, ki) => (
-                  <div key={ki} className="flex gap-2 mb-1 pl-2">
-                    <input value={k.kod} onChange={(e) => updateKod(li, ki, { kod: e.target.value })} placeholder="Kód (A, 1...)" className="w-20 border border-slate-200 rounded-md px-2 py-1 text-xs" />
-                    <input value={k.popis} onChange={(e) => updateKod(li, ki, { popis: e.target.value })} placeholder="Popis (např. bez závad)" className="flex-1 border border-slate-200 rounded-md px-2 py-1 text-xs" />
-                    <button onClick={() => removeKod(li, ki)} className="text-slate-400 hover:text-red-600"><Trash2 size={14} /></button>
-                  </div>
-                ))}
-                <button onClick={() => addKod(li)} className="text-xs text-teal-700 hover:text-teal-900 flex items-center gap-1 mt-1 pl-2"><Plus size={10} /> Přidat kód</button>
-              </div>
-            ))}
-          </div>
-
-          <div className="mb-2">
-            <span className="block text-xs font-medium text-slate-500 mb-1">Položky checklistu</span>
-            {form.polozky.map((p, i) => (
-              <div key={i} className="flex gap-2 mb-1.5">
-                <input value={p.text} onChange={(e) => updatePolozka(i, { text: e.target.value })} className="flex-1 border border-slate-200 rounded-md px-2.5 py-1.5 text-sm" placeholder={`Položka ${i + 1}`} />
-                <select
-                  value={p.type === "legenda" && p.legendaId ? p.legendaId : "boolean"}
-                  onChange={(e) => {
-                    const v = e.target.value;
-                    if (v === "boolean") updatePolozka(i, { type: "boolean", legendaId: "" });
-                    else updatePolozka(i, { type: "legenda", legendaId: v });
-                  }}
-                  className="w-44 border border-slate-200 rounded-md px-2 py-1.5 text-xs shrink-0"
-                >
-                  <option value="boolean">Ano / Ne</option>
-                  {form.legendy.filter((l) => l.nazov.trim()).map((l) => <option key={l.id} value={l.id}>{l.nazov}</option>)}
-                </select>
-                <button onClick={() => removePolozka(i)} className="text-slate-400 hover:text-red-600"><Trash2 size={16} /></button>
-              </div>
-            ))}
-            <button onClick={addPolozka} className="text-xs text-teal-700 hover:text-teal-900 flex items-center gap-1 mt-1"><Plus size={12} /> Přidat položku</button>
-          </div>
-          <div className="flex gap-2 items-end mb-3">
-            <label className="w-40">
-              <span className="block text-xs font-medium text-slate-500 mb-1">Frekvence - každých</span>
-              <input value={form.frekvenciaHodnota} onChange={(e) => setForm({ ...form, frekvenciaHodnota: e.target.value })} className="w-full border border-slate-200 rounded-md px-2.5 py-1.5 text-sm" />
-            </label>
-            <label className="w-40">
-              <span className="block text-xs font-medium text-slate-500 mb-1">&nbsp;</span>
-              <select value={form.frekvenciaTyp} onChange={(e) => setForm({ ...form, frekvenciaTyp: e.target.value })} className="w-full border border-slate-200 rounded-md px-2.5 py-1.5 text-sm">
-                {FREKVENCIA_OPTIONS.map((f) => <option key={f.value} value={f.value}>{f.label}</option>)}
-              </select>
-            </label>
-          </div>
+          <TemplateFormFields values={form} onChange={setForm} />
           {formError && <div className="mb-2 text-xs text-red-700 flex items-center gap-1.5"><AlertCircle size={12} /> {formError}</div>}
           <div className="flex justify-end gap-2">
             <button onClick={() => { setFormOpen(false); setForm(emptyTemplateForm()); setFormError(""); }} className="text-sm text-slate-500 px-3 py-2">Zrušit</button>
@@ -509,42 +584,57 @@ function ChecklistyTab({ fullName, templates, submissions, onSaveTemplate, onUpd
             const history = submissions.filter((s) => s.templateId === t.id);
             return (
               <div key={t.id} className="bg-white border border-slate-200 rounded-lg p-4">
-                <div className="flex items-center justify-between flex-wrap gap-2">
-                  <div>
-                    <div className="font-semibold">{t.nazov}</div>
-                    <div className="text-xs text-slate-400">Frekvence: každých {t.frekvenciaHodnota} {frekvenciaLabel(t.frekvenciaTyp).toLowerCase()} - další termín: {nextDue || "-"}</div>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <button onClick={() => setFillId(fillId === t.id ? null : t.id)} className="text-xs bg-teal-700 hover:bg-teal-800 text-white font-medium px-3 py-1.5 rounded-md">Vyplnit</button>
-                    <button onClick={() => onDeleteTemplate(t.id)} className="text-slate-400 hover:text-red-600"><Trash2 size={16} /></button>
-                  </div>
-                </div>
+                {editingId === t.id ? (
+                  <>
+                    <TemplateFormFields values={editForm} onChange={setEditForm} />
+                    {editError && <div className="mb-2 text-xs text-red-700 flex items-center gap-1.5"><AlertCircle size={12} /> {editError}</div>}
+                    <div className="flex justify-end gap-2">
+                      <button onClick={cancelEdit} className="text-sm text-slate-500 px-3 py-2">Zrušit</button>
+                      <button onClick={saveEdit} className="bg-teal-700 hover:bg-teal-800 text-white text-sm font-medium px-4 py-2 rounded-md">Uložit</button>
+                    </div>
+                  </>
+                ) : (
+                  <>
+                    <div className="flex items-center justify-between flex-wrap gap-2">
+                      <div>
+                        <div className="font-semibold">{t.nazov}</div>
+                        <div className="text-xs text-slate-400">Frekvence: každých {t.frekvenciaHodnota} {frekvenciaLabel(t.frekvenciaTyp).toLowerCase()} - další termín: {nextDue || "-"}</div>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <button onClick={() => setFillId(fillId === t.id ? null : t.id)} className="text-xs bg-teal-700 hover:bg-teal-800 text-white font-medium px-3 py-1.5 rounded-md">Vyplnit</button>
+                        <button onClick={() => exportChecklistHistory(t, submissions)} disabled={history.length === 0} title={history.length === 0 ? "Zatím žádná vyplnění" : "Stáhnout historii vyplnění do Excelu"} className="text-slate-400 hover:text-teal-700 disabled:opacity-30 disabled:cursor-not-allowed p-1"><Download size={16} /></button>
+                        <button onClick={() => startEdit(t)} title="Upravit checklist" className="text-slate-400 hover:text-teal-700 p-1"><Pencil size={16} /></button>
+                        <button onClick={() => onDeleteTemplate(t.id)} title="Smazat checklist" className="text-slate-400 hover:text-red-600 p-1"><Trash2 size={16} /></button>
+                      </div>
+                    </div>
 
-                {fillId === t.id && (
-                  <ChecklistFillForm
-                    template={t}
-                    fullName={fullName}
-                    onCancel={() => setFillId(null)}
-                    onSave={(record) => { onSaveSubmission(record); setFillId(null); }}
-                  />
-                )}
+                    {fillId === t.id && (
+                      <ChecklistFillForm
+                        template={t}
+                        fullName={fullName}
+                        onCancel={() => setFillId(null)}
+                        onSave={(record) => { onSaveSubmission(record); setFillId(null); }}
+                      />
+                    )}
 
-                {history.length > 0 && (
-                  <div className="mt-3 pt-3 border-t border-slate-100">
-                    <button onClick={() => setOpenHistoryId(openHistoryId === t.id ? null : t.id)} className="text-xs text-slate-500 hover:text-slate-700 flex items-center gap-1">
-                      {openHistoryId === t.id ? <ChevronUp size={12} /> : <ChevronDown size={12} />} Historie vyplnění ({history.length})
-                    </button>
-                    {openHistoryId === t.id && (
-                      <div className="mt-2 space-y-1">
-                        {history.slice().sort((a, b) => daysUntil(b.datum) - daysUntil(a.datum)).map((s) => (
-                          <div key={s.id} className="text-xs text-slate-500 flex items-center gap-2">
-                            <CheckCircle2 size={12} className="text-emerald-600 shrink-0" />
-                            {s.datum} - {s.vyplnil}{s.poznamka ? " - " + s.poznamka : ""}
+                    {history.length > 0 && (
+                      <div className="mt-3 pt-3 border-t border-slate-100">
+                        <button onClick={() => setOpenHistoryId(openHistoryId === t.id ? null : t.id)} className="text-xs text-slate-500 hover:text-slate-700 flex items-center gap-1">
+                          {openHistoryId === t.id ? <ChevronUp size={12} /> : <ChevronDown size={12} />} Historie vyplnění ({history.length})
+                        </button>
+                        {openHistoryId === t.id && (
+                          <div className="mt-2 space-y-1">
+                            {history.slice().sort((a, b) => daysUntil(b.datum) - daysUntil(a.datum)).map((s) => (
+                              <div key={s.id} className="text-xs text-slate-500 flex items-center gap-2">
+                                <CheckCircle2 size={12} className="text-emerald-600 shrink-0" />
+                                {s.datum} - {s.vyplnil}{s.poznamka ? " - " + s.poznamka : ""}
+                              </div>
+                            ))}
                           </div>
-                        ))}
+                        )}
                       </div>
                     )}
-                  </div>
+                  </>
                 )}
               </div>
             );
