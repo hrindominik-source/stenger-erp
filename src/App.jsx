@@ -294,6 +294,7 @@ const EMPTY_PRODUCT = {
   designId: "",
   cisloArtiklu: "",
   cisloArtikluSW: "",
+  cisloArtikluZakaznika: "",
   inhlt: "",
   eanKarton: "",
   eanUnit: "",
@@ -3741,7 +3742,7 @@ function findProduktForItem(it, customer, products) {
     const p = (products || []).find((p) => p.id === katalogItem.produktId);
     if (p) return p;
   }
-  return (products || []).find((p) => p.cisloArtiklu === it.artikel || p.cisloArtikluSW === it.artikel) || null;
+  return (products || []).find((p) => p.cisloArtiklu === it.artikel || p.cisloArtikluSW === it.artikel || p.cisloArtikluZakaznika === it.artikel) || null;
 }
 
 // Automaticky navrhne pocet paliet z poctu kartonov + "Kartonů na paletě" u
@@ -5547,6 +5548,7 @@ function ProductsView({ products, designs, swPricelist, onSave, onEdit }) {
       "Design": (designs || []).find((d) => d.id === p.designId)?.nazov || "",
       "Naše artiklové číslo (SNC)": p.cisloArtiklu || "",
       "Artiklové číslo Stenger Waffeln (Sage 100)": p.cisloArtikluSW || "",
+      "Artiklové číslo zákazníka": p.cisloArtikluZakaznika || "",
       "Položky v receptuře": (p.receptura || []).length,
     }));
     await exportRowsToExcel(rows, "Produkty", "Produkty");
@@ -5594,7 +5596,7 @@ function ProductsView({ products, designs, swPricelist, onSave, onEdit }) {
       ) : (
         <div className="bg-white border border-slate-200 rounded-lg overflow-hidden">
           <table className="w-full text-sm">
-            <thead><tr className="bg-slate-100 text-slate-600 text-left"><th className="px-3 py-2 font-medium">Produkt</th><th className="px-3 py-2 font-medium">Linka</th><th className="px-3 py-2 font-medium">Design</th><th className="px-3 py-2 font-medium">Č. SNC / SW</th><th className="px-3 py-2 font-medium">Receptura</th><th className="px-3 py-2"></th></tr></thead>
+            <thead><tr className="bg-slate-100 text-slate-600 text-left"><th className="px-3 py-2 font-medium">Produkt</th><th className="px-3 py-2 font-medium">Linka</th><th className="px-3 py-2 font-medium">Design</th><th className="px-3 py-2 font-medium">Č. SNC / SW / zákazníka</th><th className="px-3 py-2 font-medium">Receptura</th><th className="px-3 py-2"></th></tr></thead>
             <tbody>
               {products.map((p) => (
                 <tr key={p.id} className="border-t border-slate-100">
@@ -5606,7 +5608,7 @@ function ProductsView({ products, designs, swPricelist, onSave, onEdit }) {
                       {(designs || []).map((d) => <option key={d.id} value={d.id}>{d.nazov}</option>)}
                     </select>
                   </td>
-                  <td className="px-3 py-2 text-slate-500 text-xs whitespace-nowrap">{p.cisloArtiklu || "—"} / {p.cisloArtikluSW || "—"}</td>
+                  <td className="px-3 py-2 text-slate-500 text-xs whitespace-nowrap">{p.cisloArtiklu || "—"} / {p.cisloArtikluSW || "—"} / {p.cisloArtikluZakaznika || "—"}</td>
                   <td className="px-3 py-2 text-slate-500">{(p.receptura || []).length} polozka(y)</td>
                   <td className="px-3 py-2 text-right">
                     <div className="flex justify-end gap-1">
@@ -5684,6 +5686,7 @@ function ProductModal({ product, existingReceipts, existingIssues, onClose, onSa
       <div className="grid grid-cols-2 gap-x-3">
         <Field label="Naše artiklové číslo (SNC)" value={f.cisloArtiklu} onChange={(v) => setF({ ...f, cisloArtiklu: v })} />
         <Field label="Artiklové číslo Stenger Waffeln (Sage 100)" value={f.cisloArtikluSW} onChange={(v) => setF({ ...f, cisloArtikluSW: v })} />
+        <Field label="Artiklové číslo zákazníka" value={f.cisloArtikluZakaznika} onChange={(v) => setF({ ...f, cisloArtikluZakaznika: v })} />
       </div>
       <Field label="Obsah balení (inhlt, pro Lieferschein)" value={f.inhlt} onChange={(v) => setF({ ...f, inhlt: v })} textarea placeholder="např. 20 x 75 g Beutel, 1 PLT= 16 KRT" />
       <div className="grid grid-cols-2 gap-x-3">
