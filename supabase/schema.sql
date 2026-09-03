@@ -1246,8 +1246,11 @@ begin
     TG_TABLE_NAME,
     rec_id,
     lower(TG_OP),
-    case when TG_OP in ('update', 'delete') then to_jsonb(OLD) else null end,
-    case when TG_OP in ('insert', 'update') then to_jsonb(NEW) else null end,
+    -- TG_OP je vzdy VELKYMI pismenami ('INSERT'/'UPDATE'/'DELETE') - porovnanie
+    -- s malymi pismenami by tu nikdy nesedelo a old_value/new_value by ostali
+    -- vzdy NULL (presne tento bug tu bol predtym).
+    case when TG_OP in ('UPDATE', 'DELETE') then to_jsonb(OLD) else null end,
+    case when TG_OP in ('INSERT', 'UPDATE') then to_jsonb(NEW) else null end,
     auth.uid(),
     public.current_role(),
     case when auth.uid() is null then 'automation' else 'user' end

@@ -5529,7 +5529,11 @@ function ProductsView({ products, designs, swPricelist, onSave, onEdit }) {
     onSave([...products, { ...EMPTY_PRODUCT, ...f, znacka: f.znacka.trim(), id: uid() }]);
     setF({ znacka: "", gramaz: "", ksVKartone: "", kartonovNaPalete: "", linka: "sacky" });
   }
-  function remove(id) { onSave(products.filter((p) => p.id !== id)); }
+  function remove(id) {
+    const p = products.find((x) => x.id === id);
+    if (!window.confirm(`Opravdu smazat produkt "${p ? productLabel(p) : ""}"? Tuto akci nelze vrátit zpět.`)) return;
+    onSave(products.filter((x) => x.id !== id));
+  }
   function changeDesign(id, designId) {
     onSave(products.map((p) => (p.id === id ? { ...p, designId } : p)));
   }
