@@ -4,7 +4,7 @@
 // dokumentu (vsetky staticke texty, formaty, ramceky, aj zabudovane vzorce
 // pre auto-prepocet druheho poctu paliet a druheho datumu) ostava
 // nedotknuty presne tak, ako je v sablone.
-const TEMPLATE_URL = "/templates/CMR_template.xlsx";
+const TEMPLATE_URL = `${import.meta.env.BASE_URL}templates/CMR_template.xlsx`;
 
 // Pouziva Date.UTC/getUTCDay namiesto lokalneho casu: exceljs pri zapise
 // datumu do xlsx pocita seriove cislo z UTC casu Date objektu, takze pri

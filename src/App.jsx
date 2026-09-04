@@ -539,7 +539,7 @@ function AppLauncher({ onChoose }) {
     <div className="min-h-screen bg-slate-900 flex items-center justify-center px-4" style={{ fontFamily: "system-ui, -apple-system, Segoe UI, sans-serif" }}>
       <div className="w-full max-w-2xl">
         <div className="text-center mb-10">
-          <img src="/stenger-logo.png" alt="Stenger" className="h-16 w-auto mx-auto mb-3" />
+          <img src={`${import.meta.env.BASE_URL}stenger-logo.png`} alt="Stenger" className="h-16 w-auto mx-auto mb-3" />
           <div className="text-xs tracking-wider text-slate-400">Stenger Czech s.r.o.</div>
         </div>
         <div className="grid sm:grid-cols-2 gap-6">
@@ -2490,7 +2490,7 @@ function Header({ view, setView, company, userFullName, userEmail, onSignOut }) 
     <header className="bg-slate-900 text-white">
       <div className="max-w-6xl mx-auto px-4 pt-4 flex items-center justify-between flex-wrap gap-2">
         <div className="flex items-center gap-3">
-          <img src="/stenger-logo.png" alt="Stenger" className="h-10 w-auto" />
+          <img src={`${import.meta.env.BASE_URL}stenger-logo.png`} alt="Stenger" className="h-10 w-auto" />
           <div>
             <div className="text-xs uppercase tracking-wider text-slate-400">
               {company.nazov ? company.nazov : "Firma nenastavena"}

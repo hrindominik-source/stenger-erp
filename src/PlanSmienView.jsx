@@ -669,7 +669,7 @@ function LoginGate({ employees, onAdminLogin, onEmployeeLogin, onBack }) {
       <div className="min-h-screen bg-slate-50 flex items-center justify-center p-4" style={{ fontFamily: "system-ui, -apple-system, Segoe UI, sans-serif" }}>
         <div className="bg-white border border-slate-200 rounded-xl shadow-sm p-8 max-w-sm w-full text-center space-y-4">
           <div>
-            <img src="/stenger-logo.png" alt="Stenger" className="h-14 w-auto mx-auto mb-3" />
+            <img src={`${import.meta.env.BASE_URL}stenger-logo.png`} alt="Stenger" className="h-14 w-auto mx-auto mb-3" />
             <div className="text-xs tracking-wider text-slate-400 mb-1">Stenger Czech s.r.o.</div>
             <h1 className="text-lg font-bold text-slate-900">Plán směn — výroba</h1>
           </div>
@@ -686,7 +686,7 @@ function LoginGate({ employees, onAdminLogin, onEmployeeLogin, onBack }) {
     <div className="min-h-screen bg-slate-50 flex items-center justify-center p-4" style={{ fontFamily: "system-ui, -apple-system, Segoe UI, sans-serif" }}>
       <div className="bg-white border border-slate-200 rounded-xl shadow-sm p-8 max-w-sm w-full space-y-4">
         <button onClick={() => { setMode(null); setError(''); setPin(''); }} className="text-xs text-slate-400 hover:text-slate-600">&larr; Zpět</button>
-        <img src="/stenger-logo.png" alt="Stenger" className="h-10 w-auto mx-auto" />
+        <img src={`${import.meta.env.BASE_URL}stenger-logo.png`} alt="Stenger" className="h-10 w-auto mx-auto" />
         {mode === 'admin' ? (
           <>
             <h2 className="font-semibold text-slate-900 text-center">Přihlášení vedoucího</h2>
@@ -744,7 +744,7 @@ function EmployeePortal({ employee, weeks, requests, onSubmitRequest, onLogout }
     <div className="min-h-screen bg-slate-50">
       <header className="bg-slate-900 text-white px-4 md:px-6 py-4 flex items-center justify-between">
         <div className="flex items-center gap-3">
-          <img src="/stenger-logo.png" alt="Stenger" className="h-9 w-auto" />
+          <img src={`${import.meta.env.BASE_URL}stenger-logo.png`} alt="Stenger" className="h-9 w-auto" />
           <div>
             <h1 className="text-lg font-bold">Ahoj, {employee.name}</h1>
             <p className="text-xs text-slate-400">Vaše směny a žádosti o volno</p>
@@ -1722,7 +1722,7 @@ export default function PlanSmienView({ onBack }) {
       <header className="bg-slate-900 text-white">
         <div className="max-w-6xl mx-auto px-4 pt-4 flex items-center justify-between flex-wrap gap-2">
           <div className="flex items-center gap-3">
-            <img src="/stenger-logo.png" alt="Stenger" className="h-10 w-auto" />
+            <img src={`${import.meta.env.BASE_URL}stenger-logo.png`} alt="Stenger" className="h-10 w-auto" />
             <div>
               <div className="text-xs uppercase tracking-wider text-slate-400">Stenger Czech s.r.o.</div>
               <div className="text-lg font-semibold">Plán směn — výroba</div>

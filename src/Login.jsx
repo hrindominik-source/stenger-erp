@@ -26,7 +26,7 @@ export default function Login({ onSignIn, onSwitchApp }) {
     <div className="min-h-screen bg-slate-50 flex items-center justify-center px-4" style={{ fontFamily: "system-ui, -apple-system, Segoe UI, sans-serif" }}>
       <div className="w-full max-w-sm bg-white border border-slate-200 rounded-lg shadow-sm p-6">
         <div className="text-center mb-6">
-          <img src="/stenger-logo.png" alt="Stenger" className="h-16 w-auto mx-auto mb-3" />
+          <img src={`${import.meta.env.BASE_URL}stenger-logo.png`} alt="Stenger" className="h-16 w-auto mx-auto mb-3" />
           <div className="text-xs tracking-wider text-slate-400 mb-1">Stenger Czech s.r.o.</div>
           <h1 className="text-lg font-semibold text-slate-900">Přihlášení</h1>
         </div>

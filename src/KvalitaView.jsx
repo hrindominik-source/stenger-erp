@@ -212,7 +212,7 @@ export default function KvalitaView({ fullName, onSignOut, onBack }) {
         <div className="max-w-4xl mx-auto px-4 py-4 flex items-center justify-between flex-wrap gap-3">
           <div className="flex items-center gap-3">
             <button onClick={onBack} className="text-slate-400 hover:text-white"><ArrowLeft size={20} /></button>
-            <img src="/stenger-logo.png" alt="Stenger" className="h-10 w-auto" />
+            <img src={`${import.meta.env.BASE_URL}stenger-logo.png`} alt="Stenger" className="h-10 w-auto" />
             <div>
               <div className="text-xs tracking-wider text-slate-400">Stenger Czech s.r.o.</div>
               <div className="text-lg font-semibold">Kvalita a kontroly</div>
