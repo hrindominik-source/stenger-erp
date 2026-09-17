@@ -25,7 +25,7 @@ import { exportRowsToExcel, exportSheetsToExcel } from "./lib/exportExcel.js";
 import { computeStockLevels, computeProductionIssues, extraKnownMaterials, materialPicksForSupplier, allKnownMaterials, suggestReceiptMatches, UNIT_QUICK_PICKS } from "./lib/inventory.js";
 import { diffProductionPlanFields, isPlanZmenaActive, formatZmenaText } from "./lib/planZmena.js";
 import { getCnbRate } from "./lib/exchangeRate.js";
-import { downloadTextAsPdf } from "./lib/textPdf.js";
+import { downloadTextAsPdf, renderContainerToPdf } from "./lib/textPdf.js";
 import { summarizeMonth, computeDayHours, shiftInterval, clampShiftStart } from "./lib/dochadzka.js";
 
 const STATUS_ORDER = {
@@ -3999,13 +3999,34 @@ function DeliveryModal({ order, customers, carriers, company, pricelist, product
     `Best regards,\n${currentUserName || company.kontaktnaOsoba || ""}`
   );
 
+  const [pdfBusy, setPdfBusy] = useState(false);
+
   function handlePrint() {
     setTimeout(() => window.print(), 50);
   }
-  function handleDownload() {
+  // Rovnaky HTML fragment ako predtym "Stahnout HTML" (buildLieferscheinHtml) -
+  // len namiesto ulozenia ako .html sa odfoti do PDF (rovnaky vzor ako export
+  // checklistu v Kvalite), aby bol vysledny vystup vizualne totozny.
+  async function handleDownloadPdf() {
+    setPdfBusy(true);
     const html = buildLieferscheinHtml({ company, customer, order, carrierName: carrier ? carrier.nazov : "", transportPrice, products });
     const mestoSuffix = mesto ? `_${mesto.replace(/[^\p{L}\p{N}]+/gu, "_")}` : "";
-    downloadHtml(`Lieferschein_${order.cisloDodaciehoListu.replace("/", "-")}${mestoSuffix}.html`, html);
+    const container = document.createElement("div");
+    container.style.position = "fixed";
+    container.style.left = "0";
+    container.style.top = "0";
+    container.style.zIndex = "-1000";
+    container.style.width = "800px";
+    container.style.background = "#ffffff";
+    container.style.padding = "24px";
+    container.innerHTML = html;
+    document.body.appendChild(container);
+    try {
+      await renderContainerToPdf(`Lieferschein_${order.cisloDodaciehoListu.replace("/", "-")}${mestoSuffix}.pdf`, container, 800);
+    } finally {
+      if (container.parentNode) container.parentNode.removeChild(container);
+      setPdfBusy(false);
+    }
   }
   function handleDownloadXlsx() {
     buildLieferscheinXlsx({ order, company, customer, carrierName: carrier ? carrier.nazov : "", transportPrice, products, mesto });
@@ -4023,7 +4044,9 @@ function DeliveryModal({ order, customers, carriers, company, pricelist, product
       <div className="flex justify-end gap-2 mt-2 flex-wrap">
         <button onClick={onClose} className="text-sm text-slate-500 px-3 py-2">Zrušit</button>
         <button onClick={handleDownloadXlsx} className="bg-white border border-slate-200 hover:bg-slate-50 text-slate-700 text-sm font-medium px-4 py-2 rounded-md flex items-center gap-1.5"><Download size={16} /> Stáhnout Excel</button>
-        <button onClick={handleDownload} className="bg-white border border-slate-200 hover:bg-slate-50 text-slate-700 text-sm font-medium px-4 py-2 rounded-md flex items-center gap-1.5"><Download size={16} /> Stáhnout HTML</button>
+        <button onClick={handleDownloadPdf} disabled={pdfBusy} className="bg-white border border-slate-200 hover:bg-slate-50 disabled:opacity-60 text-slate-700 text-sm font-medium px-4 py-2 rounded-md flex items-center gap-1.5">
+          {pdfBusy ? <Loader2 size={16} className="animate-spin" /> : <Download size={16} />} Stáhnout PDF
+        </button>
         <button onClick={handlePrint} className="bg-white border border-slate-200 hover:bg-slate-50 text-slate-700 text-sm font-medium px-4 py-2 rounded-md flex items-center gap-1.5"><Printer size={16} /> Vytisknout</button>
         <a href={email ? buildMailto(email, subject, body) : "#"} onClick={() => email && onSent(email, { subject, body, to: email, datum: new Date().toISOString() })} className={"bg-teal-700 hover:bg-teal-800 text-white text-sm font-medium px-4 py-2 rounded-md flex items-center gap-1.5 " + (!email ? "opacity-50 pointer-events-none" : "")}>
           <FileText size={16} /> Odeslat e-mailem
