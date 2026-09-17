@@ -6,7 +6,7 @@ import {
   ClipboardList, ArrowLeft, Download, Layers, FileSignature, Printer, Package,
   LogOut, PackageCheck, PackageX, Euro, Factory, Boxes, PackagePlus, Camera,
   LayoutDashboard, Warehouse, MinusCircle, FlaskConical, ClipboardCheck, UserCheck, Menu, Mail, Calendar, FileSpreadsheet, Receipt,
-  Recycle, Calculator, Image, Construction, BookOpen, ListChecks, CalendarClock, Coffee, ChevronDown, ChevronUp, BarChart3, Settings, KeyRound, History, ShieldCheck, Stamp
+  Recycle, Calculator, Image, Construction, BookOpen, ListChecks, CalendarClock, Coffee, ChevronDown, ChevronUp, BarChart3, Settings, KeyRound, History, ShieldCheck, Stamp, Ban, RotateCcw
 } from "lucide-react";
 import { supabase } from "./supabaseClient.js";
 import { useAuth } from "./lib/auth.js";
@@ -72,6 +72,7 @@ const EMPTY_ORDER = {
   polozky: [],
   poznamka: "",
   stavExpedicie: "Neexpedovana",
+  stornovana: false,
 };
 
 const EMPTY_CUSTOMER = { nazov: "", adresa: "", ico: "", dic: "", email: "", katalog: [], emaily: [] };
@@ -1719,6 +1720,7 @@ function OfficeApp({ userFullName, userEmail, onSignOut }) {
       "Hmotnost": o.hmotnost,
       "Palety zpět": o.paletyZpat ? "Ano" : "Nie",
       "Dopravce": (carriers.find((c) => c.id === o.dopravcaId) || {}).nazov || "",
+      "Stornováno": o.stornovana ? "Ano" : "Nie",
       "Stav objednávky": o.stavObjednavky,
       "Stav dopravy": o.stavDopravy,
       "Stav expedice": o.stavExpedicie === "Expedovana" ? "Expedovana" : "Neexpedovana",
@@ -1772,6 +1774,7 @@ function OfficeApp({ userFullName, userEmail, onSignOut }) {
       dopravcaId: "",
       dodaciListOdoslany: "Nie",
       stavExpedicie: "Neexpedovana",
+      stornovana: false,
     };
     const prevCompany = company;
     setCompany((prev) => ({ ...prev, posledneCisloDopravy: dopravaNum, posledneCisloDodaciehoListu: dodakNum }));
@@ -1891,6 +1894,7 @@ function OfficeApp({ userFullName, userEmail, onSignOut }) {
             onDelete={deleteOrder}
             onExport={exportToExcel}
             onToggleExpedicia={toggleExpedicia}
+            onToggleStorno={(o) => updateOrder(o.id, { stornovana: !o.stornovana })}
           />
         )}
         {view === "register" && showNewOrder && (
@@ -2832,8 +2836,9 @@ function TabButton({ icon, label, active, onClick }) {
 
 /* ---------------- Register ---------------- */
 
-function RegisterView({ orders, carriers, customers, expedicniaZaznamy, products, onUpdateExpedicia, onDeleteExpedicia, onNew, onOpenTransport, onOpenDelivery, onOpenPallet, onOpenCmr, onOpenNve, onOpenLsGermany, onEdit, onDelete, onExport, onToggleExpedicia }) {
+function RegisterView({ orders, carriers, customers, expedicniaZaznamy, products, onUpdateExpedicia, onDeleteExpedicia, onNew, onOpenTransport, onOpenDelivery, onOpenPallet, onOpenCmr, onOpenNve, onOpenLsGermany, onEdit, onDelete, onExport, onToggleExpedicia, onToggleStorno }) {
   const [confirmDelete, setConfirmDelete] = useState(null);
+  const [confirmStorno, setConfirmStorno] = useState(null);
   const [detailOrder, setDetailOrder] = useState(null);
 
   const [search, setSearch] = useState("");
@@ -2841,6 +2846,7 @@ function RegisterView({ orders, carriers, customers, expedicniaZaznamy, products
   const [stavDopravyFilter, setStavDopravyFilter] = useState("");
   const [stavDodaciListFilter, setStavDodaciListFilter] = useState("");
   const [stavExpedicieFilter, setStavExpedicieFilter] = useState("");
+  const [stornoFilter, setStornoFilter] = useState("");
   const [datumOd, setDatumOd] = useState("");
   const [datumDo, setDatumDo] = useState("");
 
@@ -2848,9 +2854,9 @@ function RegisterView({ orders, carriers, customers, expedicniaZaznamy, products
     () => [...customers].map((c) => c.nazov).filter(Boolean).sort((a, b) => a.localeCompare(b)),
     [customers]
   );
-  const hasActiveFilters = !!(search || zakaznikFilter || stavDopravyFilter || stavDodaciListFilter || stavExpedicieFilter || datumOd || datumDo);
+  const hasActiveFilters = !!(search || zakaznikFilter || stavDopravyFilter || stavDodaciListFilter || stavExpedicieFilter || stornoFilter || datumOd || datumDo);
   function resetFilters() {
-    setSearch(""); setZakaznikFilter(""); setStavDopravyFilter(""); setStavDodaciListFilter(""); setStavExpedicieFilter(""); setDatumOd(""); setDatumDo("");
+    setSearch(""); setZakaznikFilter(""); setStavDopravyFilter(""); setStavDodaciListFilter(""); setStavExpedicieFilter(""); setStornoFilter(""); setDatumOd(""); setDatumDo("");
   }
 
   const filteredOrders = useMemo(() => {
@@ -2866,6 +2872,8 @@ function RegisterView({ orders, carriers, customers, expedicniaZaznamy, products
       if (stavDopravyFilter && o.stavDopravy !== stavDopravyFilter) return false;
       if (stavDodaciListFilter && (o.dodaciListOdoslany === "Ano" ? "Odoslany" : "Neodoslany") !== stavDodaciListFilter) return false;
       if (stavExpedicieFilter && (o.stavExpedicie === "Expedovana" ? "Expedovana" : "Neexpedovana") !== stavExpedicieFilter) return false;
+      if (stornoFilter === "Aktivni" && o.stornovana) return false;
+      if (stornoFilter === "Stornovane" && !o.stornovana) return false;
       if (datumOdParsed || datumDoParsed) {
         const d = parseSkDate(o.datumDodania);
         if (!d) return false;
@@ -2874,7 +2882,7 @@ function RegisterView({ orders, carriers, customers, expedicniaZaznamy, products
       }
       return true;
     });
-  }, [orders, search, zakaznikFilter, stavDopravyFilter, stavDodaciListFilter, stavExpedicieFilter, datumOd, datumDo]);
+  }, [orders, search, zakaznikFilter, stavDopravyFilter, stavDodaciListFilter, stavExpedicieFilter, stornoFilter, datumOd, datumDo]);
 
   const batchZaznamy = (expedicniaZaznamy || []).filter((z) => z.typ !== "doprava" && z.typ !== "celkova" && z.typ !== "kontrola");
   const dopravaByOrder = new Map();
@@ -2992,6 +3000,14 @@ function RegisterView({ orders, carriers, customers, expedicniaZaznamy, products
                 <option value="Neexpedovana">Neexpedovana</option>
               </select>
             </label>
+            <label className="min-w-[150px]">
+              <span className="block text-xs font-medium text-slate-500 mb-1">Storno</span>
+              <select value={stornoFilter} onChange={(e) => setStornoFilter(e.target.value)} className="w-full border border-slate-200 rounded-md px-2.5 py-1.5 text-sm">
+                <option value="">Vše</option>
+                <option value="Aktivni">Jen aktivní</option>
+                <option value="Stornovane">Jen stornované</option>
+              </select>
+            </label>
             <label className="min-w-[130px]">
               <span className="block text-xs font-medium text-slate-500 mb-1">Dodání od</span>
               <input type="date" value={datumOd} onChange={(e) => setDatumOd(e.target.value)} className="w-full border border-slate-200 rounded-md px-2.5 py-1.5 text-sm" />
@@ -3035,10 +3051,13 @@ function RegisterView({ orders, carriers, customers, expedicniaZaznamy, products
                 const orderBatches = batchZaznamy.filter((z) => z.orderId === o.id);
                 const orderDoprava = dopravaByOrder.get(o.id) || null;
                 const rowText = ((o.adresaDodaniaNazov || "") + " " + (o.adresaDodania || "")).toLowerCase();
-                const rowTint = rowText.includes("netto") ? "bg-blue-100" : (rowText.includes("ehg") || rowText.includes("edeka")) ? "bg-red-100" : "";
+                const rowTint = o.stornovana ? "bg-slate-100" : rowText.includes("netto") ? "bg-blue-100" : (rowText.includes("ehg") || rowText.includes("edeka")) ? "bg-red-100" : "";
                 return (
-                  <tr key={o.id} onClick={() => onEdit(o)} className={"border-t-2 border-slate-300 hover:brightness-95 cursor-pointer " + rowTint}>
-                    <td className="px-3 py-2 font-medium whitespace-nowrap">{o.cisloObjednavky}</td>
+                  <tr key={o.id} onClick={() => onEdit(o)} className={"border-t-2 border-slate-300 hover:brightness-95 cursor-pointer " + rowTint + (o.stornovana ? " opacity-60" : "")}>
+                    <td className="px-3 py-2 font-medium whitespace-nowrap">
+                      <span className={o.stornovana ? "line-through text-slate-400" : ""}>{o.cisloObjednavky}</span>
+                      {o.stornovana && <div className="mt-0.5"><span className="text-[10px] font-semibold px-1.5 py-0.5 rounded-full bg-slate-300 text-slate-700 whitespace-nowrap">Stornováno</span></div>}
+                    </td>
                     <td className="px-3 py-2">
                       <div className="font-medium">
                         {extractCityFromAddress(o.adresaDodania) && <span>{extractCityFromAddress(o.adresaDodania)}{o.adresaDodaniaNazov ? " - " : ""}</span>}
@@ -3099,6 +3118,11 @@ function RegisterView({ orders, carriers, customers, expedicniaZaznamy, products
                           </IconButton>
                         )}
                         <IconButton title="Upravit / porovnat s PDF" onClick={() => onEdit(o)}><Pencil size={16} /></IconButton>
+                        {o.stornovana ? (
+                          <IconButton title="Obnovit (zrušit storno)" onClick={() => onToggleStorno(o)}><RotateCcw size={16} /></IconButton>
+                        ) : (
+                          <IconButton title="Stornovat objednávku" onClick={() => setConfirmStorno(o)}><Ban size={16} /></IconButton>
+                        )}
                         <IconButton title="Smazat" onClick={() => setConfirmDelete(o)}><Trash2 size={16} /></IconButton>
                       </div>
                     </td>
@@ -3124,6 +3148,23 @@ function RegisterView({ orders, carriers, customers, expedicniaZaznamy, products
               className="bg-red-600 hover:bg-red-700 text-white text-sm font-medium px-4 py-2 rounded-md flex items-center gap-1.5"
             >
               <Trash2 size={16} /> Ano, zmazat
+            </button>
+          </div>
+        </ModalShell>
+      )}
+      {confirmStorno && (
+        <ModalShell title="Stornovat objednávku?" onClose={() => setConfirmStorno(null)}>
+          <p className="text-sm text-slate-600 mb-4">
+            Opravdu chcete stornovat objednávku <b>{confirmStorno.cisloObjednavkyDopravy}</b>
+            {confirmStorno.zakaznik ? " (" + confirmStorno.zakaznik + ")" : ""}? Objednávka zůstane v registru (i se svým číslem dodacího listu a dopravy) označená jako stornovaná - kdykoliv ji můžete obnovit.
+          </p>
+          <div className="flex justify-end gap-2">
+            <button onClick={() => setConfirmStorno(null)} className="text-sm text-slate-500 px-3 py-2">Zrušit</button>
+            <button
+              onClick={() => { onToggleStorno(confirmStorno); setConfirmStorno(null); }}
+              className="bg-red-600 hover:bg-red-700 text-white text-sm font-medium px-4 py-2 rounded-md flex items-center gap-1.5"
+            >
+              <Ban size={16} /> Ano, stornovat
             </button>
           </div>
         </ModalShell>
@@ -8282,12 +8323,14 @@ function isSameDay(a, b) {
 }
 
 function DashboardView({ orders, goodsReceipts, stockIssues, productionOutputs, onGoToRegister, onGoToGoodsReceipts, onGoToStock, onGoToProduction }) {
-  const pendingExpedicia = orders.filter((o) => o.stavExpedicie !== "Expedovana").length;
+  // Stornovana objednavka uz nikdy nema byt "na expedici" - zostava v
+  // registri (viz [[storno]]), ale z prehladu/poctov vypadava.
+  const pendingExpedicia = orders.filter((o) => o.stavExpedicie !== "Expedovana" && !o.stornovana).length;
   const today = new Date();
   const tomorrow = new Date(today);
   tomorrow.setDate(tomorrow.getDate() + 1);
   const dueSoon = orders.filter((o) => {
-    if (o.stavExpedicie === "Expedovana") return false;
+    if (o.stavExpedicie === "Expedovana" || o.stornovana) return false;
     const d = parseSkDate(o.datumDodania);
     return d && (isSameDay(d, today) || isSameDay(d, tomorrow));
   }).length;
@@ -8296,7 +8339,7 @@ function DashboardView({ orders, goodsReceipts, stockIssues, productionOutputs, 
     .reduce((sum, o) => sum + (parseFloat(o.mnozstvo) || 0), 0);
   const problemReceipts = goodsReceipts.filter((r) => r.stavPrevzatia && r.stavPrevzatia !== "V poriadku");
   const upcoming = orders
-    .filter((o) => o.stavExpedicie !== "Expedovana")
+    .filter((o) => o.stavExpedicie !== "Expedovana" && !o.stornovana)
     .map((o) => ({ o, d: parseSkDate(o.datumDodania) }))
     .filter((x) => x.d)
     .sort((a, b) => a.d - b.d)

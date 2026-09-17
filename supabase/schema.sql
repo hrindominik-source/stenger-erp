@@ -182,6 +182,8 @@ stable
 security definer
 set search_path = public
 as $$
+  -- Stornovane objednavky (data->>'stornovana' = 'true') sklad vobec nevidi -
+  -- nema co nakladat/expedovat, storno riesi vyhradne office v registri.
   select
     id, zakaznik, adresa_dodania_nazov, adresa_dodania, cislo_objednavky_dopravy, cislo_dodacieho_listu,
     data->>'cisloObjednavkyZakaznika',
@@ -191,6 +193,7 @@ as $$
     data->>'pocetKartonov',
     coalesce(data->'polozky', '[]'::jsonb)
   from public.orders
+  where coalesce((data->>'stornovana')::boolean, false) = false
   order by created_at desc;
 $$;
 
