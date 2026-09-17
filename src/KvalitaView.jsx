@@ -1,9 +1,10 @@
 import React, { useState, useEffect, useCallback, useRef } from "react";
-import { LogOut, ArrowLeft, Loader2, AlertCircle, LayoutDashboard, ListChecks, CalendarClock, Plus, Trash2, CheckCircle2, ChevronDown, ChevronUp, Upload, FileCheck, Download, FileText, Pencil, X } from "lucide-react";
+import { LogOut, ArrowLeft, Loader2, AlertCircle, LayoutDashboard, ListChecks, CalendarClock, Plus, Trash2, CheckCircle2, ChevronDown, ChevronUp, Upload, FileCheck, Download, FileText, FileType2, Pencil, X } from "lucide-react";
 import { supabase } from "./supabaseClient.js";
 import { todayStr, uid, computeNextDue, daysUntil, isoFromSkDateStr, skDateStrFromIso } from "./lib/utils.js";
 import { exportRowsToExcel } from "./lib/exportExcel.js";
-import { renderContainerToPdf } from "./lib/textPdf.js";
+import { renderContainerToPdf, renderHtmlBlockToImage } from "./lib/textPdf.js";
+import { exportChecklistHistoryAsDocx } from "./lib/checklistDocx.js";
 
 const POLL_MS = 10000;
 const KVALITA_DOKUMENTY_BUCKET = "kvalita-dokumenty";
@@ -366,7 +367,7 @@ function ConfirmModal({ title, children, onCancel, onConfirm, confirmLabel }) {
 /* ---------------- Checklisty ---------------- */
 
 function emptyTemplateForm() {
-  return { nazov: "", polozky: [{ text: "", type: "boolean", legendaId: "" }], legendy: [], frekvenciaTyp: "mesiace", frekvenciaHodnota: "1" };
+  return { nazov: "", polozky: [{ text: "", type: "boolean", legendaId: "" }], legendy: [], frekvenciaTyp: "mesiace", frekvenciaHodnota: "1", cisloDokumentu: "", revizeCislo: "" };
 }
 
 function templateFormFromRecord(t) {
@@ -376,6 +377,8 @@ function templateFormFromRecord(t) {
     legendy: (t.legendy || []).map((l) => ({ id: l.id, nazov: l.nazov, kody: l.kody.map((k) => ({ ...k })) })),
     frekvenciaTyp: t.frekvenciaTyp || "mesiace",
     frekvenciaHodnota: String(t.frekvenciaHodnota ?? "1"),
+    cisloDokumentu: t.cisloDokumentu || "",
+    revizeCislo: t.revizeCislo || "",
   };
 }
 
@@ -402,6 +405,8 @@ function buildTemplatePayload(values) {
       legendy,
       frekvenciaTyp: values.frekvenciaTyp,
       frekvenciaHodnota: values.frekvenciaHodnota,
+      cisloDokumentu: values.cisloDokumentu.trim(),
+      revizeCislo: values.revizeCislo.trim(),
     },
   };
 }
@@ -443,51 +448,50 @@ async function exportChecklistHistory(template, submissions) {
   await exportRowsToExcel(rows, template.nazov.slice(0, 31), template.nazov.replace(/[^a-z0-9]+/gi, "_") || "checklist");
 }
 
+// Hlavicka/pata podla realnej firemnej sablony GF-001 ("Sablona pro tvorbu
+// interni dokumentace") - polia Cislo dokumentu / Strana X z Y / Revize c. /
+// V platnosti od / Datum posledni revize / NAZEV DOKUMENTU, pata "Po
+// vytisteni se jedna o nerizeny vytisk. Pouze pro interni pouziti." Cislo
+// dokumentu a revize sa berie z checklistu (vyplna office rucne podla
+// vlastni evidence, viz TemplateFormFields) - appka si zadne cislovanie
+// nevymysla.
+function gf001HeaderHtml(template) {
+  return `
+    <div style="font-family:Arial, Helvetica, sans-serif; padding:2px 0;">
+      <div style="font-weight:bold; font-size:13px; color:#0f172a;">Stenger Czech s.r.o.</div>
+      <div style="font-size:9px; color:#475569; margin-top:2px;">
+        Číslo dokumentu: ${template.cisloDokumentu || "—"} &nbsp;&nbsp; Revize č.: ${template.revizeCislo || "—"} &nbsp;&nbsp;
+        V platnosti od: ${template.vytvorene || "—"} &nbsp;&nbsp; Datum poslední revize: ${todayStr()}
+      </div>
+      <div style="font-weight:bold; font-size:12px; color:#0f172a; text-transform:uppercase; margin-top:5px; border-bottom:1.5px solid #0f172a; padding-bottom:5px;">
+        ${template.nazov}
+      </div>
+    </div>
+  `;
+}
+
+const GF001_FOOTER_HTML = `
+  <div style="font-family:Arial, Helvetica, sans-serif; font-size:8px; color:#64748b; font-style:italic; text-align:center; padding-top:3px;">
+    Po vytištění se jedná o neřízený výtisk. Pouze pro interní použití.
+  </div>
+`;
+
 // PDF verzia historie vyplneni - na rozdiel od Excelu (surova data na dalsie
 // spracovanie) je urcena na tlac/zdielanie ako interne riadeny dokument, tak
-// nesie hlavicku firmy a oznacenie dokumentu.
+// nesie hlavicku a patu presne podla firemnej sablony GF-001, opakovanu na
+// kazdej stranke.
 async function exportChecklistHistoryAsPdf(template, submissions) {
   const { history, itemTexts } = buildChecklistHistoryRows(template, submissions);
   if (history.length === 0) return;
 
-  const container = document.createElement("div");
-  container.style.position = "fixed";
-  container.style.left = "0";
-  container.style.top = "0";
-  container.style.zIndex = "-1000";
-  container.style.width = "1000px";
-  container.style.background = "#ffffff";
-  container.style.color = "#111111";
-  container.style.fontFamily = "Arial, Helvetica, sans-serif";
-  container.style.padding = "24px";
+  const PAGE_CONTENT_WIDTH_MM = 180; // A4 (210mm) minus 15mm okraje na kazdej strane
 
-  const logoUrl = `${import.meta.env.BASE_URL}stenger-logo.png`;
-  let logoDataOk = false;
-  try {
-    const img = new Image();
-    img.src = logoUrl;
-    await img.decode();
-    logoDataOk = true;
-  } catch (e) {
-    logoDataOk = false;
-  }
-
-  const headerHtml = `
-    <div style="display:flex; align-items:center; justify-content:space-between; border-bottom:2px solid #0f172a; padding-bottom:10px; margin-bottom:14px;">
-      <div style="display:flex; align-items:center; gap:12px;">
-        ${logoDataOk ? `<img src="${logoUrl}" style="height:40px; width:auto;" />` : ""}
-        <div>
-          <div style="font-weight:bold; font-size:15px;">Stenger Czech s.r.o.</div>
-          <div style="font-size:10px; color:#64748b; letter-spacing:0.05em;">INTERNĚ ŘÍZENÝ DOKUMENT</div>
-        </div>
-      </div>
-      <div style="text-align:right; font-size:10px; color:#64748b;">
-        Vygenerováno: ${todayStr()}
-      </div>
-    </div>
-    <div style="font-weight:bold; font-size:18px; margin-bottom:2px;">${template.nazov}</div>
-    <div style="font-size:11px; color:#64748b; margin-bottom:14px;">Historie vyplnění checklistu - frekvence: každých ${template.frekvenciaHodnota} ${frekvenciaLabel(template.frekvenciaTyp).toLowerCase()}</div>
-  `;
+  const [headerImg, footerImg] = await Promise.all([
+    renderHtmlBlockToImage(gf001HeaderHtml(template), 1000),
+    renderHtmlBlockToImage(GF001_FOOTER_HTML, 1000),
+  ]);
+  const headerHmm = PAGE_CONTENT_WIDTH_MM * (headerImg.heightPx / headerImg.widthPx);
+  const footerHmm = PAGE_CONTENT_WIDTH_MM * (footerImg.heightPx / footerImg.widthPx);
 
   const tableHead = `<th style="border:1px solid #cbd5e1; padding:4px 6px; background:#f1f5f9; text-align:left; white-space:nowrap;">Datum</th>` +
     `<th style="border:1px solid #cbd5e1; padding:4px 6px; background:#f1f5f9; text-align:left; white-space:nowrap;">Vyplnil</th>` +
@@ -510,8 +514,16 @@ async function exportChecklistHistoryAsPdf(template, submissions) {
     </tr>`;
   }).join("");
 
+  const container = document.createElement("div");
+  container.style.position = "fixed";
+  container.style.left = "0";
+  container.style.top = "0";
+  container.style.zIndex = "-1000";
+  container.style.width = "1000px";
+  container.style.background = "#ffffff";
+  container.style.color = "#111111";
+  container.style.fontFamily = "Arial, Helvetica, sans-serif";
   container.innerHTML = `
-    ${headerHtml}
     <table style="border-collapse:collapse; font-size:10px; width:100%;">
       <thead><tr>${tableHead}</tr></thead>
       <tbody>${tableRows}</tbody>
@@ -521,7 +533,23 @@ async function exportChecklistHistoryAsPdf(template, submissions) {
   document.body.appendChild(container);
   try {
     const filename = `${(template.nazov || "checklist").replace(/[^a-z0-9]+/gi, "_")}_historie_${todayStr().replace(/\./g, "-")}.pdf`;
-    await renderContainerToPdf(filename, container, 1000);
+    await renderContainerToPdf(filename, container, 1000, {
+      marginTop: 8 + headerHmm + 4,
+      marginBottom: footerHmm + 6,
+      onHeader: (doc) => {
+        doc.addImage(headerImg.dataUrl, "PNG", 15, 8, PAGE_CONTENT_WIDTH_MM, headerHmm);
+      },
+      onFooter: (doc, pageIndex, pageCount) => {
+        const pageWidth = doc.internal.pageSize.getWidth();
+        const pageHeight = doc.internal.pageSize.getHeight();
+        const footerY = pageHeight - footerHmm - 6;
+        doc.addImage(footerImg.dataUrl, "PNG", 15, footerY, PAGE_CONTENT_WIDTH_MM, footerHmm);
+        doc.setFont("helvetica", "normal");
+        doc.setFontSize(7.5);
+        doc.setTextColor(100, 116, 139);
+        doc.text(`Strana ${pageIndex} z ${pageCount}`, pageWidth - 15, pageHeight - 4, { align: "right" });
+      },
+    });
   } finally {
     if (container.parentNode) container.parentNode.removeChild(container);
   }
@@ -581,6 +609,16 @@ function TemplateFormFields({ values, onChange }) {
         <span className="block text-xs font-medium text-slate-500 mb-1">Název checklistu</span>
         <input value={values.nazov} onChange={(e) => onChange({ ...values, nazov: e.target.value })} className="w-full border border-slate-200 rounded-md px-2.5 py-1.5 text-sm" />
       </label>
+      <div className="grid grid-cols-2 gap-2 mb-2">
+        <label className="block">
+          <span className="block text-xs font-medium text-slate-500 mb-1">Číslo dokumentu (nepovinné, dle interní evidence)</span>
+          <input value={values.cisloDokumentu} onChange={(e) => onChange({ ...values, cisloDokumentu: e.target.value })} placeholder="např. QF-003" className="w-full border border-slate-200 rounded-md px-2.5 py-1.5 text-sm" />
+        </label>
+        <label className="block">
+          <span className="block text-xs font-medium text-slate-500 mb-1">Revize č. (nepovinné)</span>
+          <input value={values.revizeCislo} onChange={(e) => onChange({ ...values, revizeCislo: e.target.value })} placeholder="např. 01" className="w-full border border-slate-200 rounded-md px-2.5 py-1.5 text-sm" />
+        </label>
+      </div>
       <div className="mb-3 border border-slate-100 rounded-md p-3 bg-slate-50">
         <div className="flex items-center justify-between mb-2">
           <span className="block text-xs font-medium text-slate-500">Legendy (kódy hodnocení, např. A/B/C/D nebo 1-5)</span>
@@ -655,6 +693,7 @@ function ChecklistyTab({ fullName, templates, submissions, onSaveTemplate, onUpd
   const [editingSubmissionId, setEditingSubmissionId] = useState(null);
   const [confirmDeleteSubmission, setConfirmDeleteSubmission] = useState(null);
   const [pdfExportingId, setPdfExportingId] = useState(null);
+  const [docxExportingId, setDocxExportingId] = useState(null);
 
   function submitTemplate() {
     const { error, payload } = buildTemplatePayload(form);
@@ -743,6 +782,14 @@ function ChecklistyTab({ fullName, templates, submissions, onSaveTemplate, onUpd
                           className="text-slate-400 hover:text-teal-700 disabled:opacity-30 disabled:cursor-not-allowed p-1"
                         >
                           {pdfExportingId === t.id ? <Loader2 size={16} className="animate-spin" /> : <FileText size={16} />}
+                        </button>
+                        <button
+                          onClick={async () => { setDocxExportingId(t.id); try { await exportChecklistHistoryAsDocx(t, submissions); } finally { setDocxExportingId(null); } }}
+                          disabled={history.length === 0 || docxExportingId === t.id}
+                          title={history.length === 0 ? "Zatím žádná vyplnění" : "Stáhnout historii vyplnění jako Word (interně řízený dokument)"}
+                          className="text-slate-400 hover:text-teal-700 disabled:opacity-30 disabled:cursor-not-allowed p-1"
+                        >
+                          {docxExportingId === t.id ? <Loader2 size={16} className="animate-spin" /> : <FileType2 size={16} />}
                         </button>
                         <button onClick={() => startEdit(t)} title="Upravit checklist" className="text-slate-400 hover:text-teal-700 p-1"><Pencil size={16} /></button>
                         <button onClick={() => onDeleteTemplate(t.id)} title="Smazat checklist" className="text-slate-400 hover:text-red-600 p-1"><Trash2 size={16} /></button>

@@ -53,12 +53,44 @@ export async function downloadTextAsPdf(filename, subject, body) {
   }
 }
 
+// Odfoti lubovolny (male, staticke) HTML do PNG data URL - pouziva sa na
+// hlavicky/paty dokumentov s diakritikou (jsPDF-ov vstavany font ju
+// nezvlada, viz vyssie), ktore sa oproti telu dokumentu opakuju nezmenene
+// na kazdej stranke, tak sa vyplati odfotit len raz a vlozit ako obrazok.
+export async function renderHtmlBlockToImage(html, widthPx) {
+  const div = document.createElement("div");
+  div.style.position = "fixed";
+  div.style.left = "0";
+  div.style.top = "0";
+  div.style.zIndex = "-1000";
+  div.style.width = widthPx + "px";
+  div.style.background = "#ffffff";
+  div.style.color = "#111111";
+  div.style.fontFamily = "Arial, Helvetica, sans-serif";
+  div.innerHTML = html;
+  document.body.appendChild(div);
+  try {
+    const h = div.scrollHeight;
+    const canvas = await html2canvas(div, { scale: 2, backgroundColor: "#ffffff", windowWidth: widthPx, windowHeight: h, height: h });
+    return { dataUrl: canvas.toDataURL("image/png"), widthPx: canvas.width, heightPx: canvas.height };
+  } finally {
+    if (div.parentNode) div.parentNode.removeChild(div);
+  }
+}
+
 // Zdielany renderer offscreen DOM containeru (ktory si zavolajuci uz sam
 // pripojil do document.body) do viacstranoveho PDF - pouziva ho aj
 // downloadTextAsPdf vyssie, aj napr. export checklistu z Kvality (tabulka s
 // hlavickou firmy). Container ostava caller-ovou zodpovednostou (vytvorenie
 // aj odstranenie), tato funkcia ho len odfoti a narezie na stranky A4.
-export async function renderContainerToPdf(filename, container, windowWidth) {
+//
+// onHeader/onFooter (voliltelne) sa zavolaju natívne cez jsPDF (vektorovy
+// text, nie obrazok) na KAZDEJ stranke pred/po vlozeni orezaneho obrazka -
+// takto vie dokument niest opakujucu sa hlavicku/patu ako skutocny tlaceny
+// dokument (napr. GF-001 sablona), bez toho aby sa musela hlavicka
+// zdvojene fotit spolu s obsahom pri kazdom rezani strany.
+export async function renderContainerToPdf(filename, container, windowWidth, opts = {}) {
+  const { marginTop = 15, marginBottom = 15, onHeader, onFooter } = opts;
   // container je "position: fixed", takze bez explicitnej vysky by
   // html2canvas orezal zabery na vysku viewportu (okna) namiesto na
   // skutocnu vysku obsahu - posledny riadok tak niekedy vypadol.
@@ -74,17 +106,18 @@ export async function renderContainerToPdf(filename, container, windowWidth) {
 
   const doc = new jsPDF({ unit: "mm", format: "a4" });
   const marginX = 15;
-  const marginY = 15;
   const pageWidth = doc.internal.pageSize.getWidth() - marginX * 2;
-  const pageHeight = doc.internal.pageSize.getHeight() - marginY * 2;
+  const pageHeight = doc.internal.pageSize.getHeight() - marginTop - marginBottom;
 
   const imgWidth = pageWidth;
   const pxToMm = imgWidth / canvas.width;
   const pageHeightPx = pageHeight / pxToMm;
+  const pageCount = Math.max(1, Math.ceil(canvas.height / pageHeightPx));
 
   let renderedPx = 0;
-  let firstPage = true;
+  let pageIndex = 0;
   while (renderedPx < canvas.height) {
+    pageIndex += 1;
     const sliceHeightPx = Math.min(pageHeightPx, canvas.height - renderedPx);
 
     const sliceCanvas = document.createElement("canvas");
@@ -104,18 +137,19 @@ export async function renderContainerToPdf(filename, container, windowWidth) {
         sliceHeightPx
       );
 
-    if (!firstPage) doc.addPage();
+    if (pageIndex > 1) doc.addPage();
+    if (onHeader) onHeader(doc, pageIndex, pageCount);
     doc.addImage(
       sliceCanvas.toDataURL("image/png"),
       "PNG",
       marginX,
-      marginY,
+      marginTop,
       imgWidth,
       sliceHeightPx * pxToMm
     );
+    if (onFooter) onFooter(doc, pageIndex, pageCount);
 
     renderedPx += sliceHeightPx;
-    firstPage = false;
   }
 
   doc.save(filename);
