@@ -2358,23 +2358,36 @@ function PrintStyles() {
     <style>{`
       .print-only-content { position: fixed; left: -10000px; top: 0; }
       @media print {
-        body * { visibility: hidden; }
-        .print-only-content, .print-only-content * { visibility: visible; }
-        .print-only-content { position: absolute; left: 0; top: 0; width: 100%; padding: 24px; }
+        /* #root sa skryva cely (display:none), namiesto skoreho pouziteho
+           "visibility:hidden na vsetkom" - visibility:hidden totiz skryje obsah
+           vizualne, ale ponecha mu povodnu vysku v toku stranky, takze ak bola
+           stranka pod modalom dlha (napr. rozbaleny zoznam objednavok), tlac sa
+           spravne stranovala podla TEJTO neviditelnej vysky a za skutocnym
+           obsahom pribudli 2-3 prazdne listy navyse. #root je cely mimo tejto
+           stranky (viz portal nizsie), takze jeho display:none nema na obsah
+           tlace ziadny vplyv, len ho korektne odstrani z toku a stranovania. */
+        #root { display: none !important; }
+        .print-only-content { position: static !important; left: auto !important; width: 100%; padding: 24px; }
       }
     `}</style>
   );
 }
 
+// Vsetky "print-only-content" komponenty (tento aj Lieferschein/Paletovy
+// listok nizsie) sa renderuju cez createPortal priamo do document.body - su
+// tak mimo #root stromu a #media print hore ich moze jednoducho ukazat bez
+// toho, aby museli prezivat skryvanie/odkryvanie cez visibility (viz komentar
+// v PrintStyles), co sposobovalo prazdne listy navyse pri tlaci.
 function PrintDocument({ id, title, subtitle, body, fontSize, lineHeight }) {
-  return (
+  return createPortal(
     <div id={id} className="print-only-content">
       <div style={{ fontFamily: "Arial, sans-serif", fontSize: fontSize || "12px", color: "#111" }}>
         {subtitle && <div style={{ textAlign: "center", fontSize: "0.75em", color: "#555", marginBottom: "2px", textTransform: "uppercase", letterSpacing: "0.05em" }}>{subtitle}</div>}
         <div style={{ fontWeight: "bold", fontSize: "1.5em", textAlign: "center", marginBottom: "14px" }}>{title}</div>
         <div style={{ whiteSpace: "pre-wrap", lineHeight: lineHeight || 1.5 }}>{body}</div>
       </div>
-    </div>
+    </div>,
+    document.body
   );
 }
 
@@ -3801,7 +3814,7 @@ function LieferscheinPrintTable({ id, company, customer, order, carrierName, tra
     });
   const sumPaliet = items.reduce((s, it) => s + (parseFloat(it.paletEffective) || 0), 0);
   const totalPaliet = sumPaliet > 0 ? sumPaliet : (order.pocetPaliet || 0);
-  return (
+  return createPortal(
     <div id={id} className="print-only-content">
       <div style={{ fontFamily: "Arial, sans-serif", fontSize: "11px", color: "#111", maxWidth: "760px" }}>
         <div style={{ textAlign: "right" }}>
@@ -3894,7 +3907,8 @@ function LieferscheinPrintTable({ id, company, customer, order, carrierName, tra
           </div>
         </div>
       </div>
-    </div>
+    </div>,
+    document.body
   );
 }
 function buildLieferscheinHtml({ company, customer, order, carrierName, transportPrice, products }) {
@@ -4078,7 +4092,6 @@ function buildPalletHtml({ cislo, nalozeno, miesto }) {
   const row = "display:flex;padding:3px 0;border-bottom:1px solid #ddd;";
   return `
     <div style="font-family:Arial,sans-serif;color:#111;max-width:760px;">
-      <div style="text-align:center;font-weight:bold;font-size:11pt;">ЦЕЙ ДОКУМЕНТ ТІЛЬКИ ДЛЯ BESTPOP, s.r.o. та ДОРИС, с.р.о.</div>
       <div style="text-align:center;font-size:14pt;">TENTO DOKUMENT JE POUZE PRO FIRMU STENGER CZECH,s.r.o. a DORYS, s.r.o.</div>
       <div style="text-align:center;font-weight:bold;font-size:14pt;margin-bottom:10px;">ЦЕЙ ДОКУМЕНТ ЛИШЕ ДЛЯ STENGER CZECH, s.r.o. та DORYS, s.r.o.</div>
 
@@ -4183,8 +4196,9 @@ function buildPalletHtml({ cislo, nalozeno, miesto }) {
 }
 
 function PalletPrintTable({ id, cislo, nalozeno, miesto }) {
-  return (
-    <div id={id} className="print-only-content" dangerouslySetInnerHTML={{ __html: buildPalletHtml({ cislo, nalozeno, miesto }) }} />
+  return createPortal(
+    <div id={id} className="print-only-content" dangerouslySetInnerHTML={{ __html: buildPalletHtml({ cislo, nalozeno, miesto }) }} />,
+    document.body
   );
 }
 
