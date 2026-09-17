@@ -3274,6 +3274,19 @@ function NewOrderPage({ onClose, onSave, defaultAdresaNakladky, customers, produ
   const [sourceBlocks, setSourceBlocks] = useState(null);
   const fileInputRef = useRef(null);
 
+  // Umoznuje vlozit prilohu skopirovanu z e-mailu (Ctrl+V / pravym tlacidlom
+  // "Vlozit") priamo v kroku "Nahrat soubor", bez nutnosti prejst dialogom
+  // na vyber suboru.
+  useEffect(() => {
+    if (mode !== "file") return;
+    function handlePaste(e) {
+      const pasted = e.clipboardData?.files;
+      if (pasted && pasted.length > 0) setFile(pasted[0]);
+    }
+    window.addEventListener("paste", handlePaste);
+    return () => window.removeEventListener("paste", handlePaste);
+  }, [mode]);
+
   async function handleExtract() {
     setError("");
     if (mode === "manual") {
@@ -3452,9 +3465,18 @@ function NewOrderPage({ onClose, onSave, defaultAdresaNakladky, customers, produ
         <textarea value={text} onChange={(e) => setText(e.target.value)} rows={10} placeholder="Sem vložte text objednávky z e-mailu..." className="w-full border border-slate-200 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-teal-600" />
       )}
       {mode === "file" && (
-        <div onClick={() => fileInputRef.current?.click()} className="border-2 border-dashed border-slate-200 rounded-lg p-10 text-center text-slate-500 cursor-pointer hover:border-teal-400 hover:text-teal-700">
+        <div
+          onClick={() => fileInputRef.current?.click()}
+          onDragOver={(e) => e.preventDefault()}
+          onDrop={(e) => {
+            e.preventDefault();
+            const dropped = e.dataTransfer.files?.[0];
+            if (dropped) setFile(dropped);
+          }}
+          className="border-2 border-dashed border-slate-200 rounded-lg p-10 text-center text-slate-500 cursor-pointer hover:border-teal-400 hover:text-teal-700"
+        >
           <Upload size={24} className="mx-auto mb-2" />
-          {file ? file.name : "Klikněte pro výběr souboru (PDF, DOCX, obrázek)"}
+          {file ? file.name : "Klikněte, přetáhněte soubor sem nebo vložte (Ctrl+V)"}
           <input ref={fileInputRef} type="file" accept=".pdf,.docx,image/*,application/pdf" className="hidden" onChange={(e) => setFile(e.target.files[0] || null)} />
         </div>
       )}
