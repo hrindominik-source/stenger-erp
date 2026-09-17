@@ -1,8 +1,9 @@
 import React, { useState, useEffect, useCallback, useRef } from "react";
-import { LogOut, ArrowLeft, Loader2, AlertCircle, LayoutDashboard, ListChecks, CalendarClock, Plus, Trash2, CheckCircle2, ChevronDown, ChevronUp, Upload, FileCheck, Download, Pencil } from "lucide-react";
+import { LogOut, ArrowLeft, Loader2, AlertCircle, LayoutDashboard, ListChecks, CalendarClock, Plus, Trash2, CheckCircle2, ChevronDown, ChevronUp, Upload, FileCheck, Download, FileText, Pencil, X } from "lucide-react";
 import { supabase } from "./supabaseClient.js";
 import { todayStr, uid, computeNextDue, daysUntil, isoFromSkDateStr, skDateStrFromIso } from "./lib/utils.js";
 import { exportRowsToExcel } from "./lib/exportExcel.js";
+import { renderContainerToPdf } from "./lib/textPdf.js";
 
 const POLL_MS = 10000;
 const KVALITA_DOKUMENTY_BUCKET = "kvalita-dokumenty";
@@ -190,6 +191,16 @@ export default function KvalitaView({ fullName, onSignOut, onBack }) {
     if (err) { console.error(err); setError("Uložení se nezdařilo."); return; }
     setSubmissions((prev) => [record, ...prev]);
   }
+  async function updateSubmission(record) {
+    const { error: err } = await supabase.from("checklist_submissions").update({ data: record, updated_at: new Date().toISOString() }).eq("id", record.id);
+    if (err) { console.error(err); setError("Uložení se nezdařilo."); return; }
+    setSubmissions((prev) => prev.map((s) => (s.id === record.id ? record : s)));
+  }
+  async function deleteSubmission(id) {
+    const { error: err } = await supabase.from("checklist_submissions").delete().eq("id", id);
+    if (err) { console.error(err); setError("Smazání se nezdařilo."); return; }
+    setSubmissions((prev) => prev.filter((s) => s.id !== id));
+  }
   async function saveTermin(record) {
     const { error: err } = await supabase.from("kvalita_terminy").insert({ id: record.id, data: record });
     if (err) { console.error(err); setError("Uložení se nezdařilo."); return; }
@@ -249,6 +260,8 @@ export default function KvalitaView({ fullName, onSignOut, onBack }) {
             onUpdateTemplate={updateTemplate}
             onDeleteTemplate={deleteTemplate}
             onSaveSubmission={saveSubmission}
+            onUpdateSubmission={updateSubmission}
+            onDeleteSubmission={deleteSubmission}
           />
         ) : (
           <TerminyTab terminy={terminy} onSaveTermin={saveTermin} onUpdateTermin={updateTermin} onDeleteTermin={deleteTermin} />
@@ -328,6 +341,28 @@ function PrehledTab({ templates, submissions, terminy, onGoToChecklisty, onGoToT
   );
 }
 
+function ConfirmModal({ title, children, onCancel, onConfirm, confirmLabel }) {
+  return (
+    <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
+      <div className="bg-white rounded-lg shadow-xl w-full max-w-sm">
+        <div className="flex items-center justify-between px-5 py-3 border-b border-slate-100">
+          <h2 className="font-semibold text-slate-900">{title}</h2>
+          <button onClick={onCancel} className="text-slate-400 hover:text-slate-700"><X size={18} /></button>
+        </div>
+        <div className="px-5 py-4">
+          <p className="text-sm text-slate-600 mb-4">{children}</p>
+          <div className="flex justify-end gap-2">
+            <button onClick={onCancel} className="text-sm text-slate-500 px-3 py-2">Zrušit</button>
+            <button onClick={onConfirm} className="bg-red-600 hover:bg-red-700 text-white text-sm font-medium px-4 py-2 rounded-md">
+              {confirmLabel || "Ano, smazat"}
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 /* ---------------- Checklisty ---------------- */
 
 function emptyTemplateForm() {
@@ -373,10 +408,10 @@ function buildTemplatePayload(values) {
 
 // Kazde vyplnenie si nesie vlastnu kopiu poloziek (text/typ/legendaId) tak,
 // ako vyzerali v case vyplnenia - union naprieC historiou tak zvladne aj
-// checklisty, ktore sa medzitym upravovali (pridane/ubrane polozky).
-async function exportChecklistHistory(template, submissions) {
+// checklisty, ktore sa medzitym upravovali (pridane/ubrane polozky). Zdielane
+// medzi Excel aj PDF exportom historie.
+function buildChecklistHistoryRows(template, submissions) {
   const history = submissions.filter((s) => s.templateId === template.id).slice().sort((a, b) => daysUntil(a.datum) - daysUntil(b.datum));
-  if (history.length === 0) return;
   const itemTexts = [];
   const seen = new Set();
   for (const s of history) {
@@ -384,17 +419,112 @@ async function exportChecklistHistory(template, submissions) {
       if (!seen.has(o.text)) { seen.add(o.text); itemTexts.push(o.text); }
     }
   }
+  return { history, itemTexts };
+}
+
+function odpovedText(o) {
+  if (!o) return "";
+  return o.type === "legenda" ? o.hodnota || "" : o.ok === true ? "OK" : o.ok === false ? "Nevyhovuje" : "";
+}
+
+async function exportChecklistHistory(template, submissions) {
+  const { history, itemTexts } = buildChecklistHistoryRows(template, submissions);
+  if (history.length === 0) return;
   const rows = history.map((s) => {
     const row = { Datum: s.datum, Vyplnil: s.vyplnil };
     for (const text of itemTexts) {
       const o = (s.odpovede || []).find((x) => x.text === text);
-      row[text] = o ? (o.type === "legenda" ? o.hodnota || "" : o.ok === true ? "OK" : o.ok === false ? "Nevyhovuje" : "") : "";
+      row[text] = odpovedText(o);
       row[`${text} - náprava/poznámka`] = o ? o.poznamka || "" : "";
     }
     row["Celková poznámka"] = s.poznamka || "";
     return row;
   });
   await exportRowsToExcel(rows, template.nazov.slice(0, 31), template.nazov.replace(/[^a-z0-9]+/gi, "_") || "checklist");
+}
+
+// PDF verzia historie vyplneni - na rozdiel od Excelu (surova data na dalsie
+// spracovanie) je urcena na tlac/zdielanie ako interne riadeny dokument, tak
+// nesie hlavicku firmy a oznacenie dokumentu.
+async function exportChecklistHistoryAsPdf(template, submissions) {
+  const { history, itemTexts } = buildChecklistHistoryRows(template, submissions);
+  if (history.length === 0) return;
+
+  const container = document.createElement("div");
+  container.style.position = "fixed";
+  container.style.left = "0";
+  container.style.top = "0";
+  container.style.zIndex = "-1000";
+  container.style.width = "1000px";
+  container.style.background = "#ffffff";
+  container.style.color = "#111111";
+  container.style.fontFamily = "Arial, Helvetica, sans-serif";
+  container.style.padding = "24px";
+
+  const logoUrl = `${import.meta.env.BASE_URL}stenger-logo.png`;
+  let logoDataOk = false;
+  try {
+    const img = new Image();
+    img.src = logoUrl;
+    await img.decode();
+    logoDataOk = true;
+  } catch (e) {
+    logoDataOk = false;
+  }
+
+  const headerHtml = `
+    <div style="display:flex; align-items:center; justify-content:space-between; border-bottom:2px solid #0f172a; padding-bottom:10px; margin-bottom:14px;">
+      <div style="display:flex; align-items:center; gap:12px;">
+        ${logoDataOk ? `<img src="${logoUrl}" style="height:40px; width:auto;" />` : ""}
+        <div>
+          <div style="font-weight:bold; font-size:15px;">Stenger Czech s.r.o.</div>
+          <div style="font-size:10px; color:#64748b; letter-spacing:0.05em;">INTERNĚ ŘÍZENÝ DOKUMENT</div>
+        </div>
+      </div>
+      <div style="text-align:right; font-size:10px; color:#64748b;">
+        Vygenerováno: ${todayStr()}
+      </div>
+    </div>
+    <div style="font-weight:bold; font-size:18px; margin-bottom:2px;">${template.nazov}</div>
+    <div style="font-size:11px; color:#64748b; margin-bottom:14px;">Historie vyplnění checklistu - frekvence: každých ${template.frekvenciaHodnota} ${frekvenciaLabel(template.frekvenciaTyp).toLowerCase()}</div>
+  `;
+
+  const tableHead = `<th style="border:1px solid #cbd5e1; padding:4px 6px; background:#f1f5f9; text-align:left; white-space:nowrap;">Datum</th>` +
+    `<th style="border:1px solid #cbd5e1; padding:4px 6px; background:#f1f5f9; text-align:left; white-space:nowrap;">Vyplnil</th>` +
+    itemTexts.map((t) => `<th style="border:1px solid #cbd5e1; padding:4px 6px; background:#f1f5f9; text-align:left;">${t}</th>`).join("") +
+    `<th style="border:1px solid #cbd5e1; padding:4px 6px; background:#f1f5f9; text-align:left;">Poznámka</th>`;
+
+  const tableRows = history.map((s) => {
+    const cells = itemTexts.map((text) => {
+      const o = (s.odpovede || []).find((x) => x.text === text);
+      const val = odpovedText(o);
+      const color = val === "Nevyhovuje" ? "color:#b91c1c; font-weight:bold;" : "";
+      const note = o && o.poznamka ? `<div style="font-size:9px; color:#64748b;">${o.poznamka}</div>` : "";
+      return `<td style="border:1px solid #cbd5e1; padding:4px 6px; ${color}">${val}${note}</td>`;
+    }).join("");
+    return `<tr>
+      <td style="border:1px solid #cbd5e1; padding:4px 6px; white-space:nowrap;">${s.datum}</td>
+      <td style="border:1px solid #cbd5e1; padding:4px 6px; white-space:nowrap;">${s.vyplnil}</td>
+      ${cells}
+      <td style="border:1px solid #cbd5e1; padding:4px 6px;">${s.poznamka || ""}</td>
+    </tr>`;
+  }).join("");
+
+  container.innerHTML = `
+    ${headerHtml}
+    <table style="border-collapse:collapse; font-size:10px; width:100%;">
+      <thead><tr>${tableHead}</tr></thead>
+      <tbody>${tableRows}</tbody>
+    </table>
+  `;
+
+  document.body.appendChild(container);
+  try {
+    const filename = `${(template.nazov || "checklist").replace(/[^a-z0-9]+/gi, "_")}_historie_${todayStr().replace(/\./g, "-")}.pdf`;
+    await renderContainerToPdf(filename, container, 1000);
+  } finally {
+    if (container.parentNode) container.parentNode.removeChild(container);
+  }
 }
 
 // Vecsina checklistov je jednoduche "OK / Nevyhovuje", ale niektore tlacene
@@ -513,7 +643,7 @@ function TemplateFormFields({ values, onChange }) {
   );
 }
 
-function ChecklistyTab({ fullName, templates, submissions, onSaveTemplate, onUpdateTemplate, onDeleteTemplate, onSaveSubmission }) {
+function ChecklistyTab({ fullName, templates, submissions, onSaveTemplate, onUpdateTemplate, onDeleteTemplate, onSaveSubmission, onUpdateSubmission, onDeleteSubmission }) {
   const [formOpen, setFormOpen] = useState(false);
   const [form, setForm] = useState(emptyTemplateForm());
   const [formError, setFormError] = useState("");
@@ -522,6 +652,9 @@ function ChecklistyTab({ fullName, templates, submissions, onSaveTemplate, onUpd
   const [editingId, setEditingId] = useState(null);
   const [editForm, setEditForm] = useState(null);
   const [editError, setEditError] = useState("");
+  const [editingSubmissionId, setEditingSubmissionId] = useState(null);
+  const [confirmDeleteSubmission, setConfirmDeleteSubmission] = useState(null);
+  const [pdfExportingId, setPdfExportingId] = useState(null);
 
   function submitTemplate() {
     const { error, payload } = buildTemplatePayload(form);
@@ -603,6 +736,14 @@ function ChecklistyTab({ fullName, templates, submissions, onSaveTemplate, onUpd
                       <div className="flex items-center gap-2">
                         <button onClick={() => setFillId(fillId === t.id ? null : t.id)} className="text-xs bg-teal-700 hover:bg-teal-800 text-white font-medium px-3 py-1.5 rounded-md">Vyplnit</button>
                         <button onClick={() => exportChecklistHistory(t, submissions)} disabled={history.length === 0} title={history.length === 0 ? "Zatím žádná vyplnění" : "Stáhnout historii vyplnění do Excelu"} className="text-slate-400 hover:text-teal-700 disabled:opacity-30 disabled:cursor-not-allowed p-1"><Download size={16} /></button>
+                        <button
+                          onClick={async () => { setPdfExportingId(t.id); try { await exportChecklistHistoryAsPdf(t, submissions); } finally { setPdfExportingId(null); } }}
+                          disabled={history.length === 0 || pdfExportingId === t.id}
+                          title={history.length === 0 ? "Zatím žádná vyplnění" : "Stáhnout historii vyplnění jako PDF (interně řízený dokument)"}
+                          className="text-slate-400 hover:text-teal-700 disabled:opacity-30 disabled:cursor-not-allowed p-1"
+                        >
+                          {pdfExportingId === t.id ? <Loader2 size={16} className="animate-spin" /> : <FileText size={16} />}
+                        </button>
                         <button onClick={() => startEdit(t)} title="Upravit checklist" className="text-slate-400 hover:text-teal-700 p-1"><Pencil size={16} /></button>
                         <button onClick={() => onDeleteTemplate(t.id)} title="Smazat checklist" className="text-slate-400 hover:text-red-600 p-1"><Trash2 size={16} /></button>
                       </div>
@@ -624,12 +765,25 @@ function ChecklistyTab({ fullName, templates, submissions, onSaveTemplate, onUpd
                         </button>
                         {openHistoryId === t.id && (
                           <div className="mt-2 space-y-1">
-                            {history.slice().sort((a, b) => daysUntil(b.datum) - daysUntil(a.datum)).map((s) => (
-                              <div key={s.id} className="text-xs text-slate-500 flex items-center gap-2">
-                                <CheckCircle2 size={12} className="text-emerald-600 shrink-0" />
-                                {s.datum} - {s.vyplnil}{s.poznamka ? " - " + s.poznamka : ""}
-                              </div>
-                            ))}
+                            {history.slice().sort((a, b) => daysUntil(b.datum) - daysUntil(a.datum)).map((s) =>
+                              editingSubmissionId === s.id ? (
+                                <ChecklistFillForm
+                                  key={s.id}
+                                  template={t}
+                                  fullName={fullName}
+                                  initial={s}
+                                  onCancel={() => setEditingSubmissionId(null)}
+                                  onSave={(record) => { onUpdateSubmission(record); setEditingSubmissionId(null); }}
+                                />
+                              ) : (
+                                <div key={s.id} className="text-xs text-slate-500 flex items-center gap-2">
+                                  <CheckCircle2 size={12} className="text-emerald-600 shrink-0" />
+                                  <span className="flex-1">{s.datum} - {s.vyplnil}{s.poznamka ? " - " + s.poznamka : ""}</span>
+                                  <button onClick={() => setEditingSubmissionId(s.id)} title="Upravit vyplnění" className="text-slate-400 hover:text-teal-700 p-0.5"><Pencil size={12} /></button>
+                                  <button onClick={() => setConfirmDeleteSubmission(s)} title="Smazat vyplnění" className="text-slate-400 hover:text-red-600 p-0.5"><Trash2 size={12} /></button>
+                                </div>
+                              )
+                            )}
                           </div>
                         )}
                       </div>
@@ -641,17 +795,32 @@ function ChecklistyTab({ fullName, templates, submissions, onSaveTemplate, onUpd
           })}
         </div>
       )}
+
+      {confirmDeleteSubmission && (
+        <ConfirmModal
+          title="Smazat vyplnění?"
+          onCancel={() => setConfirmDeleteSubmission(null)}
+          onConfirm={() => { onDeleteSubmission(confirmDeleteSubmission.id); setConfirmDeleteSubmission(null); }}
+        >
+          Opravdu chcete smazat vyplnění checklistu ze dne <b>{confirmDeleteSubmission.datum}</b> ({confirmDeleteSubmission.vyplnil})? Tuto akci nelze vrátit zpět.
+        </ConfirmModal>
+      )}
     </div>
   );
 }
 
-function ChecklistFillForm({ template, fullName, onCancel, onSave }) {
+function ChecklistFillForm({ template, fullName, initial, onCancel, onSave }) {
   const legendy = template.legendy || [];
+  // V edit rezime (initial vyplnene) sa vychadza z vlastnej kopie poloziek
+  // ulozenych pri danom vyplneni - nie z aktualnej sablony, ktora sa mohla
+  // odvtedy zmenit (pridane/ubrane polozky).
   const [odpovede, setOdpovede] = useState(
-    template.polozky.map((p) => ({ text: p.text, type: p.type === "legenda" && p.legendaId ? "legenda" : "boolean", legendaId: p.legendaId || null, ok: null, hodnota: null, poznamka: "" }))
+    initial
+      ? initial.odpovede.map((o) => ({ ...o }))
+      : template.polozky.map((p) => ({ text: p.text, type: p.type === "legenda" && p.legendaId ? "legenda" : "boolean", legendaId: p.legendaId || null, ok: null, hodnota: null, poznamka: "" }))
   );
-  const [vyplnil, setVyplnil] = useState(fullName || "");
-  const [poznamka, setPoznamka] = useState("");
+  const [vyplnil, setVyplnil] = useState(initial ? initial.vyplnil : (fullName || ""));
+  const [poznamka, setPoznamka] = useState(initial ? initial.poznamka || "" : "");
   const [error, setError] = useState("");
 
   function setOk(i, value) {
@@ -682,7 +851,11 @@ function ChecklistFillForm({ template, fullName, onCancel, onSave }) {
       return;
     }
     setError("");
-    onSave({ id: uid(), templateId: template.id, datum: todayStr(), vyplnil: vyplnil.trim(), odpovede, poznamka: poznamka.trim() });
+    if (initial) {
+      onSave({ ...initial, vyplnil: vyplnil.trim(), odpovede, poznamka: poznamka.trim() });
+    } else {
+      onSave({ id: uid(), templateId: template.id, datum: todayStr(), vyplnil: vyplnil.trim(), odpovede, poznamka: poznamka.trim() });
+    }
   }
 
   return (
@@ -754,7 +927,7 @@ function ChecklistFillForm({ template, fullName, onCancel, onSave }) {
       <div className="flex justify-end gap-2">
         <button onClick={onCancel} className="text-sm text-slate-500 px-3 py-2">Zrušit</button>
         <button onClick={handleSave} className="bg-teal-700 hover:bg-teal-800 text-white text-sm font-medium px-4 py-2 rounded-md">
-          Uložit vyplnění
+          {initial ? "Uložit změny" : "Uložit vyplnění"}
         </button>
       </div>
     </div>

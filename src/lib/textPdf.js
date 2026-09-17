@@ -46,69 +46,77 @@ export async function downloadTextAsPdf(filename, subject, body) {
   container.appendChild(subjectEl);
   container.appendChild(bodyEl);
   document.body.appendChild(container);
-
   try {
-    // container je "position: fixed", takze bez explicitnej vysky by
-    // html2canvas orezal zabery na vysku viewportu (okna) namiesto na
-    // skutocnu vysku obsahu - posledny riadok tak niekedy vypadol.
-    const contentHeight = container.scrollHeight;
-
-    const canvas = await html2canvas(container, {
-      scale: 2,
-      backgroundColor: "#ffffff",
-      windowWidth: 700,
-      windowHeight: contentHeight,
-      height: contentHeight,
-    });
-
-    const doc = new jsPDF({ unit: "mm", format: "a4" });
-    const marginX = 15;
-    const marginY = 15;
-    const pageWidth = doc.internal.pageSize.getWidth() - marginX * 2;
-    const pageHeight = doc.internal.pageSize.getHeight() - marginY * 2;
-
-    const imgWidth = pageWidth;
-    const pxToMm = imgWidth / canvas.width;
-    const pageHeightPx = pageHeight / pxToMm;
-
-    let renderedPx = 0;
-    let firstPage = true;
-    while (renderedPx < canvas.height) {
-      const sliceHeightPx = Math.min(pageHeightPx, canvas.height - renderedPx);
-
-      const sliceCanvas = document.createElement("canvas");
-      sliceCanvas.width = canvas.width;
-      sliceCanvas.height = sliceHeightPx;
-      sliceCanvas
-        .getContext("2d")
-        .drawImage(
-          canvas,
-          0,
-          renderedPx,
-          canvas.width,
-          sliceHeightPx,
-          0,
-          0,
-          canvas.width,
-          sliceHeightPx
-        );
-
-      if (!firstPage) doc.addPage();
-      doc.addImage(
-        sliceCanvas.toDataURL("image/png"),
-        "PNG",
-        marginX,
-        marginY,
-        imgWidth,
-        sliceHeightPx * pxToMm
-      );
-
-      renderedPx += sliceHeightPx;
-      firstPage = false;
-    }
-
-    doc.save(filename);
+    await renderContainerToPdf(filename, container, 700);
   } finally {
     if (container.parentNode) container.parentNode.removeChild(container);
   }
+}
+
+// Zdielany renderer offscreen DOM containeru (ktory si zavolajuci uz sam
+// pripojil do document.body) do viacstranoveho PDF - pouziva ho aj
+// downloadTextAsPdf vyssie, aj napr. export checklistu z Kvality (tabulka s
+// hlavickou firmy). Container ostava caller-ovou zodpovednostou (vytvorenie
+// aj odstranenie), tato funkcia ho len odfoti a narezie na stranky A4.
+export async function renderContainerToPdf(filename, container, windowWidth) {
+  // container je "position: fixed", takze bez explicitnej vysky by
+  // html2canvas orezal zabery na vysku viewportu (okna) namiesto na
+  // skutocnu vysku obsahu - posledny riadok tak niekedy vypadol.
+  const contentHeight = container.scrollHeight;
+
+  const canvas = await html2canvas(container, {
+    scale: 2,
+    backgroundColor: "#ffffff",
+    windowWidth: windowWidth || container.offsetWidth,
+    windowHeight: contentHeight,
+    height: contentHeight,
+  });
+
+  const doc = new jsPDF({ unit: "mm", format: "a4" });
+  const marginX = 15;
+  const marginY = 15;
+  const pageWidth = doc.internal.pageSize.getWidth() - marginX * 2;
+  const pageHeight = doc.internal.pageSize.getHeight() - marginY * 2;
+
+  const imgWidth = pageWidth;
+  const pxToMm = imgWidth / canvas.width;
+  const pageHeightPx = pageHeight / pxToMm;
+
+  let renderedPx = 0;
+  let firstPage = true;
+  while (renderedPx < canvas.height) {
+    const sliceHeightPx = Math.min(pageHeightPx, canvas.height - renderedPx);
+
+    const sliceCanvas = document.createElement("canvas");
+    sliceCanvas.width = canvas.width;
+    sliceCanvas.height = sliceHeightPx;
+    sliceCanvas
+      .getContext("2d")
+      .drawImage(
+        canvas,
+        0,
+        renderedPx,
+        canvas.width,
+        sliceHeightPx,
+        0,
+        0,
+        canvas.width,
+        sliceHeightPx
+      );
+
+    if (!firstPage) doc.addPage();
+    doc.addImage(
+      sliceCanvas.toDataURL("image/png"),
+      "PNG",
+      marginX,
+      marginY,
+      imgWidth,
+      sliceHeightPx * pxToMm
+    );
+
+    renderedPx += sliceHeightPx;
+    firstPage = false;
+  }
+
+  doc.save(filename);
 }
