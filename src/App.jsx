@@ -3909,18 +3909,22 @@ function buildLieferscheinHtml({ company, customer, order, carrierName, transpor
   const itemRows = items.map((it) => {
     const p = it.produkt;
     const eanLine = p ? [p.eanKarton && `EAN UK: ${escapeHtml(p.eanKarton)}`, p.eanUnit && `EAN VE: ${escapeHtml(p.eanUnit)}`].filter(Boolean).join("   ") : "";
+    // Padding-bottom vacsi ako horny/bocny - bez tejto rezervy html2canvas pri
+    // vykresleni PDF (fotenie DOM-u do plátna) obcas vykreslil border-bottom
+    // riadku tesne cez descendery posledneho riadku textu (g/p/y v "popcorn",
+    // "Globus"...), takze ciara vizualne prechadzala cez pismena.
     return `
     <tr style="border-bottom:1px solid #eee;vertical-align:top;">
-      <td style="padding:3px;">${escapeHtml(it.paletEffective)}</td>
-      <td style="padding:3px;">${escapeHtml(it.karton)}</td>
-      <td style="padding:3px;">
+      <td style="padding:3px 3px 7px 3px;">${escapeHtml(it.paletEffective)}</td>
+      <td style="padding:3px 3px 7px 3px;">${escapeHtml(it.karton)}</td>
+      <td style="padding:3px 3px 7px 3px; line-height:1.5;">
         <div>${escapeHtml(it.popis)}</div>
-        ${p && p.inhlt ? `<div style="font-size:9px;color:#555;white-space:pre-wrap;">${escapeHtml(p.inhlt)}</div>` : ""}
-        ${eanLine ? `<div style="font-size:9px;color:#555;">${eanLine}</div>` : ""}
-        ${p && p.rspo ? `<div style="font-size:9px;color:#555;">${RSPO_CERT_CODE}</div>` : ""}
+        ${p && p.inhlt ? `<div style="font-size:9px;color:#555;white-space:pre-wrap; line-height:1.5; margin-top:2px;">${escapeHtml(p.inhlt)}</div>` : ""}
+        ${eanLine ? `<div style="font-size:9px;color:#555; line-height:1.5; margin-top:2px;">${eanLine}</div>` : ""}
+        ${p && p.rspo ? `<div style="font-size:9px;color:#555; line-height:1.5; margin-top:2px;">${RSPO_CERT_CODE}</div>` : ""}
       </td>
-      <td style="padding:3px;">${escapeHtml(computeKusyFromKarton(it.karton, p) ?? "")}</td>
-      <td style="padding:3px;">${escapeHtml(it.artikel)}</td>
+      <td style="padding:3px 3px 7px 3px;">${escapeHtml(computeKusyFromKarton(it.karton, p) ?? "")}</td>
+      <td style="padding:3px 3px 7px 3px;">${escapeHtml(it.artikel)}</td>
     </tr>`;
   }).join("");
   return `
@@ -3952,7 +3956,7 @@ function buildLieferscheinHtml({ company, customer, order, carrierName, transpor
           <div>${customer && customer.dic ? "Ust.-Id Nr. " + escapeHtml(customer.dic) : ""}</div>
         </div>
       </div>
-      <div style="display:flex;border-bottom:1px solid #ddd;padding:2px 0;margin-top:12px;">
+      <div style="display:flex;border-bottom:1px solid #ddd;padding:2px 0 6px 0;margin-top:12px; line-height:1.5;">
         <div style="width:50%;">Lieferungstag: <b>${escapeHtml(order.datumDodania)}</b></div>
         <div style="width:50%;">Bestellung: <b>${escapeHtml(order.cisloObjednavkyZakaznika)}</b></div>
       </div>
