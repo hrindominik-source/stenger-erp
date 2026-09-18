@@ -2380,7 +2380,13 @@ function PrintStyles() {
            stranky (viz portal nizsie), takze jeho display:none nema na obsah
            tlace ziadny vplyv, len ho korektne odstrani z toku a stranovania. */
         #root { display: none !important; }
-        .print-only-content { position: static !important; left: auto !important; width: 100%; padding: 24px; }
+        /* Mensie okraje stranky (browser default cca 1in/25mm) + zrusenie
+           vlastneho vnutorneho paddingu (predtym 24px) - v povodnom
+           position:absolute rezime sa tento padding do vysky stranky
+           nezapocital, po prechode na position:static uz ano, cim jednoduchy
+           1-strankovy dokument (paletovy listok, CMR) presiel na 2 strany. */
+        @page { margin: 10mm; }
+        .print-only-content { position: static !important; left: auto !important; width: 100%; padding: 0; box-sizing: border-box; }
       }
     `}</style>
   );
