@@ -4256,9 +4256,14 @@ function PalletModal({ order, onClose, onDone }) {
   const [nalozeno, setNalozeno] = useState(last ? last.nalozeno || order.pocetPaliet : order.pocetPaliet || "");
   const [miesto, setMiesto] = useState(extractCityFromAddress(order.adresaDodania) || (last ? last.miesto : "") || "");
 
+  // onDone zavrie modal (odmountuje aj portalovany tlacovy obsah) - musi sa
+  // preto zavolat AZ PO window.print(), inak by uz nebolo co tlacit (viz
+  // rovnaky komentar v CmrModal.handlePrint).
   function handlePrint() {
-    onDone({ subject: "Paletový lístek", body: `Naloženo: ${nalozeno}, Místo: ${miesto}`, nalozeno, miesto, to: "vytlacene", datum: new Date().toISOString() }, "print");
-    setTimeout(() => window.print(), 50);
+    setTimeout(() => {
+      window.print();
+      onDone({ subject: "Paletový lístek", body: `Naloženo: ${nalozeno}, Místo: ${miesto}`, nalozeno, miesto, to: "vytlacene", datum: new Date().toISOString() }, "print");
+    }, 50);
   }
   function handleDownload() {
     const html = buildPalletHtml({ cislo: order.cisloObjednavkyDopravy, nalozeno, miesto });
@@ -4454,9 +4459,16 @@ function CmrModal({ order, carriers, customers, company, products, onClose, onDo
     `Podpis a razítko příjemce: ______________________`
   );
 
+  // onDone zavrie modal (odmountuje aj portalovany tlacovy obsah cez
+  // PrintDocument) - preto sa musi zavolat AZ PO window.print(). Predtym sa
+  // volal pred setTimeout-om, cim sa tlacovy obsah odstranil z DOM este pred
+  // tym, ako window.print() vobec stihol nabehnut - tlacilo sa tak vzdy
+  // uplne prazdne (0-riadkove) content, aj ked stranka uz mala spravny pocet.
   function handlePrint() {
-    onDone({ subject: "CMR", body, to: "vytlacene", datum: new Date().toISOString() }, "print");
-    setTimeout(() => window.print(), 50);
+    setTimeout(() => {
+      window.print();
+      onDone({ subject: "CMR", body, to: "vytlacene", datum: new Date().toISOString() }, "print");
+    }, 50);
   }
   function handleDownload() {
     downloadText(`CMR_${order.cisloObjednavkyDopravy.replace("/", "-")}.txt`, body);
