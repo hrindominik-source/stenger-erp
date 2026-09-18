@@ -2386,7 +2386,7 @@ function PrintStyles() {
            position:absolute rezime sa tento padding do vysky stranky
            nezapocital, po prechode na position:static uz ano, cim jednoduchy
            1-strankovy dokument (paletovy listok, CMR) presiel na 2 strany. */
-        @page { margin: 5mm; }
+        @page { margin: 8mm; }
         .print-only-content { position: static !important; left: auto !important; width: 100%; padding: 0; box-sizing: border-box; }
       }
     `}</style>
@@ -4147,106 +4147,110 @@ function buildPalletHtml({ cislo, nalozeno, miesto }) {
   miesto = escapeHtml(miesto);
   const L = "width:58%;padding-right:10px;";
   const R = "width:42%;";
-  const row = "display:flex;padding:3px 0;border-bottom:1px solid #ddd;";
+  // font-size je uz sucastou zdielaneho "row" (predtym sa opakoval rovnaky
+  // "font-size:12pt" jednotlivo pri kazdom riadku) - zmensene z povodnych
+  // 12pt na 10pt a max-width z 760px na 660px, aby sa cely listok pri tlaci
+  // spolahlivo zmestil do okrajov (predtym sa strihal bok aj vrch).
+  const row = "display:flex;padding:2px 0;border-bottom:1px solid #ddd;font-size:10pt;";
   return `
-    <div style="font-family:Arial,sans-serif;color:#111;max-width:760px;">
-      <div style="text-align:center;font-size:14pt;">TENTO DOKUMENT JE POUZE PRO FIRMU STENGER CZECH,s.r.o. a DORYS, s.r.o.</div>
-      <div style="text-align:center;font-weight:bold;font-size:14pt;margin-bottom:10px;">ЦЕЙ ДОКУМЕНТ ЛИШЕ ДЛЯ STENGER CZECH, s.r.o. та DORYS, s.r.o.</div>
+    <div style="font-family:Arial,sans-serif;color:#111;max-width:660px;">
+      <div style="text-align:center;font-size:11pt;">TENTO DOKUMENT JE POUZE PRO FIRMU STENGER CZECH,s.r.o. a DORYS, s.r.o.</div>
+      <div style="text-align:center;font-weight:bold;font-size:11pt;margin-bottom:8px;">ЦЕЙ ДОКУМЕНТ ЛИШЕ ДЛЯ STENGER CZECH, s.r.o. та DORYS, s.r.o.</div>
 
-      <div style="display:flex;justify-content:space-between;align-items:baseline;font-size:14pt;border-bottom:2px solid #333;padding-bottom:6px;margin-bottom:6px;">
+      <div style="display:flex;justify-content:space-between;align-items:baseline;font-size:11pt;border-bottom:2px solid #333;padding-bottom:5px;margin-bottom:5px;">
         <span>PALETOVÝ LIST // ЛИСТ ПІДДОНА</span>
         <span>číslo: <b>${cislo}</b></span>
       </div>
-      <div style="text-align:center;font-size:14pt;margin-bottom:10px;">STENGER CZECH,s.r.o. → DORYS CZ,s.r.o. →STENGER CZECH,s.r.o.</div>
+      <div style="text-align:center;font-size:11pt;margin-bottom:8px;">STENGER CZECH,s.r.o. → DORYS CZ,s.r.o. →STENGER CZECH,s.r.o.</div>
 
-      <div style="text-align:center;font-weight:bold;font-size:16pt;">ŘIDIČ MUSÍ // ВОДІЙ ПОВИНЕН</div>
-      <div style="text-align:center;font-weight:bold;font-size:14pt;margin-bottom:10px;">↓ V Y P L N I T ↓ В Й П Л Н І Т ↓</div>
+      <div style="text-align:center;font-weight:bold;font-size:13pt;">ŘIDIČ MUSÍ // ВОДІЙ ПОВИНЕН</div>
+      <div style="text-align:center;font-weight:bold;font-size:11pt;margin-bottom:8px;">↓ V Y P L N I T ↓ В Й П Л Н І Т ↓</div>
 
-      <div style="${row}font-size:12pt;">
+      <div style="${row}">
         <div style="${L}text-align:center;">V STENGER CZECH, s.r.o.</div>
         <div style="${R}text-align:center;font-weight:bold;">Řidič(tiskace)/ВОДІЙ(шрифт друку):</div>
       </div>
-      <div style="${row}font-size:12pt;align-items:center;">
-        <div style="${L}">NALOŽENO EUROPALET: <b style="font-size:18pt;">${nalozeno}</b></div>
+      <div style="${row}align-items:center;">
+        <div style="${L}">NALOŽENO EUROPALET: <b style="font-size:15pt;">${nalozeno}</b></div>
         <div style="${R}"></div>
       </div>
-      <div style="${row}font-size:12pt;">
-        <div style="${L}">Místo doručení: <b style="font-size:11pt;">${miesto}</b></div>
+      <div style="${row}">
+        <div style="${L}">Místo doručení: <b style="font-size:10pt;">${miesto}</b></div>
         <div style="${R}"></div>
       </div>
-      <div style="${row}font-size:12pt;">
+      <div style="${row}">
         <div style="${L}">Číslo objednávky : ${cislo}</div>
         <div style="${R}">RZ:</div>
       </div>
 
-      <div style="height:16px;"></div>
+      <div style="height:12px;"></div>
 
-      <div style="${row}font-size:12pt;">
+      <div style="${row}">
         <div style="${L}text-align:center;">ZÁKAZNÍK:</div>
         <div style="${R}">Řidič musí dopsat vyzvednuté europalety u zákazníka(na vykládce)</div>
       </div>
-      <div style="${row}font-size:12pt;align-items:center;">
+      <div style="${row}align-items:center;">
         <div style="${L}">Složeno europalet: ${nalozeno}</div>
-        <div style="${R}text-align:center;font-size:22pt;">NEBRAT MODRÉ EUROPALETY</div>
+        <div style="${R}text-align:center;font-size:16pt;">NEBRAT MODRÉ EUROPALETY</div>
       </div>
-      <div style="${row}font-size:12pt;font-weight:bold;">
+      <div style="${row}font-weight:bold;">
         <div style="width:100%;">Přijato od zákazníka prázdných europalet: ______ kusů</div>
       </div>
 
-      <div style="height:16px;"></div>
+      <div style="height:12px;"></div>
 
-      <div style="${row}font-size:12pt;">
+      <div style="${row}">
         <div style="${L}text-align:center;">DORYS,s.r.o.</div>
         <div style="${R}text-align:center;">DORYS,s.r.o. - SKLAD</div>
       </div>
-      <div style="${row}font-size:12pt;">
+      <div style="${row}">
         <div style="${L}">EUROPALETY:</div>
         <div style="${R}">převzal:</div>
       </div>
-      <div style="${row}font-size:12pt;">
+      <div style="${row}">
         <div style="${L}">Složeno ve skladu na Brodě: ______ kusů</div>
         <div style="${R}">podpis:</div>
       </div>
-      <div style="${row}font-size:12pt;">
+      <div style="${row}">
         <div style="${L}"></div>
         <div style="${R}">datum:</div>
       </div>
-      <div style="${row}font-size:12pt;">
+      <div style="${row}">
         <div style="${L}">Místo doručení: <b>${miesto}</b></div>
         <div style="${R}"></div>
       </div>
-      <div style="${row}font-size:12pt;">
+      <div style="${row}">
         <div style="${L}">Číslo objednávky : ${cislo}</div>
         <div style="${R}"></div>
       </div>
-      <div style="${row}font-size:12pt;">
+      <div style="${row}">
         <div style="${L}">Předal:</div>
         <div style="${R}">razítko:</div>
       </div>
-      <div style="${row}font-size:12pt;">
+      <div style="${row}">
         <div style="${L}">Podpis:</div>
         <div style="${R}"></div>
       </div>
 
-      <div style="height:16px;"></div>
+      <div style="height:12px;"></div>
 
-      <div style="${row}font-size:12pt;">
+      <div style="${row}">
         <div style="${L}text-align:center;">STENGER CZECH, s.r.o.</div>
         <div style="${R}text-align:center;">STENGER CZECH,s.r.o. - SKLAD</div>
       </div>
-      <div style="${row}font-size:12pt;">
+      <div style="${row}">
         <div style="${L}">EUROPALETY:</div>
         <div style="${R}"></div>
       </div>
-      <div style="${row}font-size:12pt;">
+      <div style="${row}">
         <div style="${L}">Přijato: ______ kusů</div>
         <div style="${R}">datum:</div>
       </div>
-      <div style="display:flex;padding:3px 0;font-size:12pt;">
+      <div style="display:flex;padding:2px 0;font-size:10pt;">
         <div style="${L}"></div>
         <div style="${R}">podpis:</div>
       </div>
-      <div style="display:flex;padding:3px 0;font-size:12pt;">
+      <div style="display:flex;padding:2px 0;font-size:10pt;">
         <div style="${L}"></div>
         <div style="${R}">razítko:</div>
       </div>
