@@ -4500,7 +4500,7 @@ function CmrModal({ order, carriers, customers, company, products, onClose, onDo
         const { ws } = await buildCmrWorkbook({ order, company, carrier, products });
         if (!cancelled) {
           setCmrHtml(renderWorksheetToHtml(ws));
-          setCmrHtmlPrint(renderWorksheetToHtml(ws, { scale: 0.68 }));
+          setCmrHtmlPrint(renderWorksheetToHtml(ws, { scale: 0.63 }));
         }
       } catch (e) {
         console.error(e);
