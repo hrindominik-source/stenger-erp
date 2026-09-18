@@ -374,6 +374,15 @@ function pickEmailsByKeyword(emaily, keywords) {
   );
   return matched.map((e) => e.email).join(", ");
 }
+// Adresa dodania sa vetsinou eviduje ako jeden riadok "Ulice, PSC Mesto" -
+// pre objednavku dopravy ju rozdeli na "Ulice" a "PSC Mesto" na samostatne
+// riadky podla prvej ciarky. Ak ziadna ciarka nie je, vrati adresu bez zmeny.
+function splitStreetAndCity(adresa) {
+  const text = (adresa || "").trim();
+  const idx = text.indexOf(",");
+  if (idx === -1) return text;
+  return text.slice(0, idx).trim() + "\n" + text.slice(idx + 1).trim();
+}
 // Predvoleny dopravca v objednavke dopravy - Dorys, ak existuje, inak prvy v zozname.
 function defaultCarrierId(carriers) {
   const dorys = (carriers || []).find((c) => (c.nazov || "").toLowerCase().includes("dorys"));
@@ -3761,13 +3770,11 @@ function TransportModal({ order, carriers, company, onClose, onSent, onUpdateCar
     `PRO: ${carrier ? carrier.nazov : "[dopravce]"}  NEOZNAMOVAT ODESÍLATELE!!\n\n` +
     `OBJEDNÁVKA Č. ${order.cisloObjednavkyDopravy}\n\n` +
     `Objednávám: DOPRAVU na ${order.pocetPaletovychMiest || "[doplňte]"} europalet, výška palety ${order.vyskaPalety || "266"} cm.\n` +
-    (order.pocetKartonov ? `Počet kartonů: ${order.pocetKartonov}\n` : "") +
     `Palety zpět: ${order.paletyZpat ? `ANO ${order.pocetPaliet || ""}` : "NE"}\n` +
     (order.mercareonRef ? `Mercareon/Transporeon ref.: ${order.mercareonRef}\n` : "") +
-    `\nNAKLÁDKA: ${company.nazov || "[Název společnosti]"}\n${company.adresa || ""}\n` +
-    `Datum nakládky: ${nakladkaDateFromDodanie(order.datumDodania)}\n\n` +
-    `VYKLÁDKA: ${order.datumDodania || "[doplňte]"}${order.casDodania ? " čas: " + order.casDodania : ""}\n` +
-    `${order.adresaDodaniaNazov || ""}\n${order.adresaDodania || ""}\n\n` +
+    `\nVYKLÁDKA: ${order.datumDodania || "[doplňte]"}${order.casDodania ? " čas: " + order.casDodania : ""}\n` +
+    `${order.adresaDodaniaNazov || ""}\n${splitStreetAndCity(order.adresaDodania)}\n\n` +
+    `NAKLÁDKA: ${company.nazov || "[Název společnosti]"}\n${company.adresa || ""}\n\n` +
     `${company.kontaktnaOsoba || ""}\n${company.nazov || ""}\n${company.email || ""}\n${company.tel || ""}`
   );
 
