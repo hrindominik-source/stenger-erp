@@ -21,7 +21,7 @@ function syncEmployeesWithOffice(existing, officeWorkers) {
     if (cur) {
       byId.set(w.id, { ...cur, name: w.meno, active: true });
     } else {
-      byId.set(w.id, { id: w.id, name: w.meno, roles: ['general'], weeklyMax: 4, priority: 50, active: true });
+      byId.set(w.id, { id: w.id, name: w.meno, roles: ['general'], weeklyMax: 4, active: true });
     }
   });
   existing.forEach(e => {
@@ -168,12 +168,14 @@ function neighborIdsFor(w, shiftId) {
   if (idx < w.shifts.length - 1) shiftPeopleIds(w.shifts[idx + 1]).forEach(id => ids.add(id));
   return ids;
 }
-/* Vyber podla pevneho poradia (priority) - nizsie cislo = vyssia priorita = vybera sa ako prvy.
-   Nahrada za povodne vyvazovanie poctu zmien (pickBalanced/withinDriftLimit). */
-function pickByPriority(cands) {
+function pickBalanced(cands, weeksSnapshot, shiftType) {
   if (cands.length === 0) return null;
-  const scored = cands.map(e => ({ e, priority: e.priority ?? 999 }));
-  scored.sort((a, b) => a.priority - b.priority || a.e.name.localeCompare(b.e.name));
+  const scored = cands.map(e => {
+    const gs = globalStats(weeksSnapshot, e.id);
+    const typeCount = shiftType === 'day' ? gs.day : shiftType === 'night' ? gs.night : gs.sanitation;
+    return { e, total: gs.total, typeCount };
+  });
+  scored.sort((a, b) => a.total - b.total || a.typeCount - b.typeCount || a.e.name.localeCompare(b.e.name));
   return scored[0].e;
 }
 
@@ -194,6 +196,16 @@ function priorGeneralTeam(allWeeks, week, shiftType) {
   const shift = priorWeekShiftOfType(allWeeks, week, shiftType);
   return shift ? shift.assigned.general.slice() : [];
 }
+/* Kontinuita ma prednost, ale nie za cenu neobmedzeneho drift-u - ak by niekto mal uz o vela viac
+   zmien nez najmenej vyuzity clovek z rovnakej pozicie, radsej sa prepne na vyvazenie. */
+const BALANCE_DRIFT_LIMIT = 2;
+function withinDriftLimit(currentId, altCands, weeksSnapshot) {
+  if (altCands.length === 0) return true;
+  const curTotal = globalStats(weeksSnapshot, currentId).total;
+  const minAltTotal = Math.min(...altCands.map(e => globalStats(weeksSnapshot, e.id).total));
+  return curTotal - minAltTotal <= BALANCE_DRIFT_LIMIT;
+}
+
 /* Vyplni jednu poziciu (hrncova alebo pozicia 3) pre vsetky zmeny rovnakeho typu (den/noc/sanitacia) v tyzdni,
    pricom sa snazi co najdlhsie drzat tu istu osobu (blok zmien za sebou), kym je to mozne.
    Pre denne zmeny (po-st/ct) sa blok plni odzadu (od stvrtka smerom k pondelku) a nadväzuje na
@@ -219,6 +231,7 @@ function fillSingleRoleBlock(w, shiftsBlock, roleKey, employees, absences, allWe
 
     const neighborIds = neighborIdsFor(w, shift.id);
     const usedInShift = new Set(shiftPeopleIds(shift));
+    const weeksSnapshot = allWeeks.map(x => (x.id === w.id ? w : x));
 
     const eligible = (roleFlag, maxOverride) => employees.filter(e =>
       e.active && e.roles.includes(roleFlag) &&
@@ -235,11 +248,11 @@ function fillSingleRoleBlock(w, shiftsBlock, roleKey, employees, absences, allWe
         const stillOk = curEmp && curEmp.active && curEmp.roles.includes('pos1') &&
           !isOnAbsence(current, shift.date, absences, shift.type) && !neighborIds.has(current) && !usedInShift.has(current) &&
           weekShiftCount(w, current) < curEmp.weeklyMax + 1;
-        if (stillOk) { shift.assigned.pos1 = current; return; }
+        if (stillOk && withinDriftLimit(current, cands.filter(e => e.id !== current), weeksSnapshot)) { shift.assigned.pos1 = current; return; }
       }
       if (cands.length === 0) cands = eligible('pos1', Infinity).filter(e => weekShiftCount(w, e.id) < e.weeklyMax + 1);
       if (cands.length === 0) cands = eligible('pos1-backup');
-      const pick = pickByPriority(cands);
+      const pick = pickBalanced(cands, weeksSnapshot, shift.type);
       if (pick) { shift.assigned.pos1 = pick.id; current = pick.id; } else current = null;
     } else {
       const cands = eligible('pos3');
@@ -248,9 +261,9 @@ function fillSingleRoleBlock(w, shiftsBlock, roleKey, employees, absences, allWe
         const stillOk = curEmp && curEmp.active && curEmp.roles.includes('pos3') &&
           !isOnAbsence(current, shift.date, absences, shift.type) && !neighborIds.has(current) && !usedInShift.has(current) &&
           weekShiftCount(w, current) < curEmp.weeklyMax;
-        if (stillOk) { shift.assigned.pos3 = current; return; }
+        if (stillOk && withinDriftLimit(current, cands.filter(e => e.id !== current), weeksSnapshot)) { shift.assigned.pos3 = current; return; }
       }
-      const pick = pickByPriority(cands);
+      const pick = pickBalanced(cands, weeksSnapshot, shift.type);
       if (pick) { shift.assigned.pos3 = pick.id; current = pick.id; } else current = null;
     }
   });
@@ -276,6 +289,7 @@ function fillGeneralBlock(w, shiftsBlock, employees, absences, allWeeks) {
     if (already.length >= needed) { team = already.slice(0, needed); return; }
 
     const neighborIds = neighborIdsFor(w, shift.id);
+    const weeksSnapshot = allWeeks.map(x => (x.id === w.id ? w : x));
 
     const isEligible = (id, extraExcluded) => {
       const e = employees.find(x => x.id === id);
@@ -284,10 +298,16 @@ function fillGeneralBlock(w, shiftsBlock, employees, absences, allWeeks) {
       return e.active && e.roles.includes('general') && !isOnAbsence(id, shift.date, absences, shift.type) &&
         !neighborIds.has(id) && !usedInShift.has(id) && weekShiftCount(w, id) < e.weeklyMax;
     };
+    const generalPool = (excludeIds) => {
+      const excluded = new Set([...shiftPeopleIds(shift), ...excludeIds]);
+      return employees.filter(e => e.active && e.roles.includes('general') && !excluded.has(e.id) &&
+        !isOnAbsence(e.id, shift.date, absences, shift.type) && !neighborIds.has(e.id) && weekShiftCount(w, e.id) < e.weeklyMax);
+    };
 
     const chosen = [...already];
     team.forEach(id => {
-      if (chosen.length < needed && !chosen.includes(id) && isEligible(id, chosen)) chosen.push(id);
+      if (chosen.length < needed && !chosen.includes(id) && isEligible(id, chosen) &&
+        withinDriftLimit(id, generalPool(chosen), weeksSnapshot)) chosen.push(id);
     });
 
     let guard = 0;
@@ -297,7 +317,7 @@ function fillGeneralBlock(w, shiftsBlock, employees, absences, allWeeks) {
       const pool = employees.filter(e => e.active && e.roles.includes('general') &&
         !isOnAbsence(e.id, shift.date, absences, shift.type) && !neighborIds.has(e.id) && !usedInShift.has(e.id) &&
         weekShiftCount(w, e.id) < e.weeklyMax);
-      const pick = pickByPriority(pool);
+      const pick = pickBalanced(pool, weeksSnapshot, shift.type);
       if (!pick) break;
       chosen.push(pick.id);
     }
@@ -1117,7 +1137,7 @@ function PlannerTab({ weeks, activeWeek, employees, absences, setActiveWeekId, o
   );
 }
 
-function EmployeesTab({ employees, onToggleActive, onUpdateMax, onUpdateRoles, onUpdatePriority, onChangeAdminPin, onResetPin }) {
+function EmployeesTab({ employees, onToggleActive, onUpdateMax, onUpdateRoles, onChangeAdminPin, onResetPin }) {
   const [pinMsg, setPinMsg] = useState('');
   async function handleResetPin(id) {
     const adminPin = window.prompt('Pro reset PINu zaměstnance zadejte svůj admin PIN:');
@@ -1150,7 +1170,7 @@ function EmployeesTab({ employees, onToggleActive, onUpdateMax, onUpdateRoles, o
       <div className="bg-white border border-slate-200 rounded-lg overflow-hidden overflow-x-auto">
         <table className="w-full text-sm">
           <thead className="bg-slate-50 text-slate-500 text-xs uppercase">
-            <tr><th className="text-left px-3 py-2">Jméno</th><th className="text-left px-3 py-2">Pozice</th><th className="text-left px-3 py-2">Max/týden</th><th className="text-left px-3 py-2">Pořadí</th><th className="text-left px-3 py-2">Stav</th><th></th></tr>
+            <tr><th className="text-left px-3 py-2">Jméno</th><th className="text-left px-3 py-2">Pozice</th><th className="text-left px-3 py-2">Max/týden</th><th className="text-left px-3 py-2">Stav</th><th></th></tr>
           </thead>
           <tbody>
             {activeEmployees.map(e => (
@@ -1166,7 +1186,6 @@ function EmployeesTab({ employees, onToggleActive, onUpdateMax, onUpdateRoles, o
                   </div>
                 </td>
                 <td className="px-3 py-2"><input type="number" min="1" max="10" value={e.weeklyMax} onChange={ev => onUpdateMax(e.id, ev.target.value)} className="w-16 border border-slate-300 rounded px-1.5 py-1" /></td>
-                <td className="px-3 py-2"><input type="number" min="1" value={e.priority ?? 50} onChange={ev => onUpdatePriority(e.id, ev.target.value)} title="Nižší číslo = vyšší priorita při automatickém doplnění" className="w-16 border border-slate-300 rounded px-1.5 py-1" /></td>
                 <td className="px-3 py-2">
                   <button onClick={() => onToggleActive(e.id)} className={`px-2 py-1 rounded text-xs font-medium ${e.active ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-200 text-slate-500'}`}>
                     {e.active ? 'Aktivní' : 'Neaktivní'}
@@ -1180,7 +1199,7 @@ function EmployeesTab({ employees, onToggleActive, onUpdateMax, onUpdateRoles, o
               </tr>
             ))}
             {activeEmployees.length === 0 && (
-              <tr><td colSpan={6} className="px-3 py-6 text-center text-slate-400">Zatím žádný zaměstnanec. Přidejte ho v ERP → Pracovníci (typ „Výroba“).</td></tr>
+              <tr><td colSpan={5} className="px-3 py-6 text-center text-slate-400">Zatím žádný zaměstnanec. Přidejte ho v ERP → Pracovníci (typ „Výroba“).</td></tr>
             )}
           </tbody>
         </table>
@@ -1606,7 +1625,6 @@ export default function PlanSmienView({ onBack }) {
 
   function toggleActive(id) { setEmployees(es => es.map(e => (e.id === id ? { ...e, active: !e.active } : e))); }
   function updateWeeklyMax(id, val) { setEmployees(es => es.map(e => (e.id === id ? { ...e, weeklyMax: Number(val) || 1 } : e))); }
-  function updatePriority(id, val) { setEmployees(es => es.map(e => (e.id === id ? { ...e, priority: Number(val) || 999 } : e))); }
   function updateEmployeeRoles(id, roles) { if (roles.length === 0) return; setEmployees(es => es.map(e => (e.id === id ? { ...e, roles } : e))); }
 
   function addAbsence() {
@@ -1773,7 +1791,7 @@ export default function PlanSmienView({ onBack }) {
         )}
         {tab === 'employees' && (
           <EmployeesTab employees={employees} onToggleActive={toggleActive} onUpdateMax={updateWeeklyMax}
-            onUpdateRoles={updateEmployeeRoles} onUpdatePriority={updatePriority}
+            onUpdateRoles={updateEmployeeRoles}
             onChangeAdminPin={changeAdminPin} onResetPin={resetEmployeePin} />
         )}
         {tab === 'absences' && (
