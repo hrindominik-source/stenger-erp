@@ -2386,7 +2386,10 @@ function PrintStyles() {
            position:absolute rezime sa tento padding do vysky stranky
            nezapocital, po prechode na position:static uz ano, cim jednoduchy
            1-strankovy dokument (paletovy listok, CMR) presiel na 2 strany. */
-        @page { margin: 8mm; }
+        /* Vynuti A4 - bez toho niektore prehliadace/tlaciarne tlacia na
+           kratsi "Letter" format (US), co pri tesne narezanom dokumente
+           (CMR) samo o sebe sposobi presah na 2. stranu. */
+        @page { size: A4; margin: 8mm; }
         .print-only-content { position: static !important; left: auto !important; width: 100%; padding: 0; box-sizing: border-box; }
       }
     `}</style>
@@ -4497,7 +4500,7 @@ function CmrModal({ order, carriers, customers, company, products, onClose, onDo
         const { ws } = await buildCmrWorkbook({ order, company, carrier, products });
         if (!cancelled) {
           setCmrHtml(renderWorksheetToHtml(ws));
-          setCmrHtmlPrint(renderWorksheetToHtml(ws, { scale: 0.75 }));
+          setCmrHtmlPrint(renderWorksheetToHtml(ws, { scale: 0.68 }));
         }
       } catch (e) {
         console.error(e);
