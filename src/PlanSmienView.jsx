@@ -195,10 +195,24 @@ function priorGeneralTeam(allWeeks, week, shiftType) {
   return shift ? shift.assigned.general.slice() : [];
 }
 /* Vyplni jednu poziciu (hrncova alebo pozicia 3) pre vsetky zmeny rovnakeho typu (den/noc/sanitacia) v tyzdni,
-   pricom sa snazi co najdlhsie drzat tu istu osobu (blok zmien za sebou), kym je to mozne. */
+   pricom sa snazi co najdlhsie drzat tu istu osobu (blok zmien za sebou), kym je to mozne.
+   Pre denne zmeny (po-st/ct) sa blok plni odzadu (od stvrtka smerom k pondelku) a nadväzuje na
+   toho, kto uz ma piatkovu sanitaciu (ak je pre danu poziciu vhodny) - vdaka tomu jej zmeny
+   nadväzuju suvisle pred piatok (napr. ut-st-ct-pia), namiesto aby jej v tyzdni vznikla medzera
+   (napr. po-ut-st a potom az pia) sposobena tym, ze sanitacia (plnena skor) uz vycerpala cast
+   jej tyzdenneho limitu. Nocne zmeny sa nechavaju v povodnom poradi, kedze noc pred sanitaciou
+   nasledujuce rano je uz aj tak vylucena pravidlom o susednych zmenach (bezpecnost/odpocinok). */
 function fillSingleRoleBlock(w, shiftsBlock, roleKey, employees, absences, allWeeks) {
-  let current = shiftsBlock.length ? priorRoleHolder(allWeeks, w, shiftsBlock[0].type, roleKey) : null;
-  shiftsBlock.forEach(shift => {
+  const bridgeToFriday = shiftsBlock.length > 0 && shiftsBlock[0].type === 'day';
+  const orderedBlock = bridgeToFriday ? [...shiftsBlock].reverse() : shiftsBlock;
+  let current;
+  if (bridgeToFriday) {
+    const fridayShift = w.shifts.find(s => s.type === 'sanitation');
+    current = (fridayShift && fridayShift.assigned[roleKey]) || priorRoleHolder(allWeeks, w, shiftsBlock[0].type, roleKey);
+  } else {
+    current = shiftsBlock.length ? priorRoleHolder(allWeeks, w, shiftsBlock[0].type, roleKey) : null;
+  }
+  orderedBlock.forEach(shift => {
     const total = shiftTotal(shift);
     if (total === 0) return;
     if (shift.assigned[roleKey]) { current = shift.assigned[roleKey]; return; }
@@ -242,10 +256,19 @@ function fillSingleRoleBlock(w, shiftsBlock, roleKey, employees, absences, allWe
   });
 }
 
-/* Vyplni ostatne pozicie pre vsetky zmeny rovnakeho typu, so snahou udrzat rovnaky "tim" v bloku za sebou. */
+/* Vyplni ostatne pozicie pre vsetky zmeny rovnakeho typu, so snahou udrzat rovnaky "tim" v bloku za sebou.
+   Rovnaka logika premostenia na piatkovu sanitaciu ako vo fillSingleRoleBlock - viz komentar tam. */
 function fillGeneralBlock(w, shiftsBlock, employees, absences, allWeeks) {
-  let team = shiftsBlock.length ? priorGeneralTeam(allWeeks, w, shiftsBlock[0].type) : [];
-  shiftsBlock.forEach(shift => {
+  const bridgeToFriday = shiftsBlock.length > 0 && shiftsBlock[0].type === 'day';
+  const orderedBlock = bridgeToFriday ? [...shiftsBlock].reverse() : shiftsBlock;
+  let team;
+  if (bridgeToFriday) {
+    const fridayShift = w.shifts.find(s => s.type === 'sanitation');
+    team = fridayShift && fridayShift.assigned.general.length ? fridayShift.assigned.general.slice() : priorGeneralTeam(allWeeks, w, shiftsBlock[0].type);
+  } else {
+    team = shiftsBlock.length ? priorGeneralTeam(allWeeks, w, shiftsBlock[0].type) : [];
+  }
+  orderedBlock.forEach(shift => {
     const total = shiftTotal(shift);
     if (total === 0) return;
     const needed = Math.max(0, total - (shift.assigned.pos1 ? 1 : 0) - (shift.assigned.pos3 ? 1 : 0));
