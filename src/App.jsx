@@ -19,7 +19,8 @@ const UctovnictviView = lazy(() => import("./UctovnictviView.jsx"));
 import { extractCityFromAddress, todayStr, uid, parseSkDate, isoFromSkDateStr, skDateStrFromIso, durationMinutes, formatMinutes } from "./lib/utils.js";
 import { parsePricelistFile, computeTransportPrice, computeTransportPriceForCity, formatEur, formatPriceNumber } from "./lib/pricelist.js";
 import { buildLieferscheinXlsx } from "./lib/lieferscheinXlsx.js";
-import { buildCmrXlsx } from "./lib/cmrXlsx.js";
+import { buildCmrXlsx, buildCmrWorkbook } from "./lib/cmrXlsx.js";
+import { renderWorksheetToHtml } from "./lib/xlsxToHtml.js";
 import { parseSupplierCatalogFile, mergeSupplierCatalog } from "./lib/supplierCatalog.js";
 import { exportRowsToExcel, exportSheetsToExcel } from "./lib/exportExcel.js";
 import { computeStockLevels, computeProductionIssues, extraKnownMaterials, materialPicksForSupplier, allKnownMaterials, suggestReceiptMatches, UNIT_QUICK_PICKS } from "./lib/inventory.js";
@@ -2385,7 +2386,7 @@ function PrintStyles() {
            position:absolute rezime sa tento padding do vysky stranky
            nezapocital, po prechode na position:static uz ano, cim jednoduchy
            1-strankovy dokument (paletovy listok, CMR) presiel na 2 strany. */
-        @page { margin: 10mm; }
+        @page { margin: 5mm; }
         .print-only-content { position: static !important; left: auto !important; width: 100%; padding: 0; box-sizing: border-box; }
       }
     `}</style>
@@ -2449,18 +2450,6 @@ async function openDesignFile(path) {
 
 async function openSwPricelistFile(path) {
   return openSignedFile(SW_PRICELIST_BUCKET, path, { download: true });
-}
-
-function downloadText(filename, content) {
-  const blob = new Blob([content], { type: "text/plain;charset=utf-8" });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement("a");
-  a.href = url;
-  a.download = filename;
-  document.body.appendChild(a);
-  a.click();
-  a.remove();
-  URL.revokeObjectURL(url);
 }
 
 function downloadHtml(filename, htmlBody) {
@@ -4480,20 +4469,71 @@ function CmrModal({ order, carriers, customers, company, products, onClose, onDo
     `Podpis a razítko příjemce: ______________________`
   );
 
-  // onDone zavrie modal (odmountuje aj portalovany tlacovy obsah cez
-  // PrintDocument) - preto sa musi zavolat AZ PO window.print(). Predtym sa
-  // volal pred setTimeout-om, cim sa tlacovy obsah odstranil z DOM este pred
-  // tym, ako window.print() vobec stihol nabehnut - tlacilo sa tak vzdy
-  // uplne prazdne (0-riadkove) content, aj ked stranka uz mala spravny pocet.
+  // Tlac/PDF uz nepouzivaju "body" placeholder text (ten bol vzdy len
+  // zalozny podklad, nie skutocny formular - viz povodny komentar nizsie u
+  // "Stahnout text") - namiesto toho sa rovnaky vyplneny workbook, aky
+  // stahuje "Stahnout Excel" (buildCmrWorkbook), prevedie na HTML
+  // (renderWorksheetToHtml) a to iste HTML sa pouzije aj pre tlac/PDF, takze
+  // vsetky tri vystupy su vzdy presne ten isty formular.
+  const [cmrHtml, setCmrHtml] = useState(null);
+  // HTML tabulkovy box model potrebuje o dost viac miesta na riadok textu nez
+  // Excel, takze 1:1 (scale 1) verzia pretecie na 2. stranu - pre tlac/PDF sa
+  // preto pouziva zmensena (scale 0.75) verzia, ktora sa uz spolahlivo zmesti
+  // na jednu A4 (viz komentar v renderWorksheetToHtml). Nahlad v okne ostava
+  // citatelny v 1:1 velkosti.
+  const [cmrHtmlPrint, setCmrHtmlPrint] = useState(null);
+  const [cmrBuildError, setCmrBuildError] = useState("");
+  useEffect(() => {
+    let cancelled = false;
+    setCmrHtml(null);
+    setCmrHtmlPrint(null);
+    setCmrBuildError("");
+    (async () => {
+      try {
+        const { ws } = await buildCmrWorkbook({ order, company, carrier, products });
+        if (!cancelled) {
+          setCmrHtml(renderWorksheetToHtml(ws));
+          setCmrHtmlPrint(renderWorksheetToHtml(ws, { scale: 0.75 }));
+        }
+      } catch (e) {
+        console.error(e);
+        if (!cancelled) setCmrBuildError("Nepodařilo se připravit náhled CMR ze šablony.");
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [order, company, carrier, products]);
+
+  // onDone zavrie modal (odmountuje aj portalovany tlacovy obsah) - preto sa
+  // musi zavolat AZ PO window.print(). Predtym sa volal pred setTimeout-om,
+  // cim sa tlacovy obsah odstranil z DOM este pred tym, ako window.print()
+  // vobec stihol nabehnut - tlacilo sa tak vzdy uplne prazdne (0-riadkove)
+  // content, aj ked stranka uz mala spravny pocet.
   function handlePrint() {
     setTimeout(() => {
       window.print();
       onDone({ subject: "CMR", body, to: "vytlacene", datum: new Date().toISOString() }, "print");
     }, 50);
   }
-  function handleDownload() {
-    downloadText(`CMR_${order.cisloObjednavkyDopravy.replace("/", "-")}.txt`, body);
-    onDone({ subject: "CMR", body, to: "stiahnute", datum: new Date().toISOString() }, "download");
+  const [pdfBusy, setPdfBusy] = useState(false);
+  async function handleDownloadPdf() {
+    if (!cmrHtmlPrint) return;
+    setPdfBusy(true);
+    const container = document.createElement("div");
+    container.style.position = "fixed";
+    container.style.left = "0";
+    container.style.top = "0";
+    container.style.zIndex = "-1000";
+    container.style.width = "1000px";
+    container.style.background = "#ffffff";
+    container.innerHTML = cmrHtmlPrint;
+    document.body.appendChild(container);
+    try {
+      await renderContainerToPdf(`CMR_${order.cisloObjednavkyDopravy.replace("/", "-")}.pdf`, container, 1000, { marginTop: 5, marginBottom: 5 });
+      onDone({ subject: "CMR", body, to: "stiahnute (PDF)", datum: new Date().toISOString() }, "download");
+    } finally {
+      if (container.parentNode) container.parentNode.removeChild(container);
+      setPdfBusy(false);
+    }
   }
   async function handleDownloadXlsx() {
     await buildCmrXlsx({ order, company, carrier, products });
@@ -4501,16 +4541,25 @@ function CmrModal({ order, carriers, customers, company, products, onClose, onDo
   }
 
   return (
-    <ModalShell title={"CMR - " + order.cisloObjednavkyDopravy} onClose={onClose} wide>
-      <PrintDocument id={printId} title="CMR - MEZINÁRODNÍ NÁKLADNÍ LIST" body={body} />
+    <ModalShell title={"CMR - " + order.cisloObjednavkyDopravy} onClose={onClose} extraWide>
+      {cmrHtmlPrint && createPortal(<div id={printId} className="print-only-content" dangerouslySetInnerHTML={{ __html: cmrHtmlPrint }} />, document.body)}
       {last && <div className="mb-3 bg-emerald-50 text-emerald-800 text-xs px-3 py-2 rounded-md flex items-center gap-2"><CheckCircle2 size={14} /> Naposledy připraveno {formatDateTime(last.datum)}</div>}
-      <p className="text-xs text-slate-400 mb-3">Tlačítko "Stáhnout Excel" vyplní přesnou šablonu CMR (stejný formulář, jaký používáte dnes) - místo dodání, počet palet a datum nakládky se doplní automaticky z objednávky. Text níže je jen záložní textový podklad.</p>
-      <Field label="Text dokumentu" value={body} onChange={setBody} textarea />
+      {cmrBuildError && <div className="mb-3 bg-red-50 text-red-700 text-xs px-3 py-2 rounded-md flex items-center gap-2"><AlertCircle size={14} /> {cmrBuildError}</div>}
+      <p className="text-xs text-slate-400 mb-2">Náhled odpovídá přesnému formuláři CMR (stejná šablona jako "Stáhnout Excel") - místo dodání, počet palet a datum nakládky se doplní automaticky z objednávky.</p>
+      <div className="border border-slate-300 rounded-md overflow-auto mb-3 bg-white" style={{ maxHeight: "55vh" }}>
+        {cmrHtml ? (
+          <div style={{ minWidth: "900px" }} dangerouslySetInnerHTML={{ __html: cmrHtml }} />
+        ) : (
+          <div className="p-6 text-center text-slate-400 text-sm flex items-center justify-center gap-2"><Loader2 size={16} className="animate-spin" /> Připravuji náhled...</div>
+        )}
+      </div>
       <div className="flex justify-end gap-2 mt-2 flex-wrap">
         <button onClick={onClose} className="text-sm text-slate-500 px-3 py-2">Zrušit</button>
         <button onClick={handleDownloadXlsx} className="bg-white border border-slate-200 hover:bg-slate-50 text-slate-700 text-sm font-medium px-4 py-2 rounded-md flex items-center gap-1.5"><Download size={16} /> Stáhnout Excel</button>
-        <button onClick={handleDownload} className="bg-white border border-slate-200 hover:bg-slate-50 text-slate-700 text-sm font-medium px-4 py-2 rounded-md flex items-center gap-1.5"><Download size={16} /> Stáhnout text</button>
-        <button onClick={handlePrint} className="bg-teal-700 hover:bg-teal-800 text-white text-sm font-medium px-4 py-2 rounded-md flex items-center gap-1.5"><Printer size={16} /> Vytisknout</button>
+        <button onClick={handleDownloadPdf} disabled={!cmrHtmlPrint || pdfBusy} className="bg-white border border-slate-200 hover:bg-slate-50 disabled:opacity-60 text-slate-700 text-sm font-medium px-4 py-2 rounded-md flex items-center gap-1.5">
+          {pdfBusy ? <Loader2 size={16} className="animate-spin" /> : <Download size={16} />} Stáhnout PDF
+        </button>
+        <button onClick={handlePrint} disabled={!cmrHtmlPrint} className="bg-teal-700 hover:bg-teal-800 disabled:opacity-60 text-white text-sm font-medium px-4 py-2 rounded-md flex items-center gap-1.5"><Printer size={16} /> Vytisknout</button>
       </div>
     </ModalShell>
   );

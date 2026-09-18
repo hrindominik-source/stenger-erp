@@ -50,7 +50,10 @@ function addressLines(lines, max) {
   return [...lines.slice(0, max - 1), lines.slice(max - 1).join(", ")];
 }
 
-export async function buildCmrXlsx({ order, company, carrier, products }) {
+// Nacita sablonu a vyplni ju - zdielane jadro pre stiahnutie .xlsx aj pre
+// nahlad/tlac/PDF (renderovane priamo z tohto isteho vyplneneho workbooku,
+// viz xlsxToHtml.js), aby oba vystupy boli vzdy presne rovnake.
+export async function buildCmrWorkbook({ order, company, carrier, products }) {
   const ExcelJSModule = await import("exceljs");
   const ExcelJS = ExcelJSModule.default || ExcelJSModule;
 
@@ -95,6 +98,12 @@ export async function buildCmrXlsx({ order, company, carrier, products }) {
   // vynuti prepocet vsetkych vzorcov (I56, O41/P41/Q41, J74/J75...) pri
   // otvoreni v Exceli, inak by zobrazovali stare cachovane hodnoty zo sablony
   wb.calcProperties = { fullCalcOnLoad: true };
+
+  return { wb, ws };
+}
+
+export async function buildCmrXlsx({ order, company, carrier, products }) {
+  const { wb } = await buildCmrWorkbook({ order, company, carrier, products });
 
   const buf2 = await wb.xlsx.writeBuffer();
   const blob = new Blob([buf2], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" });
