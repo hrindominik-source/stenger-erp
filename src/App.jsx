@@ -3927,7 +3927,16 @@ function LieferscheinPrintTable({ id, company, customer, order, carrierName, tra
                   {it.produkt?.rspo && <div style={{ fontSize: "9px", color: "#555" }}>{RSPO_CERT_CODE}</div>}
                 </td>
                 <td style={{ padding: "3px" }}>{computeKusyFromKarton(it.karton, it.produkt)}</td>
-                <td style={{ padding: "3px" }}>{it.artikel}</td>
+                <td style={{ padding: "3px" }}>
+                  {it.produkt && (it.produkt.cisloArtiklu || it.produkt.cisloArtikluSW) ? (
+                    <>
+                      {it.produkt.cisloArtiklu && <div>{it.produkt.cisloArtiklu}</div>}
+                      {it.produkt.cisloArtikluSW && <div style={{ fontSize: "9px", color: "#555" }}>SW: {it.produkt.cisloArtikluSW}</div>}
+                    </>
+                  ) : (
+                    it.artikel
+                  )}
+                </td>
               </tr>
             ))}
           </tbody>
@@ -3971,6 +3980,12 @@ function buildLieferscheinHtml({ company, customer, order, carrierName, transpor
   const itemRows = items.map((it) => {
     const p = it.produkt;
     const eanLine = p ? [p.eanKarton && `EAN UK: ${escapeHtml(p.eanKarton)}`, p.eanUnit && `EAN VE: ${escapeHtml(p.eanUnit)}`].filter(Boolean).join("   ") : "";
+    // Nase (SNC) aj Stenger Waffeln (SW) cislo artiklu z napojeneho Produktu -
+    // ak sa produkt nenasiel (napr. este nezakatalogizovana polozka), padne
+    // spat na cislo z objednavky tak, ako doteraz.
+    const artikelCell = p && (p.cisloArtiklu || p.cisloArtikluSW)
+      ? `${p.cisloArtiklu ? `<div>${escapeHtml(p.cisloArtiklu)}</div>` : ""}${p.cisloArtikluSW ? `<div style="font-size:9px;color:#555;">SW: ${escapeHtml(p.cisloArtikluSW)}</div>` : ""}`
+      : escapeHtml(it.artikel);
     // Padding-bottom vacsi ako horny/bocny - bez tejto rezervy html2canvas pri
     // vykresleni PDF (fotenie DOM-u do plátna) obcas vykreslil border-bottom
     // riadku tesne cez descendery posledneho riadku textu (g/p/y v "popcorn",
@@ -3986,7 +4001,7 @@ function buildLieferscheinHtml({ company, customer, order, carrierName, transpor
         ${p && p.rspo ? `<div style="font-size:9px;color:#555; line-height:1.5; margin-top:2px;">${RSPO_CERT_CODE}</div>` : ""}
       </td>
       <td style="padding:3px 3px 7px 3px;">${escapeHtml(computeKusyFromKarton(it.karton, p) ?? "")}</td>
-      <td style="padding:3px 3px 7px 3px;">${escapeHtml(it.artikel)}</td>
+      <td style="padding:3px 3px 7px 3px;">${artikelCell}</td>
     </tr>`;
   }).join("");
   return `
