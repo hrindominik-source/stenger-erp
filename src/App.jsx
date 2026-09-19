@@ -2723,11 +2723,11 @@ function DateField({ label, value, onChange }) {
   );
 }
 
-function SelectField({ label, value, onChange, options }) {
+function SelectField({ label, value, onChange, options, className }) {
   return (
     <label className="block mb-3">
       <span className="block text-xs font-medium text-slate-500 mb-1">{label}</span>
-      <select value={value} onChange={(e) => onChange(e.target.value)} className="w-full border border-slate-200 rounded-md px-2.5 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-teal-600">
+      <select value={value} onChange={(e) => onChange(e.target.value)} className={`w-full border rounded-md px-2.5 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-teal-600 ${className || "border-slate-200"}`}>
         {options.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
       </select>
     </label>
@@ -3452,6 +3452,12 @@ function NewOrderPage({ onClose, onSave, defaultAdresaNakladky, customers, produ
             Objednávka s číslem "{cislo}" už v registru existuje ({duplicateOrder.cisloDodaciehoListu || duplicateOrder.id}, zákazník {duplicateOrder.zakaznik || "?"}) - zkontrolujte, zda nejde o duplicitu, než ji uložíte znovu.
           </div>
         )}
+        {!extracted.zakaznikId && (
+          <div className="mb-4 bg-red-50 text-red-800 text-sm px-3 py-2 rounded-md flex items-center gap-2">
+            <AlertCircle size={16} />
+            Zákazník nebyl rozpoznán ze seznamu (AI jen odhadla text "{extracted.zakaznik || "—"}", nejde o skutečně propojený záznam) - vyberte prosím zákazníka ručně z rozbalovacího seznamu níže, jinak se na dodacím listu i jinde zobrazí špatné/neúplné údaje.
+          </div>
+        )}
         <div className="flex flex-col lg:flex-row gap-6">
         <div className="lg:w-1/2">
         <SelectField
@@ -3462,6 +3468,7 @@ function NewOrderPage({ onClose, onSave, defaultAdresaNakladky, customers, produ
             setExtracted({ ...extracted, zakaznikId: v, zakaznik: c ? c.nazov : extracted.zakaznik });
           }}
           options={[{ value: "", label: "-- nevybráno / doplním ručně --" }, ...customers.map((c) => ({ value: c.id, label: c.nazov }))]}
+          className={!extracted.zakaznikId ? "border-red-400 focus:border-red-500 focus:ring-red-500" : ""}
         />
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-4">
           <Field label="Název zákazníka (zobrazení)" value={extracted.zakaznik} onChange={(v) => setExtracted({ ...extracted, zakaznik: v })} />
@@ -3496,7 +3503,11 @@ function NewOrderPage({ onClose, onSave, defaultAdresaNakladky, customers, produ
         <div className="flex justify-between items-center mt-4 pb-2">
           <button onClick={() => setExtracted(null)} className="text-sm text-slate-500 flex items-center gap-1 hover:text-slate-800"><ArrowLeft size={14} /> Zpět</button>
           <button
-            onClick={async () => { if (saving) return; setSaving(true); try { await onSave(extracted); } finally { setSaving(false); } }}
+            onClick={async () => {
+              if (saving) return;
+              if (!extracted.zakaznikId && !window.confirm(`Zákazník není vybraný ze seznamu (jen text "${extracted.zakaznik || "—"}" odhadnutý AI, není propojený se skutečným záznamem zákazníka) - na dodacím listu a jinde se pak zobrazí neúplné údaje. Opravdu uložit bez výběru zákazníka?`)) return;
+              setSaving(true); try { await onSave(extracted); } finally { setSaving(false); }
+            }}
             disabled={saving}
             className="bg-teal-700 hover:bg-teal-800 disabled:opacity-50 disabled:cursor-not-allowed text-white text-sm font-medium px-4 py-2 rounded-md flex items-center gap-1.5"
           >
@@ -3652,7 +3663,13 @@ function EditOrderPage({ order, customers, products, onClose, onSave }) {
     <PageShell title={"Upravit objednávku " + order.cisloObjednavkyDopravy} onBack={onClose}>
       <div className="flex flex-col lg:flex-row gap-6">
         <div className="lg:w-1/2">
-          <SelectField label="Zákazník (odběratel)" value={f.zakaznikId} onChange={(v) => { const c = customers.find((x) => x.id === v); setF({ ...f, zakaznikId: v, zakaznik: c ? c.nazov : f.zakaznik }); }} options={[{ value: "", label: "-- nevybráno --" }, ...customers.map((c) => ({ value: c.id, label: c.nazov }))]} />
+          {!f.zakaznikId && (
+            <div className="mb-3 bg-red-50 text-red-800 text-sm px-3 py-2 rounded-md flex items-center gap-2">
+              <AlertCircle size={16} />
+              Zákazník není vybraný ze seznamu (jen volný text "{f.zakaznik || "—"}", není propojený se skutečným záznamem) - vyberte ho prosím z rozbalovacího seznamu.
+            </div>
+          )}
+          <SelectField label="Zákazník (odběratel)" value={f.zakaznikId} onChange={(v) => { const c = customers.find((x) => x.id === v); setF({ ...f, zakaznikId: v, zakaznik: c ? c.nazov : f.zakaznik }); }} options={[{ value: "", label: "-- nevybráno --" }, ...customers.map((c) => ({ value: c.id, label: c.nazov }))]} className={!f.zakaznikId ? "border-red-400 focus:border-red-500 focus:ring-red-500" : ""} />
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-4">
             <Field label="Název zákazníka" value={f.zakaznik} onChange={(v) => setF({ ...f, zakaznik: v })} />
             <Field label="Číslo objednávky zákazníka (Belegnummer)" value={f.cisloObjednavkyZakaznika} onChange={(v) => setF({ ...f, cisloObjednavkyZakaznika: v })} />
@@ -3678,7 +3695,15 @@ function EditOrderPage({ order, customers, products, onClose, onSave }) {
           <ItemsTable items={f.polozky || []} setItems={(items) => setF({ ...f, polozky: items })} customer={customer} products={products} />
           <div className="flex justify-between mt-2 pb-2">
             <button onClick={onClose} className="text-sm text-slate-500 px-3 py-2">Zrušit</button>
-            <button onClick={() => onSave(f)} className="bg-teal-700 hover:bg-teal-800 text-white text-sm font-medium px-4 py-2 rounded-md">Uložit změny</button>
+            <button
+              onClick={() => {
+                if (!f.zakaznikId && !window.confirm(`Zákazník není vybraný ze seznamu (jen text "${f.zakaznik || "—"}", není propojený se skutečným záznamem) - na dodacím listu a jinde se pak zobrazí neúplné údaje. Opravdu uložit bez výběru zákazníka?`)) return;
+                onSave(f);
+              }}
+              className="bg-teal-700 hover:bg-teal-800 text-white text-sm font-medium px-4 py-2 rounded-md"
+            >
+              Uložit změny
+            </button>
           </div>
         </div>
         <div className="lg:w-1/2">
