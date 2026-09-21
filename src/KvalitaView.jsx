@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback, useRef } from "react";
-import { LogOut, ArrowLeft, Loader2, AlertCircle, LayoutDashboard, ListChecks, CalendarClock, Plus, Trash2, CheckCircle2, ChevronDown, ChevronUp, Upload, FileCheck, Download, FileText, FileType2, Pencil, X } from "lucide-react";
+import { LogOut, ArrowLeft, Loader2, AlertCircle, LayoutDashboard, ListChecks, CalendarClock, Plus, Trash2, CheckCircle2, ChevronDown, ChevronUp, Upload, FileCheck, Download, FileText, FileType2, Pencil, X, Users } from "lucide-react";
 import { supabase } from "./supabaseClient.js";
 import { todayStr, uid, computeNextDue, daysUntil, isoFromSkDateStr, skDateStrFromIso } from "./lib/utils.js";
 import { exportRowsToExcel } from "./lib/exportExcel.js";
@@ -112,6 +112,7 @@ const KVALITA_TAB_COLORS = {
   prehlad: { badge: "from-teal-400 to-teal-600", shadow: "shadow-teal-500/40" },
   checklisty: { badge: "from-violet-400 to-violet-600", shadow: "shadow-violet-500/40" },
   terminy: { badge: "from-amber-400 to-amber-600", shadow: "shadow-amber-500/40" },
+  personalistika: { badge: "from-rose-400 to-rose-600", shadow: "shadow-rose-500/40" },
 };
 
 function KvalitaTabButton({ active, onClick, color, icon, label }) {
@@ -227,7 +228,7 @@ export default function KvalitaView({ fullName, onSignOut, onBack }) {
             <img src={`${import.meta.env.BASE_URL}stenger-logo.png`} alt="Stenger" className="h-10 w-auto" />
             <div>
               <div className="text-xs tracking-wider text-slate-400">Stenger Czech s.r.o.</div>
-              <div className="text-lg font-semibold">Kvalita a kontroly</div>
+              <div className="text-lg font-semibold">Personalistika, kvalita a kontroly</div>
             </div>
           </div>
           <div className="flex items-center gap-3">
@@ -242,6 +243,7 @@ export default function KvalitaView({ fullName, onSignOut, onBack }) {
             <KvalitaTabButton active={tab === "prehlad"} onClick={() => setTab("prehlad")} color="prehlad" icon={<LayoutDashboard size={20} />} label="Přehled" />
             <KvalitaTabButton active={tab === "checklisty"} onClick={() => setTab("checklisty")} color="checklisty" icon={<ListChecks size={20} />} label="Checklisty" />
             <KvalitaTabButton active={tab === "terminy"} onClick={() => setTab("terminy")} color="terminy" icon={<CalendarClock size={20} />} label="Termíny" />
+            <KvalitaTabButton active={tab === "personalistika"} onClick={() => setTab("personalistika")} color="personalistika" icon={<Users size={20} />} label="Personalistika" />
           </nav>
         </div>
       </header>
@@ -264,10 +266,26 @@ export default function KvalitaView({ fullName, onSignOut, onBack }) {
             onUpdateSubmission={updateSubmission}
             onDeleteSubmission={deleteSubmission}
           />
-        ) : (
+        ) : tab === "terminy" ? (
           <TerminyTab terminy={terminy} onSaveTermin={saveTermin} onUpdateTermin={updateTermin} onDeleteTermin={deleteTermin} />
+        ) : (
+          <PersonalistikaTab />
         )}
       </main>
+    </div>
+  );
+}
+
+/* ---------------- Personalistika ---------------- */
+
+function PersonalistikaTab() {
+  return (
+    <div className="bg-white border border-slate-200 rounded-xl p-10 text-center">
+      <div className="inline-flex items-center justify-center w-14 h-14 rounded-2xl bg-gradient-to-br from-rose-400 to-rose-600 text-white shadow-md mb-4">
+        <Users size={26} />
+      </div>
+      <div className="text-lg font-bold text-slate-900">Personalistika</div>
+      <div className="text-sm text-slate-500 mt-1">Připravujeme.</div>
     </div>
   );
 }

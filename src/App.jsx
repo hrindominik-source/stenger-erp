@@ -527,7 +527,7 @@ const APP_LAUNCHER_CARDS = [
   },
   {
     key: "kvalita",
-    label: "Kvalita a kontroly",
+    label: "Personalistika, kvalita a kontroly",
     desc: "Checklisty, termíny a BOZP",
     icon: <ShieldCheck size={30} />,
     badge: "from-violet-400 to-violet-600",
