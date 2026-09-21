@@ -3455,7 +3455,7 @@ function NewOrderPage({ onClose, onSave, defaultAdresaNakladky, customers, produ
         {!extracted.zakaznikId && (
           <div className="mb-4 bg-red-50 text-red-800 text-sm px-3 py-2 rounded-md flex items-center gap-2">
             <AlertCircle size={16} />
-            Zákazník nebyl rozpoznán ze seznamu (AI jen odhadla text "{extracted.zakaznik || "—"}", nejde o skutečně propojený záznam) - vyberte prosím zákazníka ručně z rozbalovacího seznamu níže, jinak se na dodacím listu i jinde zobrazí špatné/neúplné údaje.
+            Zákazník nebyl rozpoznán ze seznamu (AI jen odhadla text "{extracted.zakaznik || "—"}", nejde o skutečně propojený záznam) - vyberte prosím zákazníka ručně z rozbalovacího seznamu níže, jinak nejde objednávku uložit.
           </div>
         )}
         <div className="flex flex-col lg:flex-row gap-6">
@@ -3504,11 +3504,11 @@ function NewOrderPage({ onClose, onSave, defaultAdresaNakladky, customers, produ
           <button onClick={() => setExtracted(null)} className="text-sm text-slate-500 flex items-center gap-1 hover:text-slate-800"><ArrowLeft size={14} /> Zpět</button>
           <button
             onClick={async () => {
-              if (saving) return;
-              if (!extracted.zakaznikId && !window.confirm(`Zákazník není vybraný ze seznamu (jen text "${extracted.zakaznik || "—"}" odhadnutý AI, není propojený se skutečným záznamem zákazníka) - na dodacím listu a jinde se pak zobrazí neúplné údaje. Opravdu uložit bez výběru zákazníka?`)) return;
+              if (saving || !extracted.zakaznikId) return;
               setSaving(true); try { await onSave(extracted); } finally { setSaving(false); }
             }}
-            disabled={saving}
+            disabled={saving || !extracted.zakaznikId}
+            title={!extracted.zakaznikId ? "Nejprve vyberte zákazníka ze seznamu" : undefined}
             className="bg-teal-700 hover:bg-teal-800 disabled:opacity-50 disabled:cursor-not-allowed text-white text-sm font-medium px-4 py-2 rounded-md flex items-center gap-1.5"
           >
             {saving ? <Loader2 size={16} className="animate-spin" /> : <CheckCircle2 size={16} />} {saving ? "Ukládám..." : "Uložit do registru"}
@@ -3666,7 +3666,7 @@ function EditOrderPage({ order, customers, products, onClose, onSave }) {
           {!f.zakaznikId && (
             <div className="mb-3 bg-red-50 text-red-800 text-sm px-3 py-2 rounded-md flex items-center gap-2">
               <AlertCircle size={16} />
-              Zákazník není vybraný ze seznamu (jen volný text "{f.zakaznik || "—"}", není propojený se skutečným záznamem) - vyberte ho prosím z rozbalovacího seznamu.
+              Zákazník není vybraný ze seznamu (jen volný text "{f.zakaznik || "—"}", není propojený se skutečným záznamem) - vyberte ho prosím z rozbalovacího seznamu, jinak nejde uložit.
             </div>
           )}
           <SelectField label="Zákazník (odběratel)" value={f.zakaznikId} onChange={(v) => { const c = customers.find((x) => x.id === v); setF({ ...f, zakaznikId: v, zakaznik: c ? c.nazov : f.zakaznik }); }} options={[{ value: "", label: "-- nevybráno --" }, ...customers.map((c) => ({ value: c.id, label: c.nazov }))]} className={!f.zakaznikId ? "border-red-400 focus:border-red-500 focus:ring-red-500" : ""} />
@@ -3696,11 +3696,10 @@ function EditOrderPage({ order, customers, products, onClose, onSave }) {
           <div className="flex justify-between mt-2 pb-2">
             <button onClick={onClose} className="text-sm text-slate-500 px-3 py-2">Zrušit</button>
             <button
-              onClick={() => {
-                if (!f.zakaznikId && !window.confirm(`Zákazník není vybraný ze seznamu (jen text "${f.zakaznik || "—"}", není propojený se skutečným záznamem) - na dodacím listu a jinde se pak zobrazí neúplné údaje. Opravdu uložit bez výběru zákazníka?`)) return;
-                onSave(f);
-              }}
-              className="bg-teal-700 hover:bg-teal-800 text-white text-sm font-medium px-4 py-2 rounded-md"
+              onClick={() => { if (f.zakaznikId) onSave(f); }}
+              disabled={!f.zakaznikId}
+              title={!f.zakaznikId ? "Nejprve vyberte zákazníka ze seznamu" : undefined}
+              className="bg-teal-700 hover:bg-teal-800 disabled:opacity-50 disabled:cursor-not-allowed text-white text-sm font-medium px-4 py-2 rounded-md"
             >
               Uložit změny
             </button>
