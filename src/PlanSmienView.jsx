@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { Sun, Moon, Droplets, Plus, X, AlertTriangle, Trash2, Copy, ChevronLeft, ChevronRight, Printer, KeyRound, CalendarDays, Users2, CalendarOff, History as HistoryIcon, Upload, BarChart3, LogOut, ArrowLeftRight, LayoutDashboard } from 'lucide-react';
 import { supabase } from './supabaseClient.js';
 import { canAutoFill, canClearOnly, canReplan } from './lib/planSmienGuard.js';
+import { runScheduler } from './lib/scheduler/index.js';
 
 /* =========================================================================
    DATA
@@ -33,12 +34,12 @@ function syncEmployeesWithOffice(existing, officeWorkers) {
   return [...byId.values()];
 }
 
-const PRODUCTS = {
+export const PRODUCTS = {
   sacky:   { label: 'Sáčky (fólie)',  total: 4 },
   kybliky: { label: 'Kbelíky',        total: 6 },
   bulk:    { label: 'Bulk popcorn',   total: 5 },
 };
-const SANITATION_TOTAL = 5;
+export const SANITATION_TOTAL = 5;
 const ROLE_LABEL = { pos1: 'Hrncová', 'pos1-backup': 'Hrncová (záskok)', pos3: 'Pozice 3', general: 'Ostatní' };
 
 const TABS = [
@@ -119,12 +120,12 @@ export function generateWeek(weekStartMonday, extraSundayNight) {
 }
 export function cloneWeek(week) { return JSON.parse(JSON.stringify(week)); }
 
-function shiftTotal(shift) {
+export function shiftTotal(shift) {
   if (shift.type === 'sanitation') return SANITATION_TOTAL;
   if (shift.product && PRODUCTS[shift.product]) return PRODUCTS[shift.product].total;
   return 0;
 }
-function shiftPeopleIds(shift) {
+export function shiftPeopleIds(shift) {
   const ids = [];
   if (shift.assigned.pos1) ids.push(shift.assigned.pos1);
   if (shift.assigned.pos3) ids.push(shift.assigned.pos3);
@@ -138,7 +139,7 @@ export function clearShiftAssignments(shift) {
 /* shiftType je volitelny - ak sa neda a je to nocna zmena na prvom/poslednom dni
    neprítomnosti, zohladnia sa priznaky nightOnFromOk/nightOnToOk (zamestnankyna
    pri ziadosti oznacila, ze tuto konkretnu nocnu smenu na hranici obdobia este/uz zvladne). */
-function isOnAbsence(empId, date, absences, shiftType) {
+export function isOnAbsence(empId, date, absences, shiftType) {
   return absences.some(a => {
     if (a.employeeId !== empId || date < a.from || date > a.to) return false;
     if (shiftType === 'night') {
@@ -148,10 +149,10 @@ function isOnAbsence(empId, date, absences, shiftType) {
     return true;
   });
 }
-function weekShiftCount(week, empId) {
+export function weekShiftCount(week, empId) {
   return week.shifts.reduce((c, s) => c + (shiftPeopleIds(s).includes(empId) ? 1 : 0), 0);
 }
-function globalStats(weeks, empId) {
+export function globalStats(weeks, empId) {
   let total = 0, day = 0, night = 0, sanitation = 0;
   weeks.forEach(w => w.shifts.forEach(s => {
     if (shiftPeopleIds(s).includes(empId)) {
@@ -164,7 +165,7 @@ function globalStats(weeks, empId) {
 function getEmpNameFrom(employees, id) { const e = employees.find(x => x.id === id); return e ? e.name : '(neznámá)'; }
 
 /* Pomocne funkcie pre planovanie so snahou o suvisle bloky (rovnaka osoba viac zmien rovnakeho typu za sebou) */
-function neighborIdsFor(w, shiftId) {
+export function neighborIdsFor(w, shiftId) {
   const idx = w.shifts.findIndex(s => s.id === shiftId);
   const ids = new Set();
   if (idx > 0) shiftPeopleIds(w.shifts[idx - 1]).forEach(id => ids.add(id));
@@ -1616,23 +1617,27 @@ export default function PlanSmienView({ onBack }) {
   }
 
   // "Doplnit prázdná místa" - dovolene len na buducom (este neuzavretom) tyzdni,
-  // viz lib/planSmienGuard.js. Algoritmus sam osebe uz len dopln prazdne miesta
-  // (existujuce priradenia nikdy neprepisuje), ale minuly/aktualny tyzden je
-  // chraneny pred akymkolvek automatickym zasahom uplne (aj keby bol prazdny slot).
+  // viz lib/planSmienGuard.js. Novy scheduling engine (lib/scheduler) v mode
+  // 'fillGaps' - rovnaka zaruka ako povodny autoFillWeek (existujuce priradenia
+  // nikdy neprepisuje), navyse blok-orientovane skorovanie (DDDD/NNNN). Minuly/
+  // aktualny tyzden je chraneny pred akymkolvek automatickym zasahom uplne.
+  // Povodny autoFillWeek zostava v subore zachovany (export) pre porovnanie/rollback.
   function autoFillCurrentWeek(weekId) {
     const week = weeks.find(w => w.id === (weekId || (activeWeek && activeWeek.id)));
     if (!week) return;
     const guard = canAutoFill(week, toISO(new Date()));
     if (!guard.allowed) { window.alert(guard.reason); return; }
-    const filled = autoFillWeek(week, employees, absences, weeks);
+    const { week: filled } = runScheduler({ mode: 'fillGaps', week, employees, absences, allWeeks: weeks });
     setWeeks(ws => ws.map(w => (w.id === filled.id ? filled : w)));
   }
+  // "Vyčistit a přeplánovat" - novy engine v mode 'replan' si sam rozhodne, co
+  // zmazat (vsetko okrem priradeni explicitne oznacenych shift.preserveOnReplan -
+  // viz lib/scheduler/manualPreserve.js), preto sa mu odovzdava PÔVODNY
+  // (este nevycisteny) tyzden, nie uz vopred vycisteny klon.
   function performReplan(weekId) {
     const week = weeks.find(w => w.id === weekId);
     if (!week) return;
-    const cleared = cloneWeek(week);
-    cleared.shifts.forEach(clearShiftAssignments);
-    const filled = autoFillWeek(cleared, employees, absences, weeks.map(w => (w.id === cleared.id ? cleared : w)));
+    const { week: filled } = runScheduler({ mode: 'replan', week, employees, absences, allWeeks: weeks, referenceWeek: week });
     armUndo(week.id, week, 'Týden byl přeplánován.');
     setWeeks(ws => ws.map(w => (w.id === filled.id ? filled : w)));
   }
