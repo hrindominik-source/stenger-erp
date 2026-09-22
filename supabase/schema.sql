@@ -1240,10 +1240,16 @@ set search_path = public
 as $body$
 declare
   rec record;
+  rec_json jsonb;
   rec_id text;
 begin
   rec := coalesce(NEW, OLD);
-  rec_id := rec.id::text;
+  rec_json := to_jsonb(rec);
+  -- Vacsina auditovanych tabuliek ma "id" ako primarny kluc, ale
+  -- employee_sensitive_data (Personalistika) ma primarny kluc "employee_id" -
+  -- coalesce cez jsonb namiesto priameho rec.id, aby to fungovalo pre oba tvary
+  -- bez toho, aby sa musela pisat samostatna trigger funkcia pre kazdu tabulku.
+  rec_id := coalesce(rec_json->>'id', rec_json->>'employee_id', 'unknown');
   insert into public.audit_log (entity, entity_id, action, old_value, new_value, changed_by, changed_by_role, source)
   values (
     TG_TABLE_NAME,
