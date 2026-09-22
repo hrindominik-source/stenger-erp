@@ -511,9 +511,13 @@ function EmployeeDetail({ id, permissions, onBack }) {
   const [employments, setEmployments] = useState([]);
   const [positions, setPositions] = useState([]);
   const [timeline, setTimeline] = useState([]);
+  const [confirmingDelete, setConfirmingDelete] = useState(false);
+  const [deleting, setDeleting] = useState(false);
+  const [deleteError, setDeleteError] = useState("");
 
   const canEdit = hasPerm(permissions, "HR_EDIT");
   const canSensitive = hasPerm(permissions, "HR_VIEW_SENSITIVE");
+  const canDelete = hasPerm(permissions, "HR_ADMIN");
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -538,6 +542,14 @@ function EmployeeDetail({ id, permissions, onBack }) {
 
   useEffect(() => { load(); }, [load]);
 
+  async function confirmDelete() {
+    setDeleting(true);
+    setDeleteError("");
+    const { error: err } = await supabase.rpc("hr_admin_delete_employee", { p_employee_id: id });
+    if (err) { setDeleteError(err.message || "Smazání se nezdařilo."); setDeleting(false); return; }
+    onBack();
+  }
+
   if (loading) return <div className="text-center text-slate-400 py-10"><Loader2 className="animate-spin mx-auto mb-2" size={24} /> Načítám...</div>;
   if (error || !employee) return <div className="bg-red-50 text-red-700 text-sm px-3 py-2 rounded-md">{error || "Zaměstnanec nenalezen."}</div>;
 
@@ -552,10 +564,38 @@ function EmployeeDetail({ id, permissions, onBack }) {
           <h1 className="text-xl font-semibold">{fullName(employee)}</h1>
           <div className="text-sm text-slate-500">{currentEmployment ? positionLabel(currentEmployment.position_id) : "Bez aktivního pracovního poměru"}</div>
         </div>
-        <span className={"px-2.5 py-1 rounded-full text-xs font-medium " + (employee.active ? "bg-emerald-100 text-emerald-700" : "bg-slate-200 text-slate-500")}>
-          {employee.active ? "Aktivní" : "Bývalý zaměstnanec"}
-        </span>
+        <div className="flex items-center gap-2">
+          <span className={"px-2.5 py-1 rounded-full text-xs font-medium " + (employee.active ? "bg-emerald-100 text-emerald-700" : "bg-slate-200 text-slate-500")}>
+            {employee.active ? "Aktivní" : "Bývalý zaměstnanec"}
+          </span>
+          {canDelete && (
+            <button onClick={() => setConfirmingDelete(true)} className="text-xs text-red-500 hover:text-red-700 underline underline-offset-2">
+              Trvale smazat
+            </button>
+          )}
+        </div>
       </div>
+
+      {confirmingDelete && (
+        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-lg shadow-xl w-full max-w-md p-5">
+            <div className="flex items-center gap-2 text-red-700 font-semibold mb-2"><AlertCircle size={18} /> Trvale smazat zaměstnance?</div>
+            <p className="text-sm text-slate-600 mb-1">
+              Nevratně se smaže celý personální spis <strong>{fullName(employee)}</strong> - osobní údaje, všechny pracovní poměry, historie i dokumenty. Použijte jen na opravu omylu (např. duplicitní záznam).
+            </p>
+            <p className="text-sm text-slate-600 mb-4">
+              Pro ukončení skutečného pracovního poměru použijte místo toho "Ukončit pracovní poměr" v záložce Pracovní poměr - ta historii zachová.
+            </p>
+            {deleteError && <div className="bg-red-50 text-red-700 text-sm px-3 py-2 rounded-md mb-3">{deleteError}</div>}
+            <div className="flex justify-end gap-2">
+              <button onClick={() => { setConfirmingDelete(false); setDeleteError(""); }} className="text-sm text-slate-500 px-3 py-2">Zrušit</button>
+              <button onClick={confirmDelete} disabled={deleting} className="bg-red-600 hover:bg-red-700 disabled:opacity-50 text-white text-sm font-medium px-4 py-2 rounded-md">
+                {deleting ? "Mažu..." : "Ano, trvale smazat"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       <div className="flex flex-wrap gap-1.5 border-b border-slate-200 mb-4">
         {DETAIL_TABS.map((t) => (

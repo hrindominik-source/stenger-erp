@@ -1885,3 +1885,39 @@ create policy "hr_dokumenty_files_office" on storage.objects
   for all
   using (bucket_id = 'hr-dokumenty' and public.current_role() = 'office' and public.hr_has_permission('HR_VIEW_BASIC'))
   with check (bucket_id = 'hr-dokumenty' and public.current_role() = 'office' and public.hr_has_permission('HR_VIEW_BASIC'));
+
+-- ============================================================
+-- 44. hr_admin_delete_employee - jediny sposob, ako natvrdo a nevratne
+--     zmazat zamestnanca aj s celou historiou (vratane udalosti, ktore
+--     RLS policies vyssie zamerne chranili pred bezym update/delete).
+--     Urcene VYHRADNE na opravu omylov (napr. duplicitne testovacie
+--     zaznamy) - nie na bezne "ukoncenie" zamestnanca, na to sluzi
+--     existujuci postup (status ENDED + employees.active = false),
+--     ktory zachovava celu historiu. Iba HR_ADMIN.
+-- ============================================================
+create or replace function public.hr_admin_delete_employee(p_employee_id text)
+returns void
+language plpgsql
+security definer
+set search_path = public
+as $body$
+begin
+  if not (public.current_role() = 'office' and public.hr_has_permission('HR_ADMIN')) then
+    raise exception 'Neopravnene - trvale vymazani zamestnance vyzaduje HR_ADMIN.';
+  end if;
+
+  delete from public.hr_document_signatures
+    where hr_document_id in (select id from public.hr_documents where employee_id = p_employee_id);
+  delete from public.hr_documents where employee_id = p_employee_id;
+  delete from public.employment_contract_events
+    where employment_id in (select id from public.employment_relationships where employee_id = p_employee_id);
+  delete from public.medical_examinations where employee_id = p_employee_id;
+  delete from public.employee_timeline_events where employee_id = p_employee_id;
+  delete from public.employment_relationships where employee_id = p_employee_id;
+  delete from public.employee_sensitive_data where employee_id = p_employee_id;
+  update public.employment_relationships set supervisor_employee_id = null where supervisor_employee_id = p_employee_id;
+  update public.onboarding_sessions set resulting_employee_id = null where resulting_employee_id = p_employee_id;
+  delete from public.employees where id = p_employee_id;
+end;
+$body$;
+grant execute on function public.hr_admin_delete_employee(text) to authenticated;
