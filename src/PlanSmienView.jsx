@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Sun, Moon, Droplets, Plus, X, AlertTriangle, Trash2, Copy, ChevronLeft, ChevronRight, Printer, KeyRound, CalendarDays, Users2, CalendarOff, History as HistoryIcon, Upload, BarChart3, LogOut, ArrowLeftRight, LayoutDashboard } from 'lucide-react';
 import { supabase } from './supabaseClient.js';
+import { canAutoFill, canClearOnly, canReplan } from './lib/planSmienGuard.js';
 
 /* =========================================================================
    DATA
@@ -99,11 +100,13 @@ const formatSk = iso => { const d = parseISO(iso); return `${d.getDate()}.${d.ge
    TYZDNE A ZMENY
    ========================================================================= */
 let shiftCounter = 0;
-function makeShift(weekId, date, type, product = null) {
+// export (bez zmeny spravania) - aby sa dala v testoch (planSmienGuard.test.js)
+// overit realna algoritmicka nedestruktivnost autoFillWeek, nie len atrapa.
+export function makeShift(weekId, date, type, product = null) {
   shiftCounter += 1;
   return { id: `${weekId}_${type}_${date}_${shiftCounter}`, weekId, date, type, product, assigned: { pos1: null, pos3: null, general: [] }, extra: [] };
 }
-function generateWeek(weekStartMonday, extraSundayNight) {
+export function generateWeek(weekStartMonday, extraSundayNight) {
   const shifts = [];
   if (extraSundayNight) shifts.push(makeShift(weekStartMonday, addDays(weekStartMonday, -1), 'night'));
   for (let i = 0; i < 4; i++) {
@@ -114,7 +117,7 @@ function generateWeek(weekStartMonday, extraSundayNight) {
   shifts.push(makeShift(weekStartMonday, addDays(weekStartMonday, 4), 'sanitation', 'sanitacia'));
   return { id: weekStartMonday, startDate: weekStartMonday, extraSundayNight, shifts };
 }
-function cloneWeek(week) { return JSON.parse(JSON.stringify(week)); }
+export function cloneWeek(week) { return JSON.parse(JSON.stringify(week)); }
 
 function shiftTotal(shift) {
   if (shift.type === 'sanitation') return SANITATION_TOTAL;
@@ -128,7 +131,7 @@ function shiftPeopleIds(shift) {
   ids.push(...shift.assigned.general, ...shift.extra);
   return ids;
 }
-function clearShiftAssignments(shift) {
+export function clearShiftAssignments(shift) {
   shift.assigned = { pos1: null, pos3: null, general: [] };
   shift.extra = [];
 }
@@ -368,7 +371,7 @@ function parseImportText(text, employees) {
 /* Automaticke doplnenie volnych miest v tyzdni. Uprednostnuje suvisle bloky zmien rovnakeho typu
    (den/noc/sanitacia) pre tu istu osobu, pokial je to mozne — respektuje neprítomnosti, tyzdenne limity
    a zakaz dvoch zmien tesne za sebou. */
-function autoFillWeek(week, employees, absences, allWeeks) {
+export function autoFillWeek(week, employees, absences, allWeeks) {
   const w = cloneWeek(week);
   const byType = { day: [], night: [], sanitation: [] };
   w.shifts.forEach(s => byType[s.type].push(s));
@@ -1040,6 +1043,13 @@ function PlannerTab({ weeks, activeWeek, employees, absences, setActiveWeekId, o
   const secondWeekStart = addDays(activeWeek.startDate, 7);
   const secondWeek = weeks.find(w => w.id === secondWeekStart) || null;
 
+  // Prva vrstva ochrany (UI) - druha vrstva je priamo v handleroch v hlavnej
+  // komponente (viz autoFillCurrentWeek/clearAndRefillWeek/clearWeekOnly), aby
+  // destruktivna akcia nemohla prejst ani keby sa niekedy obisla/zabudla tato.
+  const today = toISO(new Date());
+  const activeGuard = { autoFill: canAutoFill(activeWeek, today), clear: canClearOnly(activeWeek, today), replan: canReplan(activeWeek, today) };
+  const secondGuard = secondWeek ? { autoFill: canAutoFill(secondWeek, today), clear: canClearOnly(secondWeek, today), replan: canReplan(secondWeek, today) } : null;
+
   return (
     <div className="space-y-4">
       <div className="flex flex-wrap items-center gap-2">
@@ -1061,13 +1071,16 @@ function PlannerTab({ weeks, activeWeek, employees, absences, setActiveWeekId, o
         </label>
 
         <div className="ml-auto flex gap-2">
-          <button onClick={() => onAutoFill(activeWeek.id)} className="px-3 py-2 text-sm rounded-md bg-amber-600 text-white hover:bg-amber-700">Doplnit prázdná místa</button>
+          <button onClick={() => onAutoFill(activeWeek.id)} disabled={!activeGuard.autoFill.allowed} title={activeGuard.autoFill.reason || ''} className="px-3 py-2 text-sm rounded-md bg-amber-600 text-white hover:bg-amber-700 disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-amber-600">Doplnit prázdná místa</button>
           <button onClick={onShowPreview} className="px-3 py-2 text-sm rounded border border-slate-300 hover:bg-slate-100 flex items-center gap-1"><Printer className="w-4 h-4" />Ukázat/exportovat náhled</button>
-          <button onClick={() => onClearOnly(activeWeek.id)} className="px-3 py-2 text-sm rounded border border-red-200 text-red-700 hover:bg-red-50">Vyčistit</button>
-          <button onClick={() => onClearRefill(activeWeek.id)} className="px-3 py-2 text-sm rounded border border-slate-300 hover:bg-slate-100">Vyčistit a přeplánovat</button>
+          <button onClick={() => onClearOnly(activeWeek.id)} disabled={!activeGuard.clear.allowed} title={activeGuard.clear.reason || ''} className="px-3 py-2 text-sm rounded border border-red-200 text-red-700 hover:bg-red-50 disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-transparent">Vyčistit</button>
+          <button onClick={() => onClearRefill(activeWeek.id)} disabled={!activeGuard.replan.allowed} title={activeGuard.replan.reason || ''} className="px-3 py-2 text-sm rounded border border-slate-300 hover:bg-slate-100 disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-transparent">Vyčistit a přeplánovat</button>
           <button onClick={onExport} className="px-3 py-2 text-sm rounded border border-slate-300 hover:bg-slate-100 flex items-center gap-1"><Copy className="w-4 h-4" />Export (text)</button>
         </div>
       </div>
+      {!activeGuard.autoFill.allowed && (
+        <p className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-md px-2.5 py-1.5 -mt-2">{activeGuard.autoFill.reason}</p>
+      )}
 
       <TimelineStrip week={activeWeek} />
       <p className="text-xs text-slate-400 -mt-2">Předpoklad rozdělení počtu lidí: 1× hrncová + 1× pozice 3 + zbytek ostatní pozice, podle zvoleného produktu. Pokud to má být jinak, dej vědět.</p>
@@ -1086,9 +1099,9 @@ function PlannerTab({ weeks, activeWeek, employees, absences, setActiveWeekId, o
             <h3 className="text-sm font-semibold text-slate-700">Následující týden — od {formatSk(secondWeekStart)}</h3>
             {secondWeek ? (
               <div className="ml-auto flex gap-2">
-                <button onClick={() => onAutoFill(secondWeek.id)} className="px-3 py-1.5 text-xs rounded-md bg-amber-600 text-white hover:bg-amber-700">Doplnit prázdná místa</button>
-                <button onClick={() => onClearOnly(secondWeek.id)} className="px-3 py-1.5 text-xs rounded border border-red-200 text-red-700 hover:bg-red-50">Vyčistit</button>
-                <button onClick={() => onClearRefill(secondWeek.id)} className="px-3 py-1.5 text-xs rounded border border-slate-300 hover:bg-slate-100">Vyčistit a přeplánovat</button>
+                <button onClick={() => onAutoFill(secondWeek.id)} disabled={!secondGuard.autoFill.allowed} title={secondGuard.autoFill.reason || ''} className="px-3 py-1.5 text-xs rounded-md bg-amber-600 text-white hover:bg-amber-700 disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-amber-600">Doplnit prázdná místa</button>
+                <button onClick={() => onClearOnly(secondWeek.id)} disabled={!secondGuard.clear.allowed} title={secondGuard.clear.reason || ''} className="px-3 py-1.5 text-xs rounded border border-red-200 text-red-700 hover:bg-red-50 disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-transparent">Vyčistit</button>
+                <button onClick={() => onClearRefill(secondWeek.id)} disabled={!secondGuard.replan.allowed} title={secondGuard.replan.reason || ''} className="px-3 py-1.5 text-xs rounded border border-slate-300 hover:bg-slate-100 disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-transparent">Vyčistit a přeplánovat</button>
               </div>
             ) : (
               <button onClick={() => onGotoWeek(secondWeekStart)} className="ml-auto px-3 py-1.5 text-xs rounded-md bg-amber-600 text-white hover:bg-amber-700 flex items-center gap-1">
@@ -1410,6 +1423,43 @@ function BalanceTab({ employees, weeks }) {
   );
 }
 
+// Potvrdzovaci dialog pred destruktivnou hromadnou akciou (Vycistit /
+// Vycistit a preplanovat) na buducom tyzdni, ktory uz obsahuje nejake
+// priradenia - viz canClearOnly/canReplan v lib/planSmienGuard.js. Ziadna
+// takato akcia nesmie prebehnut jednym klikom bez tohto potvrdenia.
+function DestructiveActionConfirmModal({ title, message, confirmLabel, onCancel, onConfirm }) {
+  return (
+    <div className="fixed inset-0 bg-black/40 flex items-center justify-center p-4 z-50" onClick={onCancel}>
+      <div className="bg-white rounded-lg max-w-md w-full p-4 space-y-3" onClick={e => e.stopPropagation()}>
+        <div className="flex items-center justify-between">
+          <h3 className="font-semibold text-red-700 flex items-center gap-1.5"><AlertTriangle className="w-4 h-4" /> {title}</h3>
+          <button onClick={onCancel}><X className="w-4 h-4" /></button>
+        </div>
+        <p className="text-sm text-slate-600 whitespace-pre-line">{message}</p>
+        <div className="flex justify-end gap-2 pt-2">
+          <button onClick={onCancel} className="px-3 py-2 text-sm rounded border border-slate-300 hover:bg-slate-100">Zrušit</button>
+          <button onClick={onConfirm} className="px-3 py-2 text-sm rounded-md bg-red-600 text-white hover:bg-red-700">{confirmLabel}</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// Docasne (nepersistovane) "Zpet" po Vycistit/Preplanovat - jednoduchy in-memory
+// snapshot bez akejkolvek DB zmeny, zmizne po 20s alebo dalsom kroku. Nie je
+// to plnohodnotny undo-stack, len ochrana proti "omylom klikol som".
+function UndoBanner({ actionLabel, onUndo, onDismiss }) {
+  return (
+    <div className="bg-amber-50 border border-amber-200 text-amber-800 text-sm px-3 py-2 rounded-md flex items-center justify-between mb-3">
+      <span>{actionLabel} Pokud to byl omyl, můžete to vrátit zpět.</span>
+      <div className="flex items-center gap-2">
+        <button onClick={onUndo} className="px-2.5 py-1 rounded-md bg-amber-600 text-white text-xs font-medium hover:bg-amber-700">Vrátit zpět</button>
+        <button onClick={onDismiss} className="text-amber-500 hover:text-amber-700"><X className="w-3.5 h-3.5" /></button>
+      </div>
+    </div>
+  );
+}
+
 function ExportModal({ text, onClose }) {
   return (
     <div className="fixed inset-0 bg-black/40 flex items-center justify-center p-4 z-50" onClick={onClose}>
@@ -1445,6 +1495,12 @@ export default function PlanSmienView({ onBack }) {
   const [saveError, setSaveError] = useState(false);
   const [exportText, setExportText] = useState(null);
   const [showPreview, setShowPreview] = useState(false);
+  // Potvrdzovaci dialog pred Vycistit/Preplanovat (viz DestructiveActionConfirmModal)
+  // a docasny in-memory "Zpet" po takejto akcii (viz UndoBanner) - ziadna DB zmena,
+  // len ochrana proti nechcenemu jednemu kliku na buducom tyzdni s uz zadanymi datami.
+  const [confirmAction, setConfirmAction] = useState(null);
+  const [undoState, setUndoState] = useState(null);
+  const undoTimeoutRef = useRef(null);
   const [absForm, setAbsForm] = useState({ employeeId: '', from: '', to: '', reason: '', nightOnFromOk: false, nightOnToOk: false });
 
   useEffect(() => {
@@ -1541,27 +1597,72 @@ export default function PlanSmienView({ onBack }) {
   function removeExtra(weekId, shiftId, empId) { updateShift(weekId, shiftId, s => { s.extra = s.extra.filter(id => id !== empId); return s; }); }
   function clearShiftAssignment(weekId, shiftId) { updateShift(weekId, shiftId, s => { clearShiftAssignments(s); return s; }); }
 
+  // Docasny in-memory "Zpet" (20s, zmizne aj pri dalsej mutacnej akcii) - ziadna
+  // perzistencia navyse, len ochrana pred omylom pri Vycistit/Preplanovat.
+  function armUndo(weekId, previousWeek, actionLabel) {
+    if (undoTimeoutRef.current) clearTimeout(undoTimeoutRef.current);
+    setUndoState({ weekId, previousWeek, actionLabel });
+    undoTimeoutRef.current = setTimeout(() => setUndoState(null), 20000);
+  }
+  function dismissUndo() {
+    if (undoTimeoutRef.current) clearTimeout(undoTimeoutRef.current);
+    setUndoState(null);
+  }
+  function performUndo() {
+    if (!undoState) return;
+    const { weekId, previousWeek } = undoState;
+    setWeeks(ws => ws.map(w => (w.id === weekId ? previousWeek : w)));
+    dismissUndo();
+  }
+
+  // "Doplnit prázdná místa" - dovolene len na buducom (este neuzavretom) tyzdni,
+  // viz lib/planSmienGuard.js. Algoritmus sam osebe uz len dopln prazdne miesta
+  // (existujuce priradenia nikdy neprepisuje), ale minuly/aktualny tyzden je
+  // chraneny pred akymkolvek automatickym zasahom uplne (aj keby bol prazdny slot).
   function autoFillCurrentWeek(weekId) {
     const week = weeks.find(w => w.id === (weekId || (activeWeek && activeWeek.id)));
     if (!week) return;
+    const guard = canAutoFill(week, toISO(new Date()));
+    if (!guard.allowed) { window.alert(guard.reason); return; }
     const filled = autoFillWeek(week, employees, absences, weeks);
     setWeeks(ws => ws.map(w => (w.id === filled.id ? filled : w)));
   }
-  function clearAndRefillWeek(weekId) {
-    const week = weeks.find(w => w.id === (weekId || (activeWeek && activeWeek.id)));
+  function performReplan(weekId) {
+    const week = weeks.find(w => w.id === weekId);
     if (!week) return;
     const cleared = cloneWeek(week);
     cleared.shifts.forEach(clearShiftAssignments);
     const filled = autoFillWeek(cleared, employees, absences, weeks.map(w => (w.id === cleared.id ? cleared : w)));
+    armUndo(week.id, week, 'Týden byl přeplánován.');
     setWeeks(ws => ws.map(w => (w.id === filled.id ? filled : w)));
   }
+  // "Vyčistit a přeplánovat" - na chranenom tyzdni uplne zakazane; na buducom
+  // tyzdni, ktory uz ma nejake priradenia, vyzaduje explicitne potvrdenie
+  // (DestructiveActionConfirmModal) PRED zmazanim - predtym slo jednym klikom.
+  function clearAndRefillWeek(weekId) {
+    const week = weeks.find(w => w.id === (weekId || (activeWeek && activeWeek.id)));
+    if (!week) return;
+    const guard = canReplan(week, toISO(new Date()));
+    if (!guard.allowed) { window.alert(guard.reason); return; }
+    if (guard.requiresConfirmation) { setConfirmAction({ type: 'replan', weekId: week.id }); return; }
+    performReplan(week.id);
+  }
+  function performClear(weekId) {
+    const week = weeks.find(w => w.id === weekId);
+    if (!week) return;
+    const cleared = cloneWeek(week);
+    cleared.shifts.forEach(clearShiftAssignments);
+    armUndo(week.id, week, 'Týden byl vyčištěn.');
+    setWeeks(ws => ws.map(w => (w.id === cleared.id ? cleared : w)));
+  }
+  // "Vyčistit" - rovnaka ochrana ako Preplanovat (chraneny tyzden = zakaz,
+  // buduci tyzden = vzdy explicitne potvrdenie, aj ked je uz prazdny).
   function clearWeekOnly(weekId) {
     const week = weeks.find(w => w.id === (weekId || (activeWeek && activeWeek.id)));
     if (!week) return;
-    if (!window.confirm('Opravdu vyčistit celý týden? Všechna přiřazení budou smazána.')) return;
-    const cleared = cloneWeek(week);
-    cleared.shifts.forEach(clearShiftAssignments);
-    setWeeks(ws => ws.map(w => (w.id === cleared.id ? cleared : w)));
+    const guard = canClearOnly(week, toISO(new Date()));
+    if (!guard.allowed) { window.alert(guard.reason); return; }
+    setConfirmAction({ type: 'clear', weekId: week.id });
   }
   function toggleExtraSunday() {
     if (!activeWeek) return;
@@ -1753,6 +1854,9 @@ export default function PlanSmienView({ onBack }) {
         </div>
       )}
       <main className="p-4 md:p-6 max-w-6xl mx-auto">
+        {undoState && tab === 'planner' && (
+          <UndoBanner actionLabel={undoState.actionLabel} onUndo={performUndo} onDismiss={dismissUndo} />
+        )}
         {tab === 'prehlad' && (
           <PrehladTab weeks={weeks} employees={employees} onGotoWeek={gotoWeekContaining} activeWeekId={activeWeekId} />
         )}
@@ -1783,6 +1887,23 @@ export default function PlanSmienView({ onBack }) {
       </main>
       {exportText !== null && <ExportModal text={exportText} onClose={() => setExportText(null)} />}
       {showPreview && activeWeek && <PrintPreviewModal week={activeWeek} employees={employees} onClose={() => setShowPreview(false)} />}
+      {confirmAction && (
+        <DestructiveActionConfirmModal
+          title={confirmAction.type === 'replan' ? 'Přeplánovat týden?' : 'Vyčistit týden?'}
+          message={
+            confirmAction.type === 'replan'
+              ? 'Tento týden již obsahuje naplánované směny.\nPřeplánováním budou existující přiřazení v tomto týdnu nahrazena.\n\nChcete pokračovat?'
+              : 'Tento týden již obsahuje naplánované směny (nebo je jinak potřeba potvrdit vyčištění).\nVyčištěním budou všechna přiřazení v tomto týdnu smazána (bez opětovného naplánování).\n\nChcete pokračovat?'
+          }
+          confirmLabel={confirmAction.type === 'replan' ? 'Přeplánovat týden' : 'Vyčistit týden'}
+          onCancel={() => setConfirmAction(null)}
+          onConfirm={() => {
+            const a = confirmAction;
+            setConfirmAction(null);
+            if (a.type === 'replan') performReplan(a.weekId); else performClear(a.weekId);
+          }}
+        />
+      )}
     </div>
   );
 }
