@@ -1400,3 +1400,488 @@ create policy "kvalita_dokumenty_files_office" on storage.objects
   for all
   using (bucket_id = 'kvalita-dokumenty' and public.current_role() = 'office')
   with check (bucket_id = 'kvalita-dokumenty' and public.current_role() = 'office');
+
+-- ============================================================
+-- 43. Personalistika - trvaly personalny spis kazdeho zamestnanca
+--     (osobne udaje, pracovne pomery, historia zmien zmluvy, lekarske
+--     prehliadky, sablony/generovane dokumenty, podpisy, timeline).
+--     Samostatna sada tabuliek, ziadna existujuca tabulka (workers,
+--     orders, profiles...) sa nemeni. "workers" (mena na tablet) a
+--     "employees" (personalny spis) su zamerne oddelene - prepojene
+--     len volitelne cez employees.worker_id.
+--     Pristup je vrstveny NAD existujucu rolu: musi byt 'office' A
+--     zaroven mat konkretne HR opravnenie v hr_permissions (nizsie) -
+--     HR_ADMIN v hr_has_permission() automaticky splna kazde opravnenie.
+--     Ziadny riadok sa z UI nemaze - len stavy (active/status/ARCHIVED).
+-- ============================================================
+
+-- 43.1 hr_permissions - kto ma ake HR opravnenie (nahrada za buduce
+--      hardcodovane zoznamy emailov, viz audit_log vyssie).
+create table if not exists public.hr_permissions (
+  id text primary key,
+  user_email text not null unique,
+  permissions text[] not null default '{}'::text[],
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+alter table public.hr_permissions enable row level security;
+
+-- Helper: ma prihlaseny pouzivatel dane HR opravnenie? HR_ADMIN
+-- automaticky splna vsetko (wildcard), security definer aby fungovala
+-- aj vnutri dalsich RLS policies bez rekurzie (rovnaky vzor ako current_role()).
+create or replace function public.hr_has_permission(p_permission text)
+returns boolean
+language sql
+stable
+security definer
+set search_path = public
+as $$
+  select exists (
+    select 1 from public.hr_permissions
+    where user_email = auth.email()
+      and (p_permission = any(permissions) or 'HR_ADMIN' = any(permissions))
+  );
+$$;
+
+drop policy if exists "hr_permissions_admin_all" on public.hr_permissions;
+create policy "hr_permissions_admin_all" on public.hr_permissions
+  for all
+  using (public.current_role() = 'office' and public.hr_has_permission('HR_ADMIN'))
+  with check (public.current_role() = 'office' and public.hr_has_permission('HR_ADMIN'));
+
+-- RPC: vrati opravnenia prihlaseneho pouzivatela (appka podla toho
+-- skryva/zobrazuje casti UI) - nemusi mat HR_ADMIN len na to, aby zistil
+-- svoje vlastne opravnenia.
+create or replace function public.hr_get_permissions()
+returns text[]
+language sql
+stable
+security definer
+set search_path = public
+as $$
+  select coalesce(
+    (select permissions from public.hr_permissions where user_email = auth.email()),
+    '{}'::text[]
+  );
+$$;
+grant execute on function public.hr_get_permissions() to authenticated;
+
+-- Prvotny HR_ADMIN, aby sa dalo dalsim ludom priradit opravnenia cez appku.
+insert into public.hr_permissions (id, user_email, permissions)
+values ('seed-dh', 'dh@stenger.eu', array['HR_ADMIN'])
+on conflict (user_email) do nothing;
+
+-- 43.2 positions - pracovne pozice (HI-001 Delnice, HI-002 Skladnik, ...)
+create table if not exists public.positions (
+  id text primary key,
+  code text,
+  name text not null,
+  active boolean not null default true,
+  data jsonb not null default '{}'::jsonb,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+alter table public.positions enable row level security;
+drop policy if exists "positions_view" on public.positions;
+create policy "positions_view" on public.positions
+  for select
+  using (public.current_role() = 'office' and public.hr_has_permission('HR_VIEW_BASIC'));
+drop policy if exists "positions_edit" on public.positions;
+create policy "positions_edit" on public.positions
+  for all
+  using (public.current_role() = 'office' and public.hr_has_permission('HR_EDIT'))
+  with check (public.current_role() = 'office' and public.hr_has_permission('HR_EDIT'));
+
+-- 43.3 employees - trvaly personalny spis (zakladne, nie citlive udaje).
+--      worker_id je volitelne prepojenie na existujucu tabulku "workers"
+--      (mena na tablet) - NEMENI workers, len na nu odkazuje.
+create table if not exists public.employees (
+  id text primary key,
+  worker_id text references public.workers(id),
+  first_name text not null,
+  last_name text not null,
+  maiden_name text,
+  title text,
+  date_of_birth date,
+  place_of_birth text,
+  country_of_birth text,
+  gender text,
+  nationality text,
+  permanent_address jsonb not null default '{}'::jsonb,
+  correspondence_address jsonb not null default '{}'::jsonb,
+  phone text,
+  private_email text,
+  id_document_type text,
+  health_insurance_company text,
+  highest_education text,
+  is_foreigner boolean not null default false,
+  notes text,
+  active boolean not null default true,
+  data jsonb not null default '{}'::jsonb,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+alter table public.employees enable row level security;
+drop policy if exists "employees_view" on public.employees;
+create policy "employees_view" on public.employees
+  for select
+  using (public.current_role() = 'office' and public.hr_has_permission('HR_VIEW_BASIC'));
+drop policy if exists "employees_edit" on public.employees;
+create policy "employees_edit" on public.employees
+  for all
+  using (public.current_role() = 'office' and public.hr_has_permission('HR_EDIT'))
+  with check (public.current_role() = 'office' and public.hr_has_permission('HR_EDIT'));
+
+-- 43.4 employee_sensitive_data - 1:1 s employees, oddelene od zakladnych
+--      udajov, aby RLS vedela ochranit len tuto cast (rodne cislo, bankovy
+--      ucet, cislo dokladu, udaje cudzinca) opravnenim HR_VIEW_SENSITIVE.
+create table if not exists public.employee_sensitive_data (
+  employee_id text primary key references public.employees(id) on delete cascade,
+  birth_number text,
+  id_document_number text,
+  bank_account text,
+  foreigner_data jsonb not null default '{}'::jsonb,
+  data jsonb not null default '{}'::jsonb,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+alter table public.employee_sensitive_data enable row level security;
+drop policy if exists "employee_sensitive_data_view" on public.employee_sensitive_data;
+create policy "employee_sensitive_data_view" on public.employee_sensitive_data
+  for select
+  using (public.current_role() = 'office' and public.hr_has_permission('HR_VIEW_SENSITIVE'));
+drop policy if exists "employee_sensitive_data_edit" on public.employee_sensitive_data;
+create policy "employee_sensitive_data_edit" on public.employee_sensitive_data
+  for all
+  using (public.current_role() = 'office' and public.hr_has_permission('HR_EDIT') and public.hr_has_permission('HR_VIEW_SENSITIVE'))
+  with check (public.current_role() = 'office' and public.hr_has_permission('HR_EDIT') and public.hr_has_permission('HR_VIEW_SENSITIVE'));
+
+-- 43.5 employment_relationships - jeden zamestnanec moze mat viac
+--      pracovnych pomerov v historii (Section 2/17 planu).
+create table if not exists public.employment_relationships (
+  id text primary key,
+  employee_id text not null references public.employees(id),
+  status text not null check (status in ('DRAFT', 'PLANNED', 'ACTIVE', 'NOTICE_PERIOD', 'ENDED')),
+  employment_type text check (employment_type in ('doba_urcita', 'doba_neurcita')),
+  start_date date,
+  contract_signed_date date,
+  fixed_term_end_date date,
+  probation_end_date date,
+  weekly_hours numeric,
+  workplace text,
+  position_id text references public.positions(id),
+  supervisor_employee_id text references public.employees(id),
+  termination_date date,
+  termination_type text,
+  termination_reason text,
+  notes text,
+  data jsonb not null default '{}'::jsonb,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+alter table public.employment_relationships enable row level security;
+drop policy if exists "employment_relationships_view" on public.employment_relationships;
+create policy "employment_relationships_view" on public.employment_relationships
+  for select
+  using (public.current_role() = 'office' and public.hr_has_permission('HR_VIEW_BASIC'));
+drop policy if exists "employment_relationships_edit" on public.employment_relationships;
+create policy "employment_relationships_edit" on public.employment_relationships
+  for all
+  using (public.current_role() = 'office' and public.hr_has_permission('HR_EDIT'))
+  with check (public.current_role() = 'office' and public.hr_has_permission('HR_EDIT'));
+
+-- 43.6 hr_document_templates / hr_document_template_versions - sablony
+--      dokumentov (nikdy sa nemaze ziadna verzia - viz Section 7/8 planu).
+--      position_id je vyplnene len pre doc_type='popis_pracovniho_mista'
+--      (kazda pozicia ma svoj vlastny popis, napr. HI-002); pre ostatne
+--      typy (zmluva, dodatok...) je null = jedna zdielana sablona.
+create table if not exists public.hr_document_templates (
+  id text primary key,
+  doc_type text not null check (doc_type in (
+    'pracovni_smlouva', 'mzdovy_vymer', 'popis_pracovniho_mista', 'dodatek',
+    'dohoda_o_skonceni', 'vypoved_zamestnance', 'vypoved_zamestnavatele',
+    'zruseni_ve_zkusebni_dobe', 'other'
+  )),
+  position_id text references public.positions(id),
+  name text not null,
+  active boolean not null default true,
+  created_at timestamptz not null default now()
+);
+alter table public.hr_document_templates enable row level security;
+drop policy if exists "hr_document_templates_view" on public.hr_document_templates;
+create policy "hr_document_templates_view" on public.hr_document_templates
+  for select
+  using (public.current_role() = 'office' and public.hr_has_permission('HR_VIEW_BASIC'));
+drop policy if exists "hr_document_templates_edit" on public.hr_document_templates;
+create policy "hr_document_templates_edit" on public.hr_document_templates
+  for all
+  using (public.current_role() = 'office' and public.hr_has_permission('HR_DOCUMENT_APPROVE'))
+  with check (public.current_role() = 'office' and public.hr_has_permission('HR_DOCUMENT_APPROVE'));
+
+create table if not exists public.hr_document_template_versions (
+  id text primary key,
+  template_id text not null references public.hr_document_templates(id),
+  version_number int not null,
+  file_path text not null,
+  variables_schema jsonb not null default '{}'::jsonb,
+  effective_date date,
+  uploaded_by uuid references auth.users(id),
+  superseded_by text references public.hr_document_template_versions(id),
+  created_at timestamptz not null default now()
+);
+alter table public.hr_document_template_versions enable row level security;
+drop policy if exists "hr_document_template_versions_view" on public.hr_document_template_versions;
+create policy "hr_document_template_versions_view" on public.hr_document_template_versions
+  for select
+  using (public.current_role() = 'office' and public.hr_has_permission('HR_VIEW_BASIC'));
+drop policy if exists "hr_document_template_versions_edit" on public.hr_document_template_versions;
+create policy "hr_document_template_versions_edit" on public.hr_document_template_versions
+  for all
+  using (public.current_role() = 'office' and public.hr_has_permission('HR_DOCUMENT_APPROVE'))
+  with check (public.current_role() = 'office' and public.hr_has_permission('HR_DOCUMENT_APPROVE'));
+
+-- "Aktualna" verzia sablony (staru historiu si drzia jednotlive hr_documents
+-- cez svoj vlastny template_version_id, tento ukazovatel je len pre novo
+-- generovane dokumenty) - pridane az po vytvoreni versions kvoli kruhovej FK.
+alter table public.hr_document_templates
+  add column if not exists current_version_id text references public.hr_document_template_versions(id);
+
+-- 43.7 hr_documents - generovane AJ rucne nahrane historicke dokumenty
+--      (origin rozlisi ktore). Po SIGNED/ARCHIVED sa uz riadok nikdy
+--      neupravuje - oprava je novy riadok cez superseded_by.
+create table if not exists public.hr_documents (
+  id text primary key,
+  employee_id text not null references public.employees(id),
+  employment_id text references public.employment_relationships(id),
+  doc_type text not null,
+  template_id text references public.hr_document_templates(id),
+  template_version_id text references public.hr_document_template_versions(id),
+  origin text not null check (origin in ('GENERATED', 'UPLOADED')),
+  status text not null check (status in (
+    'DRAFT', 'READY_FOR_REVIEW', 'APPROVED', 'READY_FOR_SIGNATURE', 'SIGNED', 'ARCHIVED'
+  )),
+  generated_at timestamptz,
+  generated_by uuid references auth.users(id),
+  file_path text,
+  variables_snapshot jsonb not null default '{}'::jsonb,
+  superseded_by text references public.hr_documents(id),
+  is_manual_history_entry boolean not null default false,
+  notes text,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+alter table public.hr_documents enable row level security;
+drop policy if exists "hr_documents_view" on public.hr_documents;
+create policy "hr_documents_view" on public.hr_documents
+  for select
+  using (public.current_role() = 'office' and public.hr_has_permission('HR_VIEW_BASIC'));
+drop policy if exists "hr_documents_insert" on public.hr_documents;
+create policy "hr_documents_insert" on public.hr_documents
+  for insert
+  with check (public.current_role() = 'office' and public.hr_has_permission('HR_DOCUMENT_GENERATE'));
+-- Update (schvalenie/zmena stavu) - ziadna delete policy = dokumenty sa z UI nikdy nemazu.
+drop policy if exists "hr_documents_update" on public.hr_documents;
+create policy "hr_documents_update" on public.hr_documents
+  for update
+  using (public.current_role() = 'office' and (
+    public.hr_has_permission('HR_DOCUMENT_GENERATE')
+    or public.hr_has_permission('HR_DOCUMENT_APPROVE')
+    or public.hr_has_permission('HR_DOCUMENT_SIGN')
+  ))
+  with check (public.current_role() = 'office' and (
+    public.hr_has_permission('HR_DOCUMENT_GENERATE')
+    or public.hr_has_permission('HR_DOCUMENT_APPROVE')
+    or public.hr_has_permission('HR_DOCUMENT_SIGN')
+  ));
+
+-- 43.8 employment_contract_events - nemenny zaznam faktov (Section 4 planu:
+--      Nastup/Podpis/Predlzenie/Zmena/Prevod na dobu neurcitu/Ukoncenie).
+--      Zamerne ZIADNA update/delete policy - oprava je novy riadok, nikdy
+--      uprava povodneho (vynutene na urovni RLS, nielen konvenciou v appke).
+create table if not exists public.employment_contract_events (
+  id text primary key,
+  employment_id text not null references public.employment_relationships(id),
+  event_type text not null check (event_type in (
+    'CREATED', 'CONTRACT_SIGNED', 'EXTENDED', 'CHANGED', 'CONVERTED_TO_INDEFINITE', 'ENDED'
+  )),
+  event_date date not null,
+  valid_from date,
+  valid_to date,
+  hr_document_id text references public.hr_documents(id),
+  is_legal_override boolean not null default false,
+  override_reason text,
+  overridden_by uuid references auth.users(id),
+  created_by uuid references auth.users(id),
+  created_at timestamptz not null default now()
+);
+alter table public.employment_contract_events enable row level security;
+drop policy if exists "employment_contract_events_view" on public.employment_contract_events;
+create policy "employment_contract_events_view" on public.employment_contract_events
+  for select
+  using (public.current_role() = 'office' and public.hr_has_permission('HR_VIEW_BASIC'));
+drop policy if exists "employment_contract_events_insert" on public.employment_contract_events;
+create policy "employment_contract_events_insert" on public.employment_contract_events
+  for insert
+  with check (public.current_role() = 'office' and public.hr_has_permission('HR_EDIT'));
+
+-- 43.9 medical_examinations - len administrativne udaje (Section 14 planu),
+--      ziadne diagnozy.
+create table if not exists public.medical_examinations (
+  id text primary key,
+  employee_id text not null references public.employees(id),
+  exam_type text,
+  exam_date date,
+  valid_from date,
+  valid_until date,
+  provider text,
+  result_status text,
+  hr_document_id text references public.hr_documents(id),
+  notes text,
+  data jsonb not null default '{}'::jsonb,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+alter table public.medical_examinations enable row level security;
+drop policy if exists "medical_examinations_view" on public.medical_examinations;
+create policy "medical_examinations_view" on public.medical_examinations
+  for select
+  using (public.current_role() = 'office' and public.hr_has_permission('HR_VIEW_BASIC'));
+drop policy if exists "medical_examinations_edit" on public.medical_examinations;
+create policy "medical_examinations_edit" on public.medical_examinations
+  for all
+  using (public.current_role() = 'office' and public.hr_has_permission('HR_EDIT'))
+  with check (public.current_role() = 'office' and public.hr_has_permission('HR_EDIT'));
+
+-- 43.10 hr_document_signatures - Section 12 planu. Ziadna update/delete
+--       policy - podpisany dokument sa uz nikdy neupravuje.
+create table if not exists public.hr_document_signatures (
+  id text primary key,
+  hr_document_id text not null references public.hr_documents(id),
+  method text not null check (method in (
+    'PAPER', 'TABLET_SIMPLE', 'ELECTRONIC_SIGNATURE_PROVIDER', 'OTHER'
+  )),
+  signer_type text not null check (signer_type in ('EMPLOYEE', 'EMPLOYER')),
+  signed_at timestamptz,
+  signed_by_name text,
+  document_hash text,
+  signing_session_id text,
+  provider_reference_id text,
+  device_metadata jsonb not null default '{}'::jsonb,
+  uploaded_by uuid references auth.users(id),
+  file_path text,
+  created_at timestamptz not null default now()
+);
+alter table public.hr_document_signatures enable row level security;
+drop policy if exists "hr_document_signatures_view" on public.hr_document_signatures;
+create policy "hr_document_signatures_view" on public.hr_document_signatures
+  for select
+  using (public.current_role() = 'office' and public.hr_has_permission('HR_VIEW_BASIC'));
+drop policy if exists "hr_document_signatures_insert" on public.hr_document_signatures;
+create policy "hr_document_signatures_insert" on public.hr_document_signatures
+  for insert
+  with check (public.current_role() = 'office' and public.hr_has_permission('HR_DOCUMENT_SIGN'));
+
+-- 43.11 employee_timeline_events - citatelny prehlad pre zalozku Historie
+--       (Section 5 planu). Append-only feed - ziadna update/delete policy.
+create table if not exists public.employee_timeline_events (
+  id text primary key,
+  employee_id text not null references public.employees(id),
+  event_date date not null,
+  event_type text not null,
+  title text not null,
+  description text,
+  related_entity_type text,
+  related_entity_id text,
+  source text not null default 'SYSTEM' check (source in ('SYSTEM', 'MANUAL')),
+  created_by uuid references auth.users(id),
+  created_at timestamptz not null default now()
+);
+alter table public.employee_timeline_events enable row level security;
+drop policy if exists "employee_timeline_events_view" on public.employee_timeline_events;
+create policy "employee_timeline_events_view" on public.employee_timeline_events
+  for select
+  using (public.current_role() = 'office' and public.hr_has_permission('HR_VIEW_BASIC'));
+drop policy if exists "employee_timeline_events_insert" on public.employee_timeline_events;
+create policy "employee_timeline_events_insert" on public.employee_timeline_events
+  for insert
+  with check (public.current_role() = 'office' and public.hr_has_permission('HR_EDIT'));
+
+-- 43.12 onboarding_sessions - dotaznik na tablete pre noveho zamestnanca
+--       (Section 10B planu). Ziadny Supabase Auth ucet - session_token
+--       gatovany cez buduce SECURITY DEFINER RPC (rovnaky princip ako
+--       plan_smien_pins vyssie), ziadna klientska insert/update policy.
+--       Office s HR_EDIT moze rovno citat pre obrazovku "cakaju na kontrolu".
+create table if not exists public.onboarding_sessions (
+  id text primary key,
+  session_token text not null unique,
+  status text not null default 'IN_PROGRESS' check (status in (
+    'IN_PROGRESS', 'SUBMITTED', 'REVIEWED', 'DISCARDED'
+  )),
+  draft_data jsonb not null default '{}'::jsonb,
+  submitted_at timestamptz,
+  reviewed_by uuid references auth.users(id),
+  reviewed_at timestamptz,
+  resulting_employee_id text references public.employees(id),
+  created_at timestamptz not null default now()
+);
+alter table public.onboarding_sessions enable row level security;
+drop policy if exists "onboarding_sessions_office_view" on public.onboarding_sessions;
+create policy "onboarding_sessions_office_view" on public.onboarding_sessions
+  for select
+  using (public.current_role() = 'office' and public.hr_has_permission('HR_EDIT'));
+
+-- 43.13 Audit log (audit_trigger z casti 39) na vsetkych HR tabulkach
+--       okrem hr_permissions (spravovane priamo cez HR_ADMIN policy) a
+--       onboarding_sessions (este nie je napojene na konkretneho zamestnanca).
+drop trigger if exists audit_employees on public.employees;
+create trigger audit_employees after insert or update or delete on public.employees
+  for each row execute function public.audit_trigger();
+
+drop trigger if exists audit_employee_sensitive_data on public.employee_sensitive_data;
+create trigger audit_employee_sensitive_data after insert or update or delete on public.employee_sensitive_data
+  for each row execute function public.audit_trigger();
+
+drop trigger if exists audit_positions on public.positions;
+create trigger audit_positions after insert or update or delete on public.positions
+  for each row execute function public.audit_trigger();
+
+drop trigger if exists audit_employment_relationships on public.employment_relationships;
+create trigger audit_employment_relationships after insert or update or delete on public.employment_relationships
+  for each row execute function public.audit_trigger();
+
+drop trigger if exists audit_employment_contract_events on public.employment_contract_events;
+create trigger audit_employment_contract_events after insert or update or delete on public.employment_contract_events
+  for each row execute function public.audit_trigger();
+
+drop trigger if exists audit_medical_examinations on public.medical_examinations;
+create trigger audit_medical_examinations after insert or update or delete on public.medical_examinations
+  for each row execute function public.audit_trigger();
+
+drop trigger if exists audit_hr_document_templates on public.hr_document_templates;
+create trigger audit_hr_document_templates after insert or update or delete on public.hr_document_templates
+  for each row execute function public.audit_trigger();
+
+drop trigger if exists audit_hr_document_template_versions on public.hr_document_template_versions;
+create trigger audit_hr_document_template_versions after insert or update or delete on public.hr_document_template_versions
+  for each row execute function public.audit_trigger();
+
+drop trigger if exists audit_hr_documents on public.hr_documents;
+create trigger audit_hr_documents after insert or update or delete on public.hr_documents
+  for each row execute function public.audit_trigger();
+
+drop trigger if exists audit_hr_document_signatures on public.hr_document_signatures;
+create trigger audit_hr_document_signatures after insert or update or delete on public.hr_document_signatures
+  for each row execute function public.audit_trigger();
+
+-- 43.14 Storage bucket pre HR dokumenty (sablony, generovane aj rucne
+--       nahrane historicke subory, podpisane sceny) - rovnaky vzor ako
+--       kvalita-dokumenty vyssie, len navyse vyzaduje HR_VIEW_BASIC.
+insert into storage.buckets (id, name, public)
+values ('hr-dokumenty', 'hr-dokumenty', false)
+on conflict (id) do nothing;
+
+drop policy if exists "hr_dokumenty_files_office" on storage.objects;
+create policy "hr_dokumenty_files_office" on storage.objects
+  for all
+  using (bucket_id = 'hr-dokumenty' and public.current_role() = 'office' and public.hr_has_permission('HR_VIEW_BASIC'))
+  with check (bucket_id = 'hr-dokumenty' and public.current_role() = 'office' and public.hr_has_permission('HR_VIEW_BASIC'));
