@@ -114,7 +114,14 @@ export function constructSchedule({ mode, week, employees, absences, allWeeks, p
   w.shifts.forEach((shift) => {
     const total = shiftTotal(shift);
     if (total === 0) return;
-    const needed = total - (shift.assigned.pos1 ? 1 : 0) - (shift.assigned.pos3 ? 1 : 0);
+    // POZOR: 2 miesta (pos1+pos3) su VZDY REZERVOVANE pre general pocet, bez
+    // ohladu na to, ci sa ich REALNE podarilo obsadit. Ak pos3 (alebo pos1)
+    // zostane neobsadena (CRITICAL_ROLE_SHORTAGE), general NESMIE tichoduchou
+    // cestou "dorovnat" celkovy pocet tym, ze zoberie o cloveka viac navyse -
+    // to by nekvalifikovana general osoba fakticky nahradila chybajuceho
+    // pos1/pos3 specialistu. Nedostatok ma byt vidiet ako REALNU medzeru v
+    // obsadeni zmeny (menej ludi fyzicky pritomnych), nie zamaskovany.
+    const needed = Math.max(0, total - 2);
     let already = shift.assigned.general.slice();
 
     const guardLimit = Math.max(0, needed) + 10;
