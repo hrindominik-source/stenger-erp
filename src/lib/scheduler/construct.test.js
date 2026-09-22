@@ -69,6 +69,24 @@ describe("5) pos1-backup sa pouzije az ked su vsetci primarni pos1 nedostupni", 
     expect(mondayDay.assigned.pos1).toBe("hrncovaBackup");
     expect(warnings.some((w) => w.code === WARNING.POS1_BACKUP_USED)).toBe(true);
   });
+
+  it("zaskok sa pouzije aj ked jediny primarny kandidat by inak potreboval zbytocnu 5. zmenu (zaskok je stale volny pod cielom 4)", () => {
+    // hrncova1 uz ma 4 denne zmeny (po-ct), hrncova2 je vylucena z piatka
+    // pravidlom o odpocinku (odpracovala stvrtkovu nocnu, ktora je v poli
+    // zmien susedna s piatkovou sanitaciou) - bez tuningu by hrncova1 dostala
+    // zbytocnu 5. zmenu, hoci zaskok (0 zmien) je stale k dispozicii.
+    const week = makeRealisticWeek(MON);
+    ["2026-09-28", "2026-09-29", "2026-09-30", "2026-10-01"].forEach((d) => {
+      findShift(week, d, "day").assigned.pos1 = "hrncova1";
+    });
+    findShift(week, "2026-10-01", "night").assigned.pos1 = "hrncova2"; // stvrtok noc
+    const { week: result, warnings } = run("fillGaps", { week });
+    const friday = findShift(result, "2026-10-02", "sanitation");
+    expect(friday.assigned.pos1).toBe("hrncovaBackup");
+    expect(weekShiftCount(result, "hrncova1")).toBe(4); // ziadna zbytocna 5. zmena
+    expect(warnings.some((w) => w.code === WARNING.POS1_BACKUP_USED)).toBe(true);
+    expect(warnings.some((w) => w.code === WARNING.EXCEPTIONAL_FIFTH_SHIFT && w.employeeId === "hrncova1")).toBe(false);
+  });
 });
 
 describe("6) nedostatok (scarcity) pos1/pos3 - warning ked nie je kym obsadit", () => {

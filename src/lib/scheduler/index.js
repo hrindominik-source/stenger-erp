@@ -13,18 +13,21 @@ import { localImprovement } from "./localImprovement.js";
 import { evaluateScheduleQuality } from "./qualityMetrics.js";
 import { INTENT, WARNING, NORMAL_TARGET_SHIFTS, HARD_MAX_SHIFTS } from "./constants.js";
 
-export function runScheduler({ mode, week, employees, absences, allWeeks, preferences, referenceWeek }) {
+export function runScheduler({ mode, week, employees, absences, allWeeks, preferences, referenceWeek, trace }) {
   if (mode !== "fillGaps" && mode !== "replan") {
     throw new Error(`runScheduler: neznamy mode "${mode}" (ocakava sa 'fillGaps' alebo 'replan')`);
   }
-  const { week: constructed, warnings } = constructSchedule({ mode, week, employees, absences, allWeeks, preferences, referenceWeek });
+  const traceOut = trace ? [] : undefined;
+  const { week: constructed, warnings } = constructSchedule({ mode, week, employees, absences, allWeeks, preferences, referenceWeek, trace: traceOut });
   const improved = localImprovement({ week: constructed, employees, absences });
   const allWeeksWithImproved = allWeeks.map((w) => (w.id === week.id ? improved : w));
   const quality = evaluateScheduleQuality(improved, employees, allWeeksWithImproved, {
     referenceWeek: referenceWeek || week,
     warnings,
   });
-  return { week: improved, warnings, quality };
+  const result = { week: improved, warnings, quality };
+  if (traceOut) result.trace = traceOut;
+  return result;
 }
 
 export { evaluateScheduleQuality };

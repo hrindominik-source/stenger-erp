@@ -11,19 +11,33 @@ import { eligibleForRole } from "./eligibility.js";
 import { ensurePreserveShape } from "./manualPreserve.js";
 import { computeWeeklyIntents } from "./intent.js";
 import { scoreCandidate } from "./scoring.js";
-import { WARNING, HARD_MAX_SHIFTS } from "./constants.js";
+import { WARNING, HARD_MAX_SHIFTS, NORMAL_TARGET_SHIFTS } from "./constants.js";
 
-function pickBest(candidates, shift, scoreCtx) {
+function pickBest(candidates, shift, scoreCtx, traceCtx) {
   if (candidates.length === 0) return null;
   const scored = candidates.map((c) => ({ c, score: scoreCandidate(c, shift, scoreCtx) }));
   scored.sort((a, b) => {
     if (b.score !== a.score) return b.score - a.score;
     return a.c.id < b.c.id ? -1 : a.c.id > b.c.id ? 1 : 0; // deterministicky tie-break, ziadny Math.random
   });
+  if (traceCtx && traceCtx.trace) {
+    traceCtx.trace.push({
+      shiftId: shift.id,
+      date: shift.date,
+      type: shift.type,
+      role: traceCtx.role,
+      pickedId: scored[0].c.id,
+      candidates: scored.map((s) => ({ id: s.c.id, score: s.score })),
+    });
+  }
   return scored[0].c;
 }
 
-export function constructSchedule({ mode, week, employees, absences, allWeeks, preferences, referenceWeek }) {
+// `trace` (volitelne, len na diagnostiku/reporting - NEmenene default spravanie):
+// ked sa oda pole, kazde volanie pickBest do neho zapise {shiftId, date, type,
+// role, pickedId, candidates: [{id, score}]} - presne dost na spatne
+// zrekonstruovanie "preco dostal X 5. zmenu a kto boli ostatni kandidati".
+export function constructSchedule({ mode, week, employees, absences, allWeeks, preferences, referenceWeek, trace }) {
   const w = cloneWeek(week);
   const warnings = [];
 
@@ -64,13 +78,24 @@ export function constructSchedule({ mode, week, employees, absences, allWeeks, p
       if (total === 0) return;
       if (shift.assigned[role]) return; // uz fixne dane (fillGaps existujuce, alebo replan preserved)
 
-      let cands = eligibleForRole(shift, role, activeEmployees, absences, w);
-      let usedBackup = false;
-      if (cands.length === 0 && role === "pos1") {
-        cands = eligibleForRole(shift, "pos1-backup", activeEmployees, absences, w);
-        usedBackup = cands.length > 0;
+      const primaryCands = eligibleForRole(shift, role, activeEmployees, absences, w);
+      let cands = primaryCands;
+      if (role === "pos1") {
+        // Zaskok (pos1-backup) sa pouzije nielen ked je primarny pool prazdny,
+        // ale UZ AJ VTEDY, ked by jediny zostavajuci primarny kandidat musel
+        // dostat vynimocnu 5. zmenu - kym zaskok je stale k dispozicii pod
+        // normalnym cielom (4). Zaskok sa prida do SPOLOCNEHO poolu a rozhodne
+        // skore (scoring.js uz penalizuje 5. zmenu vysoko), nie hardcodovana
+        // priorita - takze ak by aj zaskok potreboval 5. zmenu, moze byt aj
+        // tak vybrany primarny clovek (rovnaky "najmensie zlo" princip).
+        const primaryHasCleanOption = primaryCands.some((e) => weekShiftCount(w, e.id) < NORMAL_TARGET_SHIFTS);
+        if (!primaryHasCleanOption) {
+          const backupCands = eligibleForRole(shift, "pos1-backup", activeEmployees, absences, w);
+          cands = [...primaryCands, ...backupCands];
+        }
       }
-      const pick = pickBest(cands, shift, scoreCtx);
+      const pick = pickBest(cands, shift, scoreCtx, { trace, role });
+      const usedBackup = Boolean(pick) && !primaryCands.some((e) => e.id === pick.id);
       if (pick) {
         shift.assigned[role] = pick.id;
         if (usedBackup) {
@@ -98,7 +123,7 @@ export function constructSchedule({ mode, week, employees, absences, allWeeks, p
       guard++;
       shift.assigned.general = already; // synchronizuj pre eligibleForRole (usedInShift vylucenie)
       const cands = eligibleForRole(shift, "general", activeEmployees, absences, w).filter((e) => !already.includes(e.id));
-      const pick = pickBest(cands, shift, scoreCtx);
+      const pick = pickBest(cands, shift, scoreCtx, { trace, role: "general" });
       if (!pick) break;
       already.push(pick.id);
     }
