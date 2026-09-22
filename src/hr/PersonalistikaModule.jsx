@@ -2,6 +2,7 @@ import React, { useState, useEffect, useCallback } from "react";
 import { Loader2, AlertCircle, Users2, UserPlus, ArrowLeft, ShieldAlert, Settings, LayoutDashboard, FileText, Pencil, CheckCircle2, Briefcase, Plus } from "lucide-react";
 import { supabase } from "../supabaseClient.js";
 import { uid, skDateStrFromIso } from "../lib/utils.js";
+import { computeFixedTermStatus, canProposeExtension, FIXED_TERM_RULES } from "../lib/hrContractRules.js";
 
 /* =========================================================================
    Personalistika - trvaly personalny spis zamestnancov.
@@ -29,6 +30,17 @@ function hasPerm(permissions, p) {
 
 function fmtDate(iso) {
   return iso ? skDateStrFromIso(iso) : "";
+}
+// Zkusebna doba podla ceskej legislativy - 4 mesiace od nastupu (zadal uzivatel,
+// automaticky sa dopocitava pri zadani data nastupu, rucne prepisatelne).
+const PROBATION_MONTHS = 4;
+function addMonthsIso(iso, months) {
+  if (!iso) return "";
+  const [y, m, d] = iso.split("-").map(Number);
+  if (!y || !m || !d) return "";
+  const dt = new Date(y, m - 1, d);
+  dt.setMonth(dt.getMonth() + months);
+  return `${dt.getFullYear()}-${String(dt.getMonth() + 1).padStart(2, "0")}-${String(dt.getDate()).padStart(2, "0")}`;
 }
 function daysUntilIso(iso) {
   if (!iso) return null;
@@ -328,7 +340,7 @@ function emptyEmployeeForm() {
     birth_number: "", id_document_number: "", bank_account: "",
     // pracovni pomer
     position_id: "", start_date: "", employment_type: "doba_neurcita", fixed_term_end_date: "",
-    workplace: "", weekly_hours: "40",
+    workplace: "", weekly_hours: "40", probation_end_date: "",
   };
 }
 
@@ -395,6 +407,7 @@ function EmployeeCreateForm({ permissions, onCancel, onCreated }) {
           employment_type: f.employment_type,
           start_date: f.start_date,
           fixed_term_end_date: f.employment_type === "doba_urcita" ? (f.fixed_term_end_date || null) : null,
+          probation_end_date: f.probation_end_date || null,
           position_id: f.position_id || null,
           workplace: f.workplace.trim() || null,
           weekly_hours: f.weekly_hours ? Number(f.weekly_hours) : null,
@@ -471,9 +484,10 @@ function EmployeeCreateForm({ permissions, onCancel, onCreated }) {
         <h2 className="font-semibold text-sm mb-3">Pracovní poměr (nepovinné - lze doplnit později)</h2>
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-x-4">
           <SelectFieldLocal label="Pozice" value={f.position_id} onChange={(v) => set({ position_id: v })} options={[{ value: "", label: "— nevybráno —" }, ...positions.map((p) => ({ value: p.id, label: p.code ? `${p.code} – ${p.name}` : p.name }))]} />
-          <DateFieldLocal label="Datum nástupu" value={f.start_date} onChange={(v) => set({ start_date: v })} />
+          <DateFieldLocal label="Datum nástupu" value={f.start_date} onChange={(v) => set({ start_date: v, probation_end_date: addMonthsIso(v, PROBATION_MONTHS) })} />
           <SelectFieldLocal label="Typ smlouvy" value={f.employment_type} onChange={(v) => set({ employment_type: v })} options={[{ value: "doba_neurcita", label: "Doba neurčitá" }, { value: "doba_urcita", label: "Doba určitá" }]} />
           {f.employment_type === "doba_urcita" && <DateFieldLocal label="Konec smlouvy" value={f.fixed_term_end_date} onChange={(v) => set({ fixed_term_end_date: v })} />}
+          <DateFieldLocal label={`Konec zkušební doby (${PROBATION_MONTHS} měsíce)`} value={f.probation_end_date} onChange={(v) => set({ probation_end_date: v })} />
           <TextField label="Místo výkonu práce" value={f.workplace} onChange={(v) => set({ workplace: v })} />
           <TextField label="Týdenní úvazek (hodin)" value={f.weekly_hours} onChange={(v) => set({ weekly_hours: v })} />
         </div>
@@ -509,6 +523,7 @@ function EmployeeDetail({ id, permissions, onBack }) {
   const [employee, setEmployee] = useState(null);
   const [sensitive, setSensitive] = useState(null);
   const [employments, setEmployments] = useState([]);
+  const [contractEvents, setContractEvents] = useState([]);
   const [positions, setPositions] = useState([]);
   const [timeline, setTimeline] = useState([]);
   const [confirmingDelete, setConfirmingDelete] = useState(false);
@@ -530,9 +545,16 @@ function EmployeeDetail({ id, permissions, onBack }) {
     ]);
     if (empRes.error) { setError("Nepodařilo se načíst zaměstnance."); setLoading(false); return; }
     setEmployee(empRes.data);
-    setEmployments(empmRes.data || []);
+    const emps = empmRes.data || [];
+    setEmployments(emps);
     setPositions(posRes.data || []);
     setTimeline(tlRes.data || []);
+    if (emps.length > 0) {
+      const { data: events } = await supabase.from("employment_contract_events").select("*").in("employment_id", emps.map((e) => e.id)).order("event_date");
+      setContractEvents(events || []);
+    } else {
+      setContractEvents([]);
+    }
     if (canSensitive) {
       const { data } = await supabase.from("employee_sensitive_data").select("*").eq("employee_id", id).maybeSingle();
       setSensitive(data || null);
@@ -609,16 +631,19 @@ function EmployeeDetail({ id, permissions, onBack }) {
         ))}
       </div>
 
-      {detailTab === "prehled" && <PrehledDetailTab employee={employee} currentEmployment={currentEmployment} positionLabel={positionLabel} />}
+      {detailTab === "prehled" && <PrehledDetailTab employee={employee} currentEmployment={currentEmployment} contractEvents={contractEvents} positionLabel={positionLabel} />}
       {detailTab === "osobni" && <OsobniUdajeTab employee={employee} sensitive={sensitive} canEdit={canEdit} canSensitive={canSensitive} onSaved={load} />}
-      {detailTab === "pomer" && <PracovniPomerTab employeeId={id} employments={employments} positions={positions} positionLabel={positionLabel} canEdit={canEdit} onChanged={load} />}
+      {detailTab === "pomer" && <PracovniPomerTab employeeId={id} employments={employments} contractEvents={contractEvents} positions={positions} positionLabel={positionLabel} canEdit={canEdit} canOverride={hasPerm(permissions, "HR_ADMIN")} onChanged={load} />}
       {detailTab === "historie" && <HistorieTab timeline={timeline} />}
     </div>
   );
 }
 
-function PrehledDetailTab({ employee, currentEmployment, positionLabel }) {
+function PrehledDetailTab({ employee, currentEmployment, contractEvents, positionLabel }) {
   const endDays = currentEmployment ? daysUntilIso(currentEmployment.fixed_term_end_date) : null;
+  const fixedTermStatus = currentEmployment && currentEmployment.employment_type === "doba_urcita"
+    ? computeFixedTermStatus({ startDate: currentEmployment.start_date, currentEndDate: currentEmployment.fixed_term_end_date, events: contractEvents.filter((e) => e.employment_id === currentEmployment.id) })
+    : null;
   return (
     <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
       <div className="bg-white border border-slate-200 rounded-lg p-4">
@@ -629,6 +654,7 @@ function PrehledDetailTab({ employee, currentEmployment, positionLabel }) {
             <Row label="Nástup" value={fmtDate(currentEmployment.start_date)} />
             <Row label="Typ" value={currentEmployment.employment_type === "doba_urcita" ? "Doba určitá" : "Doba neurčitá"} />
             {currentEmployment.fixed_term_end_date && <Row label="Konec smlouvy" value={fmtDate(currentEmployment.fixed_term_end_date)} />}
+            {fixedTermStatus && <Row label="Zbývá prodloužení" value={`${fixedTermStatus.remainingExtensions} z max. ${FIXED_TERM_RULES.maxExtensions}`} />}
             <Row label="Místo výkonu práce" value={currentEmployment.workplace || "—"} />
             <Row label="Úvazek" value={currentEmployment.weekly_hours ? `${currentEmployment.weekly_hours} h/týden` : "—"} />
             <Row label="Stav" value={EMPLOYMENT_STATUS_LABEL[currentEmployment.status]} />
@@ -788,7 +814,7 @@ function OsobniUdajeTab({ employee, sensitive, canEdit, canSensitive, onSaved })
   );
 }
 
-function PracovniPomerTab({ employeeId, employments, positions, positionLabel, canEdit, onChanged }) {
+function PracovniPomerTab({ employeeId, employments, contractEvents, positions, positionLabel, canEdit, canOverride, onChanged }) {
   const [addingNew, setAddingNew] = useState(false);
   const [endingId, setEndingId] = useState(null);
   const [extendingId, setExtendingId] = useState(null);
@@ -804,37 +830,53 @@ function PracovniPomerTab({ employeeId, employments, positions, positionLabel, c
       )}
       {addingNew && <NewEmploymentForm employeeId={employeeId} positions={positions} onCancel={() => setAddingNew(false)} onSaved={() => { setAddingNew(false); onChanged(); }} />}
       <div className="space-y-3">
-        {employments.map((em) => (
-          <div key={em.id} className="bg-white border border-slate-200 rounded-lg p-4">
-            <div className="flex justify-between items-start flex-wrap gap-2">
-              <div>
-                <div className="font-medium">{positionLabel(em.position_id)}</div>
-                <div className="text-sm text-slate-500">{fmtDate(em.start_date)} – {em.termination_date ? fmtDate(em.termination_date) : (em.fixed_term_end_date ? fmtDate(em.fixed_term_end_date) : "trvá")}</div>
+        {employments.map((em) => {
+          const events = contractEvents.filter((e) => e.employment_id === em.id);
+          const fixedTermStatus = em.employment_type === "doba_urcita"
+            ? computeFixedTermStatus({ startDate: em.start_date, currentEndDate: em.fixed_term_end_date, events })
+            : null;
+          return (
+            <div key={em.id} className="bg-white border border-slate-200 rounded-lg p-4">
+              <div className="flex justify-between items-start flex-wrap gap-2">
+                <div>
+                  <div className="font-medium">{positionLabel(em.position_id)}</div>
+                  <div className="text-sm text-slate-500">{fmtDate(em.start_date)} – {em.termination_date ? fmtDate(em.termination_date) : (em.fixed_term_end_date ? fmtDate(em.fixed_term_end_date) : "trvá")}</div>
+                </div>
+                <span className="px-2 py-0.5 rounded-full text-xs font-medium bg-slate-100 text-slate-600 h-fit">{EMPLOYMENT_STATUS_LABEL[em.status]}</span>
               </div>
-              <span className="px-2 py-0.5 rounded-full text-xs font-medium bg-slate-100 text-slate-600 h-fit">{EMPLOYMENT_STATUS_LABEL[em.status]}</span>
+              <dl className="text-sm mt-2 grid grid-cols-1 sm:grid-cols-2 gap-x-8">
+                <Row label="Typ smlouvy" value={em.employment_type === "doba_urcita" ? "Doba určitá" : "Doba neurčitá"} />
+                <Row label="Místo výkonu práce" value={em.workplace || "—"} />
+                <Row label="Úvazek" value={em.weekly_hours ? `${em.weekly_hours} h/týden` : "—"} />
+                <Row label="Zkušební doba do" value={em.probation_end_date ? fmtDate(em.probation_end_date) : "—"} />
+                {fixedTermStatus && <Row label="Využitá prodloužení" value={`${fixedTermStatus.extensionsCount} z max. ${FIXED_TERM_RULES.maxExtensions}`} />}
+                {em.status === "ENDED" && <Row label="Důvod ukončení" value={em.termination_reason || "—"} />}
+              </dl>
+              {fixedTermStatus && !fixedTermStatus.withinLimits && (
+                <div className="mt-2 text-xs px-2.5 py-1.5 rounded-md bg-amber-50 text-amber-700 flex items-center gap-1.5">
+                  <ShieldAlert size={13} />
+                  {fixedTermStatus.overExtensionLimit
+                    ? `Dosažen zákonný limit počtu prodloužení (max. ${FIXED_TERM_RULES.maxExtensions}x).`
+                    : `Přesahuje zákonný limit celkové doby (max. do ${fmtDate(fixedTermStatus.maxAllowedEndDate)}).`}
+                  {fixedTermStatus.hasOverride && " Zaznamenána výjimka administrátora."}
+                </div>
+              )}
+              {canEdit && ["ACTIVE", "NOTICE_PERIOD"].includes(em.status) && (
+                <div className="flex gap-2 mt-3 pt-3 border-t border-slate-100">
+                  {em.employment_type === "doba_urcita" && (
+                    extendingId === em.id
+                      ? <ExtendEmploymentForm employment={em} events={events} canOverride={canOverride} onCancel={() => setExtendingId(null)} onSaved={() => { setExtendingId(null); onChanged(); }} />
+                      : <button onClick={() => setExtendingId(em.id)} className="text-sm text-teal-700 hover:text-teal-900">Prodloužit smlouvu</button>
+                  )}
+                  {endingId === em.id
+                    ? null
+                    : <button onClick={() => setEndingId(em.id)} className="text-sm text-red-600 hover:text-red-800">Ukončit pracovní poměr</button>}
+                </div>
+              )}
+              {endingId === em.id && <EndEmploymentForm employment={em} onCancel={() => setEndingId(null)} onSaved={() => { setEndingId(null); onChanged(); }} />}
             </div>
-            <dl className="text-sm mt-2 grid grid-cols-1 sm:grid-cols-2 gap-x-8">
-              <Row label="Typ smlouvy" value={em.employment_type === "doba_urcita" ? "Doba určitá" : "Doba neurčitá"} />
-              <Row label="Místo výkonu práce" value={em.workplace || "—"} />
-              <Row label="Úvazek" value={em.weekly_hours ? `${em.weekly_hours} h/týden` : "—"} />
-              <Row label="Zkušební doba do" value={em.probation_end_date ? fmtDate(em.probation_end_date) : "—"} />
-              {em.status === "ENDED" && <Row label="Důvod ukončení" value={em.termination_reason || "—"} />}
-            </dl>
-            {canEdit && ["ACTIVE", "NOTICE_PERIOD"].includes(em.status) && (
-              <div className="flex gap-2 mt-3 pt-3 border-t border-slate-100">
-                {em.employment_type === "doba_urcita" && (
-                  extendingId === em.id
-                    ? <ExtendEmploymentForm employment={em} onCancel={() => setExtendingId(null)} onSaved={() => { setExtendingId(null); onChanged(); }} />
-                    : <button onClick={() => setExtendingId(em.id)} className="text-sm text-teal-700 hover:text-teal-900">Prodloužit smlouvu</button>
-                )}
-                {endingId === em.id
-                  ? null
-                  : <button onClick={() => setEndingId(em.id)} className="text-sm text-red-600 hover:text-red-800">Ukončit pracovní poměr</button>}
-              </div>
-            )}
-            {endingId === em.id && <EndEmploymentForm employment={em} onCancel={() => setEndingId(null)} onSaved={() => { setEndingId(null); onChanged(); }} />}
-          </div>
-        ))}
+          );
+        })}
         {employments.length === 0 && <div className="text-sm text-slate-400">Žádný pracovní poměr.</div>}
       </div>
     </div>
@@ -842,7 +884,7 @@ function PracovniPomerTab({ employeeId, employments, positions, positionLabel, c
 }
 
 function NewEmploymentForm({ employeeId, positions, onCancel, onSaved }) {
-  const [f, setF] = useState({ position_id: "", start_date: "", employment_type: "doba_neurcita", fixed_term_end_date: "", workplace: "", weekly_hours: "40" });
+  const [f, setF] = useState({ position_id: "", start_date: "", employment_type: "doba_neurcita", fixed_term_end_date: "", workplace: "", weekly_hours: "40", probation_end_date: "" });
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
 
@@ -855,6 +897,7 @@ function NewEmploymentForm({ employeeId, positions, onCancel, onSaved }) {
       const { error: emErr } = await supabase.from("employment_relationships").insert({
         id: employmentId, employee_id: employeeId, status: "ACTIVE", employment_type: f.employment_type,
         start_date: f.start_date, fixed_term_end_date: f.employment_type === "doba_urcita" ? (f.fixed_term_end_date || null) : null,
+        probation_end_date: f.probation_end_date || null,
         position_id: f.position_id || null, workplace: f.workplace.trim() || null, weekly_hours: f.weekly_hours ? Number(f.weekly_hours) : null,
       });
       if (emErr) throw emErr;
@@ -880,9 +923,10 @@ function NewEmploymentForm({ employeeId, positions, onCancel, onSaved }) {
       <h2 className="font-semibold text-sm mb-3">Nový pracovní poměr</h2>
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-x-4">
         <SelectFieldLocal label="Pozice" value={f.position_id} onChange={(v) => setF({ ...f, position_id: v })} options={[{ value: "", label: "— nevybráno —" }, ...positions.map((p) => ({ value: p.id, label: p.code ? `${p.code} – ${p.name}` : p.name }))]} />
-        <DateFieldLocal label="Datum nástupu" value={f.start_date} onChange={(v) => setF({ ...f, start_date: v })} />
+        <DateFieldLocal label="Datum nástupu" value={f.start_date} onChange={(v) => setF({ ...f, start_date: v, probation_end_date: addMonthsIso(v, PROBATION_MONTHS) })} />
         <SelectFieldLocal label="Typ smlouvy" value={f.employment_type} onChange={(v) => setF({ ...f, employment_type: v })} options={[{ value: "doba_neurcita", label: "Doba neurčitá" }, { value: "doba_urcita", label: "Doba určitá" }]} />
         {f.employment_type === "doba_urcita" && <DateFieldLocal label="Konec smlouvy" value={f.fixed_term_end_date} onChange={(v) => setF({ ...f, fixed_term_end_date: v })} />}
+        <DateFieldLocal label={`Konec zkušební doby (${PROBATION_MONTHS} měsíce)`} value={f.probation_end_date} onChange={(v) => setF({ ...f, probation_end_date: v })} />
         <TextField label="Místo výkonu práce" value={f.workplace} onChange={(v) => setF({ ...f, workplace: v })} />
         <TextField label="Týdenní úvazek (hodin)" value={f.weekly_hours} onChange={(v) => setF({ ...f, weekly_hours: v })} />
       </div>
@@ -895,25 +939,37 @@ function NewEmploymentForm({ employeeId, positions, onCancel, onSaved }) {
   );
 }
 
-function ExtendEmploymentForm({ employment, onCancel, onSaved }) {
+function ExtendEmploymentForm({ employment, events, canOverride, onCancel, onSaved }) {
   const [newEnd, setNewEnd] = useState("");
+  const [overrideChecked, setOverrideChecked] = useState(false);
+  const [overrideReason, setOverrideReason] = useState("");
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
 
+  const proposed = newEnd ? canProposeExtension({ startDate: employment.start_date, proposedEndDate: newEnd, events }) : null;
+  const needsOverride = proposed && !proposed.withinLimits;
+  const canSubmit = newEnd && (!needsOverride || (canOverride && overrideChecked && overrideReason.trim()));
+
   async function submit() {
     if (!newEnd) { setError("Vyplňte nové datum konce."); return; }
+    if (needsOverride && !canSubmit) { setError("Přesahuje zákonný limit doby určité - potvrďte výjimku s důvodem, nebo zvolte dřívější datum."); return; }
     setSaving(true);
     setError("");
     try {
       const { error: emErr } = await supabase.from("employment_relationships").update({ fixed_term_end_date: newEnd, updated_at: new Date().toISOString() }).eq("id", employment.id);
       if (emErr) throw emErr;
+      const { data: userData } = await supabase.auth.getUser();
       await supabase.from("employment_contract_events").insert({
         id: uid(), employment_id: employment.id, event_type: "EXTENDED", event_date: new Date().toISOString().slice(0, 10),
         valid_from: employment.fixed_term_end_date, valid_to: newEnd,
+        is_legal_override: needsOverride ? true : false,
+        override_reason: needsOverride ? overrideReason.trim() : null,
+        overridden_by: needsOverride ? userData?.user?.id || null : null,
+        created_by: userData?.user?.id || null,
       });
       await supabase.from("employee_timeline_events").insert({
         id: uid(), employee_id: employment.employee_id, event_date: new Date().toISOString().slice(0, 10), event_type: "CONTRACT_EXTENDED",
-        title: "Smlouva prodloužena", description: `Nový konec: ${skDateStrFromIso(newEnd)}`, source: "MANUAL",
+        title: "Smlouva prodloužena", description: `Nový konec: ${skDateStrFromIso(newEnd)}` + (needsOverride ? ` (výjimka: ${overrideReason.trim()})` : ""), source: "MANUAL",
       });
       onSaved();
     } catch (e) {
@@ -924,11 +980,34 @@ function ExtendEmploymentForm({ employment, onCancel, onSaved }) {
   }
 
   return (
-    <div className="flex items-end gap-2 bg-slate-50 border border-slate-200 rounded-md p-3">
-      <DateFieldLocal label="Nový konec smlouvy" value={newEnd} onChange={setNewEnd} />
-      {error && <div className="text-red-600 text-xs">{error}</div>}
-      <button onClick={onCancel} className="text-sm text-slate-500 px-2 py-2">Zrušit</button>
-      <button onClick={submit} disabled={saving} className="bg-teal-700 hover:bg-teal-800 disabled:opacity-50 text-white text-sm font-medium px-3 py-2 rounded-md">{saving ? "Ukládám..." : "Prodloužit"}</button>
+    <div className="bg-slate-50 border border-slate-200 rounded-md p-3 w-full">
+      <div className="flex items-end gap-2 flex-wrap">
+        <DateFieldLocal label="Nový konec smlouvy" value={newEnd} onChange={setNewEnd} />
+        <button onClick={onCancel} className="text-sm text-slate-500 px-2 py-2">Zrušit</button>
+        <button onClick={submit} disabled={saving || !canSubmit} className="bg-teal-700 hover:bg-teal-800 disabled:opacity-50 disabled:cursor-not-allowed text-white text-sm font-medium px-3 py-2 rounded-md">{saving ? "Ukládám..." : "Prodloužit"}</button>
+      </div>
+      {needsOverride && (
+        <div className="mt-2 text-xs px-2.5 py-2 rounded-md bg-amber-100 text-amber-800">
+          <div className="flex items-center gap-1.5 font-medium"><ShieldAlert size={13} />
+            {proposed.overExtensionLimit
+              ? `Toto by bylo ${proposed.extensionsCount + 1}. prodloužení - zákon dovoluje max. ${FIXED_TERM_RULES.maxExtensions}x.`
+              : `Toto by přesáhlo max. celkovou dobu určitou (do ${fmtDate(proposed.maxAllowedEndDate)}).`}
+          </div>
+          {canOverride ? (
+            <div className="mt-2 space-y-1.5">
+              <label className="flex items-center gap-2">
+                <input type="checkbox" checked={overrideChecked} onChange={(e) => setOverrideChecked(e.target.checked)} /> Přesto prodloužit (evidovaná výjimka)
+              </label>
+              {overrideChecked && (
+                <input value={overrideReason} onChange={(e) => setOverrideReason(e.target.value)} placeholder="Důvod výjimky (povinné)" className="w-full border border-amber-300 rounded-md px-2.5 py-1.5 text-sm" />
+              )}
+            </div>
+          ) : (
+            <div className="mt-1">Prodloužení nad tento limit může potvrdit jen administrátor.</div>
+          )}
+        </div>
+      )}
+      {error && <div className="text-red-600 text-xs mt-1.5">{error}</div>}
     </div>
   );
 }
