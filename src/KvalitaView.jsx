@@ -5,6 +5,7 @@ import { todayStr, uid, computeNextDue, daysUntil, isoFromSkDateStr, skDateStrFr
 import { exportRowsToExcel } from "./lib/exportExcel.js";
 import { renderContainerToPdf, renderHtmlBlockToImage } from "./lib/textPdf.js";
 import { exportChecklistHistoryAsDocx } from "./lib/checklistDocx.js";
+import PersonalistikaModule from "./hr/PersonalistikaModule.jsx";
 
 const POLL_MS = 10000;
 const KVALITA_DOKUMENTY_BUCKET = "kvalita-dokumenty";
@@ -269,23 +270,9 @@ export default function KvalitaView({ fullName, onSignOut, onBack }) {
         ) : tab === "terminy" ? (
           <TerminyTab terminy={terminy} onSaveTermin={saveTermin} onUpdateTermin={updateTermin} onDeleteTermin={deleteTermin} />
         ) : (
-          <PersonalistikaTab />
+          <PersonalistikaModule />
         )}
       </main>
-    </div>
-  );
-}
-
-/* ---------------- Personalistika ---------------- */
-
-function PersonalistikaTab() {
-  return (
-    <div className="bg-white border border-slate-200 rounded-xl p-10 text-center">
-      <div className="inline-flex items-center justify-center w-14 h-14 rounded-2xl bg-gradient-to-br from-rose-400 to-rose-600 text-white shadow-md mb-4">
-        <Users size={26} />
-      </div>
-      <div className="text-lg font-bold text-slate-900">Personalistika</div>
-      <div className="text-sm text-slate-500 mt-1">Připravujeme.</div>
     </div>
   );
 }
