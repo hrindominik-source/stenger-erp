@@ -37,3 +37,13 @@ export function unmarkPreserved(shift, roleOrEmployeeId) {
   else p.general = p.general.filter((id) => id !== roleOrEmployeeId);
   return { ...shift, preserveOnReplan: p };
 }
+
+// Pocet jednotlivych zachovanych priradeni v celom tyzdni (pos1 flag = 1,
+// pos3 flag = 1, kazdy general id = 1) - cisto na zobrazenie v UI
+// (napr. "Tento týden obsahuje 3 ručně zachované změny." pred replanom).
+export function countPreservedInWeek(week) {
+  return (week.shifts || []).reduce((count, s) => {
+    const p = ensurePreserveShape(s);
+    return count + (p.pos1 ? 1 : 0) + (p.pos3 ? 1 : 0) + p.general.length;
+  }, 0);
+}

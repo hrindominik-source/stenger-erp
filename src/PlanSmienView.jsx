@@ -1,8 +1,9 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Sun, Moon, Droplets, Plus, X, AlertTriangle, Trash2, Copy, ChevronLeft, ChevronRight, Printer, KeyRound, CalendarDays, Users2, CalendarOff, History as HistoryIcon, Upload, BarChart3, LogOut, ArrowLeftRight, LayoutDashboard } from 'lucide-react';
+import { Sun, Moon, Droplets, Plus, X, AlertTriangle, Trash2, Copy, ChevronLeft, ChevronRight, Printer, KeyRound, CalendarDays, Users2, CalendarOff, History as HistoryIcon, Upload, BarChart3, LogOut, ArrowLeftRight, LayoutDashboard, Pin } from 'lucide-react';
 import { supabase } from './supabaseClient.js';
 import { canAutoFill, canClearOnly, canReplan } from './lib/planSmienGuard.js';
 import { runScheduler } from './lib/scheduler/index.js';
+import { isPreserved, markPreserved, unmarkPreserved, countPreservedInWeek } from './lib/scheduler/manualPreserve.js';
 
 /* =========================================================================
    DATA
@@ -136,6 +137,34 @@ export function clearShiftAssignments(shift) {
   shift.assigned = { pos1: null, pos3: null, general: [] };
   shift.extra = [];
 }
+
+/* Rucne priradenie/odobratie s automatickym udrziavanim preserveOnReplan
+   (viz lib/scheduler/manualPreserve.js) - pouzivane priamo v UI handleroch
+   nizsie AJ v testoch (export, rovnaky vzor ako ostatne funkcie v tejto
+   sekcii). Priradenie SAMO O SEBE nezapisuje preserve flag (o tom rozhoduje
+   az PreservePromptModal / "Ano, zachovat" v hlavnej komponente), len
+   defenzivne zmaze pripadny stary flag pre tuto rolu PRED priradenim (aby po
+   rucnom presune - odobrat + znova priradit inam - nezostala osirela znacka
+   na povodnom mieste). Odobratie VZDY zmaze pripadny preserve flag pre danu
+   rolu/osobu (ziadne "preserveOnReplan" ukazujuce na uz neprítomného cloveka). */
+export function applySetPos(shift, role, empId) {
+  const next = { ...shift, assigned: { ...shift.assigned, [role]: empId || null } };
+  return unmarkPreserved(next, role);
+}
+export function applyAddGeneral(shift, empId) {
+  if (shift.assigned.general.includes(empId)) return shift;
+  return { ...shift, assigned: { ...shift.assigned, general: [...shift.assigned.general, empId] } };
+}
+export function applyRemoveGeneral(shift, empId) {
+  const next = { ...shift, assigned: { ...shift.assigned, general: shift.assigned.general.filter(id => id !== empId) } };
+  return unmarkPreserved(next, empId);
+}
+export function applyClearShiftAssignments(shift) {
+  const next = { ...shift };
+  clearShiftAssignments(next);
+  next.preserveOnReplan = { pos1: false, pos3: false, general: [] };
+  return next;
+}
 /* shiftType je volitelny - ak sa neda a je to nocna zmena na prvom/poslednom dni
    neprítomnosti, zohladnia sa priznaky nightOnFromOk/nightOnToOk (zamestnankyna
    pri ziadosti oznacila, ze tuto konkretnu nocnu smenu na hranici obdobia este/uz zvladne). */
@@ -163,6 +192,11 @@ export function globalStats(weeks, empId) {
   return { total, day, night, sanitation };
 }
 function getEmpNameFrom(employees, id) { const e = employees.find(x => x.id === id); return e ? e.name : '(neznámá)'; }
+// Ceske skloňovanie "zachovana zmena/zmeny/zmen" pre hlasku pred replanom.
+function preservedCountLabel(n) {
+  const word = n === 1 ? 'zachovanou ruční změnu' : n >= 2 && n <= 4 ? 'zachované ruční změny' : 'zachovaných ručních změn';
+  return `Tento týden obsahuje ${n} ${word}.`;
+}
 
 /* Pomocne funkcie pre planovanie so snahou o suvisle bloky (rovnaka osoba viac zmien rovnakeho typu za sebou) */
 export function neighborIdsFor(w, shiftId) {
@@ -394,11 +428,16 @@ export function autoFillWeek(week, employees, absences, allWeeks) {
 /* =========================================================================
    MALE KOMPONENTY
    ========================================================================= */
-function PersonChip({ name, warning, onRemove }) {
+function PersonChip({ name, warning, onRemove, preserved, onUnpreserve }) {
   return (
     <span className={`inline-flex items-center gap-1 px-2 py-1 rounded-full text-xs font-medium border ${warning ? 'bg-rose-50 text-rose-700 border-rose-300' : 'bg-slate-100 text-slate-700 border-slate-200'}`} title={warning || ''}>
       {warning && <AlertTriangle className="w-3 h-3" />}
       {name}
+      {preserved && (
+        <button onClick={onUnpreserve} className="text-amber-600 hover:text-amber-800" title="Ručně zachováno pro automatické přeplánování">
+          <Pin className="w-3 h-3" fill="currentColor" />
+        </button>
+      )}
       <button onClick={onRemove} className="hover:text-rose-600"><X className="w-3 h-3" /></button>
     </span>
   );
@@ -423,7 +462,7 @@ function TimelineStrip({ week }) {
   );
 }
 
-function ShiftRow({ week, shift, employees, absences, onSetProduct, onSetPos, onAddGeneral, onRemoveGeneral, onAddExtra, onRemoveExtra, onClear }) {
+function ShiftRow({ week, shift, employees, absences, onSetProduct, onSetPos, onAddGeneral, onRemoveGeneral, onAddExtra, onRemoveExtra, onClear, onUnpreserve }) {
   const total = shiftTotal(shift);
   const filledCount = shiftPeopleIds(shift).length;
   const usedIds = new Set(shiftPeopleIds(shift));
@@ -482,7 +521,8 @@ function ShiftRow({ week, shift, employees, absences, onSetProduct, onSetPos, on
           <div>
             <div className="text-xs uppercase tracking-wide text-slate-400 mb-1">Hrncová</div>
             {shift.assigned.pos1 ? (
-              <PersonChip name={getEmpNameFrom(employees, shift.assigned.pos1)} warning={warn(shift.assigned.pos1)} onRemove={() => onSetPos(week.id, shift.id, 'pos1', null)} />
+              <PersonChip name={getEmpNameFrom(employees, shift.assigned.pos1)} warning={warn(shift.assigned.pos1)} onRemove={() => onSetPos(week.id, shift.id, 'pos1', null)}
+                preserved={isPreserved(shift, 'pos1')} onUnpreserve={() => onUnpreserve(week.id, shift.id, 'pos1')} />
             ) : (
               <select onChange={e => onSetPos(week.id, shift.id, 'pos1', e.target.value || null)} value="" className="text-sm border border-dashed border-slate-300 rounded px-2 py-1 w-full text-slate-400">
                 <option value="">+ přiřadit</option>
@@ -493,7 +533,8 @@ function ShiftRow({ week, shift, employees, absences, onSetProduct, onSetPos, on
           <div>
             <div className="text-xs uppercase tracking-wide text-slate-400 mb-1">Pozice 3</div>
             {shift.assigned.pos3 ? (
-              <PersonChip name={getEmpNameFrom(employees, shift.assigned.pos3)} warning={warn(shift.assigned.pos3)} onRemove={() => onSetPos(week.id, shift.id, 'pos3', null)} />
+              <PersonChip name={getEmpNameFrom(employees, shift.assigned.pos3)} warning={warn(shift.assigned.pos3)} onRemove={() => onSetPos(week.id, shift.id, 'pos3', null)}
+                preserved={isPreserved(shift, 'pos3')} onUnpreserve={() => onUnpreserve(week.id, shift.id, 'pos3')} />
             ) : (
               <select onChange={e => onSetPos(week.id, shift.id, 'pos3', e.target.value || null)} value="" className="text-sm border border-dashed border-slate-300 rounded px-2 py-1 w-full text-slate-400">
                 <option value="">+ přiřadit</option>
@@ -505,7 +546,8 @@ function ShiftRow({ week, shift, employees, absences, onSetProduct, onSetPos, on
             <div className="text-xs uppercase tracking-wide text-slate-400 mb-1">Ostatní pozice</div>
             <div className="flex flex-wrap gap-1 mb-1">
               {shift.assigned.general.map(id => (
-                <PersonChip key={id} name={getEmpNameFrom(employees, id)} warning={warn(id)} onRemove={() => onRemoveGeneral(week.id, shift.id, id)} />
+                <PersonChip key={id} name={getEmpNameFrom(employees, id)} warning={warn(id)} onRemove={() => onRemoveGeneral(week.id, shift.id, id)}
+                  preserved={isPreserved(shift, id)} onUnpreserve={() => onUnpreserve(week.id, shift.id, id)} />
               ))}
             </div>
             {shift.assigned.general.length < neededGeneral && (
@@ -1029,7 +1071,7 @@ function PrehladTab({ weeks, employees, onGotoWeek, activeWeekId }) {
   );
 }
 
-function PlannerTab({ weeks, activeWeek, employees, absences, setActiveWeekId, onNav, onCreateWeek, onGotoWeek, onToggleSunday, onAutoFill, onClearRefill, onClearOnly, onSetProduct, onSetPos, onAddGeneral, onRemoveGeneral, onAddExtra, onRemoveExtra, onClearShift, onExport, onShowPreview }) {
+function PlannerTab({ weeks, activeWeek, employees, absences, setActiveWeekId, onNav, onCreateWeek, onGotoWeek, onToggleSunday, onAutoFill, onClearRefill, onClearOnly, onSetProduct, onSetPos, onAddGeneral, onRemoveGeneral, onAddExtra, onRemoveExtra, onClearShift, onExport, onShowPreview, onUnpreserve }) {
   const [planTwoWeeks, setPlanTwoWeeks] = useState(false);
 
   if (!activeWeek) {
@@ -1090,7 +1132,7 @@ function PlannerTab({ weeks, activeWeek, employees, absences, setActiveWeekId, o
         {activeWeek.shifts.map(s => (
           <ShiftRow key={s.id} week={activeWeek} shift={s} employees={employees} absences={absences}
             onSetProduct={onSetProduct} onSetPos={onSetPos} onAddGeneral={onAddGeneral} onRemoveGeneral={onRemoveGeneral}
-            onAddExtra={onAddExtra} onRemoveExtra={onRemoveExtra} onClear={onClearShift} />
+            onAddExtra={onAddExtra} onRemoveExtra={onRemoveExtra} onClear={onClearShift} onUnpreserve={onUnpreserve} />
         ))}
       </div>
 
@@ -1117,7 +1159,7 @@ function PlannerTab({ weeks, activeWeek, employees, absences, setActiveWeekId, o
                 {secondWeek.shifts.map(s => (
                   <ShiftRow key={s.id} week={secondWeek} shift={s} employees={employees} absences={absences}
                     onSetProduct={onSetProduct} onSetPos={onSetPos} onAddGeneral={onAddGeneral} onRemoveGeneral={onRemoveGeneral}
-                    onAddExtra={onAddExtra} onRemoveExtra={onRemoveExtra} onClear={onClearShift} />
+                    onAddExtra={onAddExtra} onRemoveExtra={onRemoveExtra} onClear={onClearShift} onUnpreserve={onUnpreserve} />
                 ))}
               </div>
             </>
@@ -1446,6 +1488,24 @@ function DestructiveActionConfirmModal({ title, message, confirmLabel, onCancel,
   );
 }
 
+// Po kazdej uspesnej rucnej zmene priradenia (pos1/pos3/general) sa opyta,
+// ci sa ma PRESNE TATO konkretna zmena (nie cely zamestnanec, nie cely den)
+// zachovat pri buducom "Vycistit a preplanovat" - viz lib/scheduler/manualPreserve.js.
+function PreservePromptModal({ employeeName, onNo, onYes }) {
+  return (
+    <div className="fixed inset-0 bg-black/40 flex items-center justify-center p-4 z-50" onClick={onNo}>
+      <div className="bg-white rounded-lg max-w-md w-full p-4 space-y-3" onClick={e => e.stopPropagation()}>
+        <h3 className="font-semibold text-slate-800">Ruční změna</h3>
+        <p className="text-sm text-slate-600">Chcete tuto ruční změnu ({employeeName}) zachovat při dalším automatickém přeplánování?</p>
+        <div className="flex justify-end gap-2 pt-2">
+          <button onClick={onNo} className="px-3 py-2 text-sm rounded border border-slate-300 hover:bg-slate-100">Ne</button>
+          <button onClick={onYes} className="px-3 py-2 text-sm rounded-md bg-amber-600 text-white hover:bg-amber-700">Ano, zachovat</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // Docasne (nepersistovane) "Zpet" po Vycistit/Preplanovat - jednoduchy in-memory
 // snapshot bez akejkolvek DB zmeny, zmizne po 20s alebo dalsom kroku. Nie je
 // to plnohodnotny undo-stack, len ochrana proti "omylom klikol som".
@@ -1502,6 +1562,9 @@ export default function PlanSmienView({ onBack }) {
   const [confirmAction, setConfirmAction] = useState(null);
   const [undoState, setUndoState] = useState(null);
   const undoTimeoutRef = useRef(null);
+  // Dotaz "zachovat rucni zmenu pri preplanovani?" po kazdej uspesnej rucnej
+  // zmene priradenia - {weekId, shiftId, role, empId}, viz PreservePromptModal.
+  const [preservePrompt, setPreservePrompt] = useState(null);
   const [absForm, setAbsForm] = useState({ employeeId: '', from: '', to: '', reason: '', nightOnFromOk: false, nightOnToOk: false });
 
   useEffect(() => {
@@ -1591,12 +1654,36 @@ export default function PlanSmienView({ onBack }) {
   }
 
   function setProduct(weekId, shiftId, product) { updateShift(weekId, shiftId, s => { s.product = product; return s; }); }
-  function setPos(weekId, shiftId, role, empId) { updateShift(weekId, shiftId, s => { s.assigned[role] = empId || null; return s; }); }
-  function addGeneral(weekId, shiftId, empId) { updateShift(weekId, shiftId, s => { if (!s.assigned.general.includes(empId)) s.assigned.general.push(empId); return s; }); }
-  function removeGeneral(weekId, shiftId, empId) { updateShift(weekId, shiftId, s => { s.assigned.general = s.assigned.general.filter(id => id !== empId); return s; }); }
+  // Rucne priradenie/odobratie pos1/pos3/general - mutacna logika je v
+  // applySetPos/applyAddGeneral/applyRemoveGeneral (export vyssie, testovatelne
+  // samostatne). Priradenie SAMO O SEBE nezapisuje preserve flag - len ponukne
+  // otazku (PreservePromptModal), az "Ano, zachovat" ju zapise (confirmPreserve).
+  function setPos(weekId, shiftId, role, empId) {
+    updateShift(weekId, shiftId, s => applySetPos(s, role, empId));
+    if (empId) setPreservePrompt({ weekId, shiftId, role, empId });
+  }
+  function addGeneral(weekId, shiftId, empId) {
+    updateShift(weekId, shiftId, s => applyAddGeneral(s, empId));
+    setPreservePrompt({ weekId, shiftId, role: 'general', empId });
+  }
+  function removeGeneral(weekId, shiftId, empId) {
+    updateShift(weekId, shiftId, s => applyRemoveGeneral(s, empId));
+  }
+  function unpreserveAssignment(weekId, shiftId, roleOrEmpId) {
+    updateShift(weekId, shiftId, s => unmarkPreserved(s, roleOrEmpId));
+  }
+  function confirmPreserve() {
+    if (!preservePrompt) return;
+    const { weekId, shiftId, role, empId } = preservePrompt;
+    updateShift(weekId, shiftId, s => markPreserved(s, role === 'general' ? empId : role));
+    setPreservePrompt(null);
+  }
+  function dismissPreserve() { setPreservePrompt(null); }
   function addExtra(weekId, shiftId, empId) { updateShift(weekId, shiftId, s => { if (!s.extra.includes(empId)) s.extra.push(empId); return s; }); }
   function removeExtra(weekId, shiftId, empId) { updateShift(weekId, shiftId, s => { s.extra = s.extra.filter(id => id !== empId); return s; }); }
-  function clearShiftAssignment(weekId, shiftId) { updateShift(weekId, shiftId, s => { clearShiftAssignments(s); return s; }); }
+  function clearShiftAssignment(weekId, shiftId) {
+    updateShift(weekId, shiftId, s => applyClearShiftAssignments(s));
+  }
 
   // Docasny in-memory "Zpet" (20s, zmizne aj pri dalsej mutacnej akcii) - ziadna
   // perzistencia navyse, len ochrana pred omylom pri Vycistit/Preplanovat.
@@ -1649,7 +1736,7 @@ export default function PlanSmienView({ onBack }) {
     if (!week) return;
     const guard = canReplan(week, toISO(new Date()));
     if (!guard.allowed) { window.alert(guard.reason); return; }
-    if (guard.requiresConfirmation) { setConfirmAction({ type: 'replan', weekId: week.id }); return; }
+    if (guard.requiresConfirmation) { setConfirmAction({ type: 'replan', weekId: week.id, preservedCount: countPreservedInWeek(week) }); return; }
     performReplan(week.id);
   }
   function performClear(weekId) {
@@ -1872,7 +1959,7 @@ export default function PlanSmienView({ onBack }) {
             onToggleSunday={toggleExtraSunday} onAutoFill={autoFillCurrentWeek} onClearRefill={clearAndRefillWeek} onClearOnly={clearWeekOnly}
             onSetProduct={setProduct} onSetPos={setPos} onAddGeneral={addGeneral} onRemoveGeneral={removeGeneral}
             onAddExtra={addExtra} onRemoveExtra={removeExtra} onClearShift={clearShiftAssignment} onExport={copyExport}
-            onShowPreview={() => setShowPreview(true)}
+            onShowPreview={() => setShowPreview(true)} onUnpreserve={unpreserveAssignment}
           />
         )}
         {tab === 'employees' && (
@@ -1897,16 +1984,27 @@ export default function PlanSmienView({ onBack }) {
           title={confirmAction.type === 'replan' ? 'Přeplánovat týden?' : 'Vyčistit týden?'}
           message={
             confirmAction.type === 'replan'
-              ? 'Tento týden již obsahuje naplánované směny.\nPřeplánováním budou existující přiřazení v tomto týdnu nahrazena.\n\nChcete pokračovat?'
+              ? (confirmAction.preservedCount > 0
+                  ? `${preservedCountLabel(confirmAction.preservedCount)}\nOstatní (nezachovaná) přiřazení budou přeplánováním nahrazena. Ručně zachované změny zůstanou beze změny.\n\nChcete pokračovat?`
+                  : 'Tento týden již obsahuje naplánované směny.\nPřeplánováním budou existující přiřazení v tomto týdnu nahrazena.\n\nChcete pokračovat?')
               : 'Tento týden již obsahuje naplánované směny (nebo je jinak potřeba potvrdit vyčištění).\nVyčištěním budou všechna přiřazení v tomto týdnu smazána (bez opětovného naplánování).\n\nChcete pokračovat?'
           }
-          confirmLabel={confirmAction.type === 'replan' ? 'Přeplánovat týden' : 'Vyčistit týden'}
+          confirmLabel={confirmAction.type === 'replan'
+            ? (confirmAction.preservedCount > 0 ? 'Přeplánovat se zachováním ručních změn' : 'Přeplánovat týden')
+            : 'Vyčistit týden'}
           onCancel={() => setConfirmAction(null)}
           onConfirm={() => {
             const a = confirmAction;
             setConfirmAction(null);
             if (a.type === 'replan') performReplan(a.weekId); else performClear(a.weekId);
           }}
+        />
+      )}
+      {preservePrompt && (
+        <PreservePromptModal
+          employeeName={getEmpNameFrom(employees, preservePrompt.empId)}
+          onNo={dismissPreserve}
+          onYes={confirmPreserve}
         />
       )}
     </div>
