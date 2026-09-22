@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback } from "react";
-import { Loader2, AlertCircle, Users2, UserPlus, ArrowLeft, ShieldAlert, Settings, LayoutDashboard, FileText, Pencil, X, CheckCircle2 } from "lucide-react";
+import { Loader2, AlertCircle, Users2, UserPlus, ArrowLeft, ShieldAlert, Settings, LayoutDashboard, FileText, Pencil, CheckCircle2, Briefcase, Plus } from "lucide-react";
 import { supabase } from "../supabaseClient.js";
 import { uid, skDateStrFromIso } from "../lib/utils.js";
 
@@ -47,6 +47,7 @@ const HR_SUB_TABS = [
   { key: "dashboard", label: "Přehled", icon: LayoutDashboard },
   { key: "zamestnanci", label: "Zaměstnanci", icon: Users2 },
   { key: "byvali", label: "Bývalí zaměstnanci", icon: Users2 },
+  { key: "pozice", label: "Pozice", icon: Briefcase },
   { key: "sablony", label: "Šablony dokumentů", icon: FileText },
   { key: "nastaveni", label: "Nastavení", icon: Settings, adminOnly: true },
 ];
@@ -126,6 +127,7 @@ export default function PersonalistikaModule() {
           ? <EmployeeDetail id={openEmployeeId} permissions={permissions} onBack={() => setOpenEmployeeId(null)} />
           : <EmployeesListTab mode="former" permissions={permissions} onOpen={setOpenEmployeeId} />
       )}
+      {tab === "pozice" && <PositionsTab permissions={permissions} />}
       {tab === "sablony" && <TemplatesPlaceholder />}
       {tab === "nastaveni" && hasPerm(permissions, "HR_ADMIN") && <SettingsTab />}
     </div>
@@ -967,6 +969,104 @@ function HistorieTab({ timeline }) {
           </div>
         </div>
       ))}
+    </div>
+  );
+}
+
+/* ---------------- Pozice ---------------- */
+
+function PositionsTab({ permissions }) {
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
+  const [positions, setPositions] = useState([]);
+  const [adding, setAdding] = useState(false);
+  const canEdit = hasPerm(permissions, "HR_EDIT");
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    const { data, error: err } = await supabase.from("positions").select("*").order("code").order("name");
+    if (err) { setError("Nepodařilo se načíst pozice."); setLoading(false); return; }
+    setPositions(data || []);
+    setLoading(false);
+  }, []);
+
+  useEffect(() => { load(); }, [load]);
+
+  async function toggleActive(p) {
+    await supabase.from("positions").update({ active: !p.active, updated_at: new Date().toISOString() }).eq("id", p.id);
+    load();
+  }
+
+  return (
+    <div>
+      <div className="flex items-center justify-between mb-4">
+        <h1 className="text-xl font-semibold">Pozice</h1>
+        {canEdit && !adding && <button onClick={() => setAdding(true)} className="flex items-center gap-1.5 bg-teal-700 hover:bg-teal-800 text-white text-sm font-medium px-3 py-2 rounded-md"><Plus size={16} /> Nová pozice</button>}
+      </div>
+      <p className="text-xs text-slate-400 mb-3">Zatím jen název a kód (např. HI-002 – Skladník) - popis pracovního místa se doplní později, jakmile budou k dispozici šablony.</p>
+      {adding && <AddPositionForm onCancel={() => setAdding(false)} onSaved={() => { setAdding(false); load(); }} />}
+      {loading ? (
+        <div className="text-center text-slate-400 py-10"><Loader2 className="animate-spin mx-auto mb-2" size={24} /> Načítám...</div>
+      ) : error ? (
+        <div className="bg-red-50 text-red-700 text-sm px-3 py-2 rounded-md">{error}</div>
+      ) : (
+        <div className="bg-white border border-slate-200 rounded-lg overflow-hidden">
+          <table className="w-full text-sm">
+            <thead className="bg-slate-50 text-slate-500 text-xs uppercase">
+              <tr><th className="text-left px-4 py-2">Kód</th><th className="text-left px-4 py-2">Název</th><th className="text-left px-4 py-2">Stav</th><th></th></tr>
+            </thead>
+            <tbody>
+              {positions.map((p) => (
+                <tr key={p.id} className="border-t border-slate-100">
+                  <td className="px-4 py-2 text-slate-500 whitespace-nowrap">{p.code || "—"}</td>
+                  <td className="px-4 py-2 font-medium">{p.name}</td>
+                  <td className="px-4 py-2">
+                    {canEdit ? (
+                      <button onClick={() => toggleActive(p)} className={"px-2 py-0.5 rounded-full text-xs font-medium " + (p.active ? "bg-emerald-100 text-emerald-700" : "bg-slate-200 text-slate-500")}>
+                        {p.active ? "Aktivní" : "Neaktivní"}
+                      </button>
+                    ) : (
+                      <span className={"px-2 py-0.5 rounded-full text-xs font-medium " + (p.active ? "bg-emerald-100 text-emerald-700" : "bg-slate-200 text-slate-500")}>{p.active ? "Aktivní" : "Neaktivní"}</span>
+                    )}
+                  </td>
+                  <td></td>
+                </tr>
+              ))}
+              {positions.length === 0 && <tr><td colSpan={4} className="px-4 py-8 text-center text-slate-400">Zatím žádné pozice.</td></tr>}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function AddPositionForm({ onCancel, onSaved }) {
+  const [code, setCode] = useState("");
+  const [name, setName] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState("");
+
+  async function submit() {
+    if (!name.trim()) { setError("Vyplňte název pozice."); return; }
+    setSaving(true);
+    setError("");
+    const { error: err } = await supabase.from("positions").insert({ id: uid(), code: code.trim() || null, name: name.trim(), active: true });
+    if (err) { setError(err.message); setSaving(false); return; }
+    onSaved();
+  }
+
+  return (
+    <div className="bg-white border border-slate-200 rounded-lg p-4 mb-3">
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-4">
+        <TextField label="Kód (např. HI-002)" value={code} onChange={setCode} />
+        <TextField label="Název pozice" value={name} onChange={setName} />
+      </div>
+      {error && <div className="bg-red-50 text-red-700 text-sm px-3 py-2 rounded-md mb-2">{error}</div>}
+      <div className="flex justify-end gap-2">
+        <button onClick={onCancel} className="text-sm text-slate-500 px-3 py-2">Zrušit</button>
+        <button onClick={submit} disabled={saving} className="bg-teal-700 hover:bg-teal-800 disabled:opacity-50 text-white text-sm font-medium px-4 py-2 rounded-md">{saving ? "Ukládám..." : "Uložit"}</button>
+      </div>
     </div>
   );
 }
