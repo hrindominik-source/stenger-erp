@@ -1,9 +1,16 @@
 # Pouziva se na VPS - NEBUILDUJE nic lokalne, jen stahne uz hotovy image
 # postaveny v GitHub Actions (viz .github/workflows/deploy-vps.yml).
 # Pro lokalni build+test pouzijte misto toho docker-compose.production.yml.
+#
+# Port se NEPUBLIKUJE ven - Caddy (docker-compose.proxy.yml) se pripojuje
+# primo cez sdilenou sit "web" podle jmena sluzby app-production.
 services:
   app-production:
     image: ghcr.io/stenger-cz/stenger-erp:production
-    ports:
-      - "8080:80"
+    networks:
+      - web
     restart: unless-stopped
+
+networks:
+  web:
+    external: true

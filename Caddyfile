@@ -1,0 +1,13 @@
+# Caddy automaticky ziska a obnovuje Let's Encrypt certifikaty pre obe
+# domeny - nic sa nemusi rucne konfigurovat (na rozdiel od nginx+certbot).
+# Podmienka: obe domeny musia ukazovat (A zaznam) na verejnu IP tohto VPS
+# PREDTYM, nez Caddy nastartuje prvykrat - inak si Let's Encrypt overenie
+# nesadne.
+
+erp.stenger.cz {
+    reverse_proxy app-production:80
+}
+
+test-erp.stenger.cz {
+    reverse_proxy app-develop:80
+}

@@ -573,7 +573,29 @@ function AppLauncher({ onChoose }) {
   );
 }
 
-export default function MiniERP() {
+// Tenky pruhovany pruh na samom vrchu appky, viditelny na KAZDEJ obrazovke
+// (prihlasovanie, launcher, vsetky lazy-loadovane views) - jednoducho preto,
+// ze je vykreslovany tu, v jedinom spolocnom "root" wrapperi (viz MiniERP
+// nizsie), nie duplikovane v kazdom view subore zvlast. Riadi sa build-time
+// premennou VITE_APP_ENV (nastavovanou v Dockerfile/docker-compose/CI podla
+// prostredia) - na produkcii sa VITE_APP_ENV nenastavuje vobec, takze tam sa
+// nevykresli nic.
+function EnvironmentBanner() {
+  if (import.meta.env.VITE_APP_ENV !== "development") return null;
+  return (
+    <div
+      title="Vývojová verze (test-erp.stenger.cz) - testovací prostředí, ne ostrá data"
+      style={{
+        height: 8,
+        width: "100%",
+        background: "repeating-linear-gradient(45deg, #f59e0b, #f59e0b 12px, #78350f 12px, #78350f 24px)",
+        flexShrink: 0,
+      }}
+    />
+  );
+}
+
+function MiniERP() {
   const { loading: authLoading, session, profile, profileError, signIn, signOut } = useAuth();
   const [appChoice, setAppChoice] = useState(() => {
     try { return localStorage.getItem(APP_CHOICE_KEY) || null; } catch (e) { return null; }
@@ -690,6 +712,18 @@ export default function MiniERP() {
         <LogOut size={14} /> Odhlásit
       </button>
     </div>
+  );
+}
+
+// Jediny skutocny "root" export - EnvironmentBanner sa tu vykresli PRED
+// vsetkym ostatnym, takze pokryva uplne kazdu obrazovku appky bez ohladu na
+// to, ktora vetva MiniERP() nizsie sa prave zobrazuje.
+export default function MiniERPRoot() {
+  return (
+    <>
+      <EnvironmentBanner />
+      <MiniERP />
+    </>
   );
 }
 

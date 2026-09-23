@@ -47,6 +47,7 @@ jobs:
           build-args: |
             VITE_SUPABASE_URL=${{ steps.vars.outputs.env_name == 'production' && secrets.VITE_SUPABASE_URL_PRODUCTION || secrets.VITE_SUPABASE_URL_DEVELOPMENT }}
             VITE_SUPABASE_ANON_KEY=${{ steps.vars.outputs.env_name == 'production' && secrets.VITE_SUPABASE_ANON_KEY_PRODUCTION || secrets.VITE_SUPABASE_ANON_KEY_DEVELOPMENT }}
+            VITE_APP_ENV=${{ steps.vars.outputs.env_name }}
           tags: |
             ghcr.io/stenger-cz/stenger-erp:${{ steps.vars.outputs.env_name }}
             ghcr.io/stenger-cz/stenger-erp:${{ steps.vars.outputs.env_name }}-${{ github.sha }}

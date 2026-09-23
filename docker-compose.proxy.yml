@@ -1,0 +1,35 @@
+# Samostatny, DLHODOBO bezici stack (spusti sa raz, potom sa ho deploy
+# produkcie/develop uz netyka) - Caddy je jediny kontajner, ktory na VPS
+# priamo vystavuje porty 80/443 von. Kontajnery appky (app-production,
+# app-develop) uz porty von NEPUBLIKUJU (viz docker-compose.deploy.*.yml) -
+# Caddy sa k nim pripaja cez zdielanu Docker siet "web" podla mena sluzby.
+#
+# Spustit JEDNORAZOVO (pred prvym deployom appky, a DNS A zaznamy uz musia
+# ukazovat na tento VPS):
+#   docker network create web
+#   docker compose -f docker-compose.proxy.yml up -d
+#
+# Restart appky (produkcia/develop) sa tohto kontajnera vobec netyka - Caddy
+# len automaticky najde novy kontajner pod rovnakym menom sluzby.
+
+services:
+  caddy:
+    image: caddy:2-alpine
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile
+      - caddy_data:/data
+      - caddy_config:/config
+    networks:
+      - web
+    restart: unless-stopped
+
+networks:
+  web:
+    external: true
+
+volumes:
+  caddy_data:
+  caddy_config:
