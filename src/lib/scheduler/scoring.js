@@ -63,5 +63,19 @@ export function scoreCandidate(candidate, shift, ctx) {
     if (thursdayDay && shiftPeopleIds(thursdayDay).includes(candidate.id)) score += 5;
   }
 
+  // 7) pre zamestnancov s NIZKYM osobnym cielom (napr. castocny uvazok,
+  //    personalTarget<=2 - typicky "1x denna + 1x nocna" ako smerodajny mix,
+  //    nie dva rovnake za sebou ako pri plnom tíme, kde je suvisly blok
+  //    zelanym stavom). Mäkka penalizacia (nie zakaz) - da sa prebit realnou
+  //    prevadzkovou potrebou aj rucnym zasahom kolegu ("bude to moct kolega
+  //    zmenit pro ucely potreby"). Netyka sa nikoho s personalTarget>2.
+  if (personalTarget <= 2 && (shift.type === "day" || shift.type === "night")) {
+    const seq = employeeDailySequence(week, candidate.id);
+    const dayCount = seq.filter((s) => s === "day").length;
+    const nightCount = seq.filter((s) => s === "night").length;
+    if (shift.type === "day" && dayCount >= 1 && nightCount === 0) score -= 10;
+    if (shift.type === "night" && nightCount >= 1 && dayCount === 0) score -= 10;
+  }
+
   return score;
 }

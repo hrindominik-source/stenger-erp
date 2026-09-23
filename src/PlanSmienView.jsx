@@ -41,7 +41,7 @@ export const PRODUCTS = {
   bulk:    { label: 'Bulk popcorn',   total: 5 },
 };
 export const SANITATION_TOTAL = 5;
-const ROLE_LABEL = { pos1: 'Hrncová', 'pos1-backup': 'Hrncová (záskok)', pos3: 'Pozice 3', general: 'Ostatní' };
+const ROLE_LABEL = { pos1: 'Hrncová', 'pos1-backup': 'Hrncová (záskok)', pos3: 'Pozice 3', 'pos3-backup': 'Pozice 3 (záskok)', general: 'Ostatní' };
 
 const TABS = [
   { key: 'prehlad',   label: 'Přehled',        icon: <LayoutDashboard className="w-[18px] h-[18px]" />, color: 'indigo' },
@@ -468,7 +468,7 @@ function ShiftRow({ week, shift, employees, absences, onSetProduct, onSetPos, on
   const usedIds = new Set(shiftPeopleIds(shift));
   const activeEmp = employees.filter(e => e.active);
   const pos1Options = activeEmp.filter(e => (e.roles.includes('pos1') || e.roles.includes('pos1-backup')) && !usedIds.has(e.id));
-  const pos3Options = activeEmp.filter(e => e.roles.includes('pos3') && !usedIds.has(e.id));
+  const pos3Options = activeEmp.filter(e => (e.roles.includes('pos3') || e.roles.includes('pos3-backup')) && !usedIds.has(e.id));
   const generalOptions = activeEmp.filter(e => e.roles.includes('general') && !usedIds.has(e.id));
   const anyOptions = activeEmp.filter(e => !usedIds.has(e.id));
 
@@ -1182,6 +1182,7 @@ function EmployeesTab({ employees, onToggleActive, onUpdateMax, onUpdateRoles, o
     { key: 'pos1', label: 'Hrncová' },
     { key: 'pos1-backup', label: 'Hrncová – záskok' },
     { key: 'pos3', label: 'Pozice 3' },
+    { key: 'pos3-backup', label: 'Pozice 3 – záskok (nižší priorita)' },
     { key: 'general', label: 'Ostatní pozice' },
   ];
   function toggleRole(emp, k) {
@@ -1466,6 +1467,51 @@ function BalanceTab({ employees, weeks }) {
   );
 }
 
+// Prelozi warning objekt z runScheduler (lib/scheduler/constants.js WARNING
+// kody) na citatelnu ceskou vetu pre planovaca - predtym sa tieto udaje
+// generovali, ale nikde sa nezobrazovali (viz WARNING.EXCEPTIONAL_FIFTH_SHIFT
+// napr. pri Simankove - clovek nemal ako zistit PRECO dostala 5. zmenu).
+function formatSchedulerWarning(w, employees) {
+  const empName = w.employeeId ? getEmpNameFrom(employees, w.employeeId) : null;
+  const when = w.date ? `${dayLong(w.date)} ${formatSk(w.date)}` : '';
+  const typeLabel = w.type === 'day' ? 'denní' : w.type === 'night' ? 'noční' : 'sanitace';
+  const roleLabel = w.role === 'pos1' ? 'hrncová' : w.role === 'pos3' ? 'pozice 3' : 'ostatní';
+  switch (w.code) {
+    case 'EXCEPTIONAL_FIFTH_SHIFT':
+      return `${empName} má tento týden výjimečně 5. směnu (${when}, ${typeLabel}).`;
+    case 'POS1_BACKUP_USED':
+    case 'POS3_BACKUP_USED':
+      return `Pozice ${roleLabel} byla ${when} (${typeLabel}) obsazena záskokem (${empName}), protože přednostní osoba nebyla k dispozici.`;
+    case 'CRITICAL_ROLE_SHORTAGE':
+      return `Nepodařilo se obsadit pozici ${roleLabel} na směně ${when} (${typeLabel}) — nikdo vhodný nebyl k dispozici.`;
+    case 'STAFFING_SHORTAGE':
+      return `Směna ${when} (${typeLabel}) má nedostatek lidí: ${w.filled}/${w.total}.`;
+    default:
+      return null;
+  }
+}
+
+// Docasny (nepersistovany, zmizne pri dalsej akcii/prepnuti tyzdna) suhrn
+// upozorneni z posledneho automatickeho Doplnit/Preplanovat - viz
+// formatSchedulerWarning vyssie. MANUAL_ASSIGNMENT_PRESERVED sa tu zamerne
+// nezobrazuje (ten pocet uz vidi planovac v potvrdzovacom dialogu pred
+// samotnym Preplanovat).
+function SchedulerWarningsBanner({ warnings, employees, onDismiss }) {
+  const lines = warnings.map(w => formatSchedulerWarning(w, employees)).filter(Boolean);
+  if (lines.length === 0) return null;
+  return (
+    <div className="bg-amber-50 border border-amber-200 text-amber-800 text-sm rounded-md px-3 py-2 mb-3">
+      <div className="flex items-center justify-between mb-1">
+        <span className="font-semibold flex items-center gap-1.5"><AlertTriangle className="w-4 h-4" /> Upozornění z automatického plánování ({lines.length})</span>
+        <button onClick={onDismiss} className="text-amber-500 hover:text-amber-700"><X className="w-3.5 h-3.5" /></button>
+      </div>
+      <ul className="list-disc pl-5 space-y-0.5">
+        {lines.map((line, i) => <li key={i}>{line}</li>)}
+      </ul>
+    </div>
+  );
+}
+
 // Potvrdzovaci dialog pred destruktivnou hromadnou akciou (Vycistit /
 // Vycistit a preplanovat) na buducom tyzdni, ktory uz obsahuje nejake
 // priradenia - viz canClearOnly/canReplan v lib/planSmienGuard.js. Ziadna
@@ -1565,6 +1611,9 @@ export default function PlanSmienView({ onBack }) {
   // Dotaz "zachovat rucni zmenu pri preplanovani?" po kazdej uspesnej rucnej
   // zmene priradenia - {weekId, shiftId, role, empId}, viz PreservePromptModal.
   const [preservePrompt, setPreservePrompt] = useState(null);
+  // Upozornenia z posledneho Doplnit/Preplanovat (viz SchedulerWarningsBanner) -
+  // docasne, nepersistovane, zmizne pri dalsej akcii/prepnuti tyzdna.
+  const [schedulerWarnings, setSchedulerWarnings] = useState(null);
   const [absForm, setAbsForm] = useState({ employeeId: '', from: '', to: '', reason: '', nightOnFromOk: false, nightOnToOk: false });
 
   useEffect(() => {
@@ -1714,8 +1763,9 @@ export default function PlanSmienView({ onBack }) {
     if (!week) return;
     const guard = canAutoFill(week, toISO(new Date()));
     if (!guard.allowed) { window.alert(guard.reason); return; }
-    const { week: filled } = runScheduler({ mode: 'fillGaps', week, employees, absences, allWeeks: weeks });
+    const { week: filled, warnings } = runScheduler({ mode: 'fillGaps', week, employees, absences, allWeeks: weeks });
     setWeeks(ws => ws.map(w => (w.id === filled.id ? filled : w)));
+    setSchedulerWarnings(warnings);
   }
   // "Vyčistit a přeplánovat" - novy engine v mode 'replan' si sam rozhodne, co
   // zmazat (vsetko okrem priradeni explicitne oznacenych shift.preserveOnReplan -
@@ -1724,9 +1774,10 @@ export default function PlanSmienView({ onBack }) {
   function performReplan(weekId) {
     const week = weeks.find(w => w.id === weekId);
     if (!week) return;
-    const { week: filled } = runScheduler({ mode: 'replan', week, employees, absences, allWeeks: weeks, referenceWeek: week });
+    const { week: filled, warnings } = runScheduler({ mode: 'replan', week, employees, absences, allWeeks: weeks, referenceWeek: week });
     armUndo(week.id, week, 'Týden byl přeplánován.');
     setWeeks(ws => ws.map(w => (w.id === filled.id ? filled : w)));
+    setSchedulerWarnings(warnings);
   }
   // "Vyčistit a přeplánovat" - na chranenom tyzdni uplne zakazane; na buducom
   // tyzdni, ktory uz ma nejake priradenia, vyzaduje explicitne potvrdenie
@@ -1948,6 +1999,9 @@ export default function PlanSmienView({ onBack }) {
       <main className="p-4 md:p-6 max-w-6xl mx-auto">
         {undoState && tab === 'planner' && (
           <UndoBanner actionLabel={undoState.actionLabel} onUndo={performUndo} onDismiss={dismissUndo} />
+        )}
+        {schedulerWarnings && tab === 'planner' && (
+          <SchedulerWarningsBanner warnings={schedulerWarnings} employees={employees} onDismiss={() => setSchedulerWarnings(null)} />
         )}
         {tab === 'prehlad' && (
           <PrehladTab weeks={weeks} employees={employees} onGotoWeek={gotoWeekContaining} activeWeekId={activeWeekId} />
