@@ -1,0 +1,20 @@
+# Vyvojovy/staging kontajner - musi sa vzdy spustat s --env-file
+# .env.development, aby sa ${VITE_SUPABASE_URL}/${VITE_SUPABASE_ANON_KEY}
+# nizsie nahradili udajmi STAGING Supabase projektu (nie produkcnymi).
+#
+#   docker compose -f docker-compose.development.yml --env-file .env.development up -d --build
+#
+# Bezi na inom porte (8081) nez produkcia (8080), takze oba kontajnery mozu
+# bezat sucasne na tom istom stroji.
+
+services:
+  app-develop:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        VITE_SUPABASE_URL: ${VITE_SUPABASE_URL}
+        VITE_SUPABASE_ANON_KEY: ${VITE_SUPABASE_ANON_KEY}
+    ports:
+      - "8081:80"
+    restart: unless-stopped

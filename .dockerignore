@@ -1,9 +1,14 @@
 node_modules
 dist
+.git
+.github
+.vite
+vite-dev.log
+*.log
 .env
 .env.local
 .env.*.local
 .env.production
 .env.development
-.claude/settings.local.json
+.claude
 supabase/.temp

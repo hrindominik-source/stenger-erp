@@ -1,0 +1,21 @@
+# Produkcny kontajner - musi sa vzdy spustat s --env-file .env.production,
+# aby sa ${VITE_SUPABASE_URL}/${VITE_SUPABASE_ANON_KEY} nizsie nahradili
+# udajmi PRODUKCNEHO Supabase projektu (nie tymi zo suboru .env.development).
+#
+#   docker compose -f docker-compose.production.yml --env-file .env.production up -d --build
+#
+# Zamerne SAMOSTATNY subor (nie jeden compose s dvoma sluzbami) - predislo sa
+# tak chybe, ked by obe prostredia omylom zdielali tu istu interpolaciu
+# premennych a dostali rovnake (napr. produkcne) udaje aj do vyvojoveho image.
+
+services:
+  app-production:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        VITE_SUPABASE_URL: ${VITE_SUPABASE_URL}
+        VITE_SUPABASE_ANON_KEY: ${VITE_SUPABASE_ANON_KEY}
+    ports:
+      - "8080:80"
+    restart: unless-stopped
