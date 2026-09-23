@@ -1,0 +1,9 @@
+# Pouziva se na VPS - NEBUILDUJE nic lokalne, jen stahne uz hotovy image
+# postaveny v GitHub Actions (viz .github/workflows/deploy-vps.yml).
+# Pro lokalni build+test pouzijte misto toho docker-compose.development.yml.
+services:
+  app-develop:
+    image: ghcr.io/stenger-cz/stenger-erp:development
+    ports:
+      - "8081:80"
+    restart: unless-stopped
