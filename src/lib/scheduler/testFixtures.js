@@ -18,7 +18,10 @@ export function makeRealisticEmployees() {
     { id: "gen6", name: "Gen 6", roles: ["general"], weeklyMax: 5, active: true },
     { id: "gen7", name: "Gen 7", roles: ["general"], weeklyMax: 5, active: true },
     { id: "gen8", name: "Gen 8", roles: ["general"], weeklyMax: 5, active: true },
-    { id: "zuzana", name: "Zuzana Svobodova", roles: ["general"], weeklyMax: 4, active: true },
+    // weeklyMax=2 zodpoveda jej realnemu nastaveniu v produkcii ("Zamestnanci"
+    // sekcia) - povodne tu bola omylom 4, cim testy nezachytili regresiu, ked
+    // automaticky engine tento osobny strop ignoroval (viz eligibility.js/scoring.js).
+    { id: "zuzana", name: "Zuzana Svobodova", roles: ["general"], weeklyMax: 2, active: true },
   ];
 }
 

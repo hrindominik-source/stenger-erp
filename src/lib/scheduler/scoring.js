@@ -25,11 +25,17 @@ export function scoreCandidate(candidate, shift, ctx) {
     score += (after - before) * 2;
   }
 
-  // 3) zataz / mäkký strop 4 zmeny, 5. len ako vynimka (nikdy 6.,
-  //    to uz vylucuje eligibleForRole)
+  // 3) zataz / mäkký strop - INDIVIDUALNY podla intent.targetShifts (uz
+  //    zohladnuje osobny employee.weeklyMax aj pripadnu preferenciu, viz
+  //    intent.js), nie plosna firemna konstanta. Zuzana (weeklyMax=2) tak
+  //    dostane penalizaciu uz za 3. zmenu, nie az za 5. ako predtym, kedy sa
+  //    tu porovnavalo len proti globalnemu NORMAL_TARGET_SHIFTS/HARD_MAX_SHIFTS
+  //    a jej osobny strop sa v skore vobec neprejavil.
   const currentCount = weekShiftCount(week, candidate.id);
-  if (currentCount + 1 > NORMAL_TARGET_SHIFTS) score -= 20;
-  if (currentCount + 1 >= HARD_MAX_SHIFTS) score -= 10;
+  const personalTarget = Math.min(intent.targetShifts ?? NORMAL_TARGET_SHIFTS, candidate.weeklyMax);
+  const personalHardCap = Math.min(HARD_MAX_SHIFTS, candidate.weeklyMax + 1);
+  if (currentCount + 1 > personalTarget) score -= 20;
+  if (currentCount + 1 >= personalHardCap) score -= 10;
 
   // 4) stabilita pri prepocitani (replan) - bonus za zachovanie povodneho
   //    priradenia znizuje zbytocne zmeny (minimal-diff poziadavka)
