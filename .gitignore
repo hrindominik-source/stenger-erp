@@ -7,6 +7,8 @@ dist
 .env.development
 .claude/settings.local.json
 supabase/.temp
+.vite/
+vite-dev.log
 # Lokalne HR podklady (analyza, master prompt, DOCX vzory) - nikdy do gitu
 # ani do verejneho buildu, viz MASTER_PROMPT_Claude_Code_Stenger_ONE.txt bod A.5
 hr-podklady/
