@@ -1927,3 +1927,456 @@ begin
 end;
 $body$;
 grant execute on function public.hr_admin_delete_employee(text) to authenticated;
+
+-- ============================================================
+-- 45. Personalistika rozsirenie (MASTER_PROMPT_Claude_Code_Stenger_ONE) -
+--     VYLUCNE ADITIVNE: ziadny existujuci stlpec/tabulka/ID sa nemeni ani
+--     neodstranuje. Kazda zmena existujucej RLS policy je len SPRISNENIE
+--     (nova poziadavka navyse), nikdy uvolnenie.
+-- ============================================================
+
+-- 45.1 employment_terms_versions - casovo ucinne verzie pracovnych podmienok
+--      (pozicia, uvazok, miesto, doba urcita/neurcita...) POD existujucim
+--      employment_relationships. Riesi medzeru: dnes su tieto udaje priamo
+--      stlpcami na employment_relationships BEZ historie - zmena prepise
+--      bez stopy. Tato tabulka je od teraz JEDINY zdroj pravdy pre
+--      "aktualne platne podmienky" (cez hr_employment_terms_as_of nizsie) -
+--      stare stlpce na employment_relationships ostavaju v DB nedotknute
+--      (ziadne mazanie stlpcov), ale appka ich uz po tejto migracii necita
+--      priamo, aby sa nemohli s novou tabulkou rozist.
+create extension if not exists btree_gist;
+
+create table if not exists public.employment_terms_versions (
+  id text primary key,
+  employment_id text not null references public.employment_relationships(id),
+  valid_from date,
+  valid_to date,
+  position_id text references public.positions(id),
+  workplace text,
+  weekly_hours numeric,
+  employment_type text check (employment_type in ('doba_urcita', 'doba_neurcita')),
+  fixed_term_end_date date,
+  probation_end_date date,
+  notes text,
+  -- Pociatocny evidencny stav vytvoreny pri migracii/importe, nie skutocna
+  -- zmluvna udalost - viz known_history_scope (bod D.8 planu / bod 1 zadania).
+  is_initial_evidentiary_state boolean not null default false,
+  known_history_scope text,
+  data jsonb not null default '{}'::jsonb,
+  created_by uuid references auth.users(id),
+  created_at timestamptz not null default now(),
+  -- Pomocne generovane stlpce LEN pre EXCLUDE constraint nizsie - NULL
+  -- valid_from/valid_to sa spravaju ako "od/do nekonecna" (neznamy
+  -- zaciatok / stale prebieha), nie ako "ignoruj konflikt".
+  effective_from date generated always as (coalesce(valid_from, '0001-01-01'::date)) stored,
+  effective_to date generated always as (coalesce(valid_to, '9999-12-31'::date)) stored
+);
+alter table public.employment_terms_versions
+  drop constraint if exists employment_terms_versions_no_overlap;
+alter table public.employment_terms_versions
+  add constraint employment_terms_versions_no_overlap
+  exclude using gist (
+    employment_id with =,
+    daterange(effective_from, effective_to, '[]') with &&
+  );
+alter table public.employment_terms_versions enable row level security;
+drop policy if exists "employment_terms_versions_view" on public.employment_terms_versions;
+create policy "employment_terms_versions_view" on public.employment_terms_versions
+  for select
+  using (public.current_role() = 'office' and public.hr_has_permission('HR_VIEW_BASIC'));
+drop policy if exists "employment_terms_versions_insert" on public.employment_terms_versions;
+create policy "employment_terms_versions_insert" on public.employment_terms_versions
+  for insert
+  with check (public.current_role() = 'office' and public.hr_has_permission('HR_EDIT'));
+-- Ziadna update/delete policy - korekcia je novy riadok (bod D.7: "Korekcie
+-- su nove auditovane zaznamy, nie prepis minulosti bez stopy"), presne ako
+-- uz funguje pri employment_contract_events.
+
+drop trigger if exists audit_employment_terms_versions on public.employment_terms_versions;
+create trigger audit_employment_terms_versions after insert or update or delete on public.employment_terms_versions
+  for each row execute function public.audit_trigger();
+
+-- Zisti platne podmienky pomeru k danemu datumu (Europe/Prague date-only,
+-- appka posiela p_as_of explicitne - ZIADNE spolienanie na server "now()").
+-- NIE je security definer - respektuje RLS volajuceho (rovnake opravnenie
+-- ako priamy SELECT nad employment_terms_versions).
+create or replace function public.hr_employment_terms_as_of(p_employment_id text, p_as_of date)
+returns setof public.employment_terms_versions
+language sql
+stable
+as $$
+  select *
+  from public.employment_terms_versions
+  where employment_id = p_employment_id
+    and (valid_from is null or valid_from <= p_as_of)
+    and (valid_to is null or valid_to >= p_as_of)
+  order by valid_from desc nulls last, created_at desc
+  limit 1;
+$$;
+
+-- Jednorazovy (idempotentny) backfill - pre kazdy existujuci pomer bez
+-- akejkolvek terms_versions vytvori PRESNE JEDEN pociatocny evidencny
+-- zaznam. valid_from je zamerne NULL (nie employment_relationships.start_date) -
+-- pozname len TO, ze tieto hodnoty su AKTUALNE platne, nie od kedy presne
+-- tieto KONKRETNE podmienky zacali platit (bod 1 zadania: "Nepredstieraj,
+-- ze dnesne podmienky platili od povodneho nastupu, ak to nemame dolozene").
+insert into public.employment_terms_versions (
+  id, employment_id, valid_from, valid_to, position_id, workplace, weekly_hours,
+  employment_type, fixed_term_end_date, probation_end_date,
+  is_initial_evidentiary_state, known_history_scope, created_at
+)
+select
+  er.id || '-initial-terms',
+  er.id,
+  null,
+  null,
+  er.position_id, er.workplace, er.weekly_hours,
+  er.employment_type, er.fixed_term_end_date, er.probation_end_date,
+  true,
+  'Počáteční evidenční stav vytvořený při migraci na verziované podmínky. '
+    || 'Nástup pomeru je evidovaný jako ' || coalesce(er.start_date::text, 'neznámé datum')
+    || ', ale přesné datum, odkdy platí TYTO KONKRÉTNÍ podmínky (pozice/úvazek/místo), '
+    || 'není doloženo - hodnoty odpovídají poslednímu známému stavu v okamžiku migrace.',
+  er.created_at
+from public.employment_relationships er
+where not exists (
+  select 1 from public.employment_terms_versions t where t.employment_id = er.id
+)
+on conflict (id) do nothing;
+
+-- 45.2 employee_payroll_data - mzdove/rodinne podklady (bod D.3 planu:
+--      ucet, poistovna, odmeny, danove vyhlasenia/zlavy, zavisle osoby,
+--      subehy, zrazky, administrativne dochodkove/poistne statusy,
+--      cudzinecke udaje). ODDELENE od employee_sensitive_data (rodne cislo,
+--      cislo dokladu - tie ostavaju tam, bez zmeny) - novy, PRIDANY tier
+--      citlivosti, nie nahradenie existujuceho. Bank account/foreigner_data
+--      historicky uz su v employee_sensitive_data (ostavaju tam nezmenene,
+--      kvoli zakazu mazania stlpcov) - vedomy zvyskovy nesulad zaznamenany
+--      v sprave, nie ticho "opraveny" presunom dat.
+create table if not exists public.employee_payroll_data (
+  employee_id text primary key references public.employees(id) on delete cascade,
+  tax_declaration jsonb not null default '{}'::jsonb,
+  dependents jsonb not null default '[]'::jsonb,
+  concurrent_employment jsonb not null default '{}'::jsonb,
+  garnishments jsonb not null default '{}'::jsonb,
+  pension_insurance_status jsonb not null default '{}'::jsonb,
+  data jsonb not null default '{}'::jsonb,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+alter table public.employee_payroll_data enable row level security;
+drop policy if exists "employee_payroll_data_view" on public.employee_payroll_data;
+create policy "employee_payroll_data_view" on public.employee_payroll_data
+  for select
+  using (public.current_role() = 'office' and public.hr_has_permission('HR_VIEW_PAYROLL'));
+drop policy if exists "employee_payroll_data_edit" on public.employee_payroll_data;
+create policy "employee_payroll_data_edit" on public.employee_payroll_data
+  for all
+  using (public.current_role() = 'office' and public.hr_has_permission('HR_EDIT') and public.hr_has_permission('HR_VIEW_PAYROLL'))
+  with check (public.current_role() = 'office' and public.hr_has_permission('HR_EDIT') and public.hr_has_permission('HR_VIEW_PAYROLL'));
+
+drop trigger if exists audit_employee_payroll_data on public.employee_payroll_data;
+create trigger audit_employee_payroll_data after insert or update or delete on public.employee_payroll_data
+  for each row execute function public.audit_trigger();
+
+-- 45.3 medical_examinations - sprisnenie na SAMOSTATNY tier (bod 2 zadania:
+--      "administratívnu evidenciu prehliadok" oddelit od mzdovych/rodinnych
+--      aj od bezneho HR_VIEW_BASIC). Predtym: HR_VIEW_BASIC/HR_EDIT (rovnake
+--      ako vsetko ostatne). Teraz: vlastne HR_VIEW_MEDICAL_ADMIN.
+drop policy if exists "medical_examinations_view" on public.medical_examinations;
+create policy "medical_examinations_view" on public.medical_examinations
+  for select
+  using (public.current_role() = 'office' and public.hr_has_permission('HR_VIEW_MEDICAL_ADMIN'));
+drop policy if exists "medical_examinations_edit" on public.medical_examinations;
+create policy "medical_examinations_edit" on public.medical_examinations
+  for all
+  using (public.current_role() = 'office' and public.hr_has_permission('HR_EDIT') and public.hr_has_permission('HR_VIEW_MEDICAL_ADMIN'))
+  with check (public.current_role() = 'office' and public.hr_has_permission('HR_EDIT') and public.hr_has_permission('HR_VIEW_MEDICAL_ADMIN'));
+
+-- 45.4 hr_document_templates / _versions - stavovy workflow, hash a
+--      EXPLICITNA klasifikacia citlivosti (bod 3 zadania - ZIADNA
+--      automaticka analyza obsahu, HR/schvalovatel ju nastavi rucne pri
+--      kazdej verzii).
+alter table public.hr_document_templates
+  add column if not exists status text not null default 'NAHRANA' check (status in (
+    'NAHRANA', 'K_MAPOVANI', 'KE_SCHVALENI', 'SCHVALENA', 'VYRAZENA'
+  ));
+alter table public.hr_document_templates
+  add column if not exists has_unresolved_revisions boolean not null default false;
+alter table public.hr_document_templates
+  add column if not exists approved_by uuid references auth.users(id);
+alter table public.hr_document_templates
+  add column if not exists approved_at timestamptz;
+
+alter table public.hr_document_template_versions
+  add column if not exists content_hash text;
+alter table public.hr_document_template_versions
+  add column if not exists mapping_status text not null default 'K_MAPOVANI' check (mapping_status in (
+    'K_MAPOVANI', 'ROZPRACOVANA', 'SCHVALENA'
+  ));
+-- Explicitna klasifikacia citlivosti TEJTO KONKRETNEJ verzie (nie typu
+-- dokumentu vseobecne - bod 3: "rozne verzie BOZP mozu obsahovat rozne
+-- udaje"). Prazdne pole = zatial neklasifikovane = pod hr_document_required_permissions()
+-- nizsie padne na najprisnejsi bezpecny default.
+alter table public.hr_document_template_versions
+  add column if not exists required_permissions text[] not null default '{}'::text[];
+
+-- 45.5 hr_documents - dedenie opravneni zo svojej sablony/dat (bod 3
+--      zadania). Nezaradeny (UPLOADED, bez template_version_id alebo s
+--      prazdnou klasifikaciou) dokument je pristupny LEN HR_ADMIN, kym ho
+--      niekto neklasifikuje - "Nezaradený nahraný dokument zostane
+--      prístupný iba poverenému HR do kontroly".
+create or replace function public.hr_document_required_permissions(p_document_id text)
+returns text[]
+language plpgsql
+stable
+security definer
+set search_path = public
+as $$
+declare
+  v_perms text[];
+  v_origin text;
+begin
+  select tv.required_permissions, d.origin
+    into v_perms, v_origin
+  from public.hr_documents d
+  left join public.hr_document_template_versions tv on tv.id = d.template_version_id
+  where d.id = p_document_id;
+
+  if v_perms is null or array_length(v_perms, 1) is null then
+    if v_origin = 'UPLOADED' then
+      return array['HR_ADMIN'];
+    else
+      return array['HR_VIEW_SENSITIVE'];
+    end if;
+  end if;
+  return v_perms;
+end;
+$$;
+
+drop policy if exists "hr_documents_view" on public.hr_documents;
+create policy "hr_documents_view" on public.hr_documents
+  for select
+  using (
+    public.current_role() = 'office'
+    and public.hr_has_permission('HR_VIEW_BASIC')
+    and not exists (
+      select 1 from unnest(public.hr_document_required_permissions(id)) as perm
+      where not public.hr_has_permission(perm)
+    )
+  );
+
+-- 45.6 storage.objects na buckete hr-dokumenty - rovnaka poziadavka ako
+--      45.5, ale na urovni uloziska (bod 2 zadania: "Ak su vsetky udaje v
+--      jednom riadku, samotne skrytie stlpcov vo frontende nestaci" plati
+--      analogicky aj pre subory - vynutit aj tu, nie len v tabulke).
+--      Zhoda podla file_path: ak cesta zodpoveda zaznamu v hr_documents,
+--      pouzije sa jeho klasifikacia; inak (napr. subory sablon) len
+--      zakladny HR_VIEW_BASIC ako doteraz.
+create or replace function public.hr_object_path_visible(p_path text)
+returns boolean
+language plpgsql
+stable
+security definer
+set search_path = public
+as $$
+declare
+  v_doc_id text;
+begin
+  select id into v_doc_id from public.hr_documents where file_path = p_path limit 1;
+  if v_doc_id is null then
+    return true; -- subor sablony a pod. - baseline HR_VIEW_BASIC uz je vynuteny v policy nizsie
+  end if;
+  return not exists (
+    select 1 from unnest(public.hr_document_required_permissions(v_doc_id)) as perm
+    where not public.hr_has_permission(perm)
+  );
+end;
+$$;
+
+drop policy if exists "hr_dokumenty_files_office" on storage.objects;
+drop policy if exists "hr_dokumenty_files_select" on storage.objects;
+create policy "hr_dokumenty_files_select" on storage.objects
+  for select
+  using (
+    bucket_id = 'hr-dokumenty'
+    and public.current_role() = 'office'
+    and public.hr_has_permission('HR_VIEW_BASIC')
+    and public.hr_object_path_visible(name)
+  );
+drop policy if exists "hr_dokumenty_files_write" on storage.objects;
+create policy "hr_dokumenty_files_write" on storage.objects
+  for insert
+  with check (bucket_id = 'hr-dokumenty' and public.current_role() = 'office' and public.hr_has_permission('HR_EDIT'));
+-- Ziadna UPDATE/DELETE policy na tomto bucketi vobec - podpisane/vydane
+-- subory sa nesmu prepisat/zmazat bezym uctom (bod G/K: WORM hranica).
+-- Privilegovany Supabase administrator (service role / dashboard) tuto
+-- hranicu technicky obist moze - vyslovne priznane v zaverecnej sprave,
+-- nie je to tvrdene ako absolutna WORM zaruka.
+
+-- 45.7 hr_admin_delete_employee - doplnit cistenie novych tabuliek (inak by
+--      FK constraint zablokoval vymazanie existujuceho zaznamu). Cisto
+--      rozsirenie tela existujucej funkcie, ziadna zmena jej signatury ani
+--      opravnenia (stale HR_ADMIN, stale explicitna oprava duplicit).
+create or replace function public.hr_admin_delete_employee(p_employee_id text)
+returns void
+language plpgsql
+security definer
+set search_path = public
+as $body$
+begin
+  if not (public.current_role() = 'office' and public.hr_has_permission('HR_ADMIN')) then
+    raise exception 'Neopravnene - trvale vymazani zamestnance vyzaduje HR_ADMIN.';
+  end if;
+
+  delete from public.hr_document_signatures
+    where hr_document_id in (select id from public.hr_documents where employee_id = p_employee_id);
+  delete from public.hr_documents where employee_id = p_employee_id;
+  delete from public.employment_terms_versions
+    where employment_id in (select id from public.employment_relationships where employee_id = p_employee_id);
+  delete from public.employment_contract_events
+    where employment_id in (select id from public.employment_relationships where employee_id = p_employee_id);
+  delete from public.medical_examinations where employee_id = p_employee_id;
+  delete from public.employee_timeline_events where employee_id = p_employee_id;
+  delete from public.employment_relationships where employee_id = p_employee_id;
+  delete from public.employee_sensitive_data where employee_id = p_employee_id;
+  delete from public.employee_payroll_data where employee_id = p_employee_id;
+  update public.employment_relationships set supervisor_employee_id = null where supervisor_employee_id = p_employee_id;
+  update public.onboarding_sessions set resulting_employee_id = null where resulting_employee_id = p_employee_id;
+  delete from public.employees where id = p_employee_id;
+end;
+$body$;
+grant execute on function public.hr_admin_delete_employee(text) to authenticated;
+
+-- 45.8 onboarding_sessions - dotaznikova relacia (tablet) MUSI byt
+--      pristupna len cez SECURITY DEFINER RPC s token-based izolaciou
+--      (rovnaky vzor ako plan_smien_pins), nie priamym SELECT/INSERT -
+--      existujuca policy z casti 43.12 je uz len office+HR_EDIT SELECT
+--      (na "cakaju na kontrolu" obrazovku), ZIADNA klientska
+--      insert/update policy neexistovala ani predtym - potvrdene,
+--      pridavaju sa len RPC nizsie, RLS sa nemeni.
+create extension if not exists pgcrypto;
+
+create or replace function public.hr_onboarding_start_session()
+returns table (id text, session_token text)
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_id text := 'onb-' || replace(gen_random_uuid()::text, '-', '');
+  v_token text := replace(gen_random_uuid()::text, '-', '');
+begin
+  insert into public.onboarding_sessions (id, session_token, status, draft_data)
+  values (v_id, v_token, 'IN_PROGRESS', '{}'::jsonb);
+  return query select v_id, v_token;
+end;
+$$;
+grant execute on function public.hr_onboarding_start_session() to anon, authenticated;
+
+-- Ulozenie priebezneho stavu dotaznika - vyzaduje spravny token (nie
+-- prihlasenie), a LEN pre relaciu v stave IN_PROGRESS. Nevracia ziadne
+-- ine data ako "ok" (ziadny sposob vypisat si cudzie zaznamy cez tento RPC).
+create or replace function public.hr_onboarding_save_draft(p_session_token text, p_draft_data jsonb)
+returns boolean
+language plpgsql
+security definer
+set search_path = public
+as $$
+begin
+  update public.onboarding_sessions
+    set draft_data = p_draft_data
+    where session_token = p_session_token and status = 'IN_PROGRESS';
+  return found;
+end;
+$$;
+grant execute on function public.hr_onboarding_save_draft(text, jsonb) to anon, authenticated;
+
+create or replace function public.hr_onboarding_submit(p_session_token text)
+returns boolean
+language plpgsql
+security definer
+set search_path = public
+as $$
+begin
+  update public.onboarding_sessions
+    set status = 'SUBMITTED', submitted_at = now()
+    where session_token = p_session_token and status = 'IN_PROGRESS';
+  return found;
+end;
+$$;
+grant execute on function public.hr_onboarding_submit(text) to anon, authenticated;
+
+-- HR strana (po prihlaseni, HR_EDIT) - schvalenie/zamietnutie, cita cez
+-- uz existujucu SELECT policy (43.12), tu len oznaci vysledok.
+create or replace function public.hr_onboarding_review(p_session_id text, p_status text, p_resulting_employee_id text)
+returns boolean
+language plpgsql
+security definer
+set search_path = public
+as $$
+begin
+  if not (public.current_role() = 'office' and public.hr_has_permission('HR_EDIT')) then
+    raise exception 'Neopravnene.';
+  end if;
+  if p_status not in ('REVIEWED', 'DISCARDED') then
+    raise exception 'Neplatny stav.';
+  end if;
+  update public.onboarding_sessions
+    set status = p_status, reviewed_by = auth.uid(), reviewed_at = now(),
+        resulting_employee_id = p_resulting_employee_id
+    where id = p_session_id;
+  return found;
+end;
+$$;
+grant execute on function public.hr_onboarding_review(text, text, text) to authenticated;
+
+-- 45.9 audit_log - napojit HR_AUDIT_VIEW na SKUTOCNU RLS policy. Zisteny
+-- pri overovani (bod 8 zadania - "over aj to, kam audit_trigger zapisuje...
+-- a kto ich moze citat"): "HR_AUDIT_VIEW" uz existovalo v UI/HR_PERMISSION_OPTIONS
+-- ako volba, ale povodna policy z casti 39 kontrolovala LEN natvrdo
+-- auth.email()='dh@stenger.eu' - HR_AUDIT_VIEW nemalo ZIADNY realny ucinok.
+--
+-- audit_log je ZDIELANA tabulka pre CELU appku (entity = doslovny nazov
+-- tabulky cez TG_TABLE_NAME, old_value/new_value su PLNY to_jsonb(OLD/NEW) -
+-- t.j. pre employee_sensitive_data/employee_payroll_data obsahuju SKUTOCNE
+-- rodne cislo/bankovy ucet v plaintext). Preto HR_AUDIT_VIEW NESMIE
+-- odomknut cely audit_log (to by unikalo aj audit objednavok/zakaznikov
+-- mimo HR) - obmedzeny len na entity nazvy HR tabuliek. dh@stenger.eu si
+-- zachovava presne povodny (siroky) pristup - toto je cisto ADITIVNE
+-- rozsirenie pre druhu skupinu ludi, nie oslabenie.
+drop policy if exists "audit_log_office_select" on public.audit_log;
+create policy "audit_log_office_select" on public.audit_log
+  for select
+  using (
+    public.current_role() = 'office'
+    and (
+      auth.email() = 'dh@stenger.eu'
+      or (
+        public.hr_has_permission('HR_AUDIT_VIEW')
+        and entity in (
+          'employees', 'employee_sensitive_data', 'employee_payroll_data', 'positions',
+          'employment_relationships', 'employment_terms_versions', 'employment_contract_events',
+          'medical_examinations', 'hr_document_templates', 'hr_document_template_versions',
+          'hr_documents', 'hr_document_signatures'
+        )
+      )
+    )
+  );
+
+-- 45.10 hr_document_templates.doc_type - ADITIVNE rozsirenie povoleneho
+-- zoznamu o presne tie 3 typy, pre ktore mame realne dodane vzory
+-- (src/lib/hr/docxMapping.js TEMPLATE_REQUIRED_KEYS) - povodnych 9 hodnot
+-- (vratane 'pracovni_smlouva' pre buduci vzor zmluvy, ktory user dodá
+-- neskôr) ostava bezo zmeny, len sa PRIDAVAJU dalsie povolene hodnoty.
+-- doc_type tu zamerne SLUZI aj ako kluc do TEMPLATE_REQUIRED_KEYS na
+-- frontende (1:1 s nazvami tam), aby nevznikal duplicitny "template kind"
+-- stlpec navyse.
+alter table public.hr_document_templates drop constraint if exists hr_document_templates_doc_type_check;
+alter table public.hr_document_templates add constraint hr_document_templates_doc_type_check
+  check (doc_type in (
+    'pracovni_smlouva', 'mzdovy_vymer', 'popis_pracovniho_mista', 'dodatek',
+    'dohoda_o_skonceni', 'vypoved_zamestnance', 'vypoved_zamestnavatele',
+    'zruseni_ve_zkusebni_dobe', 'other',
+    'platovy_vymer', 'hi001_naplen_prace_delnice', 'vstupni_skoleni'
+  ));

@@ -1,8 +1,44 @@
 import React, { useState, useEffect, useCallback } from "react";
-import { Loader2, AlertCircle, Users2, UserPlus, ArrowLeft, ShieldAlert, Settings, LayoutDashboard, FileText, Pencil, CheckCircle2, Briefcase, Plus } from "lucide-react";
+import { Loader2, AlertCircle, Users2, UserPlus, ArrowLeft, ShieldAlert, Settings, LayoutDashboard, FileText, Pencil, CheckCircle2, Briefcase, Plus, Upload, Download, Stamp } from "lucide-react";
 import { supabase } from "../supabaseClient.js";
 import { uid, skDateStrFromIso } from "../lib/utils.js";
 import { computeFixedTermStatus, canProposeExtension, FIXED_TERM_RULES } from "../lib/hrContractRules.js";
+import { fillDocxTemplate, extractTemplateKeys, validateTemplateKeysAgainstAllowlist, validateRequiredKeys } from "../lib/hr/docxTemplate.js";
+import { KNOWN_TEMPLATE_KEYS, TEMPLATE_REQUIRED_KEYS, buildDocumentData } from "../lib/hr/docxMapping.js";
+import { convertFilledDocxToPdf } from "../lib/hr/docxToPdf.js";
+
+const HR_DOKUMENTY_BUCKET = "hr-dokumenty";
+const DOCX_MIME = "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
+
+// Popisky pre doc_type - vratane 3 typov naviazanych na skutocne dodane vzory
+// (docxMapping.js TEMPLATE_REQUIRED_KEYS) aj tych, pre ktore vzor este
+// nemame (napr. pracovni_smlouva - user ho dodá neskôr, viz schema.sql 45.10).
+const DOC_TYPE_LABELS = {
+  platovy_vymer: "Platový výměr",
+  hi001_naplen_prace_delnice: "HI-001 – Náplň práce dělnice",
+  vstupni_skoleni: "Vstupní školení",
+  pracovni_smlouva: "Pracovní smlouva",
+  mzdovy_vymer: "Mzdový výměr (obecný)",
+  popis_pracovniho_mista: "Popis pracovního místa (obecný)",
+  dodatek: "Dodatek",
+  dohoda_o_skonceni: "Dohoda o skončení",
+  vypoved_zamestnance: "Výpověď zaměstnance",
+  vypoved_zamestnavatele: "Výpověď zaměstnavatele",
+  zruseni_ve_zkusebni_dobe: "Zrušení ve zkušební době",
+  other: "Jiné",
+};
+const DOC_TYPE_OPTIONS = Object.keys(DOC_TYPE_LABELS).map((v) => ({ value: v, label: DOC_TYPE_LABELS[v] }));
+
+const HR_DOCUMENT_STATUS_LABEL = {
+  DRAFT: "Koncept", READY_FOR_REVIEW: "Ke kontrole", APPROVED: "Schváleno",
+  READY_FOR_SIGNATURE: "K podpisu", SIGNED: "Podepsáno", ARCHIVED: "Archivováno",
+};
+const HR_DOCUMENT_STATUS_ORDER = ["DRAFT", "READY_FOR_REVIEW", "APPROVED", "READY_FOR_SIGNATURE", "SIGNED", "ARCHIVED"];
+
+async function sha256Hex(arrayBuffer) {
+  const digest = await crypto.subtle.digest("SHA-256", arrayBuffer);
+  return [...new Uint8Array(digest)].map((b) => b.toString(16).padStart(2, "0")).join("");
+}
 
 /* =========================================================================
    Personalistika - trvaly personalny spis zamestnancov.
@@ -16,6 +52,8 @@ import { computeFixedTermStatus, canProposeExtension, FIXED_TERM_RULES } from ".
 const HR_PERMISSION_OPTIONS = [
   { value: "HR_VIEW_BASIC", label: "Zobrazit základní údaje" },
   { value: "HR_VIEW_SENSITIVE", label: "Zobrazit citlivé údaje (rodné číslo, účet...)" },
+  { value: "HR_VIEW_PAYROLL", label: "Zobrazit mzdové/rodinné podklady (daně, srážky...)" },
+  { value: "HR_VIEW_MEDICAL_ADMIN", label: "Zobrazit evidenci lékařských prohlídek" },
   { value: "HR_EDIT", label: "Upravovat záznamy" },
   { value: "HR_DOCUMENT_GENERATE", label: "Generovat dokumenty" },
   { value: "HR_DOCUMENT_APPROVE", label: "Schvalovat dokumenty/šablony" },
@@ -140,7 +178,7 @@ export default function PersonalistikaModule() {
           : <EmployeesListTab mode="former" permissions={permissions} onOpen={setOpenEmployeeId} />
       )}
       {tab === "pozice" && <PositionsTab permissions={permissions} />}
-      {tab === "sablony" && <TemplatesPlaceholder />}
+      {tab === "sablony" && <TemplatesTab permissions={permissions} />}
       {tab === "nastaveni" && hasPerm(permissions, "HR_ADMIN") && <SettingsTab />}
     </div>
   );
@@ -513,6 +551,7 @@ const DETAIL_TABS = [
   { key: "prehled", label: "Přehled" },
   { key: "osobni", label: "Osobní údaje" },
   { key: "pomer", label: "Pracovní poměr" },
+  { key: "dokumenty", label: "Dokumenty" },
   { key: "historie", label: "Historie" },
 ];
 
@@ -634,6 +673,7 @@ function EmployeeDetail({ id, permissions, onBack }) {
       {detailTab === "prehled" && <PrehledDetailTab employee={employee} currentEmployment={currentEmployment} contractEvents={contractEvents} positionLabel={positionLabel} />}
       {detailTab === "osobni" && <OsobniUdajeTab employee={employee} sensitive={sensitive} canEdit={canEdit} canSensitive={canSensitive} onSaved={load} />}
       {detailTab === "pomer" && <PracovniPomerTab employeeId={id} employments={employments} contractEvents={contractEvents} positions={positions} positionLabel={positionLabel} canEdit={canEdit} canOverride={hasPerm(permissions, "HR_ADMIN")} onChanged={load} />}
+      {detailTab === "dokumenty" && <DokumentyTab employee={employee} sensitive={sensitive} currentEmployment={currentEmployment} permissions={permissions} />}
       {detailTab === "historie" && <HistorieTab timeline={timeline} />}
     </div>
   );
@@ -1075,6 +1115,338 @@ function EndEmploymentForm({ employment, onCancel, onSaved }) {
   );
 }
 
+/* ---------------- Dokumenty (na karte zamestnanca) ---------------- */
+/* Naplnenie sablony: buildDocumentData rozdeluje udaje na AUTO (z karty
+   zamestnanca - person/sensitive, uz existujuce polia) a MANUALNE (specificke
+   pre konkretny generovany dokument - napr. mzda_hod, zastupce - HR ich
+   zada pri kazdom generovani zvlast, nie su cast trvaleho zaznamu). PDF
+   nahled je len na stiahnutie (docxToPdf.js, klientsky render) - ulozeny
+   artefakt v hr_documents je vzdy .docx so skutocnym textom. */
+
+const MANUAL_DOC_FIELD_KEYS = [
+  "cele_jmeno", "rodinny_stav", "pojistovna", "zarazeni", "druh_prace",
+  "mzda_hod", "priplatek_noc", "priplatek_vikend", "datum", "datum_dokumentu",
+  "datum_skoleni", "zastupce", "zastupce_pad7", "predavajici", "skolitel",
+];
+const MANUAL_DOC_FIELD_LABELS = {
+  cele_jmeno: "Celé jméno (jak má být na dokumentu)", rodinny_stav: "Rodinný stav", pojistovna: "Zdravotní pojišťovna (kód – název)",
+  zarazeni: "Pracovní zařazení", druh_prace: "Druh práce", mzda_hod: "Mzda (Kč/hod, jen číslo)",
+  priplatek_noc: "Příplatek za noc (Kč/hod, jen číslo)", priplatek_vikend: "Příplatek za víkend (Kč/hod, jen číslo)",
+  datum: "Datum dokumentu", datum_dokumentu: "Datum dokumentu", datum_skoleni: "Datum školení",
+  zastupce: "Zástupce zaměstnavatele (jméno)", zastupce_pad7: "Zástupce zaměstnavatele (7. pád, \"kým\")",
+  predavajici: "Předávající", skolitel: "Školitel",
+};
+const MANUAL_DOC_FIELD_DATE_KEYS = new Set(["datum", "datum_dokumentu", "datum_skoleni"]);
+
+function downloadArrayBufferAsFile(arrayBuffer, filename, mime) {
+  const blob = new Blob([arrayBuffer], { type: mime });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url; a.download = filename;
+  document.body.appendChild(a); a.click(); document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+}
+
+function DokumentyTab({ employee, sensitive, currentEmployment, permissions }) {
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
+  const [documents, setDocuments] = useState([]);
+  const [templates, setTemplates] = useState([]);
+  const [creating, setCreating] = useState(false);
+  const [signingId, setSigningId] = useState(null);
+  const canGenerate = hasPerm(permissions, "HR_DOCUMENT_GENERATE");
+  const canApprove = hasPerm(permissions, "HR_DOCUMENT_APPROVE");
+  const canSign = hasPerm(permissions, "HR_DOCUMENT_SIGN");
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    setError("");
+    const [docsRes, tplsRes] = await Promise.all([
+      supabase.from("hr_documents").select("*").eq("employee_id", employee.id).order("created_at", { ascending: false }),
+      supabase.from("hr_document_templates").select("*").eq("status", "SCHVALENA"),
+    ]);
+    if (docsRes.error) { setError("Nepodařilo se načíst dokumenty."); setLoading(false); return; }
+    setDocuments(docsRes.data || []);
+    setTemplates(tplsRes.data || []);
+    setLoading(false);
+  }, [employee.id]);
+
+  useEffect(() => { load(); }, [load]);
+
+  async function advanceStatus(doc) {
+    const idx = HR_DOCUMENT_STATUS_ORDER.indexOf(doc.status);
+    const next = HR_DOCUMENT_STATUS_ORDER[idx + 1];
+    if (!next || next === "SIGNED") return; // SIGNED sa nastavi az cez "Nahrát podepsaný sken"
+    const { error: err } = await supabase.from("hr_documents").update({ status: next, updated_at: new Date().toISOString() }).eq("id", doc.id);
+    if (err) { window.alert(err.message); return; }
+    load();
+  }
+
+  async function openDocument(doc) {
+    const { data, error: err } = await supabase.storage.from(HR_DOKUMENTY_BUCKET).createSignedUrl(doc.file_path, 3600);
+    if (err) { window.alert(err.message); return; }
+    window.open(data.signedUrl, "_blank");
+  }
+
+  return (
+    <div>
+      <div className="flex justify-end mb-3">
+        {canGenerate && !creating && (
+          <button onClick={() => setCreating(true)} className="flex items-center gap-1.5 bg-teal-700 hover:bg-teal-800 text-white text-sm font-medium px-3 py-2 rounded-md">
+            <FileText size={16} /> Vytvořit dokument
+          </button>
+        )}
+      </div>
+      {creating && (
+        <GenerateDocumentForm
+          employee={employee} sensitive={sensitive} currentEmployment={currentEmployment} templates={templates}
+          onCancel={() => setCreating(false)} onSaved={() => { setCreating(false); load(); }}
+        />
+      )}
+      {loading ? (
+        <div className="text-center text-slate-400 py-10"><Loader2 className="animate-spin mx-auto mb-2" size={24} /> Načítám...</div>
+      ) : error ? (
+        <div className="bg-red-50 text-red-700 text-sm px-3 py-2 rounded-md">{error}</div>
+      ) : documents.length === 0 ? (
+        <div className="text-sm text-slate-400">Zatím žádné dokumenty.</div>
+      ) : (
+        <div className="space-y-3">
+          {documents.map((d) => {
+            const nextStatus = HR_DOCUMENT_STATUS_ORDER[HR_DOCUMENT_STATUS_ORDER.indexOf(d.status) + 1];
+            const canAdvance = nextStatus && nextStatus !== "SIGNED" && (canGenerate || canApprove);
+            return (
+              <div key={d.id} className="bg-white border border-slate-200 rounded-lg p-4">
+                <div className="flex justify-between items-start flex-wrap gap-2">
+                  <div>
+                    <div className="font-medium">{DOC_TYPE_LABELS[d.doc_type] || d.doc_type}</div>
+                    <div className="text-xs text-slate-500">
+                      {d.origin === "GENERATED" ? "Vygenerováno" : "Nahráno ručně"} · {fmtDate(d.created_at?.slice(0, 10))}
+                    </div>
+                  </div>
+                  <span className="px-2 py-0.5 rounded-full text-xs font-medium bg-slate-100 text-slate-600">{HR_DOCUMENT_STATUS_LABEL[d.status] || d.status}</span>
+                </div>
+                <div className="flex flex-wrap items-center gap-3 mt-3 pt-3 border-t border-slate-100">
+                  {d.file_path && <button onClick={() => openDocument(d)} className="text-sm text-teal-700 hover:text-teal-900 flex items-center gap-1"><Download size={14} /> Otevřít soubor</button>}
+                  {canAdvance && (
+                    <button onClick={() => advanceStatus(d)} className="text-sm text-slate-500 hover:text-slate-800">Posunout stav → {HR_DOCUMENT_STATUS_LABEL[nextStatus]}</button>
+                  )}
+                  {canSign && d.status === "READY_FOR_SIGNATURE" && signingId !== d.id && (
+                    <button onClick={() => setSigningId(d.id)} className="text-sm text-teal-700 hover:text-teal-900 flex items-center gap-1"><Stamp size={14} /> Nahrát podepsaný sken</button>
+                  )}
+                </div>
+                {signingId === d.id && <SignDocumentForm doc={d} onCancel={() => setSigningId(null)} onSaved={() => { setSigningId(null); load(); }} />}
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function GenerateDocumentForm({ employee, sensitive, currentEmployment, templates, onCancel, onSaved }) {
+  const [templateId, setTemplateId] = useState(templates[0]?.id || "");
+  const [manualFields, setManualFields] = useState({ cele_jmeno: fullName(employee) });
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState("");
+  const [version, setVersion] = useState(null);
+  const [loadingVersion, setLoadingVersion] = useState(false);
+
+  const template = templates.find((t) => t.id === templateId);
+
+  useEffect(() => {
+    let cancelled = false;
+    if (!template?.current_version_id) { setVersion(null); return; }
+    setLoadingVersion(true);
+    supabase.from("hr_document_template_versions").select("*").eq("id", template.current_version_id).single().then(({ data }) => {
+      if (!cancelled) { setVersion(data || null); setLoadingVersion(false); }
+    });
+    return () => { cancelled = true; };
+  }, [template?.current_version_id]);
+
+  const usedKeys = version?.variables_schema?.keys || TEMPLATE_REQUIRED_KEYS[template?.doc_type] || [];
+  const requiredKeys = TEMPLATE_REQUIRED_KEYS[template?.doc_type] || usedKeys;
+  const manualKeysToShow = usedKeys.filter((k) => MANUAL_DOC_FIELD_KEYS.includes(k));
+  const autoKeysToShow = usedKeys.filter((k) => !MANUAL_DOC_FIELD_KEYS.includes(k));
+
+  function setManual(key, v) { setManualFields((prev) => ({ ...prev, [key]: v })); }
+
+  const person = {
+    maiden_name: employee.maiden_name, date_of_birth: employee.date_of_birth, place_of_birth: employee.place_of_birth,
+    permanent_address: employee.permanent_address, correspondence_address: employee.correspondence_address,
+    phone: employee.phone, private_email: employee.private_email,
+  };
+  const mergedData = buildDocumentData({ person, sensitive, documentFields: manualFields });
+  const { missing } = validateRequiredKeys(mergedData, requiredKeys);
+
+  async function loadFilledArrayBuffer() {
+    const { data: blob, error: dlErr } = await supabase.storage.from(HR_DOKUMENTY_BUCKET).download(version.file_path);
+    if (dlErr) throw dlErr;
+    const templateAb = await blob.arrayBuffer();
+    return fillDocxTemplate(templateAb, mergedData);
+  }
+
+  async function downloadPreview() {
+    setError("");
+    try {
+      const filled = await loadFilledArrayBuffer();
+      const filename = `${DOC_TYPE_LABELS[template.doc_type] || template.doc_type} - ${fullName(employee)}.pdf`;
+      await convertFilledDocxToPdf(filename, filled);
+    } catch (e) {
+      console.error(e);
+      setError(e.message || "Náhled se nepodařilo vytvořit.");
+    }
+  }
+
+  async function downloadDocxPreview() {
+    setError("");
+    try {
+      const filled = await loadFilledArrayBuffer();
+      downloadArrayBufferAsFile(filled, `${DOC_TYPE_LABELS[template.doc_type] || template.doc_type} - ${fullName(employee)}.docx`, DOCX_MIME);
+    } catch (e) {
+      console.error(e);
+      setError(e.message || "Soubor se nepodařilo vytvořit.");
+    }
+  }
+
+  async function generateAndSave() {
+    if (missing.length > 0) { setError("Vyplňte povinná pole: " + missing.join(", ")); return; }
+    setSaving(true);
+    setError("");
+    try {
+      const filled = await loadFilledArrayBuffer();
+      const { data: userData } = await supabase.auth.getUser();
+      const docId = uid();
+      const storagePath = `zamestnanci/${employee.id}/${docId}.docx`;
+      const blob = new Blob([filled], { type: DOCX_MIME });
+      const { error: upErr } = await supabase.storage.from(HR_DOKUMENTY_BUCKET).upload(storagePath, blob, { contentType: DOCX_MIME });
+      if (upErr) throw upErr;
+      const { error: insErr } = await supabase.from("hr_documents").insert({
+        id: docId, employee_id: employee.id, employment_id: currentEmployment?.id || null, doc_type: template.doc_type,
+        template_id: template.id, template_version_id: version.id, origin: "GENERATED", status: "DRAFT",
+        generated_at: new Date().toISOString(), generated_by: userData?.user?.id || null,
+        file_path: storagePath, variables_snapshot: mergedData,
+      });
+      if (insErr) throw insErr;
+      await supabase.from("employee_timeline_events").insert({
+        id: uid(), employee_id: employee.id, event_date: new Date().toISOString().slice(0, 10), event_type: "DOCUMENT_GENERATED",
+        title: `Vygenerován dokument: ${DOC_TYPE_LABELS[template.doc_type] || template.doc_type}`, source: "MANUAL",
+      });
+      onSaved();
+    } catch (e) {
+      console.error(e);
+      setError(e.message || "Uložení se nezdařilo.");
+    }
+    setSaving(false);
+  }
+
+  if (templates.length === 0) {
+    return <div className="bg-amber-50 text-amber-700 text-sm px-3 py-2 rounded-md mb-3">Žádná schválená šablona zatím není k dispozici - nahrajte a aktivujte ji v záložce "Šablony dokumentů".</div>;
+  }
+
+  return (
+    <div className="bg-white border border-slate-200 rounded-lg p-4 mb-4">
+      <h2 className="font-semibold text-sm mb-3">Vytvořit dokument</h2>
+      <SelectFieldLocal label="Šablona" value={templateId} onChange={setTemplateId} options={templates.map((t) => ({ value: t.id, label: `${DOC_TYPE_LABELS[t.doc_type] || t.doc_type} – ${t.name}` }))} />
+
+      {loadingVersion ? (
+        <div className="text-sm text-slate-400 py-2"><Loader2 className="inline animate-spin mr-1.5" size={14} /> Načítám šablonu...</div>
+      ) : version ? (
+        <>
+          {autoKeysToShow.length > 0 && (
+            <div className="bg-slate-50 rounded-md p-3 mb-3">
+              <div className="text-xs font-medium text-slate-500 mb-1.5">Doplní se automaticky z karty zaměstnance - zkontrolujte, prosím:</div>
+              <dl className="text-sm space-y-1">
+                {autoKeysToShow.map((k) => <Row key={k} label={k} value={mergedData[k] || "— (chybí, doplňte v Osobních údajích)"} />)}
+              </dl>
+            </div>
+          )}
+          {manualKeysToShow.length > 0 && (
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-4">
+              {manualKeysToShow.map((k) =>
+                MANUAL_DOC_FIELD_DATE_KEYS.has(k)
+                  ? <DateFieldLocal key={k} label={MANUAL_DOC_FIELD_LABELS[k] || k} value={manualFields[k] || ""} onChange={(v) => setManual(k, v)} />
+                  : <TextField key={k} label={MANUAL_DOC_FIELD_LABELS[k] || k} value={manualFields[k] || ""} onChange={(v) => setManual(k, v)} />
+              )}
+            </div>
+          )}
+          {missing.length > 0 && (
+            <div className="text-xs text-amber-700 bg-amber-50 px-3 py-2 rounded-md mb-2">Chybí: {missing.join(", ")}</div>
+          )}
+          {error && <div className="bg-red-50 text-red-700 text-sm px-3 py-2 rounded-md mb-2">{error}</div>}
+          <div className="flex justify-end gap-2 flex-wrap mt-2">
+            <button onClick={onCancel} className="text-sm text-slate-500 px-3 py-2">Zrušit</button>
+            <button onClick={downloadDocxPreview} className="text-sm text-slate-600 hover:text-slate-900 px-3 py-2 border border-slate-200 rounded-md">Stáhnout .docx</button>
+            <button onClick={downloadPreview} className="text-sm text-slate-600 hover:text-slate-900 px-3 py-2 border border-slate-200 rounded-md">Stáhnout náhled PDF</button>
+            <button onClick={generateAndSave} disabled={saving || missing.length > 0} className="flex items-center gap-1.5 bg-teal-700 hover:bg-teal-800 disabled:opacity-50 disabled:cursor-not-allowed text-white text-sm font-medium px-4 py-2 rounded-md">
+              {saving ? <Loader2 size={16} className="animate-spin" /> : <CheckCircle2 size={16} />} {saving ? "Ukládám..." : "Vygenerovat a uložit"}
+            </button>
+          </div>
+        </>
+      ) : (
+        <div className="text-sm text-slate-400">Šablona nemá žádnou aktivní verzi.</div>
+      )}
+    </div>
+  );
+}
+
+function SignDocumentForm({ doc, onCancel, onSaved }) {
+  const [signerType, setSignerType] = useState("EMPLOYEE");
+  const [signedByName, setSignedByName] = useState("");
+  const [signedAt, setSignedAt] = useState(new Date().toISOString().slice(0, 10));
+  const [file, setFile] = useState(null);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState("");
+
+  async function submit() {
+    if (!file) { setError("Vyberte naskenovaný podepsaný soubor."); return; }
+    if (!signedByName.trim()) { setError("Vyplňte jméno podepsaného."); return; }
+    setSaving(true);
+    setError("");
+    try {
+      const { data: userData } = await supabase.auth.getUser();
+      const ext = (file.name.split(".").pop() || "pdf").toLowerCase();
+      const storagePath = `zamestnanci-podpisy/${doc.id}-${uid()}.${ext}`;
+      const { error: upErr } = await supabase.storage.from(HR_DOKUMENTY_BUCKET).upload(storagePath, file, { contentType: file.type });
+      if (upErr) throw upErr;
+      const ab = await file.arrayBuffer();
+      const hash = await sha256Hex(ab);
+      const { error: sigErr } = await supabase.from("hr_document_signatures").insert({
+        id: uid(), hr_document_id: doc.id, method: "PAPER", signer_type: signerType,
+        signed_at: signedAt ? new Date(signedAt).toISOString() : null, signed_by_name: signedByName.trim(),
+        document_hash: hash, uploaded_by: userData?.user?.id || null, file_path: storagePath,
+      });
+      if (sigErr) throw sigErr;
+      const { error: docErr } = await supabase.from("hr_documents").update({ status: "SIGNED", updated_at: new Date().toISOString() }).eq("id", doc.id);
+      if (docErr) throw docErr;
+      onSaved();
+    } catch (e) {
+      console.error(e);
+      setError(e.message || "Nahrání se nezdařilo.");
+    }
+    setSaving(false);
+  }
+
+  return (
+    <div className="mt-3 pt-3 border-t border-slate-100">
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-x-4">
+        <SelectFieldLocal label="Kdo podepsal" value={signerType} onChange={setSignerType} options={[{ value: "EMPLOYEE", label: "Zaměstnanec" }, { value: "EMPLOYER", label: "Zaměstnavatel" }]} />
+        <TextField label="Jméno podepsaného" value={signedByName} onChange={setSignedByName} />
+        <DateFieldLocal label="Datum podpisu" value={signedAt} onChange={setSignedAt} />
+      </div>
+      <label className="block mb-3">
+        <span className="block text-xs font-medium text-slate-500 mb-1">Naskenovaný podepsaný soubor</span>
+        <input type="file" onChange={(e) => setFile(e.target.files?.[0] || null)} className="text-sm" />
+      </label>
+      {error && <div className="text-red-600 text-xs mb-2">{error}</div>}
+      <div className="flex justify-end gap-2">
+        <button onClick={onCancel} className="text-sm text-slate-500 px-3 py-2">Zrušit</button>
+        <button onClick={submit} disabled={saving} className="bg-teal-700 hover:bg-teal-800 disabled:opacity-50 text-white text-sm font-medium px-4 py-2 rounded-md">{saving ? "Ukládám..." : "Uložit podpis"}</button>
+      </div>
+    </div>
+  );
+}
+
 function HistorieTab({ timeline }) {
   if (timeline.length === 0) return <div className="text-sm text-slate-400">Zatím žádné události.</div>;
   return (
@@ -1190,15 +1562,249 @@ function AddPositionForm({ onCancel, onSaved }) {
   );
 }
 
-/* ---------------- Šablony dokumentů (placeholder) ---------------- */
+/* ---------------- Šablony dokumentů ---------------- */
+/* Zivotny cyklus (schema.sql 45.4): kazda NAHRANA verzia sa hned overi proti
+   KNOWN_TEMPLATE_KEYS (neznamy tag = sablona sa neda pouzit, kym niekto tag
+   bud odstrani zo sablony, alebo ho pridaju do allowlistu v kode). Klasifikacia
+   citlivosti (required_permissions) je VZDY explicitna volba HR pri nahrani -
+   ziadna automaticka analyza obsahu (bod 3 zadania). "Vytvořit dokument" v
+   zalozke zamestnanca ponuka len sablony so status='SCHVALENA'. */
 
-function TemplatesPlaceholder() {
+function TemplatesTab({ permissions }) {
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
+  const [templates, setTemplates] = useState([]);
+  const [versionsByTemplate, setVersionsByTemplate] = useState(new Map());
+  const [uploading, setUploading] = useState(false);
+  const canApprove = hasPerm(permissions, "HR_DOCUMENT_APPROVE");
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    setError("");
+    const { data: tpls, error: tErr } = await supabase.from("hr_document_templates").select("*").order("doc_type");
+    if (tErr) { setError("Nepodařilo se načíst šablony."); setLoading(false); return; }
+    setTemplates(tpls || []);
+    if ((tpls || []).length > 0) {
+      const { data: vers } = await supabase.from("hr_document_template_versions").select("*").in("template_id", tpls.map((t) => t.id)).order("version_number", { ascending: false });
+      const map = new Map();
+      (vers || []).forEach((v) => { const arr = map.get(v.template_id) || []; arr.push(v); map.set(v.template_id, arr); });
+      setVersionsByTemplate(map);
+    } else {
+      setVersionsByTemplate(new Map());
+    }
+    setLoading(false);
+  }, []);
+
+  useEffect(() => { load(); }, [load]);
+
+  async function approveVersion(template, version) {
+    const { data: userData } = await supabase.auth.getUser();
+    const { error: vErr } = await supabase.from("hr_document_template_versions").update({ mapping_status: "SCHVALENA" }).eq("id", version.id);
+    if (vErr) { window.alert(vErr.message); return; }
+    const { error: tErr } = await supabase.from("hr_document_templates").update({
+      status: "SCHVALENA", current_version_id: version.id, approved_by: userData?.user?.id || null, approved_at: new Date().toISOString(),
+    }).eq("id", template.id);
+    if (tErr) { window.alert(tErr.message); return; }
+    load();
+  }
+
+  async function retireTemplate(template) {
+    if (!window.confirm(`Vyřadit šablonu "${template.name}"? Dosud vygenerované dokumenty zůstanou beze změny, jen se přestane nabízet pro nové generování.`)) return;
+    await supabase.from("hr_document_templates").update({ status: "VYRAZENA", active: false }).eq("id", template.id);
+    load();
+  }
+
   return (
-    <div className="bg-white border border-slate-200 rounded-xl p-10 text-center">
-      <FileText className="mx-auto mb-3 text-slate-300" size={32} />
-      <div className="text-slate-600 text-sm font-medium">Šablony dokumentů</div>
-      <div className="text-slate-400 text-xs mt-1 max-w-md mx-auto">
-        Připravujeme. Bude potřeba dodat vzory (pracovní smlouva, popisy pracovních míst HI-001–HI-007), než půjde tuto část zprovoznit.
+    <div>
+      <div className="flex items-center justify-between mb-4">
+        <h1 className="text-xl font-semibold">Šablony dokumentů</h1>
+      </div>
+      {hasPerm(permissions, "HR_DOCUMENT_APPROVE") && (
+        <UploadTemplateForm uploading={uploading} setUploading={setUploading} onUploaded={load} templates={templates} />
+      )}
+      {loading ? (
+        <div className="text-center text-slate-400 py-10"><Loader2 className="animate-spin mx-auto mb-2" size={24} /> Načítám...</div>
+      ) : error ? (
+        <div className="bg-red-50 text-red-700 text-sm px-3 py-2 rounded-md">{error}</div>
+      ) : templates.length === 0 ? (
+        <div className="bg-white border border-slate-200 rounded-xl p-10 text-center">
+          <FileText className="mx-auto mb-3 text-slate-300" size={32} />
+          <div className="text-slate-600 text-sm font-medium">Zatím žádné šablony</div>
+          <div className="text-slate-400 text-xs mt-1 max-w-md mx-auto">Nahrajte .docx vzor výše - text s {"{{"}zástupnými značkami{"}}"} se automaticky ověří proti seznamu podporovaných polí.</div>
+        </div>
+      ) : (
+        <div className="space-y-3">
+          {templates.map((t) => {
+            const versions = versionsByTemplate.get(t.id) || [];
+            const currentVersion = versions.find((v) => v.id === t.current_version_id);
+            return (
+              <div key={t.id} className="bg-white border border-slate-200 rounded-lg p-4">
+                <div className="flex justify-between items-start flex-wrap gap-2">
+                  <div>
+                    <div className="font-medium">{t.name}</div>
+                    <div className="text-xs text-slate-500">{DOC_TYPE_LABELS[t.doc_type] || t.doc_type}</div>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <TemplateStatusBadge status={t.status} />
+                    {t.status !== "VYRAZENA" && canApprove && (
+                      <button onClick={() => retireTemplate(t)} className="text-xs text-red-500 hover:text-red-700 underline underline-offset-2">Vyřadit</button>
+                    )}
+                  </div>
+                </div>
+                <div className="mt-3 space-y-2">
+                  {versions.map((v) => (
+                    <div key={v.id} className={"flex items-center justify-between gap-2 text-sm px-3 py-2 rounded-md " + (v.id === t.current_version_id ? "bg-emerald-50" : "bg-slate-50")}>
+                      <div className="flex items-center gap-2 min-w-0">
+                        <span className="font-medium whitespace-nowrap">v{v.version_number}</span>
+                        {v.id === t.current_version_id && <span className="text-xs text-emerald-700 whitespace-nowrap">(aktivní)</span>}
+                        <span className="text-xs text-slate-400 truncate">{v.required_permissions?.length ? v.required_permissions.join(", ") : "výchozí ochrana"}</span>
+                      </div>
+                      <div className="flex items-center gap-2 whitespace-nowrap">
+                        <MappingStatusBadge status={v.mapping_status} />
+                        {v.mapping_status === "SCHVALENA" && v.id !== t.current_version_id && canApprove && (
+                          <button onClick={() => approveVersion(t, v)} className="text-xs text-teal-700 hover:text-teal-900 underline underline-offset-2">Aktivovat</button>
+                        )}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function TemplateStatusBadge({ status }) {
+  const map = {
+    NAHRANA: "bg-slate-100 text-slate-600", K_MAPOVANI: "bg-amber-100 text-amber-700", KE_SCHVALENI: "bg-amber-100 text-amber-700",
+    SCHVALENA: "bg-emerald-100 text-emerald-700", VYRAZENA: "bg-slate-200 text-slate-400",
+  };
+  const labels = { NAHRANA: "Nahraná", K_MAPOVANI: "K mapování", KE_SCHVALENI: "Ke schválení", SCHVALENA: "Schválená", VYRAZENA: "Vyřazená" };
+  return <span className={"px-2 py-0.5 rounded-full text-xs font-medium " + (map[status] || map.NAHRANA)}>{labels[status] || status}</span>;
+}
+function MappingStatusBadge({ status }) {
+  const map = { K_MAPOVANI: "bg-red-100 text-red-700", ROZPRACOVANA: "bg-amber-100 text-amber-700", SCHVALENA: "bg-emerald-100 text-emerald-700" };
+  const labels = { K_MAPOVANI: "Neznámé tagy", ROZPRACOVANA: "Rozpracovaná", SCHVALENA: "Tagy OK" };
+  return <span className={"px-2 py-0.5 rounded-full text-xs font-medium " + (map[status] || map.K_MAPOVANI)}>{labels[status] || status}</span>;
+}
+
+const TEMPLATE_SENSITIVITY_OPTIONS = [
+  { value: "HR_VIEW_SENSITIVE", label: "Osobní identifikátory (rodné číslo, doklad...)" },
+  { value: "HR_VIEW_PAYROLL", label: "Mzdové/rodinné podklady" },
+  { value: "HR_VIEW_MEDICAL_ADMIN", label: "Evidence lékařských prohlídek" },
+  { value: "HR_ADMIN", label: "Jen administrátor" },
+];
+
+function UploadTemplateForm({ uploading, setUploading, onUploaded, templates }) {
+  const [docType, setDocType] = useState("platovy_vymer");
+  const [name, setName] = useState("");
+  const [requiredPerms, setRequiredPerms] = useState(["HR_VIEW_SENSITIVE"]);
+  const [file, setFile] = useState(null);
+  const [checkResult, setCheckResult] = useState(null);
+  const [error, setError] = useState("");
+
+  async function onFileChange(e) {
+    const f = e.target.files?.[0];
+    setFile(f || null);
+    setCheckResult(null);
+    setError("");
+    if (!f) return;
+    try {
+      const ab = await f.arrayBuffer();
+      const { used, unknown, ok } = validateTemplateKeysAgainstAllowlist(ab, KNOWN_TEMPLATE_KEYS);
+      setCheckResult({ used, unknown, ok });
+    } catch (err) {
+      setError("Soubor se nepodařilo přečíst jako .docx šablonu s {{tagy}}: " + (err.message || err));
+    }
+  }
+
+  function togglePerm(p) {
+    setRequiredPerms((prev) => (prev.includes(p) ? prev.filter((x) => x !== p) : [...prev, p]));
+  }
+
+  async function submit() {
+    if (!file || !checkResult) { setError("Nejprve vyberte .docx soubor."); return; }
+    if (!checkResult.ok) { setError("Šablonu nelze nahrát - obsahuje nemapované tagy (viz níže). Opravte šablonu nebo tagy odstraňte."); return; }
+    if (!name.trim()) { setError("Vyplňte název šablony."); return; }
+    setUploading(true);
+    setError("");
+    try {
+      const ab = await file.arrayBuffer();
+      const contentHash = await sha256Hex(ab);
+      const { data: userData } = await supabase.auth.getUser();
+
+      let template = templates.find((t) => t.doc_type === docType && t.name === name.trim());
+      let templateId = template?.id;
+      if (!templateId) {
+        templateId = uid();
+        const { error: tErr } = await supabase.from("hr_document_templates").insert({ id: templateId, doc_type: docType, name: name.trim(), active: true, status: "NAHRANA" });
+        if (tErr) throw tErr;
+      }
+      const { data: existingVersions } = await supabase.from("hr_document_template_versions").select("version_number").eq("template_id", templateId).order("version_number", { ascending: false }).limit(1);
+      const nextVersion = (existingVersions?.[0]?.version_number || 0) + 1;
+
+      const storagePath = `sablony/${templateId}/v${nextVersion}.docx`;
+      const { error: upErr } = await supabase.storage.from(HR_DOKUMENTY_BUCKET).upload(storagePath, file, { contentType: DOCX_MIME });
+      if (upErr) throw upErr;
+
+      const versionId = uid();
+      const { error: vErr } = await supabase.from("hr_document_template_versions").insert({
+        id: versionId, template_id: templateId, version_number: nextVersion, file_path: storagePath,
+        variables_schema: { keys: checkResult.used }, effective_date: new Date().toISOString().slice(0, 10),
+        uploaded_by: userData?.user?.id || null, content_hash: contentHash,
+        mapping_status: "SCHVALENA", required_permissions: requiredPerms,
+      });
+      if (vErr) throw vErr;
+
+      await supabase.from("hr_document_templates").update({ status: "KE_SCHVALENI" }).eq("id", templateId).eq("status", "NAHRANA");
+
+      setFile(null); setCheckResult(null); setName("");
+      onUploaded();
+    } catch (e) {
+      console.error(e);
+      setError(e.message || "Nahrání se nezdařilo.");
+    }
+    setUploading(false);
+  }
+
+  return (
+    <div className="bg-white border border-slate-200 rounded-lg p-4 mb-4">
+      <h2 className="font-semibold text-sm mb-3">Nahrát novou šablonu / verzi</h2>
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-4">
+        <SelectFieldLocal label="Typ dokumentu" value={docType} onChange={setDocType} options={DOC_TYPE_OPTIONS} />
+        <TextField label="Název šablony" value={name} onChange={setName} />
+      </div>
+      <label className="block mb-3">
+        <span className="block text-xs font-medium text-slate-500 mb-1">Soubor .docx (obsahuje {"{{"}tagy{"}}"})</span>
+        <input type="file" accept=".docx" onChange={onFileChange} className="text-sm" />
+      </label>
+      <div className="mb-3">
+        <span className="block text-xs font-medium text-slate-500 mb-1.5">Klasifikace citlivosti této verze (explicitní volba HR, ne automatická)</span>
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-1.5">
+          {TEMPLATE_SENSITIVITY_OPTIONS.map((o) => (
+            <label key={o.value} className="flex items-center gap-2 text-sm text-slate-600">
+              <input type="checkbox" checked={requiredPerms.includes(o.value)} onChange={() => togglePerm(o.value)} /> {o.label}
+            </label>
+          ))}
+        </div>
+      </div>
+      {checkResult && (
+        <div className={"text-xs px-3 py-2 rounded-md mb-3 " + (checkResult.ok ? "bg-emerald-50 text-emerald-700" : "bg-red-50 text-red-700")}>
+          {checkResult.ok ? (
+            <>Rozpoznáno {checkResult.used.length} tagů, všechny podporované: {checkResult.used.join(", ") || "—"}</>
+          ) : (
+            <>Nepodporované tagy: <strong>{checkResult.unknown.join(", ")}</strong>. Podporované: {KNOWN_TEMPLATE_KEYS.join(", ")}</>
+          )}
+        </div>
+      )}
+      {error && <div className="bg-red-50 text-red-700 text-sm px-3 py-2 rounded-md mb-2">{error}</div>}
+      <div className="flex justify-end">
+        <button onClick={submit} disabled={uploading || !checkResult?.ok} className="flex items-center gap-1.5 bg-teal-700 hover:bg-teal-800 disabled:opacity-50 disabled:cursor-not-allowed text-white text-sm font-medium px-4 py-2 rounded-md">
+          {uploading ? <Loader2 size={16} className="animate-spin" /> : <Upload size={16} />} {uploading ? "Nahrávám..." : "Nahrát šablonu"}
+        </button>
       </div>
     </div>
   );

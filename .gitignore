@@ -5,3 +5,5 @@ dist
 .env.*.local
 .claude/settings.local.json
 supabase/.temp
+.vite/
+vite-dev.log
