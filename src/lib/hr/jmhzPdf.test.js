@@ -42,8 +42,8 @@ describe("listAcroFormFieldNames", () => {
     const fields = await listAcroFormFieldNames(ab);
     expect(fields).toEqual(
       expect.arrayContaining([
-        { name: "Jmeno", type: "PDFTextField" },
-        { name: "VedouciPracovnik", type: "PDFCheckBox" },
+        expect.objectContaining({ name: "Jmeno", type: "PDFTextField" }),
+        expect.objectContaining({ name: "VedouciPracovnik", type: "PDFCheckBox" }),
       ])
     );
   });

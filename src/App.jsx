@@ -16,6 +16,7 @@ const VyrobaView = lazy(() => import("./VyrobaView.jsx"));
 const PlanSmienView = lazy(() => import("./PlanSmienView.jsx"));
 const KvalitaView = lazy(() => import("./KvalitaView.jsx"));
 const UctovnictviView = lazy(() => import("./UctovnictviView.jsx"));
+const OnboardingKiosk = lazy(() => import("./hr/OnboardingKiosk.jsx"));
 import { extractCityFromAddress, todayStr, uid, parseSkDate, isoFromSkDateStr, skDateStrFromIso, durationMinutes, formatMinutes } from "./lib/utils.js";
 import { parsePricelistFile, computeTransportPrice, computeTransportPriceForCity, formatEur, formatPriceNumber } from "./lib/pricelist.js";
 import { buildLieferscheinXlsx } from "./lib/lieferscheinXlsx.js";
@@ -718,7 +719,29 @@ function MiniERP() {
 // Jediny skutocny "root" export - EnvironmentBanner sa tu vykresli PRED
 // vsetkym ostatnym, takze pokryva uplne kazdu obrazovku appky bez ohladu na
 // to, ktora vetva MiniERP() nizsie sa prave zobrazuje.
+//
+// Tabletovy onboarding kiosk (?kiosk=nastup v URL) sa musi vetvit TU, PRED
+// akymkolvek volanim useAuth()/MiniERP() - nie ako podmienka vo vnutri
+// MiniERP(), ktora by aj tak najprv nacitala/spustila cely prihlasovaci
+// hook strom. Takto sa zarucuje, ze kiosk rezim nikdy ani len nemontuje
+// autentifikovanu vetvu appky (viz OnboardingKiosk.jsx - HR izolacia,
+// MASTER_PROMPT bod 7 zadania).
+function isOnboardingKioskUrl() {
+  if (typeof window === "undefined") return false;
+  return new URLSearchParams(window.location.search).get("kiosk") === "nastup";
+}
+
 export default function MiniERPRoot() {
+  if (isOnboardingKioskUrl()) {
+    return (
+      <>
+        <EnvironmentBanner />
+        <Suspense fallback={<div className="min-h-screen flex items-center justify-center text-slate-500"><Loader2 className="animate-spin mr-2" size={20} /> Načítám...</div>}>
+          <OnboardingKiosk />
+        </Suspense>
+      </>
+    );
+  }
   return (
     <>
       <EnvironmentBanner />
