@@ -147,12 +147,21 @@ describe("realny vzor 25.3.2026 - extrakcia po syntetickom vyplneni", () => {
   });
 });
 
-describe("neznama/inak-verziovana vzorka (napr. druhy dodany vzor '20.3.2026 C')", () => {
+describe("neznama verzia (verzia bez vyplnenej mapy poli, alebo uplne cudzi retazec)", () => {
+  // "20.3.2026 C" uz NIE JE priklad neznamej verzie - realny original bol
+  // medzitym dodany (hr-podklady/JMHZ_dotaznik_vyplneny_original.pdf) a jeho
+  // mapa bola nezavisle overena (viz jmhzPdf.crossVersionParity.test.js).
+  // Tento test preto simuluje "neznamu verziu" cez docasny prazdny zaznam v
+  // mape (rovnaky mechanizmus, aky predtym chranil "20.3.2026 C" kym subor
+  // chybal), aby zostalo overene, ze mechanizmus "prazdna mapa = zastav sa"
+  // stale funguje pre AKUKOLVEK buducu nemapovanu verziu.
   it("verzia bez vyplnenej mapy poli sa VZDY zastavi na NEZNAMA_VERZIA, aj ked existuje ako zaznam v JMHZ_FIELD_MAPS", async () => {
+    JMHZ_FIELD_MAPS["buduca-neznama-verzia-test"] = { versionLabel: "buduca-neznama-verzia-test", fields: {} };
     const ab = originalBytes.buffer.slice(originalBytes.byteOffset, originalBytes.byteOffset + originalBytes.byteLength);
-    const result = await extractJmhzFields(ab, "20.3.2026 C");
+    const result = await extractJmhzFields(ab, "buduca-neznama-verzia-test");
     expect(result.status).toBe("NEZNAMA_VERZIA");
     expect(result.results).toEqual({});
+    delete JMHZ_FIELD_MAPS["buduca-neznama-verzia-test"];
   });
 
   it("uplne neznamy retazec verzie sa tiez zastavi na NEZNAMA_VERZIA", async () => {

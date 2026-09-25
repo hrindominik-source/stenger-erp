@@ -1360,6 +1360,7 @@ function DokumentyTab({ employee, sensitive, currentEmployment, permissions }) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [documents, setDocuments] = useState([]);
+  const [signaturesByDoc, setSignaturesByDoc] = useState(new Map()); // hr_document_id -> hr_document_signatures[]
   const [templates, setTemplates] = useState([]);
   const [creating, setCreating] = useState(false);
   const [signingId, setSigningId] = useState(null);
@@ -1375,8 +1376,17 @@ function DokumentyTab({ employee, sensitive, currentEmployment, permissions }) {
       supabase.from("hr_document_templates").select("*").eq("status", "SCHVALENA"),
     ]);
     if (docsRes.error) { setError("Nepodařilo se načíst dokumenty."); setLoading(false); return; }
-    setDocuments(docsRes.data || []);
+    const docs = docsRes.data || [];
+    setDocuments(docs);
     setTemplates(tplsRes.data || []);
+    if (docs.length > 0) {
+      const { data: sigs } = await supabase.from("hr_document_signatures").select("*").in("hr_document_id", docs.map((d) => d.id)).order("created_at", { ascending: false });
+      const map = new Map();
+      (sigs || []).forEach((s) => { const arr = map.get(s.hr_document_id) || []; arr.push(s); map.set(s.hr_document_id, arr); });
+      setSignaturesByDoc(map);
+    } else {
+      setSignaturesByDoc(new Map());
+    }
     setLoading(false);
   }, [employee.id]);
 
@@ -1391,8 +1401,12 @@ function DokumentyTab({ employee, sensitive, currentEmployment, permissions }) {
     load();
   }
 
-  async function openDocument(doc) {
-    const { data, error: err } = await supabase.storage.from(HR_DOKUMENTY_BUCKET).createSignedUrl(doc.file_path, 3600);
+  // path sa preberá explicitne (nie doc.file_path natvrdo) - GENERATED
+  // ORIGINAL (hr_documents.file_path, nikdy sa neprepisuje) a SIGNED
+  // ORIGINAL (hr_document_signatures.file_path, WORM chranene) su takto
+  // vzdy dve nezavisle dohladatelne cesty, nikdy tichá zámena jedné za druhou.
+  async function openFile(path) {
+    const { data, error: err } = await supabase.storage.from(HR_DOKUMENTY_BUCKET).createSignedUrl(path, 3600);
     if (err) { window.alert(err.message); return; }
     window.open(data.signedUrl, "_blank");
   }
@@ -1423,6 +1437,8 @@ function DokumentyTab({ employee, sensitive, currentEmployment, permissions }) {
           {documents.map((d) => {
             const nextStatus = HR_DOCUMENT_STATUS_ORDER[HR_DOCUMENT_STATUS_ORDER.indexOf(d.status) + 1];
             const canAdvance = nextStatus && nextStatus !== "SIGNED" && (canGenerate || canApprove);
+            const signatures = signaturesByDoc.get(d.id) || [];
+            const latestSignature = signatures[0] || null;
             return (
               <div key={d.id} className="bg-white border border-slate-200 rounded-lg p-4">
                 <div className="flex justify-between items-start flex-wrap gap-2">
@@ -1435,7 +1451,18 @@ function DokumentyTab({ employee, sensitive, currentEmployment, permissions }) {
                   <span className="px-2 py-0.5 rounded-full text-xs font-medium bg-slate-100 text-slate-600">{HR_DOCUMENT_STATUS_LABEL[d.status] || d.status}</span>
                 </div>
                 <div className="flex flex-wrap items-center gap-3 mt-3 pt-3 border-t border-slate-100">
-                  {d.file_path && <button onClick={() => openDocument(d)} className="text-sm text-teal-700 hover:text-teal-900 flex items-center gap-1"><Download size={14} /> Otevřít soubor</button>}
+                  {/* GENERATED ORIGINAL - hr_documents.file_path sa po podpise nikdy neprepisuje, zostava trvalo dostupny */}
+                  {d.file_path && (
+                    <button onClick={() => openFile(d.file_path)} className="text-sm text-teal-700 hover:text-teal-900 flex items-center gap-1">
+                      <Download size={14} /> {latestSignature ? "Otevřít původní vygenerovaný soubor" : "Otevřít soubor"}
+                    </button>
+                  )}
+                  {/* SIGNED ORIGINAL - samostatna cesta z hr_document_signatures, nikdy nezamenena za vygenerovany original */}
+                  {latestSignature?.file_path && (
+                    <button onClick={() => openFile(latestSignature.file_path)} className="text-sm text-emerald-700 hover:text-emerald-900 flex items-center gap-1">
+                      <Stamp size={14} /> Otevřít podepsaný sken
+                    </button>
+                  )}
                   {canAdvance && (
                     <button onClick={() => advanceStatus(d)} className="text-sm text-slate-500 hover:text-slate-800">Posunout stav → {HR_DOCUMENT_STATUS_LABEL[nextStatus]}</button>
                   )}
@@ -1443,6 +1470,13 @@ function DokumentyTab({ employee, sensitive, currentEmployment, permissions }) {
                     <button onClick={() => setSigningId(d.id)} className="text-sm text-teal-700 hover:text-teal-900 flex items-center gap-1"><Stamp size={14} /> Nahrát podepsaný sken</button>
                   )}
                 </div>
+                {latestSignature && (
+                  <div className="mt-2 text-xs text-slate-400">
+                    Podepsal: {latestSignature.signed_by_name || "—"} ({latestSignature.signer_type === "EMPLOYEE" ? "zaměstnanec" : "zaměstnavatel"}) ·
+                    {" "}potvrzeno: {latestSignature.created_at ? new Date(latestSignature.created_at).toLocaleString("cs-CZ") : "—"} ·
+                    {" "}SHA-256: <code className="font-mono">{latestSignature.document_hash ? latestSignature.document_hash.slice(0, 16) + "…" : "—"}</code>
+                  </div>
+                )}
                 {signingId === d.id && <SignDocumentForm doc={d} onCancel={() => setSigningId(null)} onSaved={() => { setSigningId(null); load(); }} />}
               </div>
             );
@@ -1635,15 +1669,14 @@ function SignDocumentForm({ doc, onCancel, onSaved }) {
         document_hash: hash, uploaded_by: userData?.user?.id || null, file_path: storagePath,
       });
       if (sigErr) throw sigErr;
-      // file_path sa PREPISUJE na podpisany sken v tom istom kroku, ako sa
-      // riadok prechadza do SIGNED (nie neskorsia uprava uz podpisaneho
-      // riadku - je to sucast tej istej, jedinej prechodovej update). Bez
-      // toho by "Otevřít soubor" po podpise stale otvaral povodny
-      // nepodpisany vygenerovany .docx - podpisany sken by nebol z UI vobec
-      // dosiahnutelny. Povodny vygenerovany subor zostava v ulozisku
-      // nedotknuty (len sa naň uz neodkazuje tento konkretny hr_documents riadok).
+      // hr_documents.file_path sa ZAMERNE NEPREPISUJE - zostava navzdy
+      // ukazovat na PUVODNI vygenerovany original (bod "GENERATED ORIGINAL"
+      // z kontroly lifecycle). Podpisany sken ("SIGNED ORIGINAL") je
+      // dohladatelny samostatne cez hr_document_signatures.file_path (uz
+      // ulozene vyssie) - DokumentyTab nizsie ponuka OBE cesty ako dve
+      // oddelene tlacidla, aby ziadna z nich nebola tichou zamenou tej druhej.
       const { error: docErr } = await supabase.from("hr_documents").update({
-        status: "SIGNED", file_path: storagePath, updated_at: new Date().toISOString(),
+        status: "SIGNED", updated_at: new Date().toISOString(),
       }).eq("id", doc.id);
       if (docErr) throw docErr;
       onSaved();
