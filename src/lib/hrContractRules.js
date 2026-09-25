@@ -27,15 +27,23 @@ export function addMonthsIso(iso, months) {
 
 // events: pole employment_contract_events pre jeden pracovny pomer (employment_id),
 // ocakava aspon {event_type, is_legal_override}. Poradie nie je podstatne.
+//
+// requiresReview=true znamena "nedá sa bezpecne urcit" (napr. chyba startDate,
+// bez ktoreho nejde vypocitat 3-rocny limit) - UI MUSI v tomto pripade
+// zobrazit "Vyžaduje kontrolu" namiesto toho, aby tiho predstieralo
+// withinLimits=true. Toto je zamerne ODLISENE od withinLimits=false (co
+// znamena "limit vieme spolahlivo vypocitat A JE prekroceny").
 export function computeFixedTermStatus({ startDate, currentEndDate, events = [] }, rules = FIXED_TERM_RULES) {
   const extensionsCount = events.filter((e) => e.event_type === "EXTENDED").length;
   const hasOverride = events.some((e) => e.is_legal_override);
   const remainingExtensions = Math.max(0, rules.maxExtensions - extensionsCount);
+
+  const requiresReview = !startDate;
   const maxAllowedEndDate = startDate ? addMonthsIso(startDate, rules.maxTotalMonths) : null;
 
   const overExtensionLimit = extensionsCount >= rules.maxExtensions;
   const overDurationLimit = Boolean(currentEndDate && maxAllowedEndDate && currentEndDate > maxAllowedEndDate);
-  const withinLimits = !overExtensionLimit && !overDurationLimit;
+  const withinLimits = !requiresReview && !overExtensionLimit && !overDurationLimit;
 
   return {
     extensionsCount,
@@ -44,6 +52,7 @@ export function computeFixedTermStatus({ startDate, currentEndDate, events = [] 
     overExtensionLimit,
     overDurationLimit,
     withinLimits,
+    requiresReview,
     hasOverride,
     // Bez override treba respektovat vypocitane limity; s override (administrator
     // vedome zaznamenal vynimku) sa nova zmluva/predlzenie moze vytvorit aj tak.
@@ -55,4 +64,20 @@ export function computeFixedTermStatus({ startDate, currentEndDate, events = [] 
 // suladu s pravidlami - pouziva sa PRED ulozenim predlzenia v UI.
 export function canProposeExtension({ startDate, proposedEndDate, events = [] }, rules = FIXED_TERM_RULES) {
   return computeFixedTermStatus({ startDate, currentEndDate: proposedEndDate, events }, rules);
+}
+
+// Chronologicke zoradenie faktickych udalosti pre zobrazenie v "Historie a
+// dodatky" (PracovniPomerTab) - podla efektivneho datumu, pri zhode podla
+// created_at (aby sa v ramci jedneho dna zachovalo poradie zapisu). Cistá
+// funkcia, aby sa dalo overit bez renderovania komponenty.
+export function sortContractEventsChronologically(events) {
+  return [...events].sort((a, b) => (a.event_date || "").localeCompare(b.event_date || "") || (a.created_at || "").localeCompare(b.created_at || ""));
+}
+
+// Po ukonceni jedneho pracovneho pomeru - ma sa zamestnanec oznacit ako
+// byvaly (employees.active=false)? Ano prave vtedy, ked mu uz nezostava
+// ziadny ACTIVE/PLANNED/NOTICE_PERIOD pracovny pomer (rehire teda ostava
+// aktivny, kym ma aspon jeden bezici/planovany pomer).
+export function shouldMarkEmployeeInactive(remainingActiveOrPlannedCount) {
+  return remainingActiveOrPlannedCount === 0;
 }

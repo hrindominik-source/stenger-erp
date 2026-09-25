@@ -1,8 +1,10 @@
 import React, { useState, useEffect, useCallback } from "react";
-import { Loader2, AlertCircle, Users2, UserPlus, ArrowLeft, ShieldAlert, Settings, LayoutDashboard, FileText, Pencil, CheckCircle2, Briefcase, Plus, Upload, Download, Stamp } from "lucide-react";
+import { Loader2, AlertCircle, Users2, UserPlus, ArrowLeft, ShieldAlert, Settings, LayoutDashboard, FileText, Pencil, CheckCircle2, Briefcase, Plus, Upload, Download, Stamp, HeartPulse, History } from "lucide-react";
 import { supabase } from "../supabaseClient.js";
 import { uid, skDateStrFromIso } from "../lib/utils.js";
-import { computeFixedTermStatus, canProposeExtension, FIXED_TERM_RULES } from "../lib/hrContractRules.js";
+import { computeFixedTermStatus, canProposeExtension, FIXED_TERM_RULES, sortContractEventsChronologically, shouldMarkEmployeeInactive } from "../lib/hrContractRules.js";
+import { computeMedicalStatus, MEDICAL_STATUS, MEDICAL_STATUS_LABEL, DEFAULT_EXPIRING_THRESHOLD_DAYS } from "../lib/hrMedicalStatus.js";
+import { computeHrWarnings } from "../lib/hrWarnings.js";
 import { fillDocxTemplate, extractTemplateKeys, validateTemplateKeysAgainstAllowlist, validateRequiredKeys } from "../lib/hr/docxTemplate.js";
 import { KNOWN_TEMPLATE_KEYS, TEMPLATE_REQUIRED_KEYS, buildDocumentData } from "../lib/hr/docxMapping.js";
 import { convertFilledDocxToPdf } from "../lib/hr/docxToPdf.js";
@@ -192,6 +194,8 @@ function DashboardTab({ permissions, onOpenEmployee }) {
   const [error, setError] = useState("");
   const [employees, setEmployees] = useState([]);
   const [employments, setEmployments] = useState([]);
+  const [positions, setPositions] = useState([]);
+  const [contractEvents, setContractEvents] = useState([]);
   const [medicalExams, setMedicalExams] = useState([]);
   const [onboardingPendingCount, setOnboardingPendingCount] = useState(0);
   const canMedical = hasPerm(permissions, "HR_VIEW_MEDICAL_ADMIN");
@@ -201,20 +205,31 @@ function DashboardTab({ permissions, onOpenEmployee }) {
     let cancelled = false;
     (async () => {
       setLoading(true);
-      const fetches = [
+      const [empRes, empmRes, posRes] = await Promise.all([
         supabase.from("employees").select("id, first_name, last_name, title, active").eq("active", true),
-        supabase.from("employment_relationships").select("id, employee_id, status, fixed_term_end_date, employment_type").in("status", ["ACTIVE", "PLANNED", "NOTICE_PERIOD"]),
-      ];
-      if (canMedical) fetches.push(supabase.from("medical_examinations").select("id, employee_id, exam_type, valid_until"));
-      if (canReviewOnboarding) fetches.push(supabase.from("onboarding_sessions").select("id", { count: "exact", head: true }).eq("status", "SUBMITTED"));
-      const results = await Promise.all(fetches);
+        supabase.from("employment_relationships").select("id, employee_id, status, fixed_term_end_date, employment_type, start_date, workplace, weekly_hours, position_id").in("status", ["ACTIVE", "PLANNED", "NOTICE_PERIOD"]),
+        supabase.from("positions").select("id, code, name"),
+      ]);
       if (cancelled) return;
-      const [empRes, empmRes, medRes, onbRes] = results;
       if (empRes.error || empmRes.error) { setError("Nepodařilo se načíst přehled."); setLoading(false); return; }
-      setEmployees(empRes.data || []);
-      setEmployments(empmRes.data || []);
-      if (canMedical && medRes) setMedicalExams(medRes.data || []);
-      if (canReviewOnboarding && onbRes) setOnboardingPendingCount(onbRes.count || 0);
+      const emps = empRes.data || [];
+      const ems = empmRes.data || [];
+      setEmployees(emps);
+      setEmployments(ems);
+      setPositions(posRes.data || []);
+
+      const fetches2 = [];
+      if (ems.length > 0) fetches2.push(supabase.from("employment_contract_events").select("id, employment_id, event_type").in("employment_id", ems.map((e) => e.id)));
+      else fetches2.push(Promise.resolve({ data: [] }));
+      if (canMedical) fetches2.push(supabase.from("medical_examinations").select("id, employee_id, exam_type, exam_date, valid_until").order("exam_date", { ascending: false }));
+      else fetches2.push(Promise.resolve({ data: [] }));
+      if (canReviewOnboarding) fetches2.push(supabase.from("onboarding_sessions").select("id", { count: "exact", head: true }).eq("status", "SUBMITTED"));
+      else fetches2.push(Promise.resolve({ count: 0 }));
+      const [evRes, medRes, onbRes] = await Promise.all(fetches2);
+      if (cancelled) return;
+      setContractEvents(evRes.data || []);
+      setMedicalExams(medRes.data || []);
+      setOnboardingPendingCount(onbRes.count || 0);
       setLoading(false);
     })();
     return () => { cancelled = true; };
@@ -230,7 +245,15 @@ function DashboardTab({ permissions, onOpenEmployee }) {
   const medExpiring90 = medicalExams.filter((m) => { const d = daysUntilIso(m.valid_until); return d !== null && d <= 90; });
   const medExpired = medExpiring90.filter((m) => daysUntilIso(m.valid_until) < 0);
 
-  const byEmployeeId = new Map(employees.map((e) => [e.id, e]));
+  // najnovsia (najdulezitejsia) prehlidka na zamestnanca, pre warnings aj tabulku
+  const latestExamByEmployee = new Map();
+  for (const m of medicalExams) {
+    if (!latestExamByEmployee.has(m.employee_id)) latestExamByEmployee.set(m.employee_id, m);
+  }
+  const warnings = computeHrWarnings({ employments, medicalExams: [...latestExamByEmployee.values()], employees });
+
+  const positionLabel = (positionId) => { const p = positions.find((x) => x.id === positionId); return p ? (p.code ? `${p.code} – ${p.name}` : p.name) : "—"; };
+  const extensionsCountFor = (employmentId) => contractEvents.filter((e) => e.employment_id === employmentId && e.event_type === "EXTENDED").length;
 
   return (
     <div>
@@ -241,55 +264,65 @@ function DashboardTab({ permissions, onOpenEmployee }) {
         <StatCard label="Smlouvy do 90 dnů" value={ending90.length} />
         <StatCard label="Ve výpovědní lhůtě" value={noticePeriod} alert={noticePeriod > 0} />
         {canMedical && <StatCard label="Prohlídky po platnosti" value={medExpired.length} alert={medExpired.length > 0} />}
-        {canMedical && <StatCard label="Prohlídky do 90 dnů" value={medExpiring90.length - medExpired.length} />}
-        {canReviewOnboarding && <StatCard label="Čekající nástupy" value={onboardingPendingCount} alert={onboardingPendingCount > 0} />}
+        {canMedical && <StatCard label="Prohlídky do 60 dnů" value={medExpiring90.filter((m) => daysUntilIso(m.valid_until) <= DEFAULT_EXPIRING_THRESHOLD_DAYS).length - medExpired.length} />}
+        {canReviewOnboarding && <StatCard label="Probíhající nástupy" value={onboardingPendingCount} alert={onboardingPendingCount > 0} />}
       </div>
-      {ending90.length > 0 && (
+
+      {warnings.length > 0 && (
         <div className="bg-white border border-slate-200 rounded-lg overflow-hidden mb-4">
-          <div className="px-4 py-2.5 border-b border-slate-100 font-semibold text-sm">Blížící se konec smlouvy (do 90 dnů)</div>
-          <table className="w-full text-sm">
-            <tbody>
-              {ending90
-                .slice()
-                .sort((a, b) => daysUntilIso(a.fixed_term_end_date) - daysUntilIso(b.fixed_term_end_date))
-                .map((em) => {
-                  const e = byEmployeeId.get(em.employee_id);
-                  const d = daysUntilIso(em.fixed_term_end_date);
-                  return (
-                    <tr key={em.id} className="border-t border-slate-100 hover:bg-slate-50 cursor-pointer" onClick={() => onOpenEmployee(em.employee_id)}>
-                      <td className="px-4 py-2 font-medium">{e ? fullName(e) : "?"}</td>
-                      <td className="px-4 py-2 text-slate-500">Konec: {fmtDate(em.fixed_term_end_date)}</td>
-                      <td className={"px-4 py-2 text-right " + (d <= 30 ? "text-red-600 font-medium" : "text-amber-600")}>za {d} dní</td>
-                    </tr>
-                  );
-                })}
-            </tbody>
-          </table>
+          <div className="px-4 py-2.5 border-b border-slate-100 font-semibold text-sm">Upozornění</div>
+          <div className="divide-y divide-slate-100">
+            {warnings
+              .slice()
+              .sort((a, b) => (a.level === b.level ? 0 : a.level === "red" ? -1 : 1))
+              .map((w, i) => (
+                <div key={i} className="px-4 py-2 text-sm flex items-center gap-2 cursor-pointer hover:bg-slate-50" onClick={() => onOpenEmployee(w.employeeId)}>
+                  <span>{w.level === "red" ? "🔴" : "🟠"}</span>
+                  <span className="font-medium">{w.employeeName || "?"}</span>
+                  <span className="text-slate-500">— {w.message}</span>
+                </div>
+              ))}
+          </div>
         </div>
       )}
-      {canMedical && medExpiring90.length > 0 && (
-        <div className="bg-white border border-slate-200 rounded-lg overflow-hidden">
-          <div className="px-4 py-2.5 border-b border-slate-100 font-semibold text-sm">Lékařské prohlídky - po platnosti nebo brzy vypršou (do 90 dnů)</div>
-          <table className="w-full text-sm">
-            <tbody>
-              {medExpiring90
-                .slice()
-                .sort((a, b) => daysUntilIso(a.valid_until) - daysUntilIso(b.valid_until))
-                .map((m) => {
-                  const e = byEmployeeId.get(m.employee_id);
-                  const d = daysUntilIso(m.valid_until);
-                  return (
-                    <tr key={m.id} className="border-t border-slate-100 hover:bg-slate-50 cursor-pointer" onClick={() => onOpenEmployee(m.employee_id)}>
-                      <td className="px-4 py-2 font-medium">{e ? fullName(e) : "?"}</td>
-                      <td className="px-4 py-2 text-slate-500">{m.exam_type || "Prohlídka"} - platnost do: {fmtDate(m.valid_until)}</td>
-                      <td className={"px-4 py-2 text-right " + (d < 0 ? "text-red-600 font-medium" : d <= 30 ? "text-red-600 font-medium" : "text-amber-600")}>{d < 0 ? `po platnosti (${-d} dní)` : `za ${d} dní`}</td>
-                    </tr>
-                  );
-                })}
-            </tbody>
-          </table>
-        </div>
-      )}
+
+      <div className="bg-white border border-slate-200 rounded-lg overflow-hidden overflow-x-auto">
+        <div className="px-4 py-2.5 border-b border-slate-100 font-semibold text-sm">Aktivní zaměstnanci</div>
+        <table className="w-full text-sm">
+          <thead className="bg-slate-50 text-slate-500 text-xs uppercase">
+            <tr>
+              <th className="text-left px-4 py-2">Zaměstnanec</th>
+              <th className="text-left px-4 py-2">Pozice</th>
+              <th className="text-left px-4 py-2">Nástup</th>
+              <th className="text-left px-4 py-2">Typ</th>
+              <th className="text-left px-4 py-2">Konec smlouvy</th>
+              <th className="text-left px-4 py-2">Prodloužení</th>
+              <th className="text-left px-4 py-2">Lékařská prohlídka</th>
+              <th className="text-left px-4 py-2">Status</th>
+            </tr>
+          </thead>
+          <tbody>
+            {employees.map((e) => {
+              const em = employments.find((x) => x.employee_id === e.id);
+              const exam = latestExamByEmployee.get(e.id);
+              const medStatus = canMedical && exam ? computeMedicalStatus(exam.valid_until) : null;
+              return (
+                <tr key={e.id} className="border-t border-slate-100 hover:bg-slate-50 cursor-pointer" onClick={() => onOpenEmployee(e.id)}>
+                  <td className="px-4 py-2 font-medium whitespace-nowrap">{fullName(e)}</td>
+                  <td className="px-4 py-2 text-slate-500 whitespace-nowrap">{em ? positionLabel(em.position_id) : "—"}</td>
+                  <td className="px-4 py-2 text-slate-500 whitespace-nowrap">{em ? fmtDate(em.start_date) : "—"}</td>
+                  <td className="px-4 py-2 text-slate-500 whitespace-nowrap">{em?.employment_type === "doba_urcita" ? "Doba určitá" : em?.employment_type === "doba_neurcita" ? "Doba neurčitá" : "—"}</td>
+                  <td className="px-4 py-2 text-slate-500 whitespace-nowrap">{em?.fixed_term_end_date ? fmtDate(em.fixed_term_end_date) : "—"}</td>
+                  <td className="px-4 py-2 text-slate-500 whitespace-nowrap">{em ? extensionsCountFor(em.id) : "—"}</td>
+                  <td className="px-4 py-2 whitespace-nowrap">{canMedical ? (exam ? <MedicalStatusBadge status={medStatus} /> : "—") : "—"}</td>
+                  <td className="px-4 py-2 whitespace-nowrap"><span className="px-2 py-0.5 rounded-full text-xs font-medium bg-slate-100 text-slate-600">{em ? EMPLOYMENT_STATUS_LABEL[em.status] : "—"}</span></td>
+                </tr>
+              );
+            })}
+            {employees.length === 0 && <tr><td colSpan={8} className="px-4 py-8 text-center text-slate-400">Zatím žádní aktivní zaměstnanci.</td></tr>}
+          </tbody>
+        </table>
+      </div>
     </div>
   );
 }
@@ -534,6 +567,7 @@ function EmployeeCreateForm({ permissions, onCancel, onCreated, initialData, pos
     setSaving(true);
     try {
       const employeeId = uid();
+      const { data: userData } = await supabase.auth.getUser();
       const { error: empErr } = await supabase.from("employees").insert({
         id: employeeId,
         first_name: f.first_name.trim(),
@@ -582,11 +616,13 @@ function EmployeeCreateForm({ permissions, onCancel, onCreated, initialData, pos
           position_id: f.position_id || null,
           workplace: f.workplace.trim() || null,
           weekly_hours: f.weekly_hours ? Number(f.weekly_hours) : null,
+          created_by: userData?.user?.id || null, updated_by: userData?.user?.id || null,
         });
         if (emErr) throw emErr;
         await supabase.from("employment_contract_events").insert({
           id: uid(), employment_id: employmentId, event_type: "CREATED", event_date: f.start_date,
           valid_from: f.start_date, valid_to: f.employment_type === "doba_urcita" ? (f.fixed_term_end_date || null) : null,
+          created_by: userData?.user?.id || null,
         });
       }
 
@@ -702,7 +738,9 @@ const DETAIL_TABS = [
   { key: "pomer", label: "Pracovní poměr" },
   { key: "dokumenty", label: "Dokumenty" },
   { key: "jmhz", label: "JMHZ dotazník", editOnly: true },
+  { key: "lekarske", label: "Lékařské prohlídky", medicalOnly: true },
   { key: "historie", label: "Historie" },
+  { key: "audit", label: "Audit", auditOnly: true },
 ];
 
 function EmployeeDetail({ id, permissions, onBack }) {
@@ -716,6 +754,7 @@ function EmployeeDetail({ id, permissions, onBack }) {
   const [contractEvents, setContractEvents] = useState([]);
   const [positions, setPositions] = useState([]);
   const [timeline, setTimeline] = useState([]);
+  const [medicalExams, setMedicalExams] = useState([]);
   const [confirmingDelete, setConfirmingDelete] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [deleteError, setDeleteError] = useState("");
@@ -723,6 +762,8 @@ function EmployeeDetail({ id, permissions, onBack }) {
   const canEdit = hasPerm(permissions, "HR_EDIT");
   const canSensitive = hasPerm(permissions, "HR_VIEW_SENSITIVE");
   const canPayroll = hasPerm(permissions, "HR_VIEW_PAYROLL");
+  const canMedical = hasPerm(permissions, "HR_VIEW_MEDICAL_ADMIN");
+  const canAudit = hasPerm(permissions, "HR_AUDIT_VIEW") || hasPerm(permissions, "HR_ADMIN");
   const canDelete = hasPerm(permissions, "HR_ADMIN");
 
   const load = useCallback(async () => {
@@ -754,8 +795,14 @@ function EmployeeDetail({ id, permissions, onBack }) {
       const { data } = await supabase.from("employee_payroll_data").select("*").eq("employee_id", id).maybeSingle();
       setPayroll(data || null);
     }
+    if (canMedical) {
+      const { data } = await supabase.from("medical_examinations").select("*").eq("employee_id", id).order("exam_date", { ascending: false });
+      setMedicalExams(data || []);
+    } else {
+      setMedicalExams([]);
+    }
     setLoading(false);
-  }, [id, canSensitive, canPayroll]);
+  }, [id, canSensitive, canPayroll, canMedical]);
 
   useEffect(() => { load(); }, [load]);
 
@@ -815,7 +862,7 @@ function EmployeeDetail({ id, permissions, onBack }) {
       )}
 
       <div className="flex flex-wrap gap-1.5 border-b border-slate-200 mb-4">
-        {DETAIL_TABS.filter((t) => !t.editOnly || canEdit).map((t) => (
+        {DETAIL_TABS.filter((t) => (!t.editOnly || canEdit) && (!t.medicalOnly || canMedical) && (!t.auditOnly || canAudit)).map((t) => (
           <button
             key={t.key}
             onClick={() => setDetailTab(t.key)}
@@ -826,9 +873,21 @@ function EmployeeDetail({ id, permissions, onBack }) {
         ))}
       </div>
 
-      {detailTab === "prehled" && <PrehledDetailTab employee={employee} currentEmployment={currentEmployment} contractEvents={contractEvents} positionLabel={positionLabel} />}
+      {detailTab === "prehled" && (
+        <PrehledDetailTab
+          employee={employee} currentEmployment={currentEmployment} contractEvents={contractEvents}
+          positionLabel={positionLabel} medicalExams={medicalExams} canMedical={canMedical}
+          employments={employments}
+        />
+      )}
       {detailTab === "osobni" && <OsobniUdajeTab employee={employee} sensitive={sensitive} canEdit={canEdit} canSensitive={canSensitive} onSaved={load} />}
-      {detailTab === "pomer" && <PracovniPomerTab employeeId={id} employments={employments} contractEvents={contractEvents} positions={positions} positionLabel={positionLabel} canEdit={canEdit} canOverride={hasPerm(permissions, "HR_ADMIN")} onChanged={load} />}
+      {detailTab === "pomer" && (
+        <PracovniPomerTab
+          employeeId={id} employee={employee} employments={employments} contractEvents={contractEvents}
+          positions={positions} positionLabel={positionLabel} canEdit={canEdit} canOverride={hasPerm(permissions, "HR_ADMIN")}
+          onChanged={load}
+        />
+      )}
       {detailTab === "dokumenty" && <DokumentyTab employee={employee} sensitive={sensitive} currentEmployment={currentEmployment} permissions={permissions} />}
       {detailTab === "jmhz" && canEdit && (
         <JmhzImportTab
@@ -837,48 +896,102 @@ function EmployeeDetail({ id, permissions, onBack }) {
           onImported={load}
         />
       )}
+      {detailTab === "lekarske" && canMedical && (
+        <MedicalExamsTab employeeId={id} medicalExams={medicalExams} canEdit={canEdit} onChanged={load} />
+      )}
       {detailTab === "historie" && <HistorieTab timeline={timeline} />}
+      {detailTab === "audit" && canAudit && <AuditTab employee={employee} employments={employments} contractEvents={contractEvents} medicalExams={medicalExams} />}
     </div>
   );
 }
 
-function PrehledDetailTab({ employee, currentEmployment, contractEvents, positionLabel }) {
+function PrehledDetailTab({ employee, currentEmployment, contractEvents, positionLabel, medicalExams, canMedical, employments }) {
   const endDays = currentEmployment ? daysUntilIso(currentEmployment.fixed_term_end_date) : null;
   const fixedTermStatus = currentEmployment && currentEmployment.employment_type === "doba_urcita"
     ? computeFixedTermStatus({ startDate: currentEmployment.start_date, currentEndDate: currentEmployment.fixed_term_end_date, events: contractEvents.filter((e) => e.employment_id === currentEmployment.id) })
     : null;
+  const latestExam = (medicalExams || [])[0] || null;
+  const medicalStatus = latestExam ? computeMedicalStatus(latestExam.valid_until) : null;
+  const warnings = computeHrWarnings({
+    employments: currentEmployment ? [currentEmployment] : [],
+    medicalExams: latestExam ? [latestExam] : [],
+    employees: [employee],
+  });
+
   return (
-    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-      <div className="bg-white border border-slate-200 rounded-lg p-4">
-        <h2 className="font-semibold text-sm mb-3">Pracovní poměr</h2>
-        {currentEmployment ? (
-          <dl className="text-sm space-y-1.5">
-            <Row label="Pozice" value={positionLabel(currentEmployment.position_id)} />
-            <Row label="Nástup" value={fmtDate(currentEmployment.start_date)} />
-            <Row label="Typ" value={currentEmployment.employment_type === "doba_urcita" ? "Doba určitá" : "Doba neurčitá"} />
-            {currentEmployment.fixed_term_end_date && <Row label="Konec smlouvy" value={fmtDate(currentEmployment.fixed_term_end_date)} />}
-            {fixedTermStatus && <Row label="Zbývá prodloužení" value={`${fixedTermStatus.remainingExtensions} z max. ${FIXED_TERM_RULES.maxExtensions}`} />}
-            <Row label="Místo výkonu práce" value={currentEmployment.workplace || "—"} />
-            <Row label="Úvazek" value={currentEmployment.weekly_hours ? `${currentEmployment.weekly_hours} h/týden` : "—"} />
-            <Row label="Stav" value={EMPLOYMENT_STATUS_LABEL[currentEmployment.status]} />
-          </dl>
-        ) : <div className="text-sm text-slate-400">Žádný pracovní poměr.</div>}
-        {endDays !== null && endDays >= 0 && endDays <= 90 && (
-          <div className={"mt-3 text-xs px-2.5 py-1.5 rounded-md " + (endDays <= 30 ? "bg-red-50 text-red-700" : "bg-amber-50 text-amber-700")}>
-            Smlouva končí za {endDays} dní ({fmtDate(currentEmployment.fixed_term_end_date)})
-          </div>
-        )}
+    <div>
+      <div className="mb-4">
+        <div className="text-lg font-semibold">{fullName(employee).toUpperCase()}</div>
+        <div className="text-sm text-slate-500">{currentEmployment ? positionLabel(currentEmployment.position_id) : "Bez aktivního pracovního poměru"} · {employee.active ? "AKTIVNÍ" : "BÝVALÝ ZAMĚSTNANEC"}</div>
       </div>
-      <div className="bg-white border border-slate-200 rounded-lg p-4">
-        <h2 className="font-semibold text-sm mb-3">Kontakt</h2>
-        <dl className="text-sm space-y-1.5">
-          <Row label="Telefon" value={employee.phone || "—"} />
-          <Row label="E-mail" value={employee.private_email || "—"} />
-          <Row label="Adresa" value={[employee.permanent_address?.ulice, employee.permanent_address?.mesto].filter(Boolean).join(", ") || "—"} />
-        </dl>
+      {warnings.length > 0 && (
+        <div className="mb-4 space-y-1.5">
+          {warnings.map((w, i) => (
+            <div key={i} className={"text-xs px-2.5 py-1.5 rounded-md flex items-center gap-1.5 " + (w.level === "red" ? "bg-red-50 text-red-700" : "bg-amber-50 text-amber-700")}>
+              {w.level === "red" ? "🔴" : "🟠"} {w.message.charAt(0).toUpperCase() + w.message.slice(1)}
+            </div>
+          ))}
+        </div>
+      )}
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+        <div className="bg-white border border-slate-200 rounded-lg p-4">
+          <h2 className="font-semibold text-sm mb-3">Pracovní poměr</h2>
+          {currentEmployment ? (
+            <dl className="text-sm space-y-1.5">
+              <Row label="Pozice" value={positionLabel(currentEmployment.position_id)} />
+              <Row label="Nástup" value={fmtDate(currentEmployment.start_date)} />
+              <Row label="Typ" value={currentEmployment.employment_type === "doba_urcita" ? "Doba určitá" : "Doba neurčitá"} />
+              {currentEmployment.fixed_term_end_date && <Row label="Konec smlouvy" value={fmtDate(currentEmployment.fixed_term_end_date)} />}
+              {fixedTermStatus && (
+                <Row
+                  label="Evidovaná prodloužení"
+                  value={fixedTermStatus.requiresReview ? "Vyžaduje kontrolu" : `${fixedTermStatus.extensionsCount} (zbývá ${fixedTermStatus.remainingExtensions} z max. ${FIXED_TERM_RULES.maxExtensions})`}
+                />
+              )}
+              <Row label="Místo výkonu práce" value={currentEmployment.workplace || "—"} />
+              <Row label="Úvazek" value={currentEmployment.weekly_hours ? `${currentEmployment.weekly_hours} h/týden` : "—"} />
+              <Row label="Stav" value={EMPLOYMENT_STATUS_LABEL[currentEmployment.status]} />
+            </dl>
+          ) : <div className="text-sm text-slate-400">Žádný pracovní poměr.</div>}
+          {endDays !== null && endDays >= 0 && endDays <= 90 && (
+            <div className={"mt-3 text-xs px-2.5 py-1.5 rounded-md " + (endDays <= 30 ? "bg-red-50 text-red-700" : "bg-amber-50 text-amber-700")}>
+              Smlouva končí za {endDays} dní ({fmtDate(currentEmployment.fixed_term_end_date)})
+            </div>
+          )}
+        </div>
+        <div className="space-y-4">
+          <div className="bg-white border border-slate-200 rounded-lg p-4">
+            <h2 className="font-semibold text-sm mb-3">Kontakt</h2>
+            <dl className="text-sm space-y-1.5">
+              <Row label="Telefon" value={employee.phone || "—"} />
+              <Row label="E-mail" value={employee.private_email || "—"} />
+              <Row label="Adresa" value={[employee.permanent_address?.ulice, employee.permanent_address?.mesto].filter(Boolean).join(", ") || "—"} />
+            </dl>
+          </div>
+          {canMedical && (
+            <div className="bg-white border border-slate-200 rounded-lg p-4">
+              <h2 className="font-semibold text-sm mb-3 flex items-center gap-1.5"><HeartPulse size={15} /> Lékařská prohlídka</h2>
+              {latestExam ? (
+                <dl className="text-sm space-y-1.5">
+                  <Row label="Poslední" value={fmtDate(latestExam.exam_date)} />
+                  <Row label="Platnost do" value={latestExam.valid_until ? fmtDate(latestExam.valid_until) : "—"} />
+                  <Row label="Stav" value={<MedicalStatusBadge status={medicalStatus} />} />
+                </dl>
+              ) : <div className="text-sm text-slate-400">Zatím žádná evidovaná prohlídka.</div>}
+            </div>
+          )}
+        </div>
       </div>
     </div>
   );
+}
+
+function MedicalStatusBadge({ status }) {
+  const map = {
+    VALID: "bg-emerald-100 text-emerald-700", EXPIRING: "bg-amber-100 text-amber-700",
+    EXPIRED: "bg-red-100 text-red-700", UNKNOWN: "bg-slate-100 text-slate-500",
+  };
+  return <span className={"px-2 py-0.5 rounded-full text-xs font-medium " + (map[status] || map.UNKNOWN)}>{MEDICAL_STATUS_LABEL[status] || "—"}</span>;
 }
 
 function Row({ label, value }) {
@@ -1017,19 +1130,42 @@ function OsobniUdajeTab({ employee, sensitive, canEdit, canSensitive, onSaved })
   );
 }
 
-function PracovniPomerTab({ employeeId, employments, contractEvents, positions, positionLabel, canEdit, canOverride, onChanged }) {
+const CONTRACT_EVENT_TYPE_LABEL = {
+  CREATED: "Nástup do zaměstnání",
+  CONTRACT_SIGNED: "Pracovní smlouva podepsána",
+  EXTENDED: "Prodloužení",
+  CHANGED: "Změna podmínek",
+  POSITION_CHANGED: "Změna pozice",
+  WORKING_HOURS_CHANGED: "Změna úvazku",
+  CONVERTED_TO_INDEFINITE: "Převedeno na dobu neurčitou",
+  NOTICE_STARTED: "Zahájena výpovědní lhůta",
+  ENDED: "Pracovní poměr ukončen",
+};
+
+function PracovniPomerTab({ employeeId, employee, employments, contractEvents, positions, positionLabel, canEdit, canOverride, onChanged }) {
   const [addingNew, setAddingNew] = useState(false);
   const [endingId, setEndingId] = useState(null);
   const [extendingId, setExtendingId] = useState(null);
+  const [changingId, setChangingId] = useState(null);
+  const [historicalOpen, setHistoricalOpen] = useState(false);
 
   return (
     <div>
       {canEdit && !addingNew && (
-        <div className="flex justify-end mb-3">
+        <div className="flex justify-end gap-2 mb-3">
+          <button onClick={() => setHistoricalOpen(true)} className="flex items-center gap-1.5 text-sm text-slate-500 hover:text-slate-800 border border-slate-200 px-3 py-2 rounded-md">
+            <History size={15} /> Doplnit historická data
+          </button>
           <button onClick={() => setAddingNew(true)} className="flex items-center gap-1.5 bg-teal-700 hover:bg-teal-800 text-white text-sm font-medium px-3 py-2 rounded-md">
             <UserPlus size={16} /> Nový pracovní poměr
           </button>
         </div>
+      )}
+      {historicalOpen && (
+        <ManualHistoricalEntryForm
+          employeeId={employeeId} employee={employee} employments={employments} positions={positions}
+          onCancel={() => setHistoricalOpen(false)} onSaved={() => { setHistoricalOpen(false); onChanged(); }}
+        />
       )}
       {addingNew && <NewEmploymentForm employeeId={employeeId} positions={positions} onCancel={() => setAddingNew(false)} onSaved={() => { setAddingNew(false); onChanged(); }} />}
       <div className="space-y-3">
@@ -1052,10 +1188,17 @@ function PracovniPomerTab({ employeeId, employments, contractEvents, positions, 
                 <Row label="Místo výkonu práce" value={em.workplace || "—"} />
                 <Row label="Úvazek" value={em.weekly_hours ? `${em.weekly_hours} h/týden` : "—"} />
                 <Row label="Zkušební doba do" value={em.probation_end_date ? fmtDate(em.probation_end_date) : "—"} />
-                {fixedTermStatus && <Row label="Využitá prodloužení" value={`${fixedTermStatus.extensionsCount} z max. ${FIXED_TERM_RULES.maxExtensions}`} />}
+                {fixedTermStatus && (
+                  <Row label="Využitá prodloužení" value={fixedTermStatus.requiresReview ? "Vyžaduje kontrolu" : `${fixedTermStatus.extensionsCount} z max. ${FIXED_TERM_RULES.maxExtensions}`} />
+                )}
                 {em.status === "ENDED" && <Row label="Důvod ukončení" value={em.termination_reason || "—"} />}
               </dl>
-              {fixedTermStatus && !fixedTermStatus.withinLimits && (
+              {fixedTermStatus && fixedTermStatus.requiresReview && (
+                <div className="mt-2 text-xs px-2.5 py-1.5 rounded-md bg-slate-100 text-slate-600 flex items-center gap-1.5">
+                  <ShieldAlert size={13} /> Chybí datum nástupu - zákonný limit nelze bezpečně vypočítat. Vyžaduje kontrolu.
+                </div>
+              )}
+              {fixedTermStatus && !fixedTermStatus.requiresReview && !fixedTermStatus.withinLimits && (
                 <div className="mt-2 text-xs px-2.5 py-1.5 rounded-md bg-amber-50 text-amber-700 flex items-center gap-1.5">
                   <ShieldAlert size={13} />
                   {fixedTermStatus.overExtensionLimit
@@ -1064,24 +1207,271 @@ function PracovniPomerTab({ employeeId, employments, contractEvents, positions, 
                   {fixedTermStatus.hasOverride && " Zaznamenána výjimka administrátora."}
                 </div>
               )}
+              {events.length > 0 && <ContractEventsList events={events} />}
               {canEdit && ["ACTIVE", "NOTICE_PERIOD"].includes(em.status) && (
-                <div className="flex gap-2 mt-3 pt-3 border-t border-slate-100">
+                <div className="flex gap-3 mt-3 pt-3 border-t border-slate-100 flex-wrap">
                   {em.employment_type === "doba_urcita" && (
                     extendingId === em.id
-                      ? <ExtendEmploymentForm employment={em} events={events} canOverride={canOverride} onCancel={() => setExtendingId(null)} onSaved={() => { setExtendingId(null); onChanged(); }} />
+                      ? null
                       : <button onClick={() => setExtendingId(em.id)} className="text-sm text-teal-700 hover:text-teal-900">Prodloužit smlouvu</button>
+                  )}
+                  {changingId === em.id ? null : <button onClick={() => setChangingId(em.id)} className="text-sm text-teal-700 hover:text-teal-900">Změnit pozici / úvazek</button>}
+                  {em.status === "ACTIVE" && (
+                    <StartNoticeButton employment={em} onSaved={onChanged} />
                   )}
                   {endingId === em.id
                     ? null
                     : <button onClick={() => setEndingId(em.id)} className="text-sm text-red-600 hover:text-red-800">Ukončit pracovní poměr</button>}
                 </div>
               )}
+              {extendingId === em.id && <ExtendEmploymentForm employment={em} events={events} canOverride={canOverride} onCancel={() => setExtendingId(null)} onSaved={() => { setExtendingId(null); onChanged(); }} />}
+              {changingId === em.id && <ChangePositionHoursForm employment={em} positions={positions} onCancel={() => setChangingId(null)} onSaved={() => { setChangingId(null); onChanged(); }} />}
               {endingId === em.id && <EndEmploymentForm employment={em} onCancel={() => setEndingId(null)} onSaved={() => { setEndingId(null); onChanged(); }} />}
               {["NOTICE_PERIOD", "ENDED"].includes(em.status) && <OffboardingChecklist employment={em} canEdit={canEdit} onChanged={onChanged} />}
             </div>
           );
         })}
         {employments.length === 0 && <div className="text-sm text-slate-400">Žádný pracovní poměr.</div>}
+      </div>
+    </div>
+  );
+}
+
+// Skutocne chronologicke udalosti (bod 2 zadania) - nie len pocitadlo.
+// Kazda udalost nesie type/effective date/old-new/note/created_by/created_at,
+// vratane oznacenia rucne doplnenej historickej udalosti.
+function ContractEventsList({ events }) {
+  const sorted = sortContractEventsChronologically(events);
+  return (
+    <div className="mt-3 pt-3 border-t border-slate-100">
+      <div className="text-xs font-medium text-slate-500 mb-2">Historie a dodatky</div>
+      <div className="space-y-1.5">
+        {sorted.map((e) => (
+          <div key={e.id} className="text-xs bg-slate-50 rounded-md px-3 py-1.5 flex items-start justify-between gap-3">
+            <div>
+              <span className="font-medium text-slate-700">{fmtDate(e.event_date)}</span> — {CONTRACT_EVENT_TYPE_LABEL[e.event_type] || e.event_type}
+              {(e.old_value || e.new_value) && (
+                <span className="text-slate-500"> ({e.old_value || "—"} → {e.new_value || "—"})</span>
+              )}
+              {e.valid_to && !e.new_value && <span className="text-slate-500"> (do {fmtDate(e.valid_to)})</span>}
+              {e.note && <div className="text-slate-500 mt-0.5">{e.note}</div>}
+              {e.is_legal_override && <div className="text-amber-700 mt-0.5">Evidovaná výjimka{e.override_reason ? `: ${e.override_reason}` : ""}</div>}
+            </div>
+            {e.is_manual_historical_entry && <span className="shrink-0 px-1.5 py-0.5 rounded bg-slate-200 text-slate-500 whitespace-nowrap">ručně doplněno</span>}
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function StartNoticeButton({ employment, onSaved }) {
+  const [saving, setSaving] = useState(false);
+  async function start() {
+    if (!window.confirm("Zahájit výpovědní lhůtu pro tento pracovní poměr?")) return;
+    setSaving(true);
+    const { data: userData } = await supabase.auth.getUser();
+    await supabase.from("employment_relationships").update({ status: "NOTICE_PERIOD", updated_at: new Date().toISOString(), updated_by: userData?.user?.id || null }).eq("id", employment.id);
+    await supabase.from("employment_contract_events").insert({
+      id: uid(), employment_id: employment.id, event_type: "NOTICE_STARTED", event_date: new Date().toISOString().slice(0, 10),
+      created_by: userData?.user?.id || null,
+    });
+    await supabase.from("employee_timeline_events").insert({
+      id: uid(), employee_id: employment.employee_id, event_date: new Date().toISOString().slice(0, 10), event_type: "NOTICE_STARTED",
+      title: "Zahájena výpovědní lhůta", source: "MANUAL",
+    });
+    setSaving(false);
+    onSaved();
+  }
+  return <button onClick={start} disabled={saving} className="text-sm text-amber-700 hover:text-amber-900">{saving ? "Ukládám..." : "Zahájit výpovědní lhůtu"}</button>;
+}
+
+function ChangePositionHoursForm({ employment, positions, onCancel, onSaved }) {
+  const [positionId, setPositionId] = useState(employment.position_id || "");
+  const [workplace, setWorkplace] = useState(employment.workplace || "");
+  const [weeklyHours, setWeeklyHours] = useState(employment.weekly_hours ? String(employment.weekly_hours) : "");
+  const [effectiveDate, setEffectiveDate] = useState(new Date().toISOString().slice(0, 10));
+  const [note, setNote] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState("");
+
+  function positionLabelFor(id) { const p = positions.find((x) => x.id === id); return p ? (p.code ? `${p.code} – ${p.name}` : p.name) : "—"; }
+
+  async function submit() {
+    if (!effectiveDate) { setError("Vyplňte datum účinnosti."); return; }
+    const positionChanged = positionId !== (employment.position_id || "");
+    const hoursChanged = String(weeklyHours || "") !== String(employment.weekly_hours || "");
+    if (!positionChanged && !hoursChanged && workplace === (employment.workplace || "")) { setError("Nebyla provedena žádná změna."); return; }
+    setSaving(true);
+    setError("");
+    try {
+      const { data: userData } = await supabase.auth.getUser();
+      const { error: updErr } = await supabase.from("employment_relationships").update({
+        position_id: positionId || null, workplace: workplace.trim() || null, weekly_hours: weeklyHours ? Number(weeklyHours) : null,
+        updated_at: new Date().toISOString(), updated_by: userData?.user?.id || null,
+      }).eq("id", employment.id);
+      if (updErr) throw updErr;
+
+      if (positionChanged) {
+        await supabase.from("employment_contract_events").insert({
+          id: uid(), employment_id: employment.id, event_type: "POSITION_CHANGED", event_date: effectiveDate,
+          old_value: positionLabelFor(employment.position_id), new_value: positionLabelFor(positionId),
+          note: note.trim() || null, created_by: userData?.user?.id || null,
+        });
+        await supabase.from("employee_timeline_events").insert({
+          id: uid(), employee_id: employment.employee_id, event_date: effectiveDate, event_type: "POSITION_CHANGED",
+          title: "Změna pozice", description: `${positionLabelFor(employment.position_id)} → ${positionLabelFor(positionId)}`, source: "MANUAL",
+        });
+      }
+      if (hoursChanged) {
+        await supabase.from("employment_contract_events").insert({
+          id: uid(), employment_id: employment.id, event_type: "WORKING_HOURS_CHANGED", event_date: effectiveDate,
+          old_value: employment.weekly_hours ? `${employment.weekly_hours} h/týden` : "—", new_value: weeklyHours ? `${weeklyHours} h/týden` : "—",
+          note: note.trim() || null, created_by: userData?.user?.id || null,
+        });
+        await supabase.from("employee_timeline_events").insert({
+          id: uid(), employee_id: employment.employee_id, event_date: effectiveDate, event_type: "WORKING_HOURS_CHANGED",
+          title: "Změna úvazku", description: `${employment.weekly_hours || "—"} → ${weeklyHours || "—"} h/týden`, source: "MANUAL",
+        });
+      }
+      onSaved();
+    } catch (e) {
+      console.error(e);
+      setError(e.message || "Uložení se nezdařilo.");
+    }
+    setSaving(false);
+  }
+
+  return (
+    <div className="mt-3 pt-3 border-t border-slate-100 bg-slate-50 -mx-4 -mb-4 px-4 pb-4 rounded-b-lg">
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-x-4">
+        <SelectFieldLocal label="Nová pozice" value={positionId} onChange={setPositionId} options={[{ value: "", label: "— nevybráno —" }, ...positions.map((p) => ({ value: p.id, label: p.code ? `${p.code} – ${p.name}` : p.name }))]} />
+        <TextField label="Místo výkonu práce" value={workplace} onChange={setWorkplace} />
+        <TextField label="Týdenní úvazek (hodin)" value={weeklyHours} onChange={setWeeklyHours} />
+        <DateFieldLocal label="Účinnost od" value={effectiveDate} onChange={setEffectiveDate} />
+      </div>
+      <TextField label="Poznámka" value={note} onChange={setNote} />
+      {error && <div className="text-red-600 text-xs mb-2">{error}</div>}
+      <div className="flex justify-end gap-2">
+        <button onClick={onCancel} className="text-sm text-slate-500 px-3 py-2">Zrušit</button>
+        <button onClick={submit} disabled={saving} className="bg-teal-700 hover:bg-teal-800 disabled:opacity-50 text-white text-sm font-medium px-4 py-2 rounded-md">{saving ? "Ukládám..." : "Uložit změnu"}</button>
+      </div>
+    </div>
+  );
+}
+
+/* ---------------- Doplnit historická data (bod 11 zadania) ---------------- */
+/* Nezpetne nerekonstruuje vsetko - zadaju sa len zname fakty. Vsetko z tohto
+   formulara sa oznacuje ako MANUAL_HISTORICAL_ENTRY (timeline) resp.
+   is_manual_historical_entry=true (contract events), aby bolo v UI aj v DB
+   vzdy zjavne, ze ide o rucne doplnenu historiu, nie zive zaznamenanu
+   udalost. "Existujici dokumenty" sa nahravaju cez uz existujucu zalozku
+   Dokumenty (REUSE, ziadny novy upload mechanizmus tu). */
+function ManualHistoricalEntryForm({ employeeId, employee, employments, positions, onCancel, onSaved }) {
+  const currentEmployment = employments.find((e) => ["ACTIVE", "NOTICE_PERIOD"].includes(e.status)) || employments[0] || null;
+  const [startDate, setStartDate] = useState(currentEmployment?.start_date || "");
+  const [employmentType, setEmploymentType] = useState(currentEmployment?.employment_type || "doba_neurcita");
+  const [fixedTermEndDate, setFixedTermEndDate] = useState(currentEmployment?.fixed_term_end_date || "");
+  const [positionId, setPositionId] = useState(currentEmployment?.position_id || "");
+  const [extensions, setExtensions] = useState([]); // {date, newEndDate, note}
+  const [examType, setExamType] = useState("");
+  const [examDate, setExamDate] = useState("");
+  const [examValidUntil, setExamValidUntil] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState("");
+
+  function addExtensionRow() { setExtensions((prev) => [...prev, { date: "", newEndDate: "", note: "" }]); }
+  function updateExtensionRow(i, patch) { setExtensions((prev) => prev.map((r, idx) => (idx === i ? { ...r, ...patch } : r))); }
+  function removeExtensionRow(i) { setExtensions((prev) => prev.filter((_, idx) => idx !== i)); }
+
+  async function submit() {
+    setSaving(true);
+    setError("");
+    try {
+      const { data: userData } = await supabase.auth.getUser();
+      const uidVal = userData?.user?.id || null;
+
+      if (currentEmployment) {
+        const { error: updErr } = await supabase.from("employment_relationships").update({
+          start_date: startDate || null, employment_type: employmentType,
+          fixed_term_end_date: employmentType === "doba_urcita" ? (fixedTermEndDate || null) : null,
+          position_id: positionId || null, updated_at: new Date().toISOString(), updated_by: uidVal,
+        }).eq("id", currentEmployment.id);
+        if (updErr) throw updErr;
+
+        for (const row of extensions) {
+          if (!row.date || !row.newEndDate) continue;
+          await supabase.from("employment_contract_events").insert({
+            id: uid(), employment_id: currentEmployment.id, event_type: "EXTENDED", event_date: row.date, valid_to: row.newEndDate,
+            new_value: fmtDate(row.newEndDate), note: row.note.trim() || null, is_manual_historical_entry: true, created_by: uidVal,
+          });
+        }
+      }
+
+      if (examDate) {
+        await supabase.from("medical_examinations").insert({
+          id: uid(), employee_id: employeeId, exam_type: examType.trim() || null, exam_date: examDate,
+          valid_until: examValidUntil || null, created_by: uidVal,
+        });
+      }
+
+      await supabase.from("employee_timeline_events").insert({
+        id: uid(), employee_id: employeeId, event_date: startDate || new Date().toISOString().slice(0, 10),
+        event_type: "MANUAL_HISTORICAL_ENTRY", title: "Doplněna historická data", source: "MANUAL_HISTORICAL_ENTRY",
+        description: `Doplněno: nástup, typ poměru${extensions.length ? `, ${extensions.length} prodloužení` : ""}${examDate ? ", lékařská prohlídka" : ""}.`,
+      });
+
+      onSaved();
+    } catch (e) {
+      console.error(e);
+      setError(e.message || "Uložení se nezdařilo.");
+    }
+    setSaving(false);
+  }
+
+  return (
+    <div className="bg-white border border-slate-200 rounded-lg p-4 mb-4">
+      <h2 className="font-semibold text-sm mb-1">Doplnit historická data</h2>
+      <p className="text-xs text-slate-400 mb-3">Pro zaměstnance, jejichž historie předchází zavedení systému. Zadejte jen fakta, která skutečně známe - vše se označí jako ručně doplněná historie.</p>
+      {!currentEmployment && <div className="bg-amber-50 text-amber-700 text-xs px-3 py-2 rounded-md mb-3">Zaměstnanec zatím nemá založený pracovní poměr - nejprve jej založte v záložce Pracovní poměr, nebo doplňte alespoň lékařskou prohlídku níže.</div>}
+      {currentEmployment && (
+        <>
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-x-4">
+            <DateFieldLocal label="Skutečný datum nástupu" value={startDate} onChange={setStartDate} />
+            <SelectFieldLocal label="Aktuální typ poměru" value={employmentType} onChange={setEmploymentType} options={[{ value: "doba_neurcita", label: "Doba neurčitá" }, { value: "doba_urcita", label: "Doba určitá" }]} />
+            {employmentType === "doba_urcita" && <DateFieldLocal label="Aktuální konec smlouvy" value={fixedTermEndDate} onChange={setFixedTermEndDate} />}
+            <SelectFieldLocal label="Aktuální pozice" value={positionId} onChange={setPositionId} options={[{ value: "", label: "— nevybráno —" }, ...positions.map((p) => ({ value: p.id, label: p.code ? `${p.code} – ${p.name}` : p.name }))]} />
+          </div>
+
+          <div className="mt-2 mb-2">
+            <div className="text-xs font-medium text-slate-500 mb-1.5">Známá prodloužení (nepovinné)</div>
+            {extensions.map((row, i) => (
+              <div key={i} className="flex items-end gap-2 mb-2">
+                <DateFieldLocal label="Datum prodloužení" value={row.date} onChange={(v) => updateExtensionRow(i, { date: v })} />
+                <DateFieldLocal label="Nový konec" value={row.newEndDate} onChange={(v) => updateExtensionRow(i, { newEndDate: v })} />
+                <TextField label="Poznámka" value={row.note} onChange={(v) => updateExtensionRow(i, { note: v })} />
+                <button onClick={() => removeExtensionRow(i)} className="text-xs text-red-500 mb-3">Odebrat</button>
+              </div>
+            ))}
+            <button onClick={addExtensionRow} className="text-xs text-teal-700 hover:text-teal-900">+ Přidat prodloužení</button>
+          </div>
+        </>
+      )}
+
+      <div className="mt-3 pt-3 border-t border-slate-100">
+        <div className="text-xs font-medium text-slate-500 mb-1.5">Poslední/platná lékařská prohlídka (nepovinné)</div>
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-x-4">
+          <TextField label="Typ prohlídky" value={examType} onChange={setExamType} />
+          <DateFieldLocal label="Datum prohlídky" value={examDate} onChange={setExamDate} />
+          <DateFieldLocal label="Platnost do" value={examValidUntil} onChange={setExamValidUntil} />
+        </div>
+      </div>
+
+      <p className="text-xs text-slate-400 mt-2">Existující dokumenty (smlouva, dodatky, prohlídky) nahrajte v záložce Dokumenty.</p>
+      {error && <div className="bg-red-50 text-red-700 text-sm px-3 py-2 rounded-md mt-2 mb-2">{error}</div>}
+      <div className="flex justify-end gap-2 mt-3">
+        <button onClick={onCancel} className="text-sm text-slate-500 px-3 py-2">Zrušit</button>
+        <button onClick={submit} disabled={saving} className="bg-teal-700 hover:bg-teal-800 disabled:opacity-50 text-white text-sm font-medium px-4 py-2 rounded-md">{saving ? "Ukládám..." : "Uložit historická data"}</button>
       </div>
     </div>
   );
@@ -1143,16 +1533,19 @@ function NewEmploymentForm({ employeeId, positions, onCancel, onSaved }) {
     setError("");
     try {
       const employmentId = uid();
+      const { data: userData } = await supabase.auth.getUser();
       const { error: emErr } = await supabase.from("employment_relationships").insert({
         id: employmentId, employee_id: employeeId, status: "ACTIVE", employment_type: f.employment_type,
         start_date: f.start_date, fixed_term_end_date: f.employment_type === "doba_urcita" ? (f.fixed_term_end_date || null) : null,
         probation_end_date: f.probation_end_date || null,
         position_id: f.position_id || null, workplace: f.workplace.trim() || null, weekly_hours: f.weekly_hours ? Number(f.weekly_hours) : null,
+        created_by: userData?.user?.id || null, updated_by: userData?.user?.id || null,
       });
       if (emErr) throw emErr;
       await supabase.from("employment_contract_events").insert({
         id: uid(), employment_id: employmentId, event_type: "CREATED", event_date: f.start_date,
         valid_from: f.start_date, valid_to: f.employment_type === "doba_urcita" ? (f.fixed_term_end_date || null) : null,
+        created_by: userData?.user?.id || null,
       });
       await supabase.from("employee_timeline_events").insert({
         id: uid(), employee_id: employeeId, event_date: f.start_date, event_type: "EMPLOYMENT_CREATED", title: "Nový pracovní poměr", source: "MANUAL",
@@ -1205,12 +1598,13 @@ function ExtendEmploymentForm({ employment, events, canOverride, onCancel, onSav
     setSaving(true);
     setError("");
     try {
-      const { error: emErr } = await supabase.from("employment_relationships").update({ fixed_term_end_date: newEnd, updated_at: new Date().toISOString() }).eq("id", employment.id);
-      if (emErr) throw emErr;
       const { data: userData } = await supabase.auth.getUser();
+      const { error: emErr } = await supabase.from("employment_relationships").update({ fixed_term_end_date: newEnd, updated_at: new Date().toISOString(), updated_by: userData?.user?.id || null }).eq("id", employment.id);
+      if (emErr) throw emErr;
       await supabase.from("employment_contract_events").insert({
         id: uid(), employment_id: employment.id, event_type: "EXTENDED", event_date: new Date().toISOString().slice(0, 10),
         valid_from: employment.fixed_term_end_date, valid_to: newEnd,
+        old_value: employment.fixed_term_end_date ? fmtDate(employment.fixed_term_end_date) : "—", new_value: fmtDate(newEnd),
         is_legal_override: needsOverride ? true : false,
         override_reason: needsOverride ? overrideReason.trim() : null,
         overridden_by: needsOverride ? userData?.user?.id || null : null,
@@ -1261,6 +1655,16 @@ function ExtendEmploymentForm({ employment, events, canOverride, onCancel, onSav
   );
 }
 
+const TERMINATION_TYPE_LABEL = {
+  dohoda: "Dohoda o skončení",
+  vypoved_zamestnance: "Výpověď zaměstnance",
+  vypoved_zamestnavatele: "Výpověď zaměstnavatele",
+  zkusebni_doba: "Zrušení ve zkušební době",
+  okamzite_zruseni: "Okamžité zrušení",
+  uplynuti_doby_urcite: "Uplynutí doby určité",
+  jine: "Jiné",
+};
+
 function EndEmploymentForm({ employment, onCancel, onSaved }) {
   const [f, setF] = useState({ termination_date: "", termination_type: "dohoda", termination_reason: "" });
   const [saving, setSaving] = useState(false);
@@ -1271,18 +1675,21 @@ function EndEmploymentForm({ employment, onCancel, onSaved }) {
     setSaving(true);
     setError("");
     try {
+      const { data: userData } = await supabase.auth.getUser();
       const { error: emErr } = await supabase.from("employment_relationships").update({
         status: "ENDED", termination_date: f.termination_date, termination_type: f.termination_type, termination_reason: f.termination_reason.trim() || null,
-        updated_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(), updated_by: userData?.user?.id || null,
       }).eq("id", employment.id);
       if (emErr) throw emErr;
       await supabase.from("employment_contract_events").insert({
         id: uid(), employment_id: employment.id, event_type: "ENDED", event_date: f.termination_date, valid_to: f.termination_date,
+        old_value: EMPLOYMENT_STATUS_LABEL[employment.status], new_value: TERMINATION_TYPE_LABEL[f.termination_type] || f.termination_type,
+        note: f.termination_reason.trim() || null, created_by: userData?.user?.id || null,
       });
       // ak zamestnancovi uz nezostava ziadny aktivny/planovany pracovny pomer, oznaci sa ako byvaly
       // (filter "Byvali zamestnanci" cita prave toto pole - riadok aj cela historia zostavaju v DB).
       const { data: remaining } = await supabase.from("employment_relationships").select("id").eq("employee_id", employment.employee_id).in("status", ["ACTIVE", "PLANNED", "NOTICE_PERIOD"]).neq("id", employment.id);
-      if (!remaining || remaining.length === 0) {
+      if (shouldMarkEmployeeInactive(remaining?.length || 0)) {
         await supabase.from("employees").update({ active: false, updated_at: new Date().toISOString() }).eq("id", employment.employee_id);
       }
       await supabase.from("employee_timeline_events").insert({
@@ -1305,13 +1712,7 @@ function EndEmploymentForm({ employment, onCancel, onSaved }) {
           label="Způsob ukončení"
           value={f.termination_type}
           onChange={(v) => setF({ ...f, termination_type: v })}
-          options={[
-            { value: "dohoda", label: "Dohoda o skončení" },
-            { value: "vypoved_zamestnance", label: "Výpověď zaměstnance" },
-            { value: "vypoved_zamestnavatele", label: "Výpověď zaměstnavatele" },
-            { value: "zkusebni_doba", label: "Zrušení ve zkušební době" },
-            { value: "jine", label: "Jiné" },
-          ]}
+          options={Object.entries(TERMINATION_TYPE_LABEL).map(([value, label]) => ({ value, label }))}
         />
         <TextField label="Důvod / poznámka" value={f.termination_reason} onChange={(v) => setF({ ...f, termination_reason: v })} />
       </div>
@@ -1924,6 +2325,100 @@ function JmhzImportTab({ employee, sensitive, payroll, currentEmployment, canSen
   );
 }
 
+/* ---------------- Lékařské prohlídky ---------------- */
+/* Administrativne udaje - ZIADNA diagnoza (bod 4 zadania). Stav (VALID/
+   EXPIRING/EXPIRED/UNKNOWN) sa POCITA (hrMedicalStatus.js), nikdy neuklada. */
+function MedicalExamsTab({ employeeId, medicalExams, canEdit, onChanged }) {
+  const [adding, setAdding] = useState(false);
+  return (
+    <div>
+      {canEdit && !adding && (
+        <div className="flex justify-end mb-3">
+          <button onClick={() => setAdding(true)} className="flex items-center gap-1.5 bg-teal-700 hover:bg-teal-800 text-white text-sm font-medium px-3 py-2 rounded-md">
+            <HeartPulse size={16} /> Přidat prohlídku
+          </button>
+        </div>
+      )}
+      {adding && <AddMedicalExamForm employeeId={employeeId} onCancel={() => setAdding(false)} onSaved={() => { setAdding(false); onChanged(); }} />}
+      {medicalExams.length === 0 ? (
+        <div className="bg-white border border-slate-200 rounded-xl p-10 text-center text-slate-400 text-sm">Zatím žádná evidovaná prohlídka.</div>
+      ) : (
+        <div className="bg-white border border-slate-200 rounded-lg overflow-hidden">
+          <table className="w-full text-sm">
+            <thead className="bg-slate-50 text-slate-500 text-xs uppercase">
+              <tr>
+                <th className="text-left px-4 py-2">Typ</th>
+                <th className="text-left px-4 py-2">Datum</th>
+                <th className="text-left px-4 py-2">Platnost do</th>
+                <th className="text-left px-4 py-2">Poskytovatel</th>
+                <th className="text-left px-4 py-2">Stav</th>
+              </tr>
+            </thead>
+            <tbody>
+              {medicalExams.map((m) => (
+                <tr key={m.id} className="border-t border-slate-100">
+                  <td className="px-4 py-2 font-medium">{m.exam_type || "—"}</td>
+                  <td className="px-4 py-2 text-slate-500 whitespace-nowrap">{fmtDate(m.exam_date)}</td>
+                  <td className="px-4 py-2 text-slate-500 whitespace-nowrap">{m.valid_until ? fmtDate(m.valid_until) : "—"}</td>
+                  <td className="px-4 py-2 text-slate-500">{m.provider || "—"}</td>
+                  <td className="px-4 py-2"><MedicalStatusBadge status={computeMedicalStatus(m.valid_until)} /></td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function AddMedicalExamForm({ employeeId, onCancel, onSaved }) {
+  const [f, setF] = useState({ exam_type: "", exam_date: "", valid_until: "", provider: "", notes: "" });
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState("");
+
+  async function submit() {
+    if (!f.exam_date) { setError("Vyplňte datum prohlídky."); return; }
+    setSaving(true);
+    setError("");
+    try {
+      const { data: userData } = await supabase.auth.getUser();
+      const { error: err } = await supabase.from("medical_examinations").insert({
+        id: uid(), employee_id: employeeId, exam_type: f.exam_type.trim() || null, exam_date: f.exam_date,
+        valid_until: f.valid_until || null, provider: f.provider.trim() || null, notes: f.notes.trim() || null,
+        created_by: userData?.user?.id || null,
+      });
+      if (err) throw err;
+      await supabase.from("employee_timeline_events").insert({
+        id: uid(), employee_id: employeeId, event_date: f.exam_date, event_type: "MEDICAL_EXAM_ADDED",
+        title: "Lékařská prohlídka", description: f.exam_type.trim() || undefined, source: "MANUAL",
+      });
+      onSaved();
+    } catch (e) {
+      console.error(e);
+      setError(e.message || "Uložení se nezdařilo.");
+    }
+    setSaving(false);
+  }
+
+  return (
+    <div className="bg-white border border-slate-200 rounded-lg p-4 mb-3">
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-x-4">
+        <TextField label="Typ prohlídky" value={f.exam_type} onChange={(v) => setF({ ...f, exam_type: v })} />
+        <DateFieldLocal label="Datum prohlídky" value={f.exam_date} onChange={(v) => setF({ ...f, exam_date: v })} />
+        <DateFieldLocal label="Platnost do / další termín" value={f.valid_until} onChange={(v) => setF({ ...f, valid_until: v })} />
+        <TextField label="Poskytovatel" value={f.provider} onChange={(v) => setF({ ...f, provider: v })} />
+      </div>
+      <TextAreaField label="Poznámka (administrativní, ne diagnóza)" value={f.notes} onChange={(v) => setF({ ...f, notes: v })} />
+      {error && <div className="bg-red-50 text-red-700 text-sm px-3 py-2 rounded-md mb-2">{error}</div>}
+      <div className="flex justify-end gap-2">
+        <button onClick={onCancel} className="text-sm text-slate-500 px-3 py-2">Zrušit</button>
+        <button onClick={submit} disabled={saving} className="bg-teal-700 hover:bg-teal-800 disabled:opacity-50 text-white text-sm font-medium px-4 py-2 rounded-md">{saving ? "Ukládám..." : "Uložit"}</button>
+      </div>
+    </div>
+  );
+}
+
 function HistorieTab({ timeline }) {
   if (timeline.length === 0) return <div className="text-sm text-slate-400">Zatím žádné události.</div>;
   return (
@@ -1931,12 +2426,130 @@ function HistorieTab({ timeline }) {
       {timeline.map((t) => (
         <div key={t.id} className="px-4 py-3 flex gap-3">
           <div className="text-xs text-slate-400 whitespace-nowrap w-24 pt-0.5">{fmtDate(t.event_date)}</div>
-          <div>
-            <div className="text-sm font-medium">{t.title}</div>
+          <div className="flex-1">
+            <div className="text-sm font-medium flex items-center gap-2">
+              {t.title}
+              {t.source === "MANUAL_HISTORICAL_ENTRY" && <span className="px-1.5 py-0.5 rounded bg-slate-200 text-slate-500 text-[10px] font-normal">ručně doplněno</span>}
+            </div>
             {t.description && <div className="text-xs text-slate-500 mt-0.5">{t.description}</div>}
           </div>
         </div>
       ))}
+    </div>
+  );
+}
+
+/* ---------------- Audit (per zamestnanec) ---------------- */
+/* Znovu POUZITA existujuca infrastruktura (audit_log tabulka, audit_trigger,
+   HR_AUDIT_VIEW RLS z schema.sql 45.9) - toto je len SPRAVNE TVAROVANY
+   citac pre HR tabulky. Existujuci globalny AuditLogView (App.jsx) cita
+   old_value/new_value v tvare {data:{...}} (jsonb-blob konvencia ineho
+   casti appky) - HR tabulky su VSAK plnohodnotne stlpce bez "data" wrapperu,
+   takze ten citac by tu vzdy ukazal prazdny diff. Mechanizmus (RLS, trigger,
+   ukladanie) je 100% zdielany, len rendering je specificky pre tento tvar. */
+function AuditTab({ employee, employments, contractEvents, medicalExams }) {
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
+  const [rows, setRows] = useState([]);
+  const [names, setNames] = useState({});
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      setLoading(true);
+      const employmentIds = employments.map((e) => e.id);
+      const contractEventIds = contractEvents.map((e) => e.id);
+      const medicalIds = medicalExams.map((m) => m.id);
+      const [docsRes, sigsRes] = await Promise.all([
+        supabase.from("hr_documents").select("id").eq("employee_id", employee.id),
+        supabase.from("hr_document_signatures").select("id, hr_document_id"),
+      ]);
+      const docIds = (docsRes.data || []).map((d) => d.id);
+      const sigIds = (sigsRes.data || []).filter((s) => docIds.includes(s.hr_document_id)).map((s) => s.id);
+
+      const entityIdSets = [
+        { entity: "employees", ids: [employee.id] },
+        { entity: "employment_relationships", ids: employmentIds },
+        { entity: "employment_contract_events", ids: contractEventIds },
+        { entity: "medical_examinations", ids: medicalIds },
+        { entity: "hr_documents", ids: docIds },
+        { entity: "hr_document_signatures", ids: sigIds },
+      ].filter((s) => s.ids.length > 0);
+
+      const allIds = Array.from(new Set(entityIdSets.flatMap((s) => s.ids)));
+      if (allIds.length === 0) { setRows([]); setLoading(false); return; }
+
+      const [logRes, profilesRes] = await Promise.all([
+        supabase.from("audit_log").select("*").in("entity_id", allIds).order("created_at", { ascending: false }).limit(200),
+        supabase.from("profiles").select("id, full_name"),
+      ]);
+      if (cancelled) return;
+      if (logRes.error) { setError("Nepodařilo se načíst audit log."); setLoading(false); return; }
+      setRows(logRes.data || []);
+      setNames(Object.fromEntries((profilesRes.data || []).map((p) => [p.id, p.full_name])));
+      setLoading(false);
+    })();
+    return () => { cancelled = true; };
+  }, [employee.id, employments, medicalExams]);
+
+  if (loading) return <div className="text-center text-slate-400 py-10"><Loader2 className="animate-spin mx-auto mb-2" size={24} /> Načítám...</div>;
+  if (error) return <div className="bg-red-50 text-red-700 text-sm px-3 py-2 rounded-md">{error}</div>;
+  if (rows.length === 0) return <div className="bg-white border border-slate-200 rounded-xl p-10 text-center text-slate-400 text-sm">Zatím žádné zaznamenané změny.</div>;
+
+  const ACTION_LABEL = { insert: "Vytvořeno", update: "Upraveno", delete: "Smazáno" };
+  const ENTITY_LABEL = {
+    employees: "Zaměstnanec", employment_relationships: "Pracovní poměr", employment_contract_events: "Dodatek/prodloužení",
+    medical_examinations: "Lékařská prohlídka", hr_documents: "Dokument", hr_document_signatures: "Podpis dokumentu",
+  };
+
+  function diffFlat(oldVal, newVal) {
+    const before = oldVal || {};
+    const after = newVal || {};
+    const keys = Array.from(new Set([...Object.keys(before), ...Object.keys(after)]));
+    return keys.filter((k) => JSON.stringify(before[k]) !== JSON.stringify(after[k])).map((k) => ({ key: k, before: before[k], after: after[k] }));
+  }
+  function valText(v) {
+    if (v === undefined) return "—";
+    if (v === null || v === "") return "(prázdné)";
+    if (typeof v === "object") return JSON.stringify(v);
+    return String(v);
+  }
+
+  return (
+    <div className="bg-white border border-slate-200 rounded-lg overflow-hidden overflow-x-auto">
+      <table className="w-full text-sm">
+        <thead className="bg-slate-50 text-slate-500 text-xs uppercase">
+          <tr>
+            <th className="text-left px-3 py-2">Datum a čas</th>
+            <th className="text-left px-3 py-2">Entita</th>
+            <th className="text-left px-3 py-2">Akce</th>
+            <th className="text-left px-3 py-2">Kdo</th>
+            <th className="text-left px-3 py-2">Změna</th>
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map((r) => {
+            const diff = r.action === "update" ? diffFlat(r.old_value, r.new_value) : [];
+            return (
+              <tr key={r.id} className="border-t border-slate-100 align-top">
+                <td className="px-3 py-2 whitespace-nowrap text-slate-500">{r.created_at ? new Date(r.created_at).toLocaleString("cs-CZ") : "—"}</td>
+                <td className="px-3 py-2 whitespace-nowrap">{ENTITY_LABEL[r.entity] || r.entity}</td>
+                <td className="px-3 py-2 whitespace-nowrap">{ACTION_LABEL[r.action] || r.action}</td>
+                <td className="px-3 py-2 whitespace-nowrap text-slate-500">{r.changed_by ? (names[r.changed_by] || "Neznámý uživatel") : "Automatizace"}</td>
+                <td className="px-3 py-2">
+                  {r.action === "insert" ? <span className="text-slate-400">Vytvořený záznam</span> : diff.length === 0 ? <span className="text-slate-400">—</span> : (
+                    <div className="space-y-1">
+                      {diff.slice(0, 6).map((d) => (
+                        <div key={d.key} className="text-xs"><span className="font-medium">{d.key}</span>: {valText(d.before)} → <span className="text-teal-700">{valText(d.after)}</span></div>
+                      ))}
+                    </div>
+                  )}
+                </td>
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
     </div>
   );
 }
