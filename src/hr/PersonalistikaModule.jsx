@@ -342,7 +342,14 @@ const EMPLOYMENT_STATUS_LABEL = {
   DRAFT: "Koncept", PLANNED: "Naplánováno", ACTIVE: "Aktivní", NOTICE_PERIOD: "Výpovědní lhůta", ENDED: "Ukončeno",
 };
 
+const EMPLOYEE_LIST_FILTERS = [
+  { value: "active", label: "Aktivní" },
+  { value: "former", label: "Bývalí" },
+  { value: "all", label: "Všichni" },
+];
+
 function EmployeesListTab({ mode, permissions, onOpen }) {
+  const [filter, setFilter] = useState(mode);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [employees, setEmployees] = useState([]);
@@ -350,10 +357,17 @@ function EmployeesListTab({ mode, permissions, onOpen }) {
   const [creating, setCreating] = useState(false);
   const [search, setSearch] = useState("");
 
+  // Klik na "Zaměstnanci" / "Bývalí zaměstnanci" v hlavní navigaci nastavuje
+  // vychozi filtr, ale "Všichni" nie je jina databaze - len tretia hodnota
+  // tohto istého filtru (viz .claude/plans - "Bývalí není jiná databáze").
+  useEffect(() => { setFilter(mode); }, [mode]);
+
   const load = useCallback(async () => {
     setLoading(true);
     setError("");
-    const empRes = await supabase.from("employees").select("*").eq("active", mode === "active").order("last_name");
+    let query = supabase.from("employees").select("*").order("last_name");
+    if (filter !== "all") query = query.eq("active", filter === "active");
+    const empRes = await query;
     if (empRes.error) { setError("Nepodařilo se načíst zaměstnance."); setLoading(false); return; }
     const emps = empRes.data || [];
     setEmployees(emps);
@@ -370,11 +384,12 @@ function EmployeesListTab({ mode, permissions, onOpen }) {
       setEmploymentsByEmployee(new Map());
     }
     setLoading(false);
-  }, [mode]);
+  }, [filter]);
 
   useEffect(() => { load(); }, [load]);
 
   const filtered = employees.filter((e) => !search.trim() || fullName(e).toLowerCase().includes(search.trim().toLowerCase()));
+  const emptyLabel = filter === "active" ? "Zatím žádní zaměstnanci." : filter === "former" ? "Žádní bývalí zaměstnanci." : "Žádní zaměstnanci.";
 
   if (creating) {
     return <EmployeeCreateForm permissions={permissions} onCancel={() => setCreating(false)} onCreated={(id) => { setCreating(false); load(); onOpen(id); }} />;
@@ -383,19 +398,32 @@ function EmployeesListTab({ mode, permissions, onOpen }) {
   return (
     <div>
       <div className="flex items-center justify-between mb-4 flex-wrap gap-2">
-        <h1 className="text-xl font-semibold">{mode === "active" ? "Zaměstnanci" : "Bývalí zaměstnanci"}</h1>
-        {mode === "active" && hasPerm(permissions, "HR_EDIT") && (
+        <h1 className="text-xl font-semibold">Zaměstnanci</h1>
+        {filter === "active" && hasPerm(permissions, "HR_EDIT") && (
           <button onClick={() => setCreating(true)} className="flex items-center gap-1.5 bg-teal-700 hover:bg-teal-800 text-white text-sm font-medium px-3 py-2 rounded-md">
             <UserPlus size={16} /> Nový zaměstnanec
           </button>
         )}
       </div>
-      <input
-        value={search}
-        onChange={(e) => setSearch(e.target.value)}
-        placeholder="Hledat jméno..."
-        className="w-full sm:w-80 border border-slate-200 rounded-md px-3 py-2 text-sm mb-3"
-      />
+      <div className="flex items-center gap-3 mb-3 flex-wrap">
+        <div className="inline-flex bg-slate-100 rounded-md p-1 text-sm">
+          {EMPLOYEE_LIST_FILTERS.map((f) => (
+            <button
+              key={f.value}
+              onClick={() => setFilter(f.value)}
+              className={"px-3 py-1.5 rounded-md font-medium " + (filter === f.value ? "bg-white text-slate-900 shadow-sm" : "text-slate-500 hover:text-slate-700")}
+            >
+              {f.label}
+            </button>
+          ))}
+        </div>
+        <input
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+          placeholder="Hledat jméno..."
+          className="flex-1 min-w-[200px] sm:max-w-xs border border-slate-200 rounded-md px-3 py-2 text-sm"
+        />
+      </div>
       {loading ? (
         <div className="text-center text-slate-400 py-10"><Loader2 className="animate-spin mx-auto mb-2" size={24} /> Načítám...</div>
       ) : error ? (
@@ -428,7 +456,7 @@ function EmployeesListTab({ mode, permissions, onOpen }) {
                 );
               })}
               {filtered.length === 0 && (
-                <tr><td colSpan={5} className="px-4 py-8 text-center text-slate-400">{mode === "active" ? "Zatím žádní zaměstnanci." : "Žádní bývalí zaměstnanci."}</td></tr>
+                <tr><td colSpan={5} className="px-4 py-8 text-center text-slate-400">{emptyLabel}</td></tr>
               )}
             </tbody>
           </table>
@@ -1552,6 +1580,9 @@ function NewEmploymentForm({ employeeId, positions, onCancel, onSaved }) {
       });
       // predchadzajuci aktivny pracovny pomer (ak existoval) sa rucne neuzatvara -
       // HR to musi urobit vedome cez "Ukoncit pracovni pomer", aby sa nestratil dovod/datum ukoncenia.
+      // Ale zamestnanec (mozny "byvaly" pri opatovnom nastupe) sa musi oznacit
+      // spat ako aktivny - inak by po rehire zostal nespravne v "Byvali".
+      await supabase.from("employees").update({ active: true, updated_at: new Date().toISOString() }).eq("id", employeeId);
       onSaved();
     } catch (e) {
       console.error(e);
