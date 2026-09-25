@@ -699,10 +699,10 @@ function MiniERP() {
 // MiniERP(), ktora by aj tak najprv nacitala/spustila cely prihlasovaci
 // hook strom. Takto sa zarucuje, ze kiosk rezim nikdy ani len nemontuje
 // autentifikovanu vetvu appky (viz OnboardingKiosk.jsx - HR izolacia,
-// MASTER_PROMPT bod 7 zadania). Zamerne BEZ EnvironmentBanner/dev-pruhu -
-// ten patri k samostatnej, este nenasadenej infrastrukture (Docker/Caddy),
-// nie ku kiosk izolacii samotnej.
-function isOnboardingKioskUrl() {
+// MASTER_PROMPT bod 7 zadania). Tento root export zamerne nezavisi od
+// ziadnej dalsej, samostatnej a este nenasadenej infrastruktury - kiosk
+// izolacia je cisto Personalistika/HR poziadavka.
+export function isOnboardingKioskUrl() {
   if (typeof window === "undefined") return false;
   return new URLSearchParams(window.location.search).get("kiosk") === "nastup";
 }
