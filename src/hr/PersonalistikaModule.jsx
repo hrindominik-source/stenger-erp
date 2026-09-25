@@ -722,7 +722,7 @@ function EmployeeCreateForm({ permissions, onCancel, onCreated, initialData, pos
       {canSensitive && (
         <div className="bg-amber-50 border border-amber-200 rounded-lg p-4 mb-4">
           <h2 className="font-semibold text-sm mb-1 flex items-center gap-1.5"><ShieldAlert size={15} className="text-amber-600" /> Citlivé údaje</h2>
-          <p className="text-xs text-amber-700 mb-3">Viditelné jen pro uživatele s oprávněním HR_VIEW_SENSITIVE.</p>
+          <p className="text-xs text-amber-700 mb-3">Viditelné jen pro uživatele s oprávněním zobrazit citlivé osobní údaje.</p>
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-x-4">
             <TextField label="Rodné číslo" value={f.birth_number} onChange={(v) => set({ birth_number: v })} />
             <TextField label="Číslo dokladu" value={f.id_document_number} onChange={(v) => set({ id_document_number: v })} />
@@ -928,7 +928,7 @@ function EmployeeDetail({ id, permissions, onBack }) {
         <MedicalExamsTab employeeId={id} medicalExams={medicalExams} canEdit={canEdit} onChanged={load} />
       )}
       {detailTab === "historie" && <HistorieTab timeline={timeline} />}
-      {detailTab === "audit" && canAudit && <AuditTab employee={employee} employments={employments} contractEvents={contractEvents} medicalExams={medicalExams} />}
+      {detailTab === "audit" && canAudit && <AuditTab employee={employee} employments={employments} contractEvents={contractEvents} medicalExams={medicalExams} positions={positions} />}
     </div>
   );
 }
@@ -2478,7 +2478,7 @@ function HistorieTab({ timeline }) {
    casti appky) - HR tabulky su VSAK plnohodnotne stlpce bez "data" wrapperu,
    takze ten citac by tu vzdy ukazal prazdny diff. Mechanizmus (RLS, trigger,
    ukladanie) je 100% zdielany, len rendering je specificky pre tento tvar. */
-function AuditTab({ employee, employments, contractEvents, medicalExams }) {
+function AuditTab({ employee, employments, contractEvents, medicalExams, positions = [] }) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [rows, setRows] = useState([]);
@@ -2545,6 +2545,27 @@ function AuditTab({ employee, employments, contractEvents, medicalExams }) {
     if (typeof v === "object") return JSON.stringify(v);
     return String(v);
   }
+  // Cistě prezentační: position_id v audit diffu je pro clověka nečitelné
+  // UUID. Pokud jej lze dohledat v aktuálně nactenych pozicich, zobrazi sa
+  // misto neho nazov pozicie - surova hodnota v DB (audit_log) sa tymto
+  // nemeni, len sa inak vykresli. Ked sa ID nepodari dohladat (napr. pozice
+  // uz neexistuje), zobrazi sa povodna surova hodnota - audit nesmie
+  // informaciu skryt ani zahodit.
+  function positionName(id) {
+    if (!id) return null;
+    const p = positions.find((x) => x.id === id);
+    return p ? (p.code ? `${p.code} – ${p.name}` : p.name) : null;
+  }
+  function diffKeyLabel(key) {
+    return key === "position_id" ? "Pozice" : key;
+  }
+  function diffValText(key, v) {
+    if (key === "position_id") {
+      const name = positionName(v);
+      if (name) return name;
+    }
+    return valText(v);
+  }
 
   return (
     <div className="bg-white border border-slate-200 rounded-lg overflow-hidden overflow-x-auto">
@@ -2571,7 +2592,7 @@ function AuditTab({ employee, employments, contractEvents, medicalExams }) {
                   {r.action === "insert" ? <span className="text-slate-400">Vytvořený záznam</span> : diff.length === 0 ? <span className="text-slate-400">—</span> : (
                     <div className="space-y-1">
                       {diff.slice(0, 6).map((d) => (
-                        <div key={d.key} className="text-xs"><span className="font-medium">{d.key}</span>: {valText(d.before)} → <span className="text-teal-700">{valText(d.after)}</span></div>
+                        <div key={d.key} className="text-xs"><span className="font-medium">{diffKeyLabel(d.key)}</span>: {diffValText(d.key, d.before)} → <span className="text-teal-700">{diffValText(d.key, d.after)}</span></div>
                       ))}
                     </div>
                   )}
