@@ -2380,3 +2380,51 @@ alter table public.hr_document_templates add constraint hr_document_templates_do
     'zruseni_ve_zkusebni_dobe', 'other',
     'platovy_vymer', 'hi001_naplen_prace_delnice', 'vstupni_skoleni'
   ));
+
+-- ============================================================
+-- 46. Personalistika - kompletni historie pracovniho pomeru (pracovni pomer,
+--     prodlouzeni/dodatky, lekarske prohlidky, rucne doplnena historie).
+--     VYLUCNE ADITIVNE - ziadny existujuci stlpec sa nemeni ani neodstranuje,
+--     ziadna existujuca RLS policy sa neuvolnuje. employment_terms_versions
+--     (45.1) zostava zamerne nezapojena do UI v tejto casti - viz zaverecna
+--     sprava, dovod: rozsiahly refaktor uz funkcnych, testovanych komponent
+--     bez preukazanej nutnosti teraz; employment_contract_events nizsie
+--     pokryva rovnaky pripad (fakticky zaznam zmeny) jednoduchsie.
+-- ============================================================
+
+-- 46.1 employment_relationships - created_by/updated_by (bod 1 zadania:
+--      "created_at/by", "updated_at/by"). Vyplnaju sa z auth.uid() v appke
+--      pri insert/update (rovnaky vzor ako inde v appke - RLS uz vynucuje
+--      office+HR_EDIT, tieto stlpce su len auditny odtlacok navyse).
+alter table public.employment_relationships add column if not exists created_by uuid references auth.users(id);
+alter table public.employment_relationships add column if not exists updated_by uuid references auth.users(id);
+
+-- 46.2 employment_contract_events - rozsirena taxonomia (bod 2 zadania) +
+--      old_value/new_value/note (skutocne udalosti, nie len pocitadlo) +
+--      is_manual_historical_entry (bod 11 zadania - MANUAL_HISTORICAL_ENTRY
+--      ekvivalent pre tuto tabulku). Povodne hodnoty CREATED/CONTRACT_SIGNED/
+--      EXTENDED/CHANGED/CONVERTED_TO_INDEFINITE/ENDED ostavaju bezo zmeny
+--      (uz existujuce riadky aj kod, ktory ich vklada, funguju dalej) - len
+--      sa PRIDAVAJU dalsie povolene hodnoty pre nove typy udalosti.
+alter table public.employment_contract_events drop constraint if exists employment_contract_events_event_type_check;
+alter table public.employment_contract_events add constraint employment_contract_events_event_type_check
+  check (event_type in (
+    'CREATED', 'CONTRACT_SIGNED', 'EXTENDED', 'CHANGED', 'CONVERTED_TO_INDEFINITE', 'ENDED',
+    'POSITION_CHANGED', 'WORKING_HOURS_CHANGED', 'NOTICE_STARTED'
+  ));
+alter table public.employment_contract_events add column if not exists old_value text;
+alter table public.employment_contract_events add column if not exists new_value text;
+alter table public.employment_contract_events add column if not exists note text;
+alter table public.employment_contract_events add column if not exists is_manual_historical_entry boolean not null default false;
+
+-- 46.3 medical_examinations - created_by (bod 4 zadania). Zamerne ZIADNY
+--      stlpec na diagnozu - len administrativne udaje, presne ako doteraz.
+alter table public.medical_examinations add column if not exists created_by uuid references auth.users(id);
+
+-- 46.4 employee_timeline_events - MANUAL_HISTORICAL_ENTRY ako dalsia povolena
+--      hodnota source (bod 11 zadania) - SYSTEM/MANUAL ostavaju bezo zmeny
+--      pre existujuce aj buduce bezne pripady, tato tretia hodnota sa pouziva
+--      VYHRADNE z formulara "Doplnit historicka data".
+alter table public.employee_timeline_events drop constraint if exists employee_timeline_events_source_check;
+alter table public.employee_timeline_events add constraint employee_timeline_events_source_check
+  check (source in ('SYSTEM', 'MANUAL', 'MANUAL_HISTORICAL_ENTRY'));

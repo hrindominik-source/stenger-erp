@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { addMonthsIso, computeFixedTermStatus, canProposeExtension, FIXED_TERM_RULES } from "./hrContractRules.js";
+import { addMonthsIso, computeFixedTermStatus, canProposeExtension, FIXED_TERM_RULES, sortContractEventsChronologically, shouldMarkEmployeeInactive } from "./hrContractRules.js";
 
 describe("addMonthsIso", () => {
   it("prida mesiace k datumu", () => {
@@ -68,11 +68,67 @@ describe("computeFixedTermStatus", () => {
     expect(FIXED_TERM_RULES.maxTotalMonths).toBe(36);
     expect(FIXED_TERM_RULES.maxExtensions).toBe(2);
   });
+
+  it("chybajuci startDate -> requiresReview=true a withinLimits=false (nikdy tiche 'v poriadku')", () => {
+    const status = computeFixedTermStatus({ startDate: null, currentEndDate: "2025-01-01", events: [] });
+    expect(status.requiresReview).toBe(true);
+    expect(status.withinLimits).toBe(false);
+    expect(status.maxAllowedEndDate).toBe(null);
+  });
+
+  it("bezny pripad so znamym startDate NEMA requiresReview", () => {
+    const status = computeFixedTermStatus({ startDate: "2024-03-01", currentEndDate: "2025-02-28", events: [] });
+    expect(status.requiresReview).toBe(false);
+  });
 });
 
 describe("canProposeExtension", () => {
   it("je alias/wrapper okolo computeFixedTermStatus pre navrhovany novy koniec", () => {
     const result = canProposeExtension({ startDate: "2024-01-01", proposedEndDate: "2024-06-01", events: [] });
     expect(result.withinLimits).toBe(true);
+  });
+});
+
+describe("sortContractEventsChronologically", () => {
+  it("zoradi udalosti podla event_date vzostupne", () => {
+    const events = [
+      { event_type: "EXTENDED", event_date: "2025-06-01" },
+      { event_type: "CREATED", event_date: "2024-01-01" },
+      { event_type: "CONTRACT_SIGNED", event_date: "2024-06-01" },
+    ];
+    const sorted = sortContractEventsChronologically(events);
+    expect(sorted.map((e) => e.event_type)).toEqual(["CREATED", "CONTRACT_SIGNED", "EXTENDED"]);
+  });
+
+  it("pri zhode event_date rozhoduje created_at (poradie zapisu v ramci jedneho dna)", () => {
+    const events = [
+      { event_type: "B", event_date: "2024-01-01", created_at: "2024-01-01T12:00:00Z" },
+      { event_type: "A", event_date: "2024-01-01", created_at: "2024-01-01T09:00:00Z" },
+    ];
+    const sorted = sortContractEventsChronologically(events);
+    expect(sorted.map((e) => e.event_type)).toEqual(["A", "B"]);
+  });
+
+  it("nemutuje povodne pole (vracia novu kopiu)", () => {
+    const events = [{ event_type: "B", event_date: "2024-06-01" }, { event_type: "A", event_date: "2024-01-01" }];
+    const original = [...events];
+    sortContractEventsChronologically(events);
+    expect(events).toEqual(original);
+  });
+
+  it("chybajuce event_date/created_at sa neroztrhne (radi ako prazdny retazec)", () => {
+    const events = [{ event_type: "B", event_date: "2024-01-01" }, { event_type: "A" }];
+    expect(() => sortContractEventsChronologically(events)).not.toThrow();
+  });
+});
+
+describe("shouldMarkEmployeeInactive", () => {
+  it("bez ziadneho zostavajuceho ACTIVE/PLANNED/NOTICE_PERIOD pracovneho pomeru -> true (byvaly zamestnanec)", () => {
+    expect(shouldMarkEmployeeInactive(0)).toBe(true);
+  });
+
+  it("s aspon jednym zostavajucim pracovnym pomerom -> false (rehire ostava aktivny)", () => {
+    expect(shouldMarkEmployeeInactive(1)).toBe(false);
+    expect(shouldMarkEmployeeInactive(2)).toBe(false);
   });
 });
