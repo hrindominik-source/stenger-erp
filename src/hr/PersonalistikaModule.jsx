@@ -8,6 +8,7 @@ import { KNOWN_TEMPLATE_KEYS, TEMPLATE_REQUIRED_KEYS, buildDocumentData } from "
 import { convertFilledDocxToPdf } from "../lib/hr/docxToPdf.js";
 import { extractJmhzFields, detectJmhzVersionCandidates, knownJmhzVersions } from "../lib/hr/jmhzPdf.js";
 import { buildComparisonRows } from "../lib/hr/jmhzImport.js";
+import { sha256Hex, buildSignedScanPath } from "../lib/hr/documentHash.js";
 
 const HR_DOKUMENTY_BUCKET = "hr-dokumenty";
 const DOCX_MIME = "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
@@ -37,10 +38,6 @@ const HR_DOCUMENT_STATUS_LABEL = {
 };
 const HR_DOCUMENT_STATUS_ORDER = ["DRAFT", "READY_FOR_REVIEW", "APPROVED", "READY_FOR_SIGNATURE", "SIGNED", "ARCHIVED"];
 
-async function sha256Hex(arrayBuffer) {
-  const digest = await crypto.subtle.digest("SHA-256", arrayBuffer);
-  return [...new Uint8Array(digest)].map((b) => b.toString(16).padStart(2, "0")).join("");
-}
 
 /* =========================================================================
    Personalistika - trvaly personalny spis zamestnancov.
@@ -1502,7 +1499,13 @@ function GenerateDocumentForm({ employee, sensitive, currentEmployment, template
     setError("");
     try {
       const filled = await loadFilledArrayBuffer();
-      const filename = `${DOC_TYPE_LABELS[template.doc_type] || template.doc_type} - ${fullName(employee)}.pdf`;
+      // Nazov suboru zamerne obsahuje "NAHLED" - PDF vznika prerenderovanim
+      // (mammoth+html2canvas), ktore NEZACHOVAVA presne stranky/riadkovanie
+      // povodneho .docx (over eno na realnych vzoroch, viz docxToPdf.js).
+      // Nikdy sa neuklada ako hr_documents.file_path a nikdy sa nesklada za
+      // archivovany/podpisany vystup - len na rychlu vizualnu kontrolu pred
+      // tlacou/podpisom.
+      const filename = `NAHLED - ${DOC_TYPE_LABELS[template.doc_type] || template.doc_type} - ${fullName(employee)}.pdf`;
       await convertFilledDocxToPdf(filename, filled);
     } catch (e) {
       console.error(e);
@@ -1588,12 +1591,16 @@ function GenerateDocumentForm({ employee, sensitive, currentEmployment, template
           {error && <div className="bg-red-50 text-red-700 text-sm px-3 py-2 rounded-md mb-2">{error}</div>}
           <div className="flex justify-end gap-2 flex-wrap mt-2">
             <button onClick={onCancel} className="text-sm text-slate-500 px-3 py-2">Zrušit</button>
-            <button onClick={downloadDocxPreview} className="text-sm text-slate-600 hover:text-slate-900 px-3 py-2 border border-slate-200 rounded-md">Stáhnout .docx</button>
-            <button onClick={downloadPreview} className="text-sm text-slate-600 hover:text-slate-900 px-3 py-2 border border-slate-200 rounded-md">Stáhnout náhled PDF</button>
+            <button onClick={downloadDocxPreview} className="text-sm text-slate-600 hover:text-slate-900 px-3 py-2 border border-slate-200 rounded-md">Stáhnout .docx (přesný dokument)</button>
+            <button onClick={downloadPreview} className="text-sm text-slate-600 hover:text-slate-900 px-3 py-2 border border-slate-200 rounded-md">Stáhnout PDF (jen náhled)</button>
             <button onClick={generateAndSave} disabled={saving || missing.length > 0} className="flex items-center gap-1.5 bg-teal-700 hover:bg-teal-800 disabled:opacity-50 disabled:cursor-not-allowed text-white text-sm font-medium px-4 py-2 rounded-md">
               {saving ? <Loader2 size={16} className="animate-spin" /> : <CheckCircle2 size={16} />} {saving ? "Ukládám..." : "Vygenerovat a uložit"}
             </button>
           </div>
+          <p className="text-xs text-slate-400 mt-2">
+            PDF je jen orientační náhled pro rychlou kontrolu - vzniká převodem z .docx a jeho stránkování (počet stran, zalomení řádků) se může lišit od skutečného vzhledu ve Wordu.
+            Za skutečný dokument vždy považujte staženou/vygenerovanou .docx, po podpisu pak nahraný sken.
+          </p>
         </>
       ) : (
         <div className="text-sm text-slate-400">Šablona nemá žádnou aktivní verzi.</div>
@@ -1617,8 +1624,7 @@ function SignDocumentForm({ doc, onCancel, onSaved }) {
     setError("");
     try {
       const { data: userData } = await supabase.auth.getUser();
-      const ext = (file.name.split(".").pop() || "pdf").toLowerCase();
-      const storagePath = `zamestnanci-podpisy/${doc.id}-${uid()}.${ext}`;
+      const storagePath = buildSignedScanPath(doc.id, uid(), file.name.split(".").pop());
       const { error: upErr } = await supabase.storage.from(HR_DOKUMENTY_BUCKET).upload(storagePath, file, { contentType: file.type });
       if (upErr) throw upErr;
       const ab = await file.arrayBuffer();
@@ -1629,7 +1635,16 @@ function SignDocumentForm({ doc, onCancel, onSaved }) {
         document_hash: hash, uploaded_by: userData?.user?.id || null, file_path: storagePath,
       });
       if (sigErr) throw sigErr;
-      const { error: docErr } = await supabase.from("hr_documents").update({ status: "SIGNED", updated_at: new Date().toISOString() }).eq("id", doc.id);
+      // file_path sa PREPISUJE na podpisany sken v tom istom kroku, ako sa
+      // riadok prechadza do SIGNED (nie neskorsia uprava uz podpisaneho
+      // riadku - je to sucast tej istej, jedinej prechodovej update). Bez
+      // toho by "Otevřít soubor" po podpise stale otvaral povodny
+      // nepodpisany vygenerovany .docx - podpisany sken by nebol z UI vobec
+      // dosiahnutelny. Povodny vygenerovany subor zostava v ulozisku
+      // nedotknuty (len sa naň uz neodkazuje tento konkretny hr_documents riadok).
+      const { error: docErr } = await supabase.from("hr_documents").update({
+        status: "SIGNED", file_path: storagePath, updated_at: new Date().toISOString(),
+      }).eq("id", doc.id);
       if (docErr) throw docErr;
       onSaved();
     } catch (e) {

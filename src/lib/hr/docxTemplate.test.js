@@ -6,6 +6,7 @@ import {
   validateTemplateKeysAgainstAllowlist,
   validateRequiredKeys,
 } from "./docxTemplate.js";
+import { buildDocumentData } from "./docxMapping.js";
 
 // Synteticke DOCX fixtures postavene cez uz existujucu zavislost "docx"
 // (nie staticke subory z hr-podklady, ktore su zamerne mimo gitu) - test
@@ -97,6 +98,35 @@ describe("extractTemplateKeys / validateTemplateKeysAgainstAllowlist", () => {
     const ab = await buildTestDocx(["{{cele_jmeno}}"]);
     const { ok } = validateTemplateKeysAgainstAllowlist(ab, ["cele_jmeno", "datum"]);
     expect(ok).toBe(true);
+  });
+});
+
+describe("mzdove polia - presny vysledny text zodpoveda skutocnemu vzoru 01_PLATOVY_VYMER_vzor.docx", () => {
+  // Staticky text paragrafov je bajt-za-bajtom skopirovany z realneho
+  // word/document.xml vzoru (overene priamo v tomto subore, hr-podklady/ je
+  // lokalne a necommitnute) - synteticka fixture tu simuluje presne tu istu
+  // vetu vratane oboch pomlciek okolo kazdeho tagu, aby test nebol zavisly
+  // na subore mimo repozitara.
+  it("mzda_hod, priplatek_noc aj priplatek_vikend davaju '-N,-Kč' bez duplicity ci chybajucej ciarky", async () => {
+    const ab = await buildTestDocx([
+      "- Dohodnutá mzda bude činit -{{mzda_hod}}Kč/ hod.",
+      "-Příplatek za práci v noci:-{{priplatek_noc}}Kč/hod ",
+      "-Příplatek za práci v sobotu a v neděli:-{{priplatek_vikend}}Kč/hod. ",
+    ]);
+    const data = buildDocumentData({
+      person: {}, sensitive: {},
+      documentFields: { mzda_hod: "155", priplatek_noc: "15", priplatek_vikend: "20" },
+    });
+    const out = fillDocxTemplate(ab, data);
+    const zip = (await import("pizzip")).default;
+    const xml = new zip(out).file("word/document.xml").asText();
+    expect(xml).toContain("- Dohodnutá mzda bude činit -155,-Kč/ hod.");
+    expect(xml).toContain("-Příplatek za práci v noci:-15,-Kč/hod");
+    expect(xml).toContain("-Příplatek za práci v sobotu a v neděli:-20,-Kč/hod.");
+    // presne to, co REGRESIA predtym vratila (chybajuca ciarka) - musi zostat nepritomne
+    expect(xml).not.toContain("-155Kč");
+    expect(xml).not.toContain("-15Kč");
+    expect(xml).not.toContain("-20Kč");
   });
 });
 

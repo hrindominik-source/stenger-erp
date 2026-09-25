@@ -70,26 +70,29 @@ export function formatBankAccount(accountRaw) {
   return accountRaw ? String(accountRaw) : "";
 }
 
-// {{mzda_hod}}, {{priplatek_noc}}, {{priplatek_vikend}} - DOLEZITE OVERENE
-// ZISTENIE (nie predpoklad): v skutocnej sablone 01_PLATOVY_VYMER_vzor.docx
-// je okolo tychto troch tagov UZ NAPEVNO v texte pomlcka aj mena:
-//   "...bude činit -{{mzda_hod}}Kč/ hod."
-//   "...v noci:-{{priplatek_noc}}Kč/hod"
-//   "...v sobotu a v neděli:-{{priplatek_vikend}}Kč/hod."
-// Preto sem MUSI ist HOLE CISLO (napr. "155"), NIE uz preformatovany retazec
-// "155,-" - inak by vzniklo "-155,-Kč" (duplicitna pomlcka aj mena), presne
-// ten problem, pred ktorym MASTER_PROMPT varuje ("Over, že výsledná
-// interpunkcia, mena a jednotka sa neduplikujú"). Priklad "155,-" v
-// MASTER_PROMPTe je format PRE VYSLEDNY text dokumentu (co uz sablona sama
-// tvori), NIE format hodnoty, ktoru sem ma zadat HR - overene priamym
-// vygenerovanim a vizualnou kontrolou skutocneho vzoru: najprv cez
-// mammoth.extractRawText, neskor opakovane priamo vo vykreslenom PDF
-// canvase (docxToPdf.js pipeline v prehliadaci) - obe formy overenia
-// potvrdzuju rovnaky vysledok "-155Kč/ hod." (ziadna duplicita), rovnako
-// pre priplatek_noc aj priplatek_vikend.
+// {{mzda_hod}}, {{priplatek_noc}}, {{priplatek_vikend}} - OPRAVENE ZISTENIE
+// (predchadzajuca verzia tohto komentara bola nespravna, viz nizsie).
+// Presna surova XML struktura vsetkych troch miest v skutocnej sablone
+// 01_PLATOVY_VYMER_vzor.docx (overene priamo v word/document.xml):
+//   "- Dohodnutá mzda bude činit -{{mzda_hod}}Kč/ hod."
+//   "-Příplatek za práci v noci:-{{priplatek_noc}}Kč/hod"
+//   "-Příplatek za práci v sobotu a v neděli:-{{priplatek_vikend}}Kč/hod."
+// Prva pomlcka na kazdom riadku je oddelovac odrazky vety (s medzerou za
+// ňou, napr. "- Dohodnutá..."), NIE sucast cisla. Druha pomlcka, tesne pred
+// samotnym tagom bez medzery ("čini t -{{mzda_hod}}"), je zamerna a ma sa
+// spravat ako pociatok zapisu ceskej ciastky bez haleru v tvare "N,-Kč" -
+// teda hodnota vlozena za nu MUSI byt uz vo formate "155,-", nie hole cislo
+// "155". Predchadzajuca verzia tejto funkcie hole cislo vratila priamo, cim
+// vznikal nespravny vysledok "-155Kč/ hod." namiesto spravneho
+// "-155,-Kč/ hod." - chyba objavena a opravena podla vizualneho porovnania
+// so skutocnym pôvodným výměrom (nie len s doslovnym textom sablony).
+// formatMoneyField preto teraz DOPLNI ",-" priponu, ak v zadanej hodnote
+// este nie je (HR moze zadat "155" aj rovno uz "155,-" - obe davaju
+// rovnaky vysledok, hodnota sa nikdy neduplikuje).
 export function formatMoneyField(rawAmount) {
   if (rawAmount === undefined || rawAmount === null || rawAmount === "") return "";
-  return String(rawAmount).trim();
+  const trimmed = String(rawAmount).trim();
+  return trimmed.endsWith(",-") ? trimmed : `${trimmed},-`;
 }
 
 // Zostavi kompletny data objekt pre docxTemplate.fillDocxTemplate() z
