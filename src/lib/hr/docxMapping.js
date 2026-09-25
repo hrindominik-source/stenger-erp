@@ -82,7 +82,11 @@ export function formatBankAccount(accountRaw) {
 // interpunkcia, mena a jednotka sa neduplikujú"). Priklad "155,-" v
 // MASTER_PROMPTe je format PRE VYSLEDNY text dokumentu (co uz sablona sama
 // tvori), NIE format hodnoty, ktoru sem ma zadat HR - overene priamym
-// vygenerovanim a vizualnou kontrolou (mammoth) skutocneho vzoru.
+// vygenerovanim a vizualnou kontrolou skutocneho vzoru: najprv cez
+// mammoth.extractRawText, neskor opakovane priamo vo vykreslenom PDF
+// canvase (docxToPdf.js pipeline v prehliadaci) - obe formy overenia
+// potvrdzuju rovnaky vysledok "-155Kč/ hod." (ziadna duplicita), rovnako
+// pre priplatek_noc aj priplatek_vikend.
 export function formatMoneyField(rawAmount) {
   if (rawAmount === undefined || rawAmount === null || rawAmount === "") return "";
   return String(rawAmount).trim();

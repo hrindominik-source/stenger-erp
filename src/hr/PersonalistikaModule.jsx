@@ -6,6 +6,8 @@ import { computeFixedTermStatus, canProposeExtension, FIXED_TERM_RULES } from ".
 import { fillDocxTemplate, extractTemplateKeys, validateTemplateKeysAgainstAllowlist, validateRequiredKeys } from "../lib/hr/docxTemplate.js";
 import { KNOWN_TEMPLATE_KEYS, TEMPLATE_REQUIRED_KEYS, buildDocumentData } from "../lib/hr/docxMapping.js";
 import { convertFilledDocxToPdf } from "../lib/hr/docxToPdf.js";
+import { extractJmhzFields, detectJmhzVersionCandidates, knownJmhzVersions } from "../lib/hr/jmhzPdf.js";
+import { buildComparisonRows } from "../lib/hr/jmhzImport.js";
 
 const HR_DOKUMENTY_BUCKET = "hr-dokumenty";
 const DOCX_MIME = "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
@@ -97,6 +99,7 @@ const HR_SUB_TABS = [
   { key: "dashboard", label: "Přehled", icon: LayoutDashboard },
   { key: "zamestnanci", label: "Zaměstnanci", icon: Users2 },
   { key: "byvali", label: "Bývalí zaměstnanci", icon: Users2 },
+  { key: "nastupy", label: "Nástupy", icon: UserPlus, editOnly: true },
   { key: "pozice", label: "Pozice", icon: Briefcase },
   { key: "sablony", label: "Šablony dokumentů", icon: FileText },
   { key: "nastaveni", label: "Nastavení", icon: Settings, adminOnly: true },
@@ -105,7 +108,7 @@ const HR_SUB_TABS = [
 function HrSubNav({ tab, onChange, permissions }) {
   return (
     <div className="flex flex-wrap gap-1.5 bg-white border border-slate-200 rounded-lg p-1.5 mb-4">
-      {HR_SUB_TABS.filter((t) => !t.adminOnly || hasPerm(permissions, "HR_ADMIN")).map((t) => {
+      {HR_SUB_TABS.filter((t) => (!t.adminOnly || hasPerm(permissions, "HR_ADMIN")) && (!t.editOnly || hasPerm(permissions, "HR_EDIT"))).map((t) => {
         const Icon = t.icon;
         const active = tab === t.key;
         return (
@@ -177,6 +180,7 @@ export default function PersonalistikaModule() {
           ? <EmployeeDetail id={openEmployeeId} permissions={permissions} onBack={() => setOpenEmployeeId(null)} />
           : <EmployeesListTab mode="former" permissions={permissions} onOpen={setOpenEmployeeId} />
       )}
+      {tab === "nastupy" && hasPerm(permissions, "HR_EDIT") && <OnboardingReviewTab permissions={permissions} onOpenEmployee={(id) => { setOpenEmployeeId(id); setTab("zamestnanci"); }} />}
       {tab === "pozice" && <PositionsTab permissions={permissions} />}
       {tab === "sablony" && <TemplatesTab permissions={permissions} />}
       {tab === "nastaveni" && hasPerm(permissions, "HR_ADMIN") && <SettingsTab />}
@@ -191,23 +195,33 @@ function DashboardTab({ permissions, onOpenEmployee }) {
   const [error, setError] = useState("");
   const [employees, setEmployees] = useState([]);
   const [employments, setEmployments] = useState([]);
+  const [medicalExams, setMedicalExams] = useState([]);
+  const [onboardingPendingCount, setOnboardingPendingCount] = useState(0);
+  const canMedical = hasPerm(permissions, "HR_VIEW_MEDICAL_ADMIN");
+  const canReviewOnboarding = hasPerm(permissions, "HR_EDIT");
 
   useEffect(() => {
     let cancelled = false;
     (async () => {
       setLoading(true);
-      const [empRes, empmRes] = await Promise.all([
+      const fetches = [
         supabase.from("employees").select("id, first_name, last_name, title, active").eq("active", true),
         supabase.from("employment_relationships").select("id, employee_id, status, fixed_term_end_date, employment_type").in("status", ["ACTIVE", "PLANNED", "NOTICE_PERIOD"]),
-      ]);
+      ];
+      if (canMedical) fetches.push(supabase.from("medical_examinations").select("id, employee_id, exam_type, valid_until"));
+      if (canReviewOnboarding) fetches.push(supabase.from("onboarding_sessions").select("id", { count: "exact", head: true }).eq("status", "SUBMITTED"));
+      const results = await Promise.all(fetches);
       if (cancelled) return;
+      const [empRes, empmRes, medRes, onbRes] = results;
       if (empRes.error || empmRes.error) { setError("Nepodařilo se načíst přehled."); setLoading(false); return; }
       setEmployees(empRes.data || []);
       setEmployments(empmRes.data || []);
+      if (canMedical && medRes) setMedicalExams(medRes.data || []);
+      if (canReviewOnboarding && onbRes) setOnboardingPendingCount(onbRes.count || 0);
       setLoading(false);
     })();
     return () => { cancelled = true; };
-  }, []);
+  }, [canMedical, canReviewOnboarding]);
 
   if (loading) return <div className="text-center text-slate-400 py-10"><Loader2 className="animate-spin mx-auto mb-2" size={24} /> Načítám...</div>;
   if (error) return <div className="bg-red-50 text-red-700 text-sm px-3 py-2 rounded-md">{error}</div>;
@@ -216,6 +230,8 @@ function DashboardTab({ permissions, onOpenEmployee }) {
   const ending30 = employments.filter((e) => { const d = daysUntilIso(e.fixed_term_end_date); return d !== null && d >= 0 && d <= 30; });
   const ending60 = employments.filter((e) => { const d = daysUntilIso(e.fixed_term_end_date); return d !== null && d >= 0 && d <= 60; });
   const ending90 = employments.filter((e) => { const d = daysUntilIso(e.fixed_term_end_date); return d !== null && d >= 0 && d <= 90; });
+  const medExpiring90 = medicalExams.filter((m) => { const d = daysUntilIso(m.valid_until); return d !== null && d <= 90; });
+  const medExpired = medExpiring90.filter((m) => daysUntilIso(m.valid_until) < 0);
 
   const byEmployeeId = new Map(employees.map((e) => [e.id, e]));
 
@@ -227,9 +243,12 @@ function DashboardTab({ permissions, onOpenEmployee }) {
         <StatCard label="Smlouvy do 60 dnů" value={ending60.length} />
         <StatCard label="Smlouvy do 90 dnů" value={ending90.length} />
         <StatCard label="Ve výpovědní lhůtě" value={noticePeriod} alert={noticePeriod > 0} />
+        {canMedical && <StatCard label="Prohlídky po platnosti" value={medExpired.length} alert={medExpired.length > 0} />}
+        {canMedical && <StatCard label="Prohlídky do 90 dnů" value={medExpiring90.length - medExpired.length} />}
+        {canReviewOnboarding && <StatCard label="Čekající nástupy" value={onboardingPendingCount} alert={onboardingPendingCount > 0} />}
       </div>
       {ending90.length > 0 && (
-        <div className="bg-white border border-slate-200 rounded-lg overflow-hidden">
+        <div className="bg-white border border-slate-200 rounded-lg overflow-hidden mb-4">
           <div className="px-4 py-2.5 border-b border-slate-100 font-semibold text-sm">Blížící se konec smlouvy (do 90 dnů)</div>
           <table className="w-full text-sm">
             <tbody>
@@ -244,6 +263,29 @@ function DashboardTab({ permissions, onOpenEmployee }) {
                       <td className="px-4 py-2 font-medium">{e ? fullName(e) : "?"}</td>
                       <td className="px-4 py-2 text-slate-500">Konec: {fmtDate(em.fixed_term_end_date)}</td>
                       <td className={"px-4 py-2 text-right " + (d <= 30 ? "text-red-600 font-medium" : "text-amber-600")}>za {d} dní</td>
+                    </tr>
+                  );
+                })}
+            </tbody>
+          </table>
+        </div>
+      )}
+      {canMedical && medExpiring90.length > 0 && (
+        <div className="bg-white border border-slate-200 rounded-lg overflow-hidden">
+          <div className="px-4 py-2.5 border-b border-slate-100 font-semibold text-sm">Lékařské prohlídky - po platnosti nebo brzy vypršou (do 90 dnů)</div>
+          <table className="w-full text-sm">
+            <tbody>
+              {medExpiring90
+                .slice()
+                .sort((a, b) => daysUntilIso(a.valid_until) - daysUntilIso(b.valid_until))
+                .map((m) => {
+                  const e = byEmployeeId.get(m.employee_id);
+                  const d = daysUntilIso(m.valid_until);
+                  return (
+                    <tr key={m.id} className="border-t border-slate-100 hover:bg-slate-50 cursor-pointer" onClick={() => onOpenEmployee(m.employee_id)}>
+                      <td className="px-4 py-2 font-medium">{e ? fullName(e) : "?"}</td>
+                      <td className="px-4 py-2 text-slate-500">{m.exam_type || "Prohlídka"} - platnost do: {fmtDate(m.valid_until)}</td>
+                      <td className={"px-4 py-2 text-right " + (d < 0 ? "text-red-600 font-medium" : d <= 30 ? "text-red-600 font-medium" : "text-amber-600")}>{d < 0 ? `po platnosti (${-d} dní)` : `za ${d} dní`}</td>
                     </tr>
                   );
                 })}
@@ -366,6 +408,100 @@ function EmployeesListTab({ mode, permissions, onOpen }) {
   );
 }
 
+/* ---------------- Nástupy (kontrola tabletových onboarding dotazníků) ---------------- */
+/* Presne ta ista trasa ako priame zadanie: draft_data z onboarding_sessions
+   sa len predvyplní do EmployeeCreateForm (rovnaky insert kod, rovnaka
+   karta), HR po kontrole ulozi - nic sa nezapisuje automaticky. */
+
+function OnboardingReviewTab({ permissions, onOpenEmployee }) {
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
+  const [sessions, setSessions] = useState([]);
+  const [reviewing, setReviewing] = useState(null);
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    setError("");
+    const { data, error: err } = await supabase.from("onboarding_sessions").select("*").eq("status", "SUBMITTED").order("submitted_at", { ascending: true });
+    if (err) { setError("Nepodařilo se načíst čekající nástupy."); setLoading(false); return; }
+    setSessions(data || []);
+    setLoading(false);
+  }, []);
+
+  useEffect(() => { load(); }, [load]);
+
+  async function discard(session) {
+    if (!window.confirm("Zamítnout tento dotazník? Nezaloží se žádný zaměstnanec, dotazník zůstane v evidenci jako zamítnutý.")) return;
+    const { error: err } = await supabase.rpc("hr_onboarding_review", { p_session_id: session.id, p_status: "DISCARDED", p_resulting_employee_id: null });
+    if (err) { window.alert(err.message); return; }
+    load();
+  }
+
+  if (reviewing) {
+    const d = reviewing.draft_data || {};
+    const initialData = {
+      title: d.title || "", first_name: d.first_name || "", last_name: d.last_name || "", maiden_name: d.maiden_name || "",
+      date_of_birth: d.date_of_birth || "", place_of_birth: d.place_of_birth || "", country_of_birth: d.country_of_birth || "",
+      gender: d.gender || "", nationality: d.nationality || "",
+      permanent_street: d.permanent_street || "", permanent_city: d.permanent_city || "", permanent_zip: d.permanent_zip || "", permanent_country: d.permanent_country || "",
+      phone: d.phone || "", private_email: d.private_email || "", id_document_type: d.id_document_type || "",
+      health_insurance_company: d.health_insurance_company || "", highest_education: d.highest_education || "",
+      is_foreigner: !!d.is_foreigner, notes: "",
+      birth_number: d.birth_number || "", id_document_number: d.id_document_number || "", bank_account: d.bank_account || "",
+      start_date: d.start_date || "", employment_type: d.employment_type || "doba_neurcita", fixed_term_end_date: d.fixed_term_end_date || "",
+      workplace: d.workplace || "", weekly_hours: d.weekly_hours || "40",
+    };
+    return (
+      <EmployeeCreateForm
+        permissions={permissions}
+        initialData={initialData}
+        positionLabelHint={d.position_label}
+        onboardingSessionId={reviewing.id}
+        onCancel={() => setReviewing(null)}
+        onCreated={(id) => { setReviewing(null); load(); onOpenEmployee(id); }}
+      />
+    );
+  }
+
+  return (
+    <div>
+      <h1 className="text-xl font-semibold mb-4">Nástupy - čekající na kontrolu</h1>
+      <p className="text-xs text-slate-400 mb-3">Dotazníky vyplněné na tabletu novým zaměstnancem - nic se nezaloží automaticky, každý vyžaduje ruční kontrolu a potvrzení.</p>
+      {loading ? (
+        <div className="text-center text-slate-400 py-10"><Loader2 className="animate-spin mx-auto mb-2" size={24} /> Načítám...</div>
+      ) : error ? (
+        <div className="bg-red-50 text-red-700 text-sm px-3 py-2 rounded-md">{error}</div>
+      ) : sessions.length === 0 ? (
+        <div className="bg-white border border-slate-200 rounded-xl p-10 text-center">
+          <UserPlus className="mx-auto mb-3 text-slate-300" size={32} />
+          <div className="text-slate-600 text-sm">Žádné čekající dotazníky.</div>
+        </div>
+      ) : (
+        <div className="space-y-3">
+          {sessions.map((s) => {
+            const d = s.draft_data || {};
+            const name = [d.title, d.first_name, d.last_name].filter(Boolean).join(" ") || "(bez jména)";
+            return (
+              <div key={s.id} className="bg-white border border-slate-200 rounded-lg p-4 flex justify-between items-center flex-wrap gap-2">
+                <div>
+                  <div className="font-medium">{name}</div>
+                  <div className="text-xs text-slate-500">Odesláno: {s.submitted_at ? new Date(s.submitted_at).toLocaleString("cs-CZ") : "—"} {d.position_label ? `· ${d.position_label}` : ""}</div>
+                </div>
+                <div className="flex items-center gap-2">
+                  <button onClick={() => discard(s)} className="text-xs text-red-500 hover:text-red-700 underline underline-offset-2">Zamítnout</button>
+                  <button onClick={() => setReviewing(s)} className="flex items-center gap-1.5 bg-teal-700 hover:bg-teal-800 text-white text-sm font-medium px-3 py-2 rounded-md">
+                    <CheckCircle2 size={15} /> Zkontrolovat a založit
+                  </button>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
 /* ---------------- Nový zaměstnanec ---------------- */
 
 function emptyEmployeeForm() {
@@ -382,8 +518,8 @@ function emptyEmployeeForm() {
   };
 }
 
-function EmployeeCreateForm({ permissions, onCancel, onCreated }) {
-  const [f, setF] = useState(emptyEmployeeForm());
+function EmployeeCreateForm({ permissions, onCancel, onCreated, initialData, positionLabelHint, onboardingSessionId }) {
+  const [f, setF] = useState(() => ({ ...emptyEmployeeForm(), ...(initialData || {}) }));
   const [positions, setPositions] = useState([]);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
@@ -459,8 +595,17 @@ function EmployeeCreateForm({ permissions, onCancel, onCreated }) {
 
       await supabase.from("employee_timeline_events").insert({
         id: uid(), employee_id: employeeId, event_date: f.start_date || new Date().toISOString().slice(0, 10),
-        event_type: "EMPLOYEE_CREATED", title: "Založen personální spis", source: "MANUAL",
+        event_type: "EMPLOYEE_CREATED",
+        title: onboardingSessionId ? "Založen personální spis (z tabletového nástupního dotazníku)" : "Založen personální spis",
+        source: "MANUAL",
       });
+
+      if (onboardingSessionId) {
+        const { error: revErr } = await supabase.rpc("hr_onboarding_review", {
+          p_session_id: onboardingSessionId, p_status: "REVIEWED", p_resulting_employee_id: employeeId,
+        });
+        if (revErr) throw revErr;
+      }
 
       onCreated(employeeId);
     } catch (e) {
@@ -472,8 +617,15 @@ function EmployeeCreateForm({ permissions, onCancel, onCreated }) {
 
   return (
     <div>
-      <button onClick={onCancel} className="text-sm text-slate-500 flex items-center gap-1 hover:text-slate-800 mb-3"><ArrowLeft size={14} /> Zpět na seznam</button>
+      <button onClick={onCancel} className="text-sm text-slate-500 flex items-center gap-1 hover:text-slate-800 mb-3"><ArrowLeft size={14} /> Zpět</button>
       <h1 className="text-xl font-semibold mb-4">Nový zaměstnanec</h1>
+
+      {onboardingSessionId && (
+        <div className="bg-teal-50 border border-teal-200 rounded-lg px-4 py-3 mb-4 text-sm text-teal-800">
+          Předvyplněno z tabletového nástupního dotazníku - zkontrolujte prosím všechny údaje před uložením.
+          {positionLabelHint && <div className="mt-1">Zaměstnanec uvedl pozici: <strong>{positionLabelHint}</strong> - vyberte prosím odpovídající pozici ze seznamu níže.</div>}
+        </div>
+      )}
 
       <div className="bg-white border border-slate-200 rounded-lg p-4 mb-4">
         <h2 className="font-semibold text-sm mb-3">Osobní údaje</h2>
@@ -552,6 +704,7 @@ const DETAIL_TABS = [
   { key: "osobni", label: "Osobní údaje" },
   { key: "pomer", label: "Pracovní poměr" },
   { key: "dokumenty", label: "Dokumenty" },
+  { key: "jmhz", label: "JMHZ dotazník", editOnly: true },
   { key: "historie", label: "Historie" },
 ];
 
@@ -561,6 +714,7 @@ function EmployeeDetail({ id, permissions, onBack }) {
   const [error, setError] = useState("");
   const [employee, setEmployee] = useState(null);
   const [sensitive, setSensitive] = useState(null);
+  const [payroll, setPayroll] = useState(null);
   const [employments, setEmployments] = useState([]);
   const [contractEvents, setContractEvents] = useState([]);
   const [positions, setPositions] = useState([]);
@@ -571,6 +725,7 @@ function EmployeeDetail({ id, permissions, onBack }) {
 
   const canEdit = hasPerm(permissions, "HR_EDIT");
   const canSensitive = hasPerm(permissions, "HR_VIEW_SENSITIVE");
+  const canPayroll = hasPerm(permissions, "HR_VIEW_PAYROLL");
   const canDelete = hasPerm(permissions, "HR_ADMIN");
 
   const load = useCallback(async () => {
@@ -598,8 +753,12 @@ function EmployeeDetail({ id, permissions, onBack }) {
       const { data } = await supabase.from("employee_sensitive_data").select("*").eq("employee_id", id).maybeSingle();
       setSensitive(data || null);
     }
+    if (canPayroll) {
+      const { data } = await supabase.from("employee_payroll_data").select("*").eq("employee_id", id).maybeSingle();
+      setPayroll(data || null);
+    }
     setLoading(false);
-  }, [id, canSensitive]);
+  }, [id, canSensitive, canPayroll]);
 
   useEffect(() => { load(); }, [load]);
 
@@ -659,7 +818,7 @@ function EmployeeDetail({ id, permissions, onBack }) {
       )}
 
       <div className="flex flex-wrap gap-1.5 border-b border-slate-200 mb-4">
-        {DETAIL_TABS.map((t) => (
+        {DETAIL_TABS.filter((t) => !t.editOnly || canEdit).map((t) => (
           <button
             key={t.key}
             onClick={() => setDetailTab(t.key)}
@@ -674,6 +833,13 @@ function EmployeeDetail({ id, permissions, onBack }) {
       {detailTab === "osobni" && <OsobniUdajeTab employee={employee} sensitive={sensitive} canEdit={canEdit} canSensitive={canSensitive} onSaved={load} />}
       {detailTab === "pomer" && <PracovniPomerTab employeeId={id} employments={employments} contractEvents={contractEvents} positions={positions} positionLabel={positionLabel} canEdit={canEdit} canOverride={hasPerm(permissions, "HR_ADMIN")} onChanged={load} />}
       {detailTab === "dokumenty" && <DokumentyTab employee={employee} sensitive={sensitive} currentEmployment={currentEmployment} permissions={permissions} />}
+      {detailTab === "jmhz" && canEdit && (
+        <JmhzImportTab
+          employee={employee} sensitive={sensitive} payroll={payroll} currentEmployment={currentEmployment}
+          canSensitive={canSensitive} canPayroll={canPayroll} canEditEmployment={canEdit}
+          onImported={load}
+        />
+      )}
       {detailTab === "historie" && <HistorieTab timeline={timeline} />}
     </div>
   );
@@ -914,10 +1080,56 @@ function PracovniPomerTab({ employeeId, employments, contractEvents, positions, 
                 </div>
               )}
               {endingId === em.id && <EndEmploymentForm employment={em} onCancel={() => setEndingId(null)} onSaved={() => { setEndingId(null); onChanged(); }} />}
+              {["NOTICE_PERIOD", "ENDED"].includes(em.status) && <OffboardingChecklist employment={em} canEdit={canEdit} onChanged={onChanged} />}
             </div>
           );
         })}
         {employments.length === 0 && <div className="text-sm text-slate-400">Žádný pracovní poměr.</div>}
+      </div>
+    </div>
+  );
+}
+
+/* ---------------- Offboarding checklist ---------------- */
+/* Prakticka pripomienka pre HR pri ukoncovani pomeru - VEDOME BEZ pravneho
+   textu/lehot (tie MASTER_PROMPT explicitne zakazuje vymyslat) - len bezne
+   prevadzkove ulohy. Ulozene do uz existujuceho employment_relationships.data
+   (aditivne, ziadna nova tabulka/stlpec). Zobrazuje sa pri NOTICE_PERIOD aj
+   ENDED, aby sa dalo pripravit este pred poslednym dnom. */
+const OFFBOARDING_CHECKLIST_ITEMS = [
+  { key: "vraceni_pomucek", label: "Vráceny pracovní pomůcky/vybavení" },
+  { key: "vraceni_klicu_karet", label: "Vráceny klíče / přístupové karty" },
+  { key: "predani_agendy", label: "Předána agenda a rozpracované úkoly" },
+  { key: "vystupni_pohovor", label: "Proveden výstupní pohovor" },
+  { key: "vydany_doklady", label: "Vydán zápočtový list a ostatní doklady" },
+  { key: "odhlaseni_pin_system", label: "Odhlášen z docházkového PIN / interních systémů" },
+];
+
+function OffboardingChecklist({ employment, canEdit, onChanged }) {
+  const checklist = employment.data?.offboarding_checklist || {};
+  const [saving, setSaving] = useState(false);
+  const doneCount = OFFBOARDING_CHECKLIST_ITEMS.filter((i) => checklist[i.key]).length;
+
+  async function toggle(key) {
+    if (!canEdit || saving) return;
+    setSaving(true);
+    const nextChecklist = { ...checklist, [key]: !checklist[key] };
+    const nextData = { ...(employment.data || {}), offboarding_checklist: nextChecklist };
+    await supabase.from("employment_relationships").update({ data: nextData, updated_at: new Date().toISOString() }).eq("id", employment.id);
+    setSaving(false);
+    onChanged();
+  }
+
+  return (
+    <div className="mt-3 pt-3 border-t border-slate-100">
+      <div className="text-xs font-medium text-slate-500 mb-2">Offboarding - kontrolní seznam ({doneCount}/{OFFBOARDING_CHECKLIST_ITEMS.length})</div>
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-1.5">
+        {OFFBOARDING_CHECKLIST_ITEMS.map((item) => (
+          <label key={item.key} className={"flex items-center gap-2 text-sm " + (canEdit ? "text-slate-600 cursor-pointer" : "text-slate-400")}>
+            <input type="checkbox" disabled={!canEdit || saving} checked={!!checklist[item.key]} onChange={() => toggle(item.key)} />
+            {item.label}
+          </label>
+        ))}
       </div>
     </div>
   );
@@ -1443,6 +1655,223 @@ function SignDocumentForm({ doc, onCancel, onSaved }) {
         <button onClick={onCancel} className="text-sm text-slate-500 px-3 py-2">Zrušit</button>
         <button onClick={submit} disabled={saving} className="bg-teal-700 hover:bg-teal-800 disabled:opacity-50 text-white text-sm font-medium px-4 py-2 rounded-md">{saving ? "Ukládám..." : "Uložit podpis"}</button>
       </div>
+    </div>
+  );
+}
+
+/* ---------------- JMHZ dotazník (import) ---------------- */
+/* Presny tok podla zadania: nacitanie poli a odpovedi -> nahlad povodnych a
+   navrhovanych hodnot -> kontrola konfliktov -> potvrdenie clovekom -> zapis
+   do TEJ ISTEJ karty zamestnanca (rovnake tabulky ako pri priamom zadani -
+   employees/employee_sensitive_data/employment_relationships/employee_payroll_data).
+   Neznama verzia (mapa poli prazdna) sa VZDY zastavi - ziadna tycha extrakcia. */
+
+function JmhzImportTab({ employee, sensitive, payroll, currentEmployment, canSensitive, canPayroll, canEditEmployment, onImported }) {
+  const [fileBuffer, setFileBuffer] = useState(null);
+  const [fileName, setFileName] = useState("");
+  const [candidates, setCandidates] = useState([]);
+  const [version, setVersion] = useState("");
+  const [extractResult, setExtractResult] = useState(null);
+  const [rows, setRows] = useState([]);
+  const [checked, setChecked] = useState({});
+  const [loadingExtract, setLoadingExtract] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState("");
+  const [successMsg, setSuccessMsg] = useState("");
+
+  const versionOptions = knownJmhzVersions();
+
+  async function onFileChange(e) {
+    const f = e.target.files?.[0];
+    setError(""); setSuccessMsg(""); setExtractResult(null); setRows([]); setChecked({});
+    if (!f) { setFileBuffer(null); setFileName(""); return; }
+    try {
+      const ab = await f.arrayBuffer();
+      setFileBuffer(ab);
+      setFileName(f.name);
+      const { candidates: cands } = await detectJmhzVersionCandidates(ab);
+      setCandidates(cands);
+      setVersion(cands[0] || "");
+    } catch (err) {
+      setError("Soubor se nepodařilo přečíst jako PDF: " + (err.message || err));
+    }
+  }
+
+  async function runExtraction() {
+    if (!fileBuffer || !version) { setError("Vyberte soubor a verzi dotazníku."); return; }
+    setLoadingExtract(true);
+    setError(""); setSuccessMsg("");
+    try {
+      const result = await extractJmhzFields(fileBuffer, version);
+      setExtractResult(result);
+      if (result.status === "OK") {
+        const ctx = { employee, sensitive, payroll, currentEmployment, canSensitive, canPayroll, canEditEmployment };
+        const built = buildComparisonRows(result.results, ctx);
+        setRows(built);
+        const initialChecked = {};
+        built.forEach((r) => { initialChecked[r.key] = r.defaultChecked; });
+        setChecked(initialChecked);
+      }
+    } catch (err) {
+      console.error(err);
+      setError("Načtení dotazníku se nezdařilo: " + (err.message || err));
+    }
+    setLoadingExtract(false);
+  }
+
+  function toggleRow(key) {
+    setChecked((prev) => ({ ...prev, [key]: !prev[key] }));
+  }
+
+  async function confirmImport() {
+    const selected = rows.filter((r) => r.writable && checked[r.key]);
+    if (selected.length === 0) { setError("Nejsou vybrána žádná pole k zápisu."); return; }
+    setSaving(true);
+    setError("");
+    try {
+      const employeesDirect = {}; const employeesJsonb = {};
+      const sensitiveDirect = {}; const sensitiveJsonb = {};
+      const employmentPatch = {};
+      const payrollBucket = {};
+      const dependentsWorking = JSON.parse(JSON.stringify(payroll?.dependents || []));
+
+      for (const row of selected) {
+        const t = row.target;
+        if (t.table === "employees") {
+          if (t.path) employeesJsonb[t.column] = { ...(employeesJsonb[t.column] || employee[t.column] || {}), [t.path]: row.proposedValue };
+          else employeesDirect[t.column] = row.proposedValue;
+        } else if (t.table === "employee_sensitive_data") {
+          if (t.path) sensitiveJsonb[t.column] = { ...(sensitiveJsonb[t.column] || sensitive?.[t.column] || {}), [t.path]: row.proposedValue };
+          else sensitiveDirect[t.column] = row.proposedValue;
+        } else if (t.table === "employment_relationships") {
+          employmentPatch[t.column] = row.proposedValue;
+        } else if (t.table === "employee_payroll_data") {
+          if (t.bucket === "dependents") {
+            const idx = dependentsWorking.findIndex((d) => d.slot === t.slot);
+            if (idx === -1) dependentsWorking.push({ slot: t.slot, [t.field]: row.proposedValue });
+            else dependentsWorking[idx] = { ...dependentsWorking[idx], [t.field]: row.proposedValue };
+          } else {
+            payrollBucket[t.bucket] = { ...(payrollBucket[t.bucket] || payroll?.[t.bucket] || {}), [t.field]: row.proposedValue };
+          }
+        }
+      }
+
+      if (Object.keys(employeesDirect).length || Object.keys(employeesJsonb).length) {
+        const { error: err } = await supabase.from("employees").update({ ...employeesDirect, ...employeesJsonb, updated_at: new Date().toISOString() }).eq("id", employee.id);
+        if (err) throw err;
+      }
+      if (Object.keys(sensitiveDirect).length || Object.keys(sensitiveJsonb).length) {
+        const { error: err } = await supabase.from("employee_sensitive_data").upsert({ employee_id: employee.id, ...sensitiveDirect, ...sensitiveJsonb, updated_at: new Date().toISOString() }, { onConflict: "employee_id" });
+        if (err) throw err;
+      }
+      if (currentEmployment && Object.keys(employmentPatch).length) {
+        const { error: err } = await supabase.from("employment_relationships").update({ ...employmentPatch, updated_at: new Date().toISOString() }).eq("id", currentEmployment.id);
+        if (err) throw err;
+      }
+      if (Object.keys(payrollBucket).length || selected.some((r) => r.target.table === "employee_payroll_data" && r.target.bucket === "dependents")) {
+        const { error: err } = await supabase.from("employee_payroll_data").upsert({ employee_id: employee.id, ...payrollBucket, dependents: dependentsWorking, updated_at: new Date().toISOString() }, { onConflict: "employee_id" });
+        if (err) throw err;
+      }
+
+      await supabase.from("employee_timeline_events").insert({
+        id: uid(), employee_id: employee.id, event_date: new Date().toISOString().slice(0, 10), event_type: "JMHZ_IMPORT",
+        title: `Import z JMHZ dotazníku (verze ${version})`, description: `Zapsáno ${selected.length} polí po ruční kontrole.`, source: "MANUAL",
+      });
+
+      setSuccessMsg(`Zapsáno ${selected.length} polí do karty zaměstnance.`);
+      setFileBuffer(null); setFileName(""); setExtractResult(null); setRows([]); setChecked({});
+      onImported();
+    } catch (e) {
+      console.error(e);
+      setError(e.message || "Zápis se nezdařil.");
+    }
+    setSaving(false);
+  }
+
+  return (
+    <div>
+      <div className="bg-white border border-slate-200 rounded-lg p-4 mb-4">
+        <h2 className="font-semibold text-sm mb-3">Načíst JMHZ dotazník</h2>
+        <p className="text-xs text-slate-500 mb-3">
+          Nahrajte vyplněný PDF dotazník (JMHZ). Verzi dotazníku potvrďte ručně podle textu "Verze dokumentu ze dne..." na stránce PDF -
+          appka ji sama nedomýšlí. Neznámá/nepodporovaná verze se vždy zastaví na ruční kontrolu, nikdy se tiše nezapíše.
+        </p>
+        <label className="block mb-3">
+          <span className="block text-xs font-medium text-slate-500 mb-1">Soubor PDF</span>
+          <input type="file" accept=".pdf" onChange={onFileChange} className="text-sm" />
+        </label>
+        {fileName && (
+          <>
+            <SelectFieldLocal
+              label="Verze dotazníku (potvrďte podle textu v PDF)"
+              value={version}
+              onChange={setVersion}
+              options={[{ value: "", label: "— vyberte —" }, ...versionOptions.map((v) => ({ value: v.value, label: v.label + (v.hasMapping ? "" : " (bez mapování polí)") }))]}
+            />
+            {candidates.length > 0 && <div className="text-xs text-emerald-700 mb-2">Navrženo podle metadat PDF: {candidates.join(", ")} - přesto prosím potvrďte ručně.</div>}
+            <div className="flex justify-end">
+              <button onClick={runExtraction} disabled={loadingExtract || !version} className="flex items-center gap-1.5 bg-teal-700 hover:bg-teal-800 disabled:opacity-50 text-white text-sm font-medium px-4 py-2 rounded-md">
+                {loadingExtract ? <Loader2 size={16} className="animate-spin" /> : <Upload size={16} />} {loadingExtract ? "Načítám..." : "Načíst podle vybrané verze"}
+              </button>
+            </div>
+          </>
+        )}
+        {error && <div className="bg-red-50 text-red-700 text-sm px-3 py-2 rounded-md mt-3">{error}</div>}
+        {successMsg && <div className="bg-emerald-50 text-emerald-700 text-sm px-3 py-2 rounded-md mt-3">{successMsg}</div>}
+      </div>
+
+      {extractResult?.status === "NEZNAMA_VERZIA" && (
+        <div className="bg-amber-50 border border-amber-200 rounded-lg p-4 text-sm text-amber-800">
+          <div className="flex items-center gap-1.5 font-medium mb-1"><ShieldAlert size={15} /> Neznámá nebo nemapovaná verze dotazníku</div>
+          Pro verzi "{version}" zatím není k dispozici ověřená mapa polí - data se NEIMPORTOVALA. Zkontrolujte prosím verzi dotazníku ručně,
+          nebo požádejte o rozšíření mapování v <code>src/lib/hr/jmhzPdf.js</code>.
+        </div>
+      )}
+
+      {rows.length > 0 && (
+        <div className="bg-white border border-slate-200 rounded-lg overflow-hidden">
+          <div className="px-4 py-2.5 border-b border-slate-100 font-semibold text-sm flex items-center justify-between flex-wrap gap-2">
+            <span>Náhled a kontrola konfliktů ({rows.length} polí s odpovědí)</span>
+            <button onClick={confirmImport} disabled={saving} className="flex items-center gap-1.5 bg-teal-700 hover:bg-teal-800 disabled:opacity-50 text-white text-sm font-medium px-4 py-2 rounded-md">
+              {saving ? <Loader2 size={16} className="animate-spin" /> : <CheckCircle2 size={16} />} {saving ? "Zapisuji..." : "Potvrdit a zapsat do karty"}
+            </button>
+          </div>
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead className="bg-slate-50 text-slate-500 text-xs uppercase">
+                <tr>
+                  <th className="text-left px-3 py-2"></th>
+                  <th className="text-left px-3 py-2">Pole</th>
+                  <th className="text-left px-3 py-2">Původní hodnota</th>
+                  <th className="text-left px-3 py-2">Navrhovaná hodnota</th>
+                  <th className="text-left px-3 py-2">Stav</th>
+                </tr>
+              </thead>
+              <tbody>
+                {rows.map((r) => (
+                  <tr key={r.key} className={"border-t border-slate-100 " + (r.hasConflict ? "bg-amber-50" : "")}>
+                    <td className="px-3 py-2">
+                      <input type="checkbox" disabled={!r.writable} checked={!!checked[r.key]} onChange={() => toggleRow(r.key)} />
+                    </td>
+                    <td className="px-3 py-2 font-medium whitespace-nowrap">{r.label}</td>
+                    <td className="px-3 py-2 text-slate-500">{r.existingValue === "" || r.existingValue === null || r.existingValue === undefined ? "—" : (typeof r.existingValue === "boolean" ? (r.existingValue ? "Ano" : "Ne") : String(r.existingValue))}</td>
+                    <td className="px-3 py-2 font-medium">{r.proposedDisplay ?? "—"}</td>
+                    <td className="px-3 py-2 whitespace-nowrap">
+                      {!r.writable ? (
+                        <span className="text-xs text-slate-400" title={r.blockedReason}>Nelze zapsat{r.blockedReason ? ` – ${r.blockedReason}` : ""}</span>
+                      ) : r.hasConflict ? (
+                        <span className="px-2 py-0.5 rounded-full text-xs font-medium bg-amber-100 text-amber-700">Konflikt - zkontrolujte</span>
+                      ) : (
+                        <span className="px-2 py-0.5 rounded-full text-xs font-medium bg-emerald-100 text-emerald-700">V pořádku</span>
+                      )}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

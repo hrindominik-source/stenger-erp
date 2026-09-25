@@ -16,6 +16,7 @@ const VyrobaView = lazy(() => import("./VyrobaView.jsx"));
 const PlanSmienView = lazy(() => import("./PlanSmienView.jsx"));
 const KvalitaView = lazy(() => import("./KvalitaView.jsx"));
 const UctovnictviView = lazy(() => import("./UctovnictviView.jsx"));
+const OnboardingKiosk = lazy(() => import("./hr/OnboardingKiosk.jsx"));
 import { extractCityFromAddress, todayStr, uid, parseSkDate, isoFromSkDateStr, skDateStrFromIso, durationMinutes, formatMinutes } from "./lib/utils.js";
 import { parsePricelistFile, computeTransportPrice, computeTransportPriceForCity, formatEur, formatPriceNumber } from "./lib/pricelist.js";
 import { buildLieferscheinXlsx } from "./lib/lieferscheinXlsx.js";
@@ -573,7 +574,7 @@ function AppLauncher({ onChoose }) {
   );
 }
 
-export default function MiniERP() {
+function MiniERP() {
   const { loading: authLoading, session, profile, profileError, signIn, signOut } = useAuth();
   const [appChoice, setAppChoice] = useState(() => {
     try { return localStorage.getItem(APP_CHOICE_KEY) || null; } catch (e) { return null; }
@@ -693,6 +694,29 @@ export default function MiniERP() {
   );
 }
 
+// Tabletovy onboarding kiosk (?kiosk=nastup v URL) sa musi vetvit TU, PRED
+// akymkolvek volanim useAuth()/MiniERP() - nie ako podmienka vo vnutri
+// MiniERP(), ktora by aj tak najprv nacitala/spustila cely prihlasovaci
+// hook strom. Takto sa zarucuje, ze kiosk rezim nikdy ani len nemontuje
+// autentifikovanu vetvu appky (viz OnboardingKiosk.jsx - HR izolacia,
+// MASTER_PROMPT bod 7 zadania). Zamerne BEZ EnvironmentBanner/dev-pruhu -
+// ten patri k samostatnej, este nenasadenej infrastrukture (Docker/Caddy),
+// nie ku kiosk izolacii samotnej.
+function isOnboardingKioskUrl() {
+  if (typeof window === "undefined") return false;
+  return new URLSearchParams(window.location.search).get("kiosk") === "nastup";
+}
+
+export default function MiniERPRoot() {
+  if (isOnboardingKioskUrl()) {
+    return (
+      <Suspense fallback={<div className="min-h-screen flex items-center justify-center text-slate-500"><Loader2 className="animate-spin mr-2" size={20} /> Načítám...</div>}>
+        <OnboardingKiosk />
+      </Suspense>
+    );
+  }
+  return <MiniERP />;
+}
 const CENOTVORBA_ALLOWED_EMAILS = ["dh@stenger.eu"];
 const AUDIT_LOG_ALLOWED_EMAILS = ["dh@stenger.eu"];
 const RSPO_CERT_CODE = "BVC-RSPO-CZ009581, PALMÖL MB";
