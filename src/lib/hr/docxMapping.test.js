@@ -1,5 +1,20 @@
 import { describe, it, expect } from "vitest";
-import { formatDateForDoc, formatAddress, buildDocumentData, TEMPLATE_REQUIRED_KEYS, KNOWN_TEMPLATE_KEYS } from "./docxMapping.js";
+import { formatDateForDoc, formatAddress, formatMoneyField, buildDocumentData, TEMPLATE_REQUIRED_KEYS, KNOWN_TEMPLATE_KEYS } from "./docxMapping.js";
+
+describe("formatMoneyField", () => {
+  it("hole cislo dostane priponu ',-' (ceska konvencia pre ciastku bez haleru)", () => {
+    expect(formatMoneyField("155")).toBe("155,-");
+    expect(formatMoneyField(155)).toBe("155,-");
+  });
+  it("hodnota uz s priponou ',-' sa neduplikuje", () => {
+    expect(formatMoneyField("155,-")).toBe("155,-");
+  });
+  it("prazdna/chybajuca hodnota vrati prazdny retazec, nie ',-'", () => {
+    expect(formatMoneyField("")).toBe("");
+    expect(formatMoneyField(null)).toBe("");
+    expect(formatMoneyField(undefined)).toBe("");
+  });
+});
 
 describe("formatDateForDoc", () => {
   it("formatuje ISO datum na d.m.rrrr (bez 0-padding, presne podla MASTER_PROMPT)", () => {
@@ -55,7 +70,7 @@ describe("buildDocumentData", () => {
     expect(data.trvala_adresa).toBe("Hlavní 12, 60200 Brno");
     expect(data.ucet).toBe("123456789/0800");
     expect(data.datum).toBe("1.10.2026");
-    expect(data.mzda_hod).toBe("155");
+    expect(data.mzda_hod).toBe("155,-");
   });
 
   it("dorucovacia adresa padne spat na trvalu, ak nie je zadana zvlast", () => {
