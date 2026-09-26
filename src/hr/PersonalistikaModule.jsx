@@ -2289,6 +2289,11 @@ function JmhzImportTab({ employee, sensitive, payroll, currentEmployment, canSen
               options={[{ value: "", label: "— vyberte —" }, ...versionOptions.map((v) => ({ value: v.value, label: v.label + (v.hasMapping ? "" : " (bez mapování polí)") }))]}
             />
             {candidates.length > 0 && <div className="text-xs text-emerald-700 mb-2">Navrženo podle metadat PDF: {candidates.join(", ")} - přesto prosím potvrďte ručně.</div>}
+            {!version && (
+              <div className="text-xs text-amber-700 mb-2">
+                Appka nedokázala verzi poznat automaticky (v PDF chybí rozpoznatelný text "Verze dokumentu ze dne..."). Vyberte prosím verzi ručně výše - tlačítko níže je do té doby záměrně neaktivní.
+              </div>
+            )}
             <div className="flex justify-end">
               <button onClick={runExtraction} disabled={loadingExtract || !version} className="flex items-center gap-1.5 bg-teal-700 hover:bg-teal-800 disabled:opacity-50 text-white text-sm font-medium px-4 py-2 rounded-md">
                 {loadingExtract ? <Loader2 size={16} className="animate-spin" /> : <Upload size={16} />} {loadingExtract ? "Načítám..." : "Načíst podle vybrané verze"}
