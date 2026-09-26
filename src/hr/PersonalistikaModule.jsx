@@ -286,7 +286,7 @@ function DashboardTab({ permissions, onOpenEmployee }) {
         </div>
       )}
 
-      <div className="bg-white border border-slate-200 rounded-lg overflow-hidden overflow-x-auto">
+      <div className="bg-white border border-slate-200 rounded-lg overflow-x-auto">
         <div className="px-4 py-2.5 border-b border-slate-100 font-semibold text-sm">Aktivní zaměstnanci</div>
         <table className="w-full text-sm">
           <thead className="bg-slate-50 text-slate-500 text-xs uppercase">
@@ -429,7 +429,7 @@ function EmployeesListTab({ mode, permissions, onOpen }) {
       ) : error ? (
         <div className="bg-red-50 text-red-700 text-sm px-3 py-2 rounded-md">{error}</div>
       ) : (
-        <div className="bg-white border border-slate-200 rounded-lg overflow-hidden overflow-x-auto">
+        <div className="bg-white border border-slate-200 rounded-lg overflow-x-auto">
           <table className="w-full text-sm">
             <thead className="bg-slate-50 text-slate-500 text-xs uppercase">
               <tr>
@@ -2568,7 +2568,7 @@ function AuditTab({ employee, employments, contractEvents, medicalExams, positio
   }
 
   return (
-    <div className="bg-white border border-slate-200 rounded-lg overflow-hidden overflow-x-auto">
+    <div className="bg-white border border-slate-200 rounded-lg overflow-x-auto">
       <table className="w-full text-sm">
         <thead className="bg-slate-50 text-slate-500 text-xs uppercase">
           <tr>
