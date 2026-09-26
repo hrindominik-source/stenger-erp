@@ -7,3 +7,6 @@ dist
 supabase/.temp
 .vite/
 vite-dev.log
+hr-podklady/
+.env.development
+.env.production
