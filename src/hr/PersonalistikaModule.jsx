@@ -2182,7 +2182,37 @@ function JmhzImportTab({ employee, sensitive, payroll, currentEmployment, canSen
     setLoadingExtract(true);
     setError(""); setSuccessMsg("");
     try {
-      const result = await extractJmhzFields(fileBuffer, version);
+      // Cteni PDF (pdf-lib) muze u nekterych souboru (typicky vyplnenych pres
+      // "Vyplnit a podepsat" a podobne nastroje, ktere zapisi strukturu
+      // formulare neobvyklym zpusobem) v prohlizeci SYNCHRONNE zablokovat
+      // hlavni vlakno na neurcito, i kdyz stejny soubor v Node.js nacte
+      // okamzite. Obycejny setTimeout/Promise.race v hlavnim vlakne by proti
+      // tomu nepomohl (jeho callback by se take nemohl spustit, dokud vlakno
+      // bezi) - proto bezi extrakce ve Web Workeru, ktery lze pri prekroceni
+      // limitu skutecne `terminate()`-ovat bez zamrznuti zbytku appky.
+      const timeoutMs = 20000;
+      const worker = new Worker(new URL("../lib/hr/jmhzPdfExtract.worker.js", import.meta.url), { type: "module" });
+      const result = await new Promise((resolve, reject) => {
+        const timer = setTimeout(() => {
+          worker.terminate();
+          reject(new Error(
+            "Načítání trvá příliš dlouho (přes 20 s) - PDF má pravděpodobně strukturu, kterou prohlížeč neumí rychle zpracovat. " +
+            "Zkuste dotazník znovu uložit přímo z Adobe Acrobat Readeru (ne přes jiný online nástroj na vyplňování PDF) a nahrát znovu."
+          ));
+        }, timeoutMs);
+        worker.onmessage = (e) => {
+          clearTimeout(timer);
+          worker.terminate();
+          if (e.data.ok) resolve(e.data.result);
+          else reject(new Error(e.data.error));
+        };
+        worker.onerror = (e) => {
+          clearTimeout(timer);
+          worker.terminate();
+          reject(new Error(e.message || "Chyba workeru při čtení PDF."));
+        };
+        worker.postMessage({ fileBuffer, version });
+      });
       setExtractResult(result);
       if (result.status === "OK") {
         const ctx = { employee, sensitive, payroll, currentEmployment, canSensitive, canPayroll, canEditEmployment };
