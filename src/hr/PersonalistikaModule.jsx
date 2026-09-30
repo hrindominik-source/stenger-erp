@@ -6,11 +6,13 @@ import { computeFixedTermStatus, canProposeExtension, FIXED_TERM_RULES, sortCont
 import { computeMedicalStatus, MEDICAL_STATUS, MEDICAL_STATUS_LABEL, DEFAULT_EXPIRING_THRESHOLD_DAYS } from "../lib/hrMedicalStatus.js";
 import { computeHrWarnings } from "../lib/hrWarnings.js";
 import { fillDocxTemplate, extractTemplateKeys, validateTemplateKeysAgainstAllowlist, validateRequiredKeys } from "../lib/hr/docxTemplate.js";
-import { KNOWN_TEMPLATE_KEYS, TEMPLATE_REQUIRED_KEYS, buildDocumentData } from "../lib/hr/docxMapping.js";
+import { KNOWN_TEMPLATE_KEYS, TEMPLATE_REQUIRED_KEYS, buildDocumentData, formatAddress } from "../lib/hr/docxMapping.js";
 import { convertFilledDocxToPdf } from "../lib/hr/docxToPdf.js";
 import { extractJmhzFields, detectJmhzVersionCandidates, knownJmhzVersions } from "../lib/hr/jmhzPdf.js";
 import { buildComparisonRows } from "../lib/hr/jmhzImport.js";
 import { sha256Hex, buildSignedScanPath } from "../lib/hr/documentHash.js";
+import { EMPLOYEE_SECTIONS, emptyEmployeeValues, normalizeLegacyDraft, valuesFromRecords, buildRecordPatches, patchHasContent } from "../lib/hr/employeeFields.js";
+import EmployeeFieldsForm, { EmployeeFieldsView, applyFieldChange } from "./EmployeeFieldsForm.jsx";
 
 const HR_DOKUMENTY_BUCKET = "hr-dokumenty";
 const DOCX_MIME = "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
@@ -497,18 +499,7 @@ function OnboardingReviewTab({ permissions, onOpenEmployee }) {
 
   if (reviewing) {
     const d = reviewing.draft_data || {};
-    const initialData = {
-      title: d.title || "", first_name: d.first_name || "", last_name: d.last_name || "", maiden_name: d.maiden_name || "",
-      date_of_birth: d.date_of_birth || "", place_of_birth: d.place_of_birth || "", country_of_birth: d.country_of_birth || "",
-      gender: d.gender || "", nationality: d.nationality || "",
-      permanent_street: d.permanent_street || "", permanent_city: d.permanent_city || "", permanent_zip: d.permanent_zip || "", permanent_country: d.permanent_country || "",
-      phone: d.phone || "", private_email: d.private_email || "", id_document_type: d.id_document_type || "",
-      health_insurance_company: d.health_insurance_company || "", highest_education: d.highest_education || "",
-      is_foreigner: !!d.is_foreigner, notes: "",
-      birth_number: d.birth_number || "", id_document_number: d.id_document_number || "", bank_account: d.bank_account || "",
-      start_date: d.start_date || "", employment_type: d.employment_type || "doba_neurcita", fixed_term_end_date: d.fixed_term_end_date || "",
-      workplace: d.workplace || "", weekly_hours: d.weekly_hours || "40",
-    };
+    const initialData = { ...d, notes: "" };
     return (
       <EmployeeCreateForm
         permissions={permissions}
@@ -561,33 +552,28 @@ function OnboardingReviewTab({ permissions, onOpenEmployee }) {
 }
 
 /* ---------------- Nový zaměstnanec ---------------- */
-
-function emptyEmployeeForm() {
-  return {
-    title: "", first_name: "", last_name: "", maiden_name: "",
-    date_of_birth: "", place_of_birth: "", country_of_birth: "", gender: "", nationality: "",
-    permanent_street: "", permanent_city: "", permanent_zip: "", permanent_country: "",
-    phone: "", private_email: "", id_document_type: "", health_insurance_company: "", highest_education: "",
-    is_foreigner: false, notes: "",
-    birth_number: "", id_document_number: "", bank_account: "",
-    // pracovni pomer
-    position_id: "", start_date: "", employment_type: "doba_neurcita", fixed_term_end_date: "",
-    workplace: "", weekly_hours: "40", probation_end_date: "",
-  };
-}
+/* Polia su definovane v lib/hr/employeeFields.js (zjednotenie ČSSZ registracie
+   + JMHZ dotaznika) - tu len stav formulara a zapis do tabuliek. */
 
 function EmployeeCreateForm({ permissions, onCancel, onCreated, initialData, positionLabelHint, onboardingSessionId }) {
-  const [f, setF] = useState(() => ({ ...emptyEmployeeForm(), ...(initialData || {}) }));
+  const [f, setF] = useState(() => (initialData ? normalizeLegacyDraft(initialData) : emptyEmployeeValues()));
   const [positions, setPositions] = useState([]);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
   const canSensitive = hasPerm(permissions, "HR_VIEW_SENSITIVE");
+  const canPayroll = hasPerm(permissions, "HR_VIEW_PAYROLL");
 
   useEffect(() => {
     supabase.from("positions").select("*").eq("active", true).order("name").then(({ data }) => setPositions(data || []));
   }, []);
 
-  function set(patch) { setF((prev) => ({ ...prev, ...patch })); }
+  function onFieldChange(key, value) {
+    setF((prev) => {
+      const next = applyFieldChange(prev, key, value);
+      if (key === "start_date") next.probation_end_date = addMonthsIso(value, PROBATION_MONTHS);
+      return next;
+    });
+  }
 
   async function submit() {
     if (!f.first_name.trim() || !f.last_name.trim()) { setError("Vyplňte jméno a příjmení."); return; }
@@ -596,54 +582,34 @@ function EmployeeCreateForm({ permissions, onCancel, onCreated, initialData, pos
     try {
       const employeeId = uid();
       const { data: userData } = await supabase.auth.getUser();
+      const patches = buildRecordPatches(f, {}, { mode: "create", canSensitive, canPayroll });
+
       const { error: empErr } = await supabase.from("employees").insert({
-        id: employeeId,
-        first_name: f.first_name.trim(),
-        last_name: f.last_name.trim(),
-        maiden_name: f.maiden_name.trim() || null,
-        title: f.title.trim() || null,
-        date_of_birth: f.date_of_birth || null,
-        place_of_birth: f.place_of_birth.trim() || null,
-        country_of_birth: f.country_of_birth.trim() || null,
-        gender: f.gender || null,
-        nationality: f.nationality.trim() || null,
-        permanent_address: { ulice: f.permanent_street.trim(), mesto: f.permanent_city.trim(), psc: f.permanent_zip.trim(), stat: f.permanent_country.trim() },
-        correspondence_address: {},
-        phone: f.phone.trim() || null,
-        private_email: f.private_email.trim() || null,
-        id_document_type: f.id_document_type.trim() || null,
-        health_insurance_company: f.health_insurance_company.trim() || null,
-        highest_education: f.highest_education.trim() || null,
-        is_foreigner: f.is_foreigner,
-        notes: f.notes.trim() || null,
+        id: employeeId, ...patches.employees,
+        first_name: f.first_name.trim(), last_name: f.last_name.trim(),
+        correspondence_address: patches.employees.correspondence_address || {},
         active: true,
       });
       if (empErr) throw empErr;
 
-      if (canSensitive && (f.birth_number || f.id_document_number || f.bank_account)) {
-        const { error: sensErr } = await supabase.from("employee_sensitive_data").insert({
-          employee_id: employeeId,
-          birth_number: f.birth_number.trim() || null,
-          id_document_number: f.id_document_number.trim() || null,
-          bank_account: f.bank_account.trim() || null,
-        });
+      if (canSensitive && patchHasContent(patches.sensitive)) {
+        const { error: sensErr } = await supabase.from("employee_sensitive_data").insert({ employee_id: employeeId, ...patches.sensitive });
         if (sensErr) throw sensErr;
       }
+      if (canPayroll && patchHasContent(patches.payroll)) {
+        const { error: payErr } = await supabase.from("employee_payroll_data").insert({ employee_id: employeeId, ...patches.payroll });
+        if (payErr) throw payErr;
+      }
 
-      let employmentId = null;
       if (f.start_date) {
-        employmentId = uid();
+        const employmentId = uid();
         const { error: emErr } = await supabase.from("employment_relationships").insert({
           id: employmentId,
           employee_id: employeeId,
           status: "ACTIVE",
+          ...patches.employment,
           employment_type: f.employment_type,
-          start_date: f.start_date,
           fixed_term_end_date: f.employment_type === "doba_urcita" ? (f.fixed_term_end_date || null) : null,
-          probation_end_date: f.probation_end_date || null,
-          position_id: f.position_id || null,
-          workplace: f.workplace.trim() || null,
-          weekly_hours: f.weekly_hours ? Number(f.weekly_hours) : null,
           created_by: userData?.user?.id || null, updated_by: userData?.user?.id || null,
         });
         if (emErr) throw emErr;
@@ -679,72 +645,17 @@ function EmployeeCreateForm({ permissions, onCancel, onCreated, initialData, pos
   return (
     <div>
       <button onClick={onCancel} className="text-sm text-slate-500 flex items-center gap-1 hover:text-slate-800 mb-3"><ArrowLeft size={14} /> Zpět</button>
-      <h1 className="text-xl font-semibold mb-4">Nový zaměstnanec</h1>
+      <h1 className="text-xl font-semibold mb-1">Nový zaměstnanec</h1>
+      <p className="text-xs text-slate-400 mb-4">Údaje podle registrace zaměstnance na ePortálu ČSSZ a JMHZ dotazníku. Z nich se v kartě zaměstnance vygeneruje vyplněný JMHZ dotazník i ostatní dokumenty.</p>
 
       {onboardingSessionId && (
         <div className="bg-teal-50 border border-teal-200 rounded-lg px-4 py-3 mb-4 text-sm text-teal-800">
           Předvyplněno z tabletového nástupního dotazníku - zkontrolujte prosím všechny údaje před uložením.
-          {positionLabelHint && <div className="mt-1">Zaměstnanec uvedl pozici: <strong>{positionLabelHint}</strong> - vyberte prosím odpovídající pozici ze seznamu níže.</div>}
+          {positionLabelHint && <div className="mt-1">Zaměstnanec uvedl pozici: <strong>{positionLabelHint}</strong> - vyberte prosím odpovídající pozici níže.</div>}
         </div>
       )}
 
-      <div className="bg-white border border-slate-200 rounded-lg p-4 mb-4">
-        <h2 className="font-semibold text-sm mb-3">Osobní údaje</h2>
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-x-4">
-          <TextField label="Titul" value={f.title} onChange={(v) => set({ title: v })} />
-          <TextField label="Jméno *" value={f.first_name} onChange={(v) => set({ first_name: v })} />
-          <TextField label="Příjmení *" value={f.last_name} onChange={(v) => set({ last_name: v })} />
-          <TextField label="Rodné příjmení" value={f.maiden_name} onChange={(v) => set({ maiden_name: v })} />
-          <DateFieldLocal label="Datum narození" value={f.date_of_birth} onChange={(v) => set({ date_of_birth: v })} />
-          <TextField label="Místo narození" value={f.place_of_birth} onChange={(v) => set({ place_of_birth: v })} />
-          <TextField label="Stát narození" value={f.country_of_birth} onChange={(v) => set({ country_of_birth: v })} />
-          <SelectFieldLocal label="Pohlaví" value={f.gender} onChange={(v) => set({ gender: v })} options={[{ value: "", label: "—" }, { value: "muz", label: "Muž" }, { value: "zena", label: "Žena" }]} />
-          <TextField label="Státní občanství" value={f.nationality} onChange={(v) => set({ nationality: v })} />
-        </div>
-        <label className="flex items-center gap-2 mt-2 text-sm text-slate-600">
-          <input type="checkbox" checked={f.is_foreigner} onChange={(e) => set({ is_foreigner: e.target.checked })} /> Cizinec (mimo ČR/SR)
-        </label>
-      </div>
-
-      <div className="bg-white border border-slate-200 rounded-lg p-4 mb-4">
-        <h2 className="font-semibold text-sm mb-3">Adresa trvalého bydliště a kontakt</h2>
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-4">
-          <TextField label="Ulice, č.p." value={f.permanent_street} onChange={(v) => set({ permanent_street: v })} />
-          <TextField label="Obec, PSČ, stát" value={f.permanent_city} onChange={(v) => set({ permanent_city: v })} />
-          <TextField label="Telefon" value={f.phone} onChange={(v) => set({ phone: v })} />
-          <TextField label="Soukromý e-mail" value={f.private_email} onChange={(v) => set({ private_email: v })} />
-          <TextField label="Typ dokladu" value={f.id_document_type} onChange={(v) => set({ id_document_type: v })} />
-          <TextField label="Zdravotní pojišťovna" value={f.health_insurance_company} onChange={(v) => set({ health_insurance_company: v })} />
-          <TextField label="Nejvyšší dosažené vzdělání" value={f.highest_education} onChange={(v) => set({ highest_education: v })} />
-        </div>
-      </div>
-
-      {canSensitive && (
-        <div className="bg-amber-50 border border-amber-200 rounded-lg p-4 mb-4">
-          <h2 className="font-semibold text-sm mb-1 flex items-center gap-1.5"><ShieldAlert size={15} className="text-amber-600" /> Citlivé údaje</h2>
-          <p className="text-xs text-amber-700 mb-3">Viditelné jen pro uživatele s oprávněním zobrazit citlivé osobní údaje.</p>
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-x-4">
-            <TextField label="Rodné číslo" value={f.birth_number} onChange={(v) => set({ birth_number: v })} />
-            <TextField label="Číslo dokladu" value={f.id_document_number} onChange={(v) => set({ id_document_number: v })} />
-            <TextField label="Bankovní účet pro výplatu mzdy" value={f.bank_account} onChange={(v) => set({ bank_account: v })} />
-          </div>
-        </div>
-      )}
-
-      <div className="bg-white border border-slate-200 rounded-lg p-4 mb-4">
-        <h2 className="font-semibold text-sm mb-3">Pracovní poměr (nepovinné - lze doplnit později)</h2>
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-x-4">
-          <SelectFieldLocal label="Pozice" value={f.position_id} onChange={(v) => set({ position_id: v })} options={[{ value: "", label: "— nevybráno —" }, ...positions.map((p) => ({ value: p.id, label: p.code ? `${p.code} – ${p.name}` : p.name }))]} />
-          <DateFieldLocal label="Datum nástupu" value={f.start_date} onChange={(v) => set({ start_date: v, probation_end_date: addMonthsIso(v, PROBATION_MONTHS) })} />
-          <SelectFieldLocal label="Typ smlouvy" value={f.employment_type} onChange={(v) => set({ employment_type: v })} options={[{ value: "doba_neurcita", label: "Doba neurčitá" }, { value: "doba_urcita", label: "Doba určitá" }]} />
-          {f.employment_type === "doba_urcita" && <DateFieldLocal label="Konec smlouvy" value={f.fixed_term_end_date} onChange={(v) => set({ fixed_term_end_date: v })} />}
-          <DateFieldLocal label={`Konec zkušební doby (${PROBATION_MONTHS} měsíce)`} value={f.probation_end_date} onChange={(v) => set({ probation_end_date: v })} />
-          <TextField label="Místo výkonu práce" value={f.workplace} onChange={(v) => set({ workplace: v })} />
-          <TextField label="Týdenní úvazek (hodin)" value={f.weekly_hours} onChange={(v) => set({ weekly_hours: v })} />
-        </div>
-      </div>
-
-      <TextAreaField label="Poznámka" value={f.notes} onChange={(v) => set({ notes: v })} />
+      <EmployeeFieldsForm values={f} onChange={onFieldChange} mode="create" canSensitive={canSensitive} canPayroll={canPayroll} positions={positions} />
 
       {error && <div className="bg-red-50 text-red-700 text-sm px-3 py-2 rounded-md mb-3 flex items-center gap-2"><AlertCircle size={16} /> {error}</div>}
 
@@ -908,7 +819,7 @@ function EmployeeDetail({ id, permissions, onBack }) {
           employments={employments}
         />
       )}
-      {detailTab === "osobni" && <OsobniUdajeTab employee={employee} sensitive={sensitive} canEdit={canEdit} canSensitive={canSensitive} onSaved={load} />}
+      {detailTab === "osobni" && <OsobniUdajeTab employee={employee} sensitive={sensitive} payroll={payroll} currentEmployment={currentEmployment} positions={positions} canEdit={canEdit} canSensitive={canSensitive} canPayroll={canPayroll} onSaved={load} />}
       {detailTab === "pomer" && (
         <PracovniPomerTab
           employeeId={id} employee={employee} employments={employments} contractEvents={contractEvents}
@@ -919,7 +830,7 @@ function EmployeeDetail({ id, permissions, onBack }) {
       {detailTab === "dokumenty" && <DokumentyTab employee={employee} sensitive={sensitive} currentEmployment={currentEmployment} permissions={permissions} />}
       {detailTab === "jmhz" && canEdit && (
         <JmhzImportTab
-          employee={employee} sensitive={sensitive} payroll={payroll} currentEmployment={currentEmployment}
+          employee={employee} sensitive={sensitive} payroll={payroll} currentEmployment={currentEmployment} positions={positions}
           canSensitive={canSensitive} canPayroll={canPayroll} canEditEmployment={canEdit}
           onImported={load}
         />
@@ -993,7 +904,7 @@ function PrehledDetailTab({ employee, currentEmployment, contractEvents, positio
             <dl className="text-sm space-y-1.5">
               <Row label="Telefon" value={employee.phone || "—"} />
               <Row label="E-mail" value={employee.private_email || "—"} />
-              <Row label="Adresa" value={[employee.permanent_address?.ulice, employee.permanent_address?.mesto].filter(Boolean).join(", ") || "—"} />
+              <Row label="Adresa" value={formatAddress(employee.permanent_address) || "—"} />
             </dl>
           </div>
           {canMedical && (
@@ -1031,49 +942,43 @@ function Row({ label, value }) {
   );
 }
 
-function OsobniUdajeTab({ employee, sensitive, canEdit, canSensitive, onSaved }) {
+function OsobniUdajeTab({ employee, sensitive, payroll, currentEmployment, positions, canEdit, canSensitive, canPayroll, onSaved }) {
   const [editing, setEditing] = useState(false);
   const [f, setF] = useState(null);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
+  const records = { employee, sensitive, payroll, employment: currentEmployment };
+  // Bez pracovneho pomeru sa udaje o pozicii nemaju kam ulozit - skryte.
+  const sectionIds = currentEmployment ? undefined : EMPLOYEE_SECTIONS.map((s) => s.id).filter((id) => id !== "pozice" && id !== "cinnost");
 
   function startEdit() {
-    setF({
-      title: employee.title || "", first_name: employee.first_name || "", last_name: employee.last_name || "", maiden_name: employee.maiden_name || "",
-      date_of_birth: employee.date_of_birth || "", place_of_birth: employee.place_of_birth || "", country_of_birth: employee.country_of_birth || "",
-      gender: employee.gender || "", nationality: employee.nationality || "",
-      permanent_street: employee.permanent_address?.ulice || "", permanent_city: employee.permanent_address?.mesto || "",
-      phone: employee.phone || "", private_email: employee.private_email || "",
-      id_document_type: employee.id_document_type || "", health_insurance_company: employee.health_insurance_company || "", highest_education: employee.highest_education || "",
-      notes: employee.notes || "",
-      birth_number: sensitive?.birth_number || "", id_document_number: sensitive?.id_document_number || "", bank_account: sensitive?.bank_account || "",
-    });
+    setF(valuesFromRecords(records));
     setError("");
     setEditing(true);
   }
 
   async function save() {
+    if (!f.first_name.trim() || !f.last_name.trim()) { setError("Vyplňte jméno a příjmení."); return; }
     setSaving(true);
     setError("");
     try {
-      const { error: empErr } = await supabase.from("employees").update({
-        title: f.title.trim() || null, first_name: f.first_name.trim(), last_name: f.last_name.trim(), maiden_name: f.maiden_name.trim() || null,
-        date_of_birth: f.date_of_birth || null, place_of_birth: f.place_of_birth.trim() || null, country_of_birth: f.country_of_birth.trim() || null,
-        gender: f.gender || null, nationality: f.nationality.trim() || null,
-        permanent_address: { ...(employee.permanent_address || {}), ulice: f.permanent_street.trim(), mesto: f.permanent_city.trim() },
-        phone: f.phone.trim() || null, private_email: f.private_email.trim() || null,
-        id_document_type: f.id_document_type.trim() || null, health_insurance_company: f.health_insurance_company.trim() || null, highest_education: f.highest_education.trim() || null,
-        notes: f.notes.trim() || null, updated_at: new Date().toISOString(),
-      }).eq("id", employee.id);
+      const now = new Date().toISOString();
+      const p = buildRecordPatches(f, records, { mode: "edit", canSensitive, canPayroll });
+      const { error: empErr } = await supabase.from("employees").update({ ...p.employees, updated_at: now }).eq("id", employee.id);
       if (empErr) throw empErr;
-
-      if (canSensitive) {
-        const { error: sensErr } = await supabase.from("employee_sensitive_data").upsert({
-          employee_id: employee.id,
-          birth_number: f.birth_number.trim() || null, id_document_number: f.id_document_number.trim() || null, bank_account: f.bank_account.trim() || null,
-          updated_at: new Date().toISOString(),
-        }, { onConflict: "employee_id" });
+      if (canSensitive && p.sensitive && (sensitive || patchHasContent(p.sensitive))) {
+        const { error: sensErr } = await supabase.from("employee_sensitive_data").upsert({ employee_id: employee.id, ...p.sensitive, updated_at: now }, { onConflict: "employee_id" });
         if (sensErr) throw sensErr;
+      }
+      if (canPayroll && p.payroll && (payroll || patchHasContent(p.payroll))) {
+        const { error: payErr } = await supabase.from("employee_payroll_data").upsert({ employee_id: employee.id, ...p.payroll, updated_at: now }, { onConflict: "employee_id" });
+        if (payErr) throw payErr;
+      }
+      // Udaje o pozicii pre ČSSZ/JMHZ (profese, postaveni, rezim...) idu k
+      // aktualnemu pomeru; nastup/typ/uvazek sa menia v zalozke Pracovní poměr.
+      if (currentEmployment && p.employment) {
+        const { error: jobErr } = await supabase.from("employment_relationships").update({ ...p.employment, updated_at: now }).eq("id", currentEmployment.id);
+        if (jobErr) throw jobErr;
       }
       setEditing(false);
       onSaved();
@@ -1086,69 +991,26 @@ function OsobniUdajeTab({ employee, sensitive, canEdit, canSensitive, onSaved })
 
   if (!editing) {
     return (
-      <div className="bg-white border border-slate-200 rounded-lg p-4">
-        <div className="flex justify-between items-start mb-3">
+      <div>
+        <div className="flex justify-between items-center mb-3">
           <h2 className="font-semibold text-sm">Osobní údaje</h2>
-          {canEdit && <button onClick={startEdit} className="flex items-center gap-1 text-sm text-teal-700 hover:text-teal-900"><Pencil size={14} /> Upravit</button>}
+          {canEdit && <button onClick={startEdit} className="flex items-center gap-1 text-sm text-teal-700 hover:text-teal-900"><Pencil size={14} /> Upravit / doplnit</button>}
         </div>
-        <dl className="text-sm space-y-1.5 grid grid-cols-1 sm:grid-cols-2 gap-x-8">
-          <Row label="Datum narození" value={fmtDate(employee.date_of_birth) || "—"} />
-          <Row label="Místo narození" value={employee.place_of_birth || "—"} />
-          <Row label="Stát narození" value={employee.country_of_birth || "—"} />
-          <Row label="Státní občanství" value={employee.nationality || "—"} />
-          <Row label="Rodné příjmení" value={employee.maiden_name || "—"} />
-          <Row label="Nejvyšší vzdělání" value={employee.highest_education || "—"} />
-          <Row label="Zdravotní pojišťovna" value={employee.health_insurance_company || "—"} />
-          <Row label="Typ dokladu" value={employee.id_document_type || "—"} />
-        </dl>
-        {canSensitive && (
-          <div className="mt-4 pt-3 border-t border-amber-200 bg-amber-50 -mx-4 -mb-4 px-4 pb-4 rounded-b-lg">
-            <div className="flex items-center gap-1.5 text-xs font-semibold text-amber-700 mb-2"><ShieldAlert size={13} /> Citlivé údaje</div>
-            <dl className="text-sm space-y-1.5">
-              <Row label="Rodné číslo" value={sensitive?.birth_number || "—"} />
-              <Row label="Číslo dokladu" value={sensitive?.id_document_number || "—"} />
-              <Row label="Bankovní účet" value={sensitive?.bank_account || "—"} />
-            </dl>
-          </div>
-        )}
-        {employee.notes && <div className="mt-3 text-sm text-slate-500 whitespace-pre-wrap">{employee.notes}</div>}
+        {!currentEmployment && <div className="text-xs text-slate-400 mb-3">Údaje o pozici (profese, režim…) lze doplnit až po založení pracovního poměru.</div>}
+        <EmployeeFieldsView values={valuesFromRecords(records)} mode="edit" canSensitive={canSensitive} canPayroll={canPayroll} positions={positions} />
       </div>
     );
   }
 
   return (
-    <div className="bg-white border border-slate-200 rounded-lg p-4">
+    <div>
       <h2 className="font-semibold text-sm mb-3">Upravit osobní údaje</h2>
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-x-4">
-        <TextField label="Titul" value={f.title} onChange={(v) => setF({ ...f, title: v })} />
-        <TextField label="Jméno" value={f.first_name} onChange={(v) => setF({ ...f, first_name: v })} />
-        <TextField label="Příjmení" value={f.last_name} onChange={(v) => setF({ ...f, last_name: v })} />
-        <TextField label="Rodné příjmení" value={f.maiden_name} onChange={(v) => setF({ ...f, maiden_name: v })} />
-        <DateFieldLocal label="Datum narození" value={f.date_of_birth} onChange={(v) => setF({ ...f, date_of_birth: v })} />
-        <TextField label="Místo narození" value={f.place_of_birth} onChange={(v) => setF({ ...f, place_of_birth: v })} />
-        <TextField label="Stát narození" value={f.country_of_birth} onChange={(v) => setF({ ...f, country_of_birth: v })} />
-        <TextField label="Státní občanství" value={f.nationality} onChange={(v) => setF({ ...f, nationality: v })} />
-        <TextField label="Nejvyšší vzdělání" value={f.highest_education} onChange={(v) => setF({ ...f, highest_education: v })} />
-        <TextField label="Zdravotní pojišťovna" value={f.health_insurance_company} onChange={(v) => setF({ ...f, health_insurance_company: v })} />
-        <TextField label="Typ dokladu" value={f.id_document_type} onChange={(v) => setF({ ...f, id_document_type: v })} />
-        <TextField label="Telefon" value={f.phone} onChange={(v) => setF({ ...f, phone: v })} />
-        <TextField label="E-mail" value={f.private_email} onChange={(v) => setF({ ...f, private_email: v })} />
-        <TextField label="Ulice, č.p." value={f.permanent_street} onChange={(v) => setF({ ...f, permanent_street: v })} />
-        <TextField label="Obec, PSČ, stát" value={f.permanent_city} onChange={(v) => setF({ ...f, permanent_city: v })} />
-      </div>
-      {canSensitive && (
-        <div className="bg-amber-50 border border-amber-200 rounded-lg p-4 mt-3">
-          <div className="flex items-center gap-1.5 text-xs font-semibold text-amber-700 mb-2"><ShieldAlert size={13} /> Citlivé údaje</div>
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-x-4">
-            <TextField label="Rodné číslo" value={f.birth_number} onChange={(v) => setF({ ...f, birth_number: v })} />
-            <TextField label="Číslo dokladu" value={f.id_document_number} onChange={(v) => setF({ ...f, id_document_number: v })} />
-            <TextField label="Bankovní účet" value={f.bank_account} onChange={(v) => setF({ ...f, bank_account: v })} />
-          </div>
-        </div>
-      )}
-      <TextAreaField label="Poznámka" value={f.notes} onChange={(v) => setF({ ...f, notes: v })} />
+      <EmployeeFieldsForm
+        values={f} onChange={(k, v) => setF((prev) => applyFieldChange(prev, k, v))} mode="edit"
+        canSensitive={canSensitive} canPayroll={canPayroll} positions={positions} sectionIds={sectionIds}
+      />
       {error && <div className="bg-red-50 text-red-700 text-sm px-3 py-2 rounded-md mt-2 mb-2">{error}</div>}
-      <div className="flex justify-end gap-2 mt-3">
+      <div className="flex justify-end gap-2 mt-3 pb-4">
         <button onClick={() => setEditing(false)} className="text-sm text-slate-500 px-3 py-2">Zrušit</button>
         <button onClick={save} disabled={saving} className="bg-teal-700 hover:bg-teal-800 disabled:opacity-50 text-white text-sm font-medium px-4 py-2 rounded-md">
           {saving ? "Ukládám..." : "Uložit"}
@@ -2161,7 +2023,79 @@ function SignDocumentForm({ doc, onCancel, onSaved }) {
    employees/employee_sensitive_data/employment_relationships/employee_payroll_data).
    Neznama verzia (mapa poli prazdna) sa VZDY zastavi - ziadna tycha extrakcia. */
 
-function JmhzImportTab({ employee, sensitive, payroll, currentEmployment, canSensitive, canPayroll, canEditEmployment, onImported }) {
+// Pred stiahnutim upozorni na dolezite prazdne polia (dotaznik sa aj tak
+// vygeneruje - prazdne policka zamestnanec doplni rucne).
+const JMHZ_IMPORTANT_KEYS = [
+  ["date_of_birth", "datum narození"], ["birth_number", "rodné číslo"], ["id_document_number", "číslo průkazu"],
+  ["perm_ulice", "adresa trvalého bydliště"], ["perm_obec", "obec trvalého bydliště"], ["bank_account", "číslo účtu"],
+  ["highest_education", "vzdělání"], ["health_insurance_company", "zdravotní pojišťovna"], ["start_date", "datum nástupu"],
+];
+
+function JmhzFilledDownload({ employee, sensitive, payroll, currentEmployment, positions, canSensitive, canPayroll }) {
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  const [skipped, setSkipped] = useState([]);
+  const values = valuesFromRecords({ employee, sensitive, payroll, employment: currentEmployment });
+  const missing = JMHZ_IMPORTANT_KEYS.filter(([k]) => !values[k]).map(([, label]) => label);
+
+  async function download() {
+    setBusy(true); setError(""); setSkipped([]);
+    try {
+      // Dynamicky import - pdf-lib + fontkit + pismo sa nacitaju az na klik.
+      const { fillJmhzPdf, JMHZ_TEMPLATE_URL, JMHZ_FONT_URL } = await import("../lib/hr/jmhzFill.js");
+      const [tpl, font] = await Promise.all([JMHZ_TEMPLATE_URL, JMHZ_FONT_URL].map(async (u) => {
+        const r = await fetch(u);
+        if (!r.ok) throw new Error(`Nepodařilo se načíst ${u}`);
+        return r.arrayBuffer();
+      }));
+      const position = positions.find((p) => p.id === currentEmployment?.position_id);
+      const res = await fillJmhzPdf(tpl, font, values, { positionName: position?.name, legacyForeignerData: sensitive?.foreigner_data });
+      downloadArrayBufferAsFile(res.bytes, `JMHZ dotaznik - ${employee.last_name} ${employee.first_name}.pdf`, "application/pdf");
+      setSkipped(res.skipped);
+      await supabase.from("employee_timeline_events").insert({
+        id: uid(), employee_id: employee.id, event_date: new Date().toISOString().slice(0, 10), event_type: "JMHZ_EXPORT",
+        title: "Stažen vyplněný JMHZ dotazník", description: `Vyplněno ${res.filled.length} polí.`, source: "MANUAL",
+      });
+    } catch (e) {
+      console.error(e);
+      setError("Vyplnění dotazníku se nezdařilo: " + (e.message || e));
+    }
+    setBusy(false);
+  }
+
+  return (
+    <div className="bg-white border border-slate-200 rounded-lg p-4 mb-4">
+      <div className="flex items-start justify-between gap-3 flex-wrap">
+        <div>
+          <h2 className="font-semibold text-sm">Vyplněný JMHZ dotazník</h2>
+          <p className="text-xs text-slate-500 mt-1 max-w-xl">
+            Prázdný dotazník (verze 20.3.2026 C) se vyplní údaji z karty zaměstnance (Osobní údaje + Pracovní poměr).
+            Datum a podpis zůstávají prázdné pro zaměstnance.
+          </p>
+        </div>
+        <button onClick={download} disabled={busy} className="flex items-center gap-1.5 bg-teal-700 hover:bg-teal-800 disabled:opacity-50 text-white text-sm font-medium px-4 py-2 rounded-md">
+          {busy ? <Loader2 size={16} className="animate-spin" /> : <Download size={16} />} {busy ? "Připravuji..." : "Stáhnout vyplněný JMHZ dotazník"}
+        </button>
+      </div>
+      {(!canSensitive || !canPayroll) && (
+        <div className="text-xs text-amber-700 bg-amber-50 rounded-md px-3 py-2 mt-3">
+          Nemáte oprávnění k {[!canSensitive && "citlivým", !canPayroll && "mzdovým"].filter(Boolean).join(" ani ")} údajům - tyto části zůstanou v dotazníku prázdné.
+        </div>
+      )}
+      {missing.length > 0 && (
+        <div className="text-xs text-slate-500 mt-3">V kartě chybí: <strong>{missing.join(", ")}</strong> - doplňte v záložce Osobní údaje, jinak zůstanou v dotazníku prázdné.</div>
+      )}
+      {skipped.length > 0 && (
+        <div className="text-xs text-amber-700 bg-amber-50 rounded-md px-3 py-2 mt-3">
+          Nevyplněno: {skipped.map((x) => `${x.label} (${x.reason})`).join("; ")}
+        </div>
+      )}
+      {error && <div className="bg-red-50 text-red-700 text-sm px-3 py-2 rounded-md mt-3">{error}</div>}
+    </div>
+  );
+}
+
+function JmhzImportTab({ employee, sensitive, payroll, currentEmployment, positions, canSensitive, canPayroll, canEditEmployment, onImported }) {
   const [fileBuffer, setFileBuffer] = useState(null);
   const [fileName, setFileName] = useState("");
   const [candidates, setCandidates] = useState([]);
@@ -2315,8 +2249,9 @@ function JmhzImportTab({ employee, sensitive, payroll, currentEmployment, canSen
 
   return (
     <div>
+      <JmhzFilledDownload employee={employee} sensitive={sensitive} payroll={payroll} currentEmployment={currentEmployment} positions={positions || []} canSensitive={canSensitive} canPayroll={canPayroll} />
       <div className="bg-white border border-slate-200 rounded-lg p-4 mb-4">
-        <h2 className="font-semibold text-sm mb-3">Načíst JMHZ dotazník</h2>
+        <h2 className="font-semibold text-sm mb-3">Načíst vyplněný JMHZ dotazník od zaměstnance</h2>
         <p className="text-xs text-slate-500 mb-3">
           Nahrajte vyplněný PDF dotazník (JMHZ). Verzi dotazníku potvrďte ručně podle textu "Verze dokumentu ze dne..." na stránce PDF -
           appka ji sama nedomýšlí. Neznámá/nepodporovaná verze se vždy zastaví na ruční kontrolu, nikdy se tiše nezapíše.

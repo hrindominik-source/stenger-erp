@@ -55,7 +55,9 @@ export function formatDateForDoc(isoDate) {
 // nie je vyplnene.
 export function formatAddress(addr) {
   if (!addr || typeof addr !== "object") return "";
-  const street = addr.street || addr.ulice;
+  // Od zjednotenia s ČSSZ registraciou je cislo popisne/orientacne zvlast.
+  const num = [addr.cislo_popisne, addr.cislo_orientacni].filter(Boolean).join("/");
+  const street = [addr.street || addr.ulice, num].filter(Boolean).join(" ");
   const zip = addr.zip || addr.psc;
   const city = addr.city || addr.mesto;
   const parts = [street, [zip, city].filter(Boolean).join(" ")].filter(Boolean);

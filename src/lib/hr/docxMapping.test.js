@@ -84,3 +84,10 @@ describe("buildDocumentData", () => {
     Object.values(data).forEach((v) => expect(v).not.toBe(undefined));
   });
 });
+
+describe("formatAddress – číslo popisné zvlášť", () => {
+  it("připojí č.p./č.o. k ulici", () => {
+    expect(formatAddress({ ulice: "Lnáře", cislo_popisne: "214", psc: "38742", mesto: "Lnáře" })).toBe("Lnáře 214, 38742 Lnáře");
+    expect(formatAddress({ ulice: "Hlavní", cislo_popisne: "1200", cislo_orientacni: "12a", psc: "60200", mesto: "Brno" })).toBe("Hlavní 1200/12a, 60200 Brno");
+  });
+});
