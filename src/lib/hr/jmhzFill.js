@@ -12,8 +12,10 @@ import {
 } from "./employeeFields.js";
 
 export const JMHZ_FILL_VERSION = "20.3.2026 C";
-export const JMHZ_TEMPLATE_URL = "/hr/JMHZ_dotaznik_2026-03-20C.pdf";
-export const JMHZ_FONT_URL = "/hr/DejaVuSans.ttf";
+// BASE_URL = "/stenger-erp/" na GitHub Pages, "/" na Netlify / lokalne.
+const BASE = import.meta.env?.BASE_URL ?? "/";
+export const JMHZ_TEMPLATE_URL = `${BASE}hr/JMHZ_dotaznik_2026-03-20C.pdf`;
+export const JMHZ_FONT_URL = `${BASE}hr/DejaVuSans.ttf`;
 
 // ISO "1972-06-16" -> "16.6.1972" (rovnaky format, aky cita JMHZ import).
 export function isoToCz(iso) {
