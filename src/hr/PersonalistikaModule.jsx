@@ -1794,6 +1794,7 @@ function DokumentyTab({ employee, sensitive, currentEmployment, permissions }) {
   const [documents, setDocuments] = useState([]);
   const [signaturesByDoc, setSignaturesByDoc] = useState(new Map()); // hr_document_id -> hr_document_signatures[]
   const [templates, setTemplates] = useState([]);
+  const [pendingTemplates, setPendingTemplates] = useState([]);
   const [creating, setCreating] = useState(false);
   const [signingId, setSigningId] = useState(null);
   const canGenerate = hasPerm(permissions, "HR_DOCUMENT_GENERATE");
@@ -1803,14 +1804,16 @@ function DokumentyTab({ employee, sensitive, currentEmployment, permissions }) {
   const load = useCallback(async () => {
     setLoading(true);
     setError("");
-    const [docsRes, tplsRes] = await Promise.all([
+    const [docsRes, tplsRes, pendingRes] = await Promise.all([
       supabase.from("hr_documents").select("*").eq("employee_id", employee.id).order("created_at", { ascending: false }),
       supabase.from("hr_document_templates").select("*").eq("status", "SCHVALENA"),
+      supabase.from("hr_document_templates").select("id, name, doc_type").in("status", ["NAHRANA", "KE_SCHVALENI"]),
     ]);
     if (docsRes.error) { setError("Nepodařilo se načíst dokumenty."); setLoading(false); return; }
     const docs = docsRes.data || [];
     setDocuments(docs);
     setTemplates(tplsRes.data || []);
+    setPendingTemplates(pendingRes.data || []);
     if (docs.length > 0) {
       const { data: sigs } = await supabase.from("hr_document_signatures").select("*").in("hr_document_id", docs.map((d) => d.id)).order("created_at", { ascending: false });
       const map = new Map();
@@ -1854,7 +1857,7 @@ function DokumentyTab({ employee, sensitive, currentEmployment, permissions }) {
       </div>
       {creating && (
         <GenerateDocumentForm
-          employee={employee} sensitive={sensitive} currentEmployment={currentEmployment} templates={templates}
+          employee={employee} sensitive={sensitive} currentEmployment={currentEmployment} templates={templates} pendingTemplates={pendingTemplates}
           onCancel={() => setCreating(false)} onSaved={() => { setCreating(false); load(); }}
         />
       )}
@@ -1919,7 +1922,7 @@ function DokumentyTab({ employee, sensitive, currentEmployment, permissions }) {
   );
 }
 
-function GenerateDocumentForm({ employee, sensitive, currentEmployment, templates, onCancel, onSaved }) {
+function GenerateDocumentForm({ employee, sensitive, currentEmployment, templates, pendingTemplates = [], onCancel, onSaved }) {
   const [templateId, setTemplateId] = useState(templates[0]?.id || "");
   const [manualFields, setManualFields] = useState({ cele_jmeno: fullName(employee) });
   const [saving, setSaving] = useState(false);
@@ -2021,12 +2024,24 @@ function GenerateDocumentForm({ employee, sensitive, currentEmployment, template
     setSaving(false);
   }
 
+  const pendingHint = pendingTemplates.length > 0 && (
+    <div className="bg-amber-50 text-amber-700 text-xs px-3 py-2 rounded-md mb-3">
+      Nahrané, ale neaktivované šablony (zde se nenabízejí): <strong>{pendingTemplates.map((t) => t.name).join(", ")}</strong>. Aktivujte je v záložce "Šablony dokumentů".
+    </div>
+  );
+
   if (templates.length === 0) {
-    return <div className="bg-amber-50 text-amber-700 text-sm px-3 py-2 rounded-md mb-3">Žádná schválená šablona zatím není k dispozici - nahrajte a aktivujte ji v záložce "Šablony dokumentů".</div>;
+    return (
+      <div className="mb-3">
+        <div className="bg-amber-50 text-amber-700 text-sm px-3 py-2 rounded-md mb-2">Žádná schválená šablona zatím není k dispozici - nahrajte a aktivujte ji v záložce "Šablony dokumentů".</div>
+        {pendingHint}
+      </div>
+    );
   }
 
   return (
     <div className="bg-white border border-slate-200 rounded-lg p-4 mb-4">
+      {pendingHint}
       <h2 className="font-semibold text-sm mb-3">Vytvořit dokument</h2>
       <SelectFieldLocal label="Šablona" value={templateId} onChange={setTemplateId} options={templates.map((t) => ({ value: t.id, label: `${DOC_TYPE_LABELS[t.doc_type] || t.doc_type} – ${t.name}` }))} />
 
@@ -2828,6 +2843,9 @@ function TemplatesTab({ permissions }) {
                     )}
                   </div>
                 </div>
+                {!t.current_version_id && t.status !== "VYRAZENA" && (
+                  <div className="mt-2 bg-amber-50 text-amber-800 text-xs px-3 py-2 rounded-md">Šablona zatím není aktivní - u zaměstnanců se nenabízí, dokud neaktivujete některou verzi.</div>
+                )}
                 <div className="mt-3 space-y-2">
                   {versions.map((v) => (
                     <div key={v.id} className={"flex items-center justify-between gap-2 text-sm px-3 py-2 rounded-md " + (v.id === t.current_version_id ? "bg-emerald-50" : "bg-slate-50")}>
@@ -2839,7 +2857,7 @@ function TemplatesTab({ permissions }) {
                       <div className="flex items-center gap-2 whitespace-nowrap">
                         <MappingStatusBadge status={v.mapping_status} />
                         {v.mapping_status === "SCHVALENA" && v.id !== t.current_version_id && canApprove && (
-                          <button onClick={() => approveVersion(t, v)} className="text-xs text-teal-700 hover:text-teal-900 underline underline-offset-2">Aktivovat</button>
+                          <button onClick={() => approveVersion(t, v)} className="bg-teal-700 hover:bg-teal-800 text-white text-xs font-medium px-3 py-1 rounded-md">Aktivovat</button>
                         )}
                       </div>
                     </div>
@@ -2882,12 +2900,14 @@ function UploadTemplateForm({ uploading, setUploading, onUploaded, templates }) 
   const [file, setFile] = useState(null);
   const [checkResult, setCheckResult] = useState(null);
   const [error, setError] = useState("");
+  const [success, setSuccess] = useState("");
 
   async function onFileChange(e) {
     const f = e.target.files?.[0];
     setFile(f || null);
     setCheckResult(null);
     setError("");
+    setSuccess("");
     if (!f) return;
     try {
       const ab = await f.arrayBuffer();
@@ -2939,6 +2959,7 @@ function UploadTemplateForm({ uploading, setUploading, onUploaded, templates }) 
       await supabase.from("hr_document_templates").update({ status: "KE_SCHVALENI" }).eq("id", templateId).eq("status", "NAHRANA");
 
       setFile(null); setCheckResult(null); setName("");
+      setSuccess("Šablona nahrána. Aby se nabízela u zaměstnanců, klikněte níže u nové verze na \"Aktivovat\".");
       onUploaded();
     } catch (e) {
       console.error(e);
@@ -2978,6 +2999,7 @@ function UploadTemplateForm({ uploading, setUploading, onUploaded, templates }) 
         </div>
       )}
       {error && <div className="bg-red-50 text-red-700 text-sm px-3 py-2 rounded-md mb-2">{error}</div>}
+      {success && <div className="bg-amber-50 text-amber-800 text-sm px-3 py-2 rounded-md mb-2">{success}</div>}
       <div className="flex justify-end">
         <button onClick={submit} disabled={uploading || !checkResult?.ok} className="flex items-center gap-1.5 bg-teal-700 hover:bg-teal-800 disabled:opacity-50 disabled:cursor-not-allowed text-white text-sm font-medium px-4 py-2 rounded-md">
           {uploading ? <Loader2 size={16} className="animate-spin" /> : <Upload size={16} />} {uploading ? "Nahrávám..." : "Nahrát šablonu"}
