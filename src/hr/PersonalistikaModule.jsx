@@ -1596,14 +1596,34 @@ function ExtendEmploymentForm({ employment, events, canOverride, onCancel, onSav
   );
 }
 
+// Duvody ukonceni presne podle ciselniku uradu (CSSZ / UP) - kod 1-15.
+const TERMINATION_REASONS = [
+  ["1", "Ukončení PP cizince či osoby bez státní příslušnosti (§ 48/3)"],
+  ["2", "Dohodou se zaměstnavatelem (§ 49)"],
+  ["3", "Výpověď ze strany zaměstnance (§ 50/3)"],
+  ["4", "Organizační důvod (§ 52/a-c)"],
+  ["5", "Zdravotní důvody (§ 52/d, § 52/e, § 56/1a)"],
+  ["6", "Zaměstnanec nesplňuje předpoklady nebo požadavky pro výkon sjednané práce (§ 52/f)"],
+  ["7", "Porušení povinností zaměstnancem zvlášť hrubým způsobem (§ 52/g první část věty nebo § 55/1b)"],
+  ["8", "Soustavné méně závažné porušení povinností zaměstnancem (§ 52/g druhá část věty)"],
+  ["9", "Porušení režimu dočasně práce neschopného zvlášť hrubým způsobem (§ 52/h)"],
+  ["10", "Okamžité zrušení pracovního poměru z důvodu pravomocného odsouzení pro úmyslný trestný čin (§ 55/1a)"],
+  ["11", "Porušení podstatné povinnosti zaměstnancem (§ 56/1b)"],
+  ["12", "Doba určitá (§ 65)"],
+  ["13", "Ve zkušební době zaměstnavatelem (§ 66)"],
+  ["14", "Ve zkušební době zaměstnancem (§ 66)"],
+  ["15", "Ostatní"],
+];
 const TERMINATION_TYPE_LABEL = {
+  ...Object.fromEntries(TERMINATION_REASONS.map(([code, label]) => [code, `${code} – ${label}`])),
+  umrti: "Úmrtí zaměstnance",
+  // Starsie zaznamy (pred ciselnikom uradu) - len na zobrazenie.
   dohoda: "Dohoda o skončení",
   vypoved_zamestnance: "Výpověď zaměstnance",
   vypoved_zamestnavatele: "Výpověď zaměstnavatele",
   zkusebni_doba: "Zrušení ve zkušební době",
   okamzite_zruseni: "Okamžité zrušení",
   uplynuti_doby_urcite: "Uplynutí doby určité",
-  umrti: "Úmrtí zaměstnance",
   jine: "Jiné",
 };
 
@@ -1615,13 +1635,13 @@ const END_DOC_KINDS = [
 ];
 
 function EndEmploymentForm({ employment, onCancel, onSaved }) {
-  const [f, setF] = useState({ termination_date: "", termination_type: "dohoda", termination_reason: "", umrti: false });
+  const [f, setF] = useState({ termination_date: "", termination_type: "2", termination_reason: "", umrti: false });
   const [files, setFiles] = useState({ zapoctovy_list: [], potvrzeni_up: [] });
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
 
   function setUmrti(v) {
-    setF((prev) => ({ ...prev, umrti: v, termination_type: v ? "umrti" : (prev.termination_type === "umrti" ? "dohoda" : prev.termination_type) }));
+    setF((prev) => ({ ...prev, umrti: v, termination_type: v ? "umrti" : (prev.termination_type === "umrti" ? "2" : prev.termination_type) }));
   }
 
   async function submit() {
@@ -1680,15 +1700,17 @@ function EndEmploymentForm({ employment, onCancel, onSaved }) {
           <span className="block text-xs font-medium text-slate-500 mb-1">Ukončeno úmrtím zaměstnance</span>
           <div className="flex gap-2">{yn("Ano", true)}{yn("Ne", false)}</div>
         </div>
+        <TextField label="Poznámka" value={f.termination_reason} onChange={(v) => setF({ ...f, termination_reason: v })} />
         {!f.umrti && (
-          <SelectFieldLocal
-            label="Způsob ukončení"
-            value={f.termination_type}
-            onChange={(v) => setF({ ...f, termination_type: v })}
-            options={Object.entries(TERMINATION_TYPE_LABEL).filter(([value]) => value !== "umrti").map(([value, label]) => ({ value, label }))}
-          />
+          <div className="sm:col-span-3">
+            <SelectFieldLocal
+              label="Důvod ukončení (číselník úřadu)"
+              value={f.termination_type}
+              onChange={(v) => setF({ ...f, termination_type: v })}
+              options={TERMINATION_REASONS.map(([code, label]) => ({ value: code, label: `${code} – ${label}` }))}
+            />
+          </div>
         )}
-        <TextField label="Důvod / poznámka" value={f.termination_reason} onChange={(v) => setF({ ...f, termination_reason: v })} />
       </div>
       <div className="bg-slate-50 rounded-md px-3 py-2 mb-2">
         <div className="text-xs font-medium text-slate-500 mb-1.5">Doklady k ukončení (lze nahrát i později)</div>

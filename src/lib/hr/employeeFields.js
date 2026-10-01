@@ -415,9 +415,21 @@ export const EMPLOYEE_SECTIONS = [
     { key: "manzel_sleva", label: "Uplatnění slevy na manžela/manželku", type: "yesno", store: { t: "pay", slot: "manzel", field: "uplatneni_slevy" } },
     { key: "manzel_prohlaseni", label: "Čestné prohlášení o výši příjmů manžela/manželky", type: "yesno", store: { t: "pay", slot: "manzel", field: "cestne_prohlaseni_prijmu" } },
   ], (v) => hasChildren(v) || !!v.tax_manzel || !!v.manzel_jmeno),
-  dependent("jina_osoba", "Jiná vyživovaná osoba (§38k odst. 4)", [
-    { key: "jina_osoba_tytez", label: "Vyživuje tytéž děti v téže společně hospodařící domácnosti i jiná osoba", type: "yesno", store: { t: "pay", slot: "jina_osoba", field: "vyzivuje_tytez_deti" } },
-  ], (v) => hasChildren(v) || !!v.jina_osoba_jmeno),
+  {
+    id: "dep_jina_osoba",
+    title: "Jiná vyživovaná osoba (§ 38k odst. 4 zákona o daních z příjmů)",
+    tier: "payroll",
+    showIf: (v) => hasChildren(v) || !!v.jina_osoba_jmeno,
+    fields: [
+      { key: "jina_osoba_tytez", label: "Vyživuje tytéž děti v téže společně hospodařící domácnosti i jiná osoba", type: "yesno", store: { t: "pay", slot: "jina_osoba", field: "vyzivuje_tytez_deti" } },
+      ...[
+        ["jina_osoba_jmeno", "Příjmení a jméno", "jmeno"],
+        ["jina_osoba_datum_rc", "Rodné číslo", "datum_narozeni_rc"],
+        ["jina_osoba_adresa", "Adresa", "adresa"],
+        ["jina_osoba_platce", "Název plátce daně (zaměstnavatel této osoby)", "nazev_platce_dane"],
+      ].map(([key, label, field]) => ({ key, label, type: "text", showIf: (v) => v.jina_osoba_tytez === true || !!v.jina_osoba_jmeno, store: { t: "pay", slot: "jina_osoba", field } })),
+    ],
+  },
   {
     id: "soubeh",
     title: "L. Souběžné zaměstnání a exekuce",
