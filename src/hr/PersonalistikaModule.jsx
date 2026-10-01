@@ -558,21 +558,27 @@ function OnboardingReviewTab({ permissions, onOpenEmployee }) {
 // Prilohy (rodny list, potvrzeni o studiu, exekuce) - subory do bucketu
 // hr-dokumenty, metadata do employee_payroll_data.data.prilohy (vidi len
 // HR_VIEW_PAYROLL). Nahraju sa az pri ulozeni formulara.
+// Nahra jeden subor do hr-dokumenty a vrati metadata prilohy. Bucket nema
+// DELETE policy - nahrate subory su archivne (nedaju sa zmazat).
+async function uploadHrFile(employeeId, kind, file, id = crypto.randomUUID()) {
+  const ext = (file.name.match(/\.[a-z0-9]+$/i)?.[0] || "").toLowerCase();
+  const path = `zamestnanci/${employeeId}/prilohy/${id}${ext}`;
+  const { error } = await supabase.storage.from(HR_DOKUMENTY_BUCKET).upload(path, file, { contentType: file.type || "application/octet-stream" });
+  if (error) throw new Error(`Soubor "${file.name}" se nepodařilo nahrát: ${error.message}`);
+  return { id, kind, name: file.name, size: file.size, path, uploaded_at: new Date().toISOString() };
+}
+
 async function uploadPendingAttachments(values, employeeId) {
   const list = [];
   for (const p of values.prilohy || []) {
-    if (p.path || !p.file) { if (p.path) list.push(p); continue; }
-    const ext = (p.name.match(/\.[a-z0-9]+$/i)?.[0] || "").toLowerCase();
-    const path = `zamestnanci/${employeeId}/prilohy/${p.id}${ext}`;
-    const { error } = await supabase.storage.from(HR_DOKUMENTY_BUCKET).upload(path, p.file, { contentType: p.file.type || "application/octet-stream" });
-    if (error) throw new Error(`Přílohu "${p.name}" se nepodařilo nahrát: ${error.message}`);
-    list.push({ id: p.id, kind: p.kind, name: p.name, size: p.size, path, uploaded_at: new Date().toISOString() });
+    if (p.path) { list.push(p); continue; }
+    if (p.file) list.push(await uploadHrFile(employeeId, p.kind, p.file, p.id));
   }
   return { ...values, prilohy: list };
 }
 
-async function openHrFile(path) {
-  const { data, error } = await supabase.storage.from(HR_DOKUMENTY_BUCKET).createSignedUrl(path, 3600);
+async function openHrFile(path, downloadName) {
+  const { data, error } = await supabase.storage.from(HR_DOKUMENTY_BUCKET).createSignedUrl(path, 3600, downloadName ? { download: downloadName } : undefined);
   if (error) { window.alert(error.message); return; }
   window.open(data.signedUrl, "_blank");
 }
@@ -1119,6 +1125,8 @@ function PracovniPomerTab({ employeeId, employee, employments, contractEvents, p
                 {fixedTermStatus && (
                   <Row label="Využitá prodloužení" value={fixedTermStatus.requiresReview ? "Vyžaduje kontrolu" : `${fixedTermStatus.extensionsCount} z max. ${FIXED_TERM_RULES.maxExtensions}`} />
                 )}
+                {em.status === "ENDED" && <Row label="Způsob ukončení" value={TERMINATION_TYPE_LABEL[em.termination_type] || em.termination_type || "—"} />}
+                {em.status === "ENDED" && <Row label="Ukončeno úmrtím" value={em.data?.ukonceno_umrtim ? "Ano" : "Ne"} />}
                 {em.status === "ENDED" && <Row label="Důvod ukončení" value={em.termination_reason || "—"} />}
               </dl>
               {fixedTermStatus && fixedTermStatus.requiresReview && (
@@ -1155,6 +1163,7 @@ function PracovniPomerTab({ employeeId, employee, employments, contractEvents, p
               {extendingId === em.id && <ExtendEmploymentForm employment={em} events={events} canOverride={canOverride} onCancel={() => setExtendingId(null)} onSaved={() => { setExtendingId(null); onChanged(); }} />}
               {changingId === em.id && <ChangePositionHoursForm employment={em} positions={positions} onCancel={() => setChangingId(null)} onSaved={() => { setChangingId(null); onChanged(); }} />}
               {endingId === em.id && <EndEmploymentForm employment={em} onCancel={() => setEndingId(null)} onSaved={() => { setEndingId(null); onChanged(); }} />}
+              {["NOTICE_PERIOD", "ENDED"].includes(em.status) && <EndDocuments employment={em} canEdit={canEdit} onChanged={onChanged} />}
               {["NOTICE_PERIOD", "ENDED"].includes(em.status) && <OffboardingChecklist employment={em} canEdit={canEdit} onChanged={onChanged} />}
             </div>
           );
@@ -1429,7 +1438,8 @@ function OffboardingChecklist({ employment, canEdit, onChanged }) {
     if (!canEdit || saving) return;
     setSaving(true);
     const nextChecklist = { ...checklist, [key]: !checklist[key] };
-    const nextData = { ...(employment.data || {}), offboarding_checklist: nextChecklist };
+    const { data: fresh } = await supabase.from("employment_relationships").select("data").eq("id", employment.id).single();
+    const nextData = { ...(fresh?.data || employment.data || {}), offboarding_checklist: nextChecklist };
     await supabase.from("employment_relationships").update({ data: nextData, updated_at: new Date().toISOString() }).eq("id", employment.id);
     setSaving(false);
     onChanged();
@@ -1593,13 +1603,26 @@ const TERMINATION_TYPE_LABEL = {
   zkusebni_doba: "Zrušení ve zkušební době",
   okamzite_zruseni: "Okamžité zrušení",
   uplynuti_doby_urcite: "Uplynutí doby určité",
+  umrti: "Úmrtí zaměstnance",
   jine: "Jiné",
 };
 
+// Doklady k ukonceniu pomeru - archivne, ulozene v employment_relationships.
+// data.prilohy_ukonceni (subory v hr-dokumenty, bez moznosti zmazania).
+const END_DOC_KINDS = [
+  { kind: "zapoctovy_list", label: "Zápočtový list" },
+  { kind: "potvrzeni_up", label: "Potvrzení pro úřad práce" },
+];
+
 function EndEmploymentForm({ employment, onCancel, onSaved }) {
-  const [f, setF] = useState({ termination_date: "", termination_type: "dohoda", termination_reason: "" });
+  const [f, setF] = useState({ termination_date: "", termination_type: "dohoda", termination_reason: "", umrti: false });
+  const [files, setFiles] = useState({ zapoctovy_list: [], potvrzeni_up: [] });
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
+
+  function setUmrti(v) {
+    setF((prev) => ({ ...prev, umrti: v, termination_type: v ? "umrti" : (prev.termination_type === "umrti" ? "dohoda" : prev.termination_type) }));
+  }
 
   async function submit() {
     if (!f.termination_date) { setError("Vyplňte datum ukončení."); return; }
@@ -1607,9 +1630,18 @@ function EndEmploymentForm({ employment, onCancel, onSaved }) {
     setError("");
     try {
       const { data: userData } = await supabase.auth.getUser();
+      const uploaded = [];
+      for (const { kind } of END_DOC_KINDS) {
+        for (const file of files[kind]) uploaded.push(await uploadHrFile(employment.employee_id, kind, file));
+      }
+      const nextData = {
+        ...(employment.data || {}),
+        ukonceno_umrtim: f.umrti,
+        prilohy_ukonceni: [...(employment.data?.prilohy_ukonceni || []), ...uploaded],
+      };
       const { error: emErr } = await supabase.from("employment_relationships").update({
         status: "ENDED", termination_date: f.termination_date, termination_type: f.termination_type, termination_reason: f.termination_reason.trim() || null,
-        updated_at: new Date().toISOString(), updated_by: userData?.user?.id || null,
+        data: nextData, updated_at: new Date().toISOString(), updated_by: userData?.user?.id || null,
       }).eq("id", employment.id);
       if (emErr) throw emErr;
       await supabase.from("employment_contract_events").insert({
@@ -1625,7 +1657,8 @@ function EndEmploymentForm({ employment, onCancel, onSaved }) {
       }
       await supabase.from("employee_timeline_events").insert({
         id: uid(), employee_id: employment.employee_id, event_date: f.termination_date, event_type: "EMPLOYMENT_ENDED",
-        title: "Pracovní poměr ukončen", description: f.termination_reason.trim() || undefined, source: "MANUAL",
+        title: f.umrti ? "Pracovní poměr ukončen (úmrtí zaměstnance)" : "Pracovní poměr ukončen",
+        description: f.termination_reason.trim() || undefined, source: "MANUAL",
       });
       onSaved();
     } catch (e) {
@@ -1635,23 +1668,121 @@ function EndEmploymentForm({ employment, onCancel, onSaved }) {
     setSaving(false);
   }
 
+  const yn = (label, v) => (
+    <button type="button" onClick={() => setUmrti(v)} className={"px-3 py-1.5 text-sm rounded-md border font-medium " + (f.umrti === v ? "bg-teal-700 border-teal-700 text-white" : "bg-white border-slate-300 text-slate-600 hover:bg-slate-50")}>{label}</button>
+  );
+
   return (
     <div className="mt-3 pt-3 border-t border-slate-100">
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-x-4">
         <DateFieldLocal label="Datum ukončení" value={f.termination_date} onChange={(v) => setF({ ...f, termination_date: v })} />
-        <SelectFieldLocal
-          label="Způsob ukončení"
-          value={f.termination_type}
-          onChange={(v) => setF({ ...f, termination_type: v })}
-          options={Object.entries(TERMINATION_TYPE_LABEL).map(([value, label]) => ({ value, label }))}
-        />
+        <div className="mb-3">
+          <span className="block text-xs font-medium text-slate-500 mb-1">Ukončeno úmrtím zaměstnance</span>
+          <div className="flex gap-2">{yn("Ano", true)}{yn("Ne", false)}</div>
+        </div>
+        {!f.umrti && (
+          <SelectFieldLocal
+            label="Způsob ukončení"
+            value={f.termination_type}
+            onChange={(v) => setF({ ...f, termination_type: v })}
+            options={Object.entries(TERMINATION_TYPE_LABEL).filter(([value]) => value !== "umrti").map(([value, label]) => ({ value, label }))}
+          />
+        )}
         <TextField label="Důvod / poznámka" value={f.termination_reason} onChange={(v) => setF({ ...f, termination_reason: v })} />
+      </div>
+      <div className="bg-slate-50 rounded-md px-3 py-2 mb-2">
+        <div className="text-xs font-medium text-slate-500 mb-1.5">Doklady k ukončení (lze nahrát i později)</div>
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          {END_DOC_KINDS.filter((d) => !(f.umrti && d.kind === "potvrzeni_up")).map(({ kind, label }) => (
+            <label key={kind} className="block text-sm">
+              <span className="block text-xs text-slate-500 mb-1">{label} (PDF / sken)</span>
+              <input type="file" accept=".pdf,image/*" multiple onChange={(e) => setFiles((prev) => ({ ...prev, [kind]: Array.from(e.target.files || []) }))} className="text-sm" />
+            </label>
+          ))}
+        </div>
       </div>
       {error && <div className="text-red-600 text-xs mt-1">{error}</div>}
       <div className="flex justify-end gap-2 mt-2">
         <button onClick={onCancel} className="text-sm text-slate-500 px-3 py-2">Zrušit</button>
         <button onClick={submit} disabled={saving} className="bg-red-600 hover:bg-red-700 disabled:opacity-50 text-white text-sm font-medium px-4 py-2 rounded-md">{saving ? "Ukládám..." : "Potvrdit ukončení"}</button>
       </div>
+    </div>
+  );
+}
+
+// Po ukonceni: zapoctovy list + potvrzeni pro UP - nahrat / stiahnut, archivne
+// (bez mazania). Kym chyba, svieti upozornenie.
+function EndDocuments({ employment, canEdit, onChanged }) {
+  const [busyKind, setBusyKind] = useState(null);
+  const [error, setError] = useState("");
+  const docs = employment.data?.prilohy_ukonceni || [];
+  const umrti = !!employment.data?.ukonceno_umrtim;
+  const needed = END_DOC_KINDS.filter((d) => !(umrti && d.kind === "potvrzeni_up"));
+  const missing = employment.status === "ENDED" ? needed.filter((d) => !docs.some((x) => x.kind === d.kind)) : [];
+
+  async function upload(kind, fileList) {
+    const list = Array.from(fileList || []);
+    if (!list.length) return;
+    setBusyKind(kind); setError("");
+    try {
+      const uploaded = [];
+      for (const file of list) uploaded.push(await uploadHrFile(employment.employee_id, kind, file));
+      // Cerstvy data stlpec z DB, aby sa neprepisal checklist zmeneny medzitym.
+      const { data: fresh, error: rErr } = await supabase.from("employment_relationships").select("data").eq("id", employment.id).single();
+      if (rErr) throw rErr;
+      const nextData = { ...(fresh?.data || {}), prilohy_ukonceni: [...(fresh?.data?.prilohy_ukonceni || []), ...uploaded] };
+      const { error: uErr } = await supabase.from("employment_relationships").update({ data: nextData, updated_at: new Date().toISOString() }).eq("id", employment.id);
+      if (uErr) throw uErr;
+      await supabase.from("employee_timeline_events").insert({
+        id: uid(), employee_id: employment.employee_id, event_date: new Date().toISOString().slice(0, 10), event_type: "END_DOCUMENT_UPLOADED",
+        title: `Nahrán doklad: ${END_DOC_KINDS.find((d) => d.kind === kind)?.label}`, description: list.map((f) => f.name).join(", "), source: "MANUAL",
+      });
+      onChanged();
+    } catch (e) {
+      console.error(e);
+      setError(e.message || "Nahrání se nezdařilo.");
+    }
+    setBusyKind(null);
+  }
+
+  return (
+    <div className="mt-3 pt-3 border-t border-slate-100">
+      <div className="text-xs font-medium text-slate-500 mb-2">Doklady k ukončení (archiv)</div>
+      {umrti && <div className="text-xs text-slate-600 mb-2">Pracovní poměr ukončen úmrtím zaměstnance.</div>}
+      {missing.length > 0 && (
+        <div className="bg-amber-50 border border-amber-200 text-amber-800 text-sm rounded-md px-3 py-2 mb-2 flex items-center gap-1.5">
+          <AlertCircle size={15} /> Nahrajte prosím: <strong>{missing.map((d) => d.label.toLowerCase()).join(", ")}</strong>
+        </div>
+      )}
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+        {END_DOC_KINDS.map(({ kind, label }) => {
+          const mine = docs.filter((d) => d.kind === kind);
+          const notNeeded = umrti && kind === "potvrzeni_up";
+          return (
+            <div key={kind} className="border border-slate-200 rounded-md px-3 py-2">
+              <div className="text-sm font-medium mb-1">{label}{notNeeded && <span className="text-xs text-slate-400 font-normal"> – při úmrtí se nevydává</span>}</div>
+              {mine.length === 0 && <div className="text-xs text-slate-400 mb-1">Zatím nenahráno.</div>}
+              {mine.map((d) => (
+                <div key={d.id} className="flex items-center justify-between gap-2 text-sm py-0.5">
+                  <span className="truncate text-slate-700" title={d.name}>{d.name}</span>
+                  <span className="flex items-center gap-2 whitespace-nowrap">
+                    <span className="text-xs text-slate-400">{fmtDate(d.uploaded_at?.slice(0, 10))}</span>
+                    <button onClick={() => openHrFile(d.path)} className="text-xs text-teal-700 hover:underline">Otevřít</button>
+                    <button onClick={() => openHrFile(d.path, d.name)} className="text-xs text-teal-700 hover:underline flex items-center gap-0.5"><Download size={12} /> Stáhnout</button>
+                  </span>
+                </div>
+              ))}
+              {canEdit && (
+                <label className="mt-1 inline-flex items-center gap-1 text-xs text-teal-700 hover:text-teal-900 cursor-pointer">
+                  {busyKind === kind ? <Loader2 size={12} className="animate-spin" /> : <Upload size={12} />} {busyKind === kind ? "Nahrávám..." : "Nahrát PDF / sken"}
+                  <input type="file" accept=".pdf,image/*" multiple disabled={!!busyKind} onChange={(e) => { upload(kind, e.target.files); e.target.value = ""; }} className="hidden" />
+                </label>
+              )}
+            </div>
+          );
+        })}
+      </div>
+      {error && <div className="text-red-600 text-xs mt-2">{error}</div>}
     </div>
   );
 }
