@@ -353,7 +353,7 @@ export const EMPLOYEE_SECTIONS = [
   },
   {
     id: "duchod",
-    title: "Důchod",
+    title: "I. Důchod",
     tier: "payroll",
     fields: [
       { key: "duchod_druh", label: "Druh důchodu", type: "select", options: DUCHOD_OPTIONS, store: { t: "pay", bucket: "pension_insurance_status", field: "duchod_druh" } },
@@ -366,7 +366,7 @@ export const EMPLOYEE_SECTIONS = [
   },
   {
     id: "pozice",
-    title: "Vykonávaná pozice zaměstnance",
+    title: "J. Vykonávaná pozice zaměstnance",
     tier: "job",
     fields: [
       { key: "position_label", label: "Pracovní pozice (název)", type: "text", kiosk: true },
@@ -391,7 +391,7 @@ export const EMPLOYEE_SECTIONS = [
   },
   {
     id: "dane",
-    title: "Daně – prohlášení poplatníka (JMHZ)",
+    title: "K. Daně – prohlášení poplatníka",
     tier: "payroll",
     fields: [
       { key: "tax_uplatneni", label: "Uplatňuje prohlášení poplatníka („růžový formulář“)", type: "yesno", store: { t: "pay", bucket: "tax_declaration", field: "uplatneni_prohlaseni" } },
@@ -400,7 +400,7 @@ export const EMPLOYEE_SECTIONS = [
       { key: "tax_invalidita", label: "Sleva na invaliditu (I., II., III. stupeň)", type: "check", showIf: (v) => v.tax_uplatneni === true, store: { t: "pay", bucket: "tax_declaration", field: "sleva_invalidita" } },
     ],
   },
-  { id: "deti", title: "Děti (uveďte všechny děti žijící ve společné domácnosti)", tier: "payroll", control: "children", fields: [] },
+  { id: "deti", title: "L. Děti a vyživované osoby (uveďte všechny děti žijící ve společné domácnosti)", tier: "payroll", control: "children", fields: [] },
   ...childSections,
   dependent("manzel", "Manžel / manželka", [
     { key: "manzel_narok", label: "Nárok na daňové zvýhodnění", type: "yesno", store: { t: "pay", slot: "manzel", field: "narok_danove_zvyhodneni" } },
@@ -412,7 +412,7 @@ export const EMPLOYEE_SECTIONS = [
   ]),
   {
     id: "soubeh",
-    title: "Souběžné zaměstnání a exekuce (JMHZ)",
+    title: "M. Souběžné zaměstnání a exekuce",
     tier: "payroll",
     fields: [
       { key: "soubeh_tehoz", label: "Souběžný pracovní poměr u téhož zaměstnavatele", type: "yesno", def: false, store: { t: "pay", bucket: "concurrent_employment", field: "soubeh_tehoz_zamestnavatele" } },
@@ -424,7 +424,7 @@ export const EMPLOYEE_SECTIONS = [
   },
   {
     id: "poznamka",
-    title: "Poznámka",
+    title: "N. Poznámka",
     hr: true,
     fields: [{ key: "notes", label: "Poznámka", type: "textarea", store: { t: "emp", col: "notes" } }],
   },
