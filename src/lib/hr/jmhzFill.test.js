@@ -17,7 +17,7 @@ const duchkova = {
   perm_ulice: "Lnáře", perm_cp: "214", perm_obec: "Lnáře", perm_psc: "38742",
   kontakt_ulice: "Čelakovské-Rajské", kontakt_cp: "208", kontakt_obec: "Rožmitál pod Třemšínem", kontakt_psc: "26242", kontakt_stat: "Česká republika",
   highest_education: "H", health_insurance_company: "205",
-  start_date: "2026-09-24", vznik_zamestnani: "2026-09-24", employment_type: "doba_urcita", postaveni: "1112",
+  start_date: "2026-09-24", vznik_zamestnani: "2026-09-24", employment_type: "doba_urcita", postaveni: "1112", pozice_kategorie: "HI-001", nazev_pozice: "dělnice",
   bank_account: "123456789/0800",
   tax_uplatneni: true, tax_zakladni: true,
   dite1_jmeno: "Petr Duchek", dite1_datum_rc: "1.2.2010", dite1_narok: true, dite1_studium: true, dite1_neuplatneni: false,
@@ -52,7 +52,7 @@ describe("jmhzFill", () => {
     expect(r("dite1_neuplatneni")).toBe("NE");
     expect(r("datum_nastupu")).toBe("24.9.2026");
     expect(r("adresa_vykonu_prace")).toBe("Plynárenská 366, 261 01 Příbram");
-    expect(r("pracovni_pozice_nazev")).toBe("dělník(ce)");
+    expect(r("pracovni_pozice_nazev")).toBe("dělnice");
     expect(r("ztpp_drzitel")).toBe("NE");
     // Cesky obcan -> strana 7 (cudzinec) prazdna, podpis/datum prazdne.
     expect(results.cizinec_doklad_cislo_typ.status).toBe("NEZADANE");

@@ -140,6 +140,63 @@ export const REZIM_OPTIONS = opts([
   ["vicesmenny", "Vícesměnný pracovní režim"],
   ["nedefinovano", "Nedefinováno"],
 ]);
+// Pozice pre ČSSZ - kategoria HI-00x a nazov presne ako na pracovnej zmluve,
+// zvlast muzsky (m) a zensky (z) tvar; "" = rovnaky pre obe pohlavia.
+// `profese` = predvoleny CZ-ISCO kod pri vybere kategorie (HR ho moze zmenit).
+export const POSITION_CATEGORIES = [
+  {
+    code: "HI-001", label: "HI-001 – výroba / provoz", profese: "81830",
+    desc: "Přímí pracovníci ve výrobě, kteří vytvářejí hodnotu produktu.",
+    names: [
+      ["dělník", "m"], ["dělnice", "z"], ["pomocný dělník", "m"], ["pomocná dělnice", "z"],
+      ["operátor výroby", "m"], ["operátorka výroby", "z"], ["balič", "m"], ["balička", "z"],
+      ["seřizovač", "m"], ["seřizovačka", "z"], ["mistr výroby", "m"], ["mistrová výroby", "z"],
+      ["vedoucí výroby", ""],
+    ],
+  },
+  {
+    code: "HI-002", label: "HI-002 – logistika / skladové hospodářství", profese: "83443",
+    desc: "Pracovníci zajišťující příjem, skladování, expedici a interní manipulaci s materiálem.",
+    names: [
+      ["skladník", "m"], ["skladnice", "z"], ["řidič VZV", "m"], ["řidička VZV", "z"],
+      ["expedient", "m"], ["expedientka", "z"], ["vedoucí skladu", ""],
+    ],
+  },
+  {
+    code: "HI-003", label: "HI-003 – administrativa a správa / THP", profese: "41100",
+    desc: "Technicko-hospodářští pracovníci zajišťující řízení, podporu, legislativu a chod kanceláří.",
+    names: [
+      ["personalista", "m"], ["personalistka", "z"], ["účetní", ""], ["mzdový účetní", "m"], ["mzdová účetní", "z"],
+      ["administrativní pracovník", "m"], ["administrativní pracovnice", "z"], ["asistent", "m"], ["asistentka", "z"],
+      ["obchodní referent", "m"], ["obchodní referentka", "z"], ["nákupčí", ""], ["ekonom", "m"], ["ekonomka", "z"],
+      ["vedoucí kanceláře", ""], ["jednatel", "m"], ["jednatelka", "z"],
+    ],
+  },
+];
+
+// Nazvy pre danu kategoriu, filtrovane podla pohlavia (bez pohlavia vsetky).
+export function positionNameOptions(categoryCode, gender) {
+  const cat = POSITION_CATEGORIES.find((c) => c.code === categoryCode);
+  const all = cat ? cat.names : POSITION_CATEGORIES.flatMap((c) => c.names);
+  const g = gender === "muz" ? "m" : gender === "zena" ? "z" : null;
+  return all.filter(([, ng]) => !g || !ng || ng === g).map(([name]) => ({ value: name, label: name }));
+}
+
+// Protejsok v druhom rode (dělník <-> dělnice) - pri zmene pohlavia.
+export function positionNameForGender(name, gender) {
+  const g = gender === "muz" ? "m" : gender === "zena" ? "z" : null;
+  if (!g) return name;
+  for (const cat of POSITION_CATEGORIES) {
+    const idx = cat.names.findIndex(([n]) => n === name);
+    if (idx === -1) continue;
+    const [, ng] = cat.names[idx];
+    if (!ng || ng === g) return name;
+    const partner = ng === "m" ? cat.names[idx + 1] : cat.names[idx - 1];
+    return partner && partner[1] === g ? partner[0] : name;
+  }
+  return name;
+}
+
 export const NEZABAVITELNA_OPTIONS = opts(
   Array.from({ length: 11 }, (_, n) => [String(n), n === 0 ? "osoba povinného + 0 vyživovaných osob" : `osoba povinného + ${n} ${n === 1 ? "vyživovaná osoba" : n < 5 ? "vyživované osoby" : "vyživovaných osob"}`]),
 );
@@ -235,6 +292,9 @@ export const EMPLOYEE_SECTIONS = [
     fields: [
       { key: "osobni_cislo", label: "Osobní číslo zaměstnance", type: "text", store: { t: "emp", col: "data", path: "osobni_cislo" } },
       { key: "oic", label: "OIČ – osobní identifikační číslo (přiděluje ČSSZ)", type: "text", store: { t: "emp", col: "data", path: "oic" } },
+      { key: "cislo_pojistence", label: "Číslo pojištěnce (náhradní / evidenční číslo pojištěnce)", type: "text", store: { t: "emp", col: "data", path: "cislo_pojistence" } },
+      // Prilohy sa ukladaju k mzdovym udajom (payroll.data.prilohy) -> tier payroll.
+      { key: "cislo_pojistence_oznameni", label: "Oznámení o přidělení čísla pojištěnce (PDF / sken)", type: "file", kind: "oznameni_cislo_pojistence", tier: "payroll" },
       { key: "id_ppv", label: "ID PPV – identifikátor zaměstnání (přiděluje ČSSZ)", type: "text", tier: "job", store: { t: "job", col: "data", path: "id_ppv" } },
     ],
   },
@@ -378,7 +438,8 @@ export const EMPLOYEE_SECTIONS = [
     fields: [
       { key: "position_label", label: "Pracovní pozice (název)", type: "text", kiosk: true },
       { key: "position_id", label: "Pozice", type: "position", hr: true, createOnly: true, store: { t: "job", col: "position_id" } },
-      { key: "nazev_pozice", label: "Název pozice (pro ČSSZ / JMHZ)", type: "text", hr: true, def: "dělník(ce)", store: { t: "job", col: "data", path: "nazev_pozice" } },
+      { key: "pozice_kategorie", label: "Pozice pro ČSSZ (kategorie)", type: "select", options: POSITION_CATEGORIES.map((c) => ({ value: c.code, label: c.label })), hr: true, helpFn: (v) => POSITION_CATEGORIES.find((c) => c.code === v)?.desc, store: { t: "job", col: "data", path: "pozice_kategorie" } },
+      { key: "nazev_pozice", label: "Název pozice (přesně jako na pracovní smlouvě)", type: "select", optionsFn: (v) => positionNameOptions(v.pozice_kategorie, v.gender), allowOther: true, hr: true, showIf: (v) => !!v.pozice_kategorie || !!v.nazev_pozice, store: { t: "job", col: "data", path: "nazev_pozice" } },
       { key: "start_date", label: "Datum nástupu do zaměstnání", type: "date", createOnly: true, store: { t: "job", col: "start_date" } },
       { key: "vznik_zamestnani", label: "Vznik zaměstnání", type: "date", hr: true, store: { t: "job", col: "data", path: "vznik_zamestnani" } },
       { key: "employment_type", label: "Typ smlouvy", type: "select", options: EMPLOYMENT_TYPE_OPTIONS, def: "doba_neurcita", hr: true, createOnly: true, noEmpty: true, store: { t: "job", col: "employment_type" } },

@@ -3,6 +3,7 @@ import { Lock, ShieldAlert, Plus, Trash2, Paperclip, X } from "lucide-react";
 import {
   EMPLOYEE_SECTIONS, fieldVisibleInMode, isFieldShown, optionLabel, derivePostaveni,
   addChild, removeChild, MAX_CHILDREN, JMHZ_PDF_CHILDREN,
+  POSITION_CATEGORIES, positionNameOptions, positionNameForGender,
 } from "../lib/hr/employeeFields.js";
 
 /* Spolocny renderer udajov zamestnanca (definicia v lib/hr/employeeFields.js).
@@ -21,6 +22,18 @@ export function applyFieldChange(values, key, value) {
   }
   if (key === "start_date" && (!values.vznik_zamestnani || values.vznik_zamestnani === values.start_date)) {
     next.vznik_zamestnani = value;
+  }
+  if (key === "pozice_kategorie") {
+    // Nazov z inej kategorie neplati - predvyplni prvy podla pohlavia.
+    const names = positionNameOptions(value, values.gender).map((o) => o.value);
+    if (!names.includes(values.nazev_pozice)) next.nazev_pozice = values.gender ? (names[0] || "") : "";
+    // CZ-ISCO profese podla kategorie, kym ju HR nezmenil rucne.
+    const prevCat = POSITION_CATEGORIES.find((c) => c.code === values.pozice_kategorie);
+    const cat = POSITION_CATEGORIES.find((c) => c.code === value);
+    if (cat && (!values.profese || values.profese === prevCat?.profese || values.profese === "81830")) next.profese = cat.profese;
+  }
+  if (key === "gender" && values.nazev_pozice) {
+    next.nazev_pozice = positionNameForGender(values.nazev_pozice, value);
   }
   return next;
 }
@@ -46,6 +59,15 @@ function sectionTierAllowed(section, { canSensitive, canPayroll }) {
 export default function EmployeeFieldsForm({ values, onChange, mode, canSensitive, canPayroll, positions = [], variant = "office", sectionIds, hints = {}, onOpenFile }) {
   const big = variant === "kiosk";
   const sections = visibleSections({ mode, canSensitive, canPayroll, values, sectionIds });
+  // Kategoria HI-00x -> zodpovedajuca pozicia zo zoznamu pozicii (podla kodu).
+  const normCode = (c) => String(c || "").toUpperCase().replace(/L/g, "I").replace(/\s/g, "");
+  function handleChange(key, value) {
+    onChange(key, value);
+    if (key === "pozice_kategorie" && mode === "create") {
+      const pos = positions.find((p) => normCode(p.code) === normCode(value));
+      if (pos) onChange("position_id", pos.id);
+    }
+  }
   return (
     <div>
       {sections.map(({ section, fields }) => {
@@ -75,9 +97,9 @@ export default function EmployeeFieldsForm({ values, onChange, mode, canSensitiv
               <div className={"grid grid-cols-1 sm:grid-cols-2 " + (big ? "gap-x-5" : "lg:grid-cols-3 gap-x-4")}>
                 {fields.map((f) => (
                   f.type === "file" ? (
-                    <FileField key={f.key} field={f} prilohy={values.prilohy || []} onChange={(list) => onChange("prilohy", list)} onOpenFile={onOpenFile} />
+                    <FileField key={f.key} field={f} prilohy={values.prilohy || []} onChange={(list) => handleChange("prilohy", list)} onOpenFile={onOpenFile} />
                   ) : (
-                    <FieldInput key={f.key} field={f} value={values[f.key]} big={big} positions={positions} hint={hints[f.key]} onChange={(v) => onChange(f.key, v)} />
+                    <FieldInput key={f.key} field={f} value={values[f.key]} values={values} big={big} positions={positions} hint={hints[f.key]} onChange={(v) => handleChange(f.key, v)} />
                   )
                 ))}
               </div>
@@ -141,12 +163,13 @@ function FileField({ field, prilohy, onChange, onOpenFile }) {
   );
 }
 
-function FieldInput({ field, value, onChange, big, positions, hint }) {
+function FieldInput({ field, value, values = {}, onChange, big, positions, hint }) {
+  const options = field.optionsFn ? field.optionsFn(values) : field.options;
   const [otherMode, setOtherMode] = useState(false);
   const labelCls = big ? "block text-sm font-medium text-slate-500 mb-1.5" : "block text-xs font-medium text-slate-500 mb-1";
   const inputCls = big ? "w-full border border-slate-300 rounded-lg px-3 py-2.5 text-base" : "w-full border border-slate-300 rounded-md px-3 py-2 text-sm";
   const wrap = big ? "block mb-4" : "block mb-3";
-  const wide = field.type === "textarea" || (field.type === "select" && field.options?.some((o) => o.label.length > 60));
+  const wide = field.type === "textarea" || (field.type === "select" && options?.some((o) => o.label.length > 60));
 
   if (field.type === "check") {
     return (
@@ -193,7 +216,7 @@ function FieldInput({ field, value, onChange, big, positions, hint }) {
       </select>
     );
   } else if (field.type === "select") {
-    const inList = field.options.some((o) => o.value === value);
+    const inList = options.some((o) => o.value === value);
     if (field.allowOther && (otherMode || (value && !inList))) {
       control = (
         <div className="flex gap-2 items-center">
@@ -211,7 +234,7 @@ function FieldInput({ field, value, onChange, big, positions, hint }) {
           className={inputCls + " bg-white"}
         >
           {!field.noEmpty && <option value="">— vyberte —</option>}
-          {field.options.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+          {options.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
           {field.allowOther && <option value="__other__">Jiný (vypsat)…</option>}
         </select>
       );
@@ -224,6 +247,7 @@ function FieldInput({ field, value, onChange, big, positions, hint }) {
     <label className={wrap + (wide ? " sm:col-span-2 lg:col-span-3" : "")}>
       <span className={labelCls}>{field.label}</span>
       {control}
+      {field.helpFn && field.helpFn(value) && <span className="block text-xs text-slate-400 mt-1">{field.helpFn(value)}</span>}
       {hint && !value && (
         <button type="button" onClick={(e) => { e.preventDefault(); onChange(hint.value); }} className="text-xs text-teal-700 hover:underline mt-1">
           {hint.text}
@@ -247,7 +271,7 @@ export function formatFieldValue(field, value, positions = [], values = {}) {
     const [y, m, d] = String(value).split("-");
     return d ? `${Number(d)}.${Number(m)}.${y}` : value;
   }
-  if (field.type === "select") return optionLabel(field.options, value);
+  if (field.type === "select") return field.options ? optionLabel(field.options, value) : String(value);
   if (field.type === "position") {
     const p = positions.find((x) => x.id === value);
     return p ? (p.code ? `${p.code} – ${p.name}` : p.name) : null;

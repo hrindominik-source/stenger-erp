@@ -1608,7 +1608,7 @@ const TERMINATION_REASONS = [
   ["8", "Soustavné méně závažné porušení povinností zaměstnancem (§ 52/g druhá část věty)"],
   ["9", "Porušení režimu dočasně práce neschopného zvlášť hrubým způsobem (§ 52/h)"],
   ["10", "Okamžité zrušení pracovního poměru z důvodu pravomocného odsouzení pro úmyslný trestný čin (§ 55/1a)"],
-  ["11", "Porušení podstatné povinnosti zaměstnancem (§ 56/1b)"],
+  ["11", "Porušení podstatné povinnosti zaměstnavatelem (§ 56/1b)"],
   ["12", "Doba určitá (§ 65)"],
   ["13", "Ve zkušební době zaměstnavatelem (§ 66)"],
   ["14", "Ve zkušební době zaměstnancem (§ 66)"],
@@ -1981,6 +1981,9 @@ function GenerateDocumentForm({ employee, sensitive, currentEmployment, template
     cele_jmeno: fullName(employee),
     rodinny_stav: maritalStatusText(employee.data?.rodinny_stav, normalizeGender(employee.gender)),
     pojistovna: employee.health_insurance_company ? optionLabel(HEALTH_INSURANCE_OPTIONS, normalizeHealthInsurance(employee.health_insurance_company)) : "",
+    // Nazov pozicie musi sediet so zmluvou - predvyplni zarazeni aj druh prace.
+    zarazeni: currentEmployment?.data?.nazev_pozice || "",
+    druh_prace: currentEmployment?.data?.nazev_pozice || "",
   }));
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
