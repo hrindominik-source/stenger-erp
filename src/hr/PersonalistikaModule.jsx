@@ -716,7 +716,7 @@ const DETAIL_TABS = [
   { key: "osobni", label: "Osobní údaje" },
   { key: "pomer", label: "Pracovní poměr" },
   { key: "dokumenty", label: "Dokumenty" },
-  { key: "jmhz", label: "JMHZ dotazník", editOnly: true },
+  { key: "jmhz", label: "JMHZ", editOnly: true },
   { key: "lekarske", label: "Lékařské prohlídky", medicalOnly: true },
   { key: "historie", label: "Historie" },
   { key: "audit", label: "Audit", auditOnly: true },
