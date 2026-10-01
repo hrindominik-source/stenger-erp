@@ -140,6 +140,9 @@ export const REZIM_OPTIONS = opts([
   ["vicesmenny", "Vícesměnný pracovní režim"],
   ["nedefinovano", "Nedefinováno"],
 ]);
+export const NEZABAVITELNA_OPTIONS = opts(
+  Array.from({ length: 11 }, (_, n) => [String(n), n === 0 ? "osoba povinného + 0 vyživovaných osob" : `osoba povinného + ${n} ${n === 1 ? "vyživovaná osoba" : n < 5 ? "vyživované osoby" : "vyživovaných osob"}`]),
+);
 export const DOKLAD_OPTIONS = opts([["Občanský průkaz"], ["Cestovní pas"], ["Povolení k pobytu"]]);
 export const EMPLOYMENT_TYPE_OPTIONS = opts([["doba_neurcita", "Doba neurčitá"], ["doba_urcita", "Doba určitá"]]);
 
@@ -362,6 +365,7 @@ export const EMPLOYEE_SECTIONS = [
       { key: "duchod_predcasny", label: "Poživatel předčasného starobního důchodu", type: "yesno", def: false, store: { t: "pay", bucket: "pension_insurance_status", field: "duchod_predcasny_starobni" } },
       { key: "duchod_snizeny_vek", label: "Poživatel starobního důchodu se sníženým důchodovým věkem", type: "yesno", def: false, store: { t: "pay", bucket: "pension_insurance_status", field: "duchod_snizeny_duchodovy_vek" } },
       { key: "duchod_potvrzeni", label: "Potvrzení o přiznání důchodu doloženo", type: "yesno", showIf: (v) => !!v.duchod_druh, store: { t: "pay", bucket: "pension_insurance_status", field: "duchod_potvrzeni_priznani" } },
+      { key: "duchod_rozhodnuti", label: "Rozhodnutí o přiznání důchodu (PDF / sken)", type: "file", kind: "duchod", hr: true, showIf: (v) => !!v.duchod_druh || v.duchod_predcasny === true || v.duchod_snizeny_vek === true },
     ],
   },
   {
@@ -400,7 +404,7 @@ export const EMPLOYEE_SECTIONS = [
       { key: "tax_invalidita", label: "Sleva na invaliditu (I., II., III. stupeň)", type: "check", showIf: (v) => v.tax_uplatneni === true, store: { t: "pay", bucket: "tax_declaration", field: "sleva_invalidita" } },
     ],
   },
-  { id: "deti", title: "L. Děti a vyživované osoby (uveďte všechny děti žijící ve společné domácnosti)", tier: "payroll", control: "children", fields: [] },
+  { id: "deti", title: "K. Daně – děti a vyživované osoby (uveďte všechny děti žijící ve společné domácnosti)", tier: "payroll", control: "children", fields: [] },
   ...childSections,
   dependent("manzel", "Manžel / manželka", [
     { key: "manzel_narok", label: "Nárok na daňové zvýhodnění", type: "yesno", store: { t: "pay", slot: "manzel", field: "narok_danove_zvyhodneni" } },
@@ -412,19 +416,22 @@ export const EMPLOYEE_SECTIONS = [
   ]),
   {
     id: "soubeh",
-    title: "M. Souběžné zaměstnání a exekuce",
+    title: "L. Souběžné zaměstnání a exekuce",
     tier: "payroll",
     fields: [
       { key: "soubeh_tehoz", label: "Souběžný pracovní poměr u téhož zaměstnavatele", type: "yesno", def: false, store: { t: "pay", bucket: "concurrent_employment", field: "soubeh_tehoz_zamestnavatele" } },
       { key: "jiny_zamestnavatel_nazev", label: "Souběh u jiného zaměstnavatele – název, sídlo", type: "text", store: { t: "pay", bucket: "concurrent_employment", field: "jiny_zamestnavatel_nazev_sidlo" } },
       { key: "jiny_zamestnavatel_misto", label: "Souběh u jiného zaměstnavatele – místo výkonu práce, druh vztahu", type: "text", showIf: (v) => !!v.jiny_zamestnavatel_nazev, store: { t: "pay", bucket: "concurrent_employment", field: "jiny_zamestnavatel_misto_druh" } },
       { key: "exekuce", label: "Exekuční / insolvenční srážky ze mzdy", type: "yesno", def: false, store: { t: "pay", bucket: "garnishments", field: "exekuce_insolvence_prohlaseni" } },
+      // Parametr vypoctu nezabavitelne castky (samotnu sumu pocita mzdovy
+      // program podla aktualnych zakonnych hodnot - tu sa nevymysla).
+      { key: "nezabavitelna_osoby", label: "Stanovení nezabavitelné částky – na osobu povinného + počet vyživovaných osob", type: "select", options: NEZABAVITELNA_OPTIONS, def: "0", noEmpty: true, showIf: (v) => v.exekuce === true, store: { t: "pay", bucket: "garnishments", field: "nezabavitelna_vyzivovane_osoby" } },
       { key: "exekuce_doklad", label: "Doklady k exekuci / insolvenci (PDF / sken)", type: "file", kind: "exekuce", hr: true, showIf: (v) => v.exekuce === true },
     ],
   },
   {
     id: "poznamka",
-    title: "N. Poznámka",
+    title: "M. Poznámka",
     hr: true,
     fields: [{ key: "notes", label: "Poznámka", type: "textarea", store: { t: "emp", col: "notes" } }],
   },
