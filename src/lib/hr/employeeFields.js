@@ -200,6 +200,9 @@ const childExtra = (slot) => [
   { key: `${slot}_rodny_list`, label: "Rodný list (PDF / sken)", type: "file", kind: `rodny_list:${slot}`, hr: true },
   { key: `${slot}_studium_doklad`, label: "Potvrzení o studiu (PDF / sken)", type: "file", kind: `studium:${slot}`, hr: true },
 ];
+// Manzel/ka a jina vyzivovana osoba sa ukazuju az ked su uvedene deti
+// (odpocet na deti); uz vyplnene udaje sa nikdy neskryju.
+const hasChildren = (v) => Number(v.deti_pocet || 0) > 0;
 const childSections = Array.from({ length: MAX_CHILDREN }, (_, idx) => {
   const i = idx + 1;
   return dependent(childSlot(i), `${i}. dítě`, childExtra(childSlot(i)), (v) => Number(v.deti_pocet || 0) >= i, { childIndex: i });
@@ -375,7 +378,7 @@ export const EMPLOYEE_SECTIONS = [
     fields: [
       { key: "position_label", label: "Pracovní pozice (název)", type: "text", kiosk: true },
       { key: "position_id", label: "Pozice", type: "position", hr: true, createOnly: true, store: { t: "job", col: "position_id" } },
-      { key: "nazev_pozice", label: "Název pozice (pro ČSSZ / JMHZ)", type: "text", hr: true, def: "dělnice", store: { t: "job", col: "data", path: "nazev_pozice" } },
+      { key: "nazev_pozice", label: "Název pozice (pro ČSSZ / JMHZ)", type: "text", hr: true, def: "dělník(ce)", store: { t: "job", col: "data", path: "nazev_pozice" } },
       { key: "start_date", label: "Datum nástupu do zaměstnání", type: "date", createOnly: true, store: { t: "job", col: "start_date" } },
       { key: "vznik_zamestnani", label: "Vznik zaměstnání", type: "date", hr: true, store: { t: "job", col: "data", path: "vznik_zamestnani" } },
       { key: "employment_type", label: "Typ smlouvy", type: "select", options: EMPLOYMENT_TYPE_OPTIONS, def: "doba_neurcita", hr: true, createOnly: true, noEmpty: true, store: { t: "job", col: "employment_type" } },
@@ -402,6 +405,7 @@ export const EMPLOYEE_SECTIONS = [
       { key: "tax_zakladni", label: "Základní sleva na poplatníka", type: "check", showIf: (v) => v.tax_uplatneni === true, store: { t: "pay", bucket: "tax_declaration", field: "zakladni_sleva" } },
       { key: "tax_manzel", label: "Sleva na manžela/manželku", type: "check", showIf: (v) => v.tax_uplatneni === true, store: { t: "pay", bucket: "tax_declaration", field: "sleva_manzel" } },
       { key: "tax_invalidita", label: "Sleva na invaliditu (I., II., III. stupeň)", type: "check", showIf: (v) => v.tax_uplatneni === true, store: { t: "pay", bucket: "tax_declaration", field: "sleva_invalidita" } },
+      { key: "tax_invalidita_doklad", label: "Rozhodnutí o invalidním důchodu (PDF / sken)", type: "file", kind: "tax_invalidita", hr: true, showIf: (v) => v.tax_uplatneni === true && !!v.tax_invalidita },
     ],
   },
   { id: "deti", title: "K. Daně – děti a vyživované osoby (uveďte všechny děti žijící ve společné domácnosti)", tier: "payroll", control: "children", fields: [] },
@@ -410,10 +414,10 @@ export const EMPLOYEE_SECTIONS = [
     { key: "manzel_narok", label: "Nárok na daňové zvýhodnění", type: "yesno", store: { t: "pay", slot: "manzel", field: "narok_danove_zvyhodneni" } },
     { key: "manzel_sleva", label: "Uplatnění slevy na manžela/manželku", type: "yesno", store: { t: "pay", slot: "manzel", field: "uplatneni_slevy" } },
     { key: "manzel_prohlaseni", label: "Čestné prohlášení o výši příjmů manžela/manželky", type: "yesno", store: { t: "pay", slot: "manzel", field: "cestne_prohlaseni_prijmu" } },
-  ]),
+  ], (v) => hasChildren(v) || !!v.tax_manzel || !!v.manzel_jmeno),
   dependent("jina_osoba", "Jiná vyživovaná osoba (§38k odst. 4)", [
     { key: "jina_osoba_tytez", label: "Vyživuje tytéž děti v téže společně hospodařící domácnosti i jiná osoba", type: "yesno", store: { t: "pay", slot: "jina_osoba", field: "vyzivuje_tytez_deti" } },
-  ]),
+  ], (v) => hasChildren(v) || !!v.jina_osoba_jmeno),
   {
     id: "soubeh",
     title: "L. Souběžné zaměstnání a exekuce",

@@ -52,7 +52,7 @@ describe("jmhzFill", () => {
     expect(r("dite1_neuplatneni")).toBe("NE");
     expect(r("datum_nastupu")).toBe("24.9.2026");
     expect(r("adresa_vykonu_prace")).toBe("Plynárenská 366, 261 01 Příbram");
-    expect(r("pracovni_pozice_nazev")).toBe("dělnice");
+    expect(r("pracovni_pozice_nazev")).toBe("dělník(ce)");
     expect(r("ztpp_drzitel")).toBe("NE");
     // Cesky obcan -> strana 7 (cudzinec) prazdna, podpis/datum prazdne.
     expect(results.cizinec_doklad_cislo_typ.status).toBe("NEZADANE");
