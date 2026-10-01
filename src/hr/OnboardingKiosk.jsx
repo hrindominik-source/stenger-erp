@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback, useRef } from "react";
 import { Loader2, CheckCircle2, ArrowLeft, ArrowRight, AlertCircle, ShieldCheck } from "lucide-react";
 import { supabase } from "../supabaseClient.js";
-import { emptyEmployeeValues } from "../lib/hr/employeeFields.js";
+import { emptyEmployeeValues, MAX_CHILDREN } from "../lib/hr/employeeFields.js";
 import EmployeeFieldsForm, { EmployeeFieldsView, applyFieldChange, visibleSections } from "./EmployeeFieldsForm.jsx";
 
 /* =========================================================================
@@ -34,7 +34,7 @@ const STEPS = [
   { id: "pojisteni", label: "Vzdělání, pojištění, zdraví", sections: ["vzdelani", "pojisteni", "zdravi", "cizi_predpisy", "duchod"] },
   { id: "cizinec", label: "Údaje cizince", sections: ["cizinec"] },
   { id: "pozice", label: "Nástup", sections: ["pozice"] },
-  { id: "dane", label: "Daně a děti", sections: ["dane", "dep_dite1", "dep_dite2", "dep_dite3", "dep_dite4", "dep_manzel", "dep_jina_osoba", "soubeh"] },
+  { id: "dane", label: "Daně a děti", sections: ["dane", "deti", ...Array.from({ length: MAX_CHILDREN }, (_, i) => `dep_dite${i + 1}`), "dep_manzel", "dep_jina_osoba", "soubeh"] },
   { id: "shrnuti", label: "Shrnutí", sections: [] },
 ];
 const KIOSK_CTX = { mode: "kiosk", canSensitive: true, canPayroll: true };

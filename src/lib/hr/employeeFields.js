@@ -37,6 +37,24 @@ const opts = (arr) => arr.map(([value, label]) => ({ value, label: label ?? valu
 
 export const STATE_OPTIONS = opts([[CZ], ["Slovensko"], ["Ukrajina"], ["Moldavsko"], ["Bulharsko"]]);
 export const GENDER_OPTIONS = opts([["zena", "Žena"], ["muz", "Muž"]]);
+export const MARITAL_OPTIONS = opts([
+  ["zenaty_vdana", "ženatý / vdaná"],
+  ["svobodny", "svobodný / svobodná"],
+  ["rozvedeny", "rozvedený / rozvedená"],
+  ["vdovec", "vdovec / vdova"],
+]);
+const MARITAL_WORDS = {
+  zenaty_vdana: ["ženatý", "vdaná"], svobodny: ["svobodný", "svobodná"],
+  rozvedeny: ["rozvedený", "rozvedená"], vdovec: ["vdovec", "vdova"],
+};
+// Tvar podla pohlavia pre dokumenty ("vdaná" / "ženatý"); bez pohlavia oba.
+export function maritalStatusText(code, gender) {
+  const w = MARITAL_WORDS[code];
+  if (!w) return code || "";
+  if (gender === "muz") return w[0];
+  if (gender === "zena") return w[1];
+  return `${w[0]} / ${w[1]}`;
+}
 export const DRUH_CINNOSTI_OPTIONS = opts([
   ["1", "1 – první pracovní poměr"],
   ["2", "2 – druhý pracovní poměr u téhož zaměstnavatele"],
@@ -153,22 +171,36 @@ const addr = (prefix, t, col, pathPrefix, extra = {}) => [
   { key: `${prefix}_psc`, label: "PSČ", type: "text", store: { t, col, path: `${pathPrefix}psc` }, ...extra },
 ];
 
-const dependent = (slot, title, extraFields, showIf) => ({
+const dependent = (slot, title, extraFields, showIf, extra = {}) => ({
   id: `dep_${slot}`,
   title,
   tier: "payroll",
   showIf,
+  ...extra,
   fields: [
     { key: `${slot}_jmeno`, label: "Jméno a příjmení", type: "text", store: { t: "pay", slot, field: "jmeno" } },
     { key: `${slot}_datum_rc`, label: "Datum narození, rodné číslo", type: "text", store: { t: "pay", slot, field: "datum_narozeni_rc" } },
     ...extraFields,
   ],
 });
+
+// Deti: lubovolny pocet (do MAX_CHILDREN) - "Přidat dítě" zvysi deti_pocet.
+// JMHZ PDF ma miesto len pre 4, dalsie su v karte a HR ich prilozi zvlast.
+export const MAX_CHILDREN = 10;
+export const JMHZ_PDF_CHILDREN = 4;
+const CHILD_FIELD_SUFFIXES = ["jmeno", "datum_rc", "narok", "studium", "neuplatneni"];
+export const childSlot = (i) => `dite${i}`;
 const childExtra = (slot) => [
   { key: `${slot}_narok`, label: "Nárok na daňové zvýhodnění", type: "yesno", store: { t: "pay", slot, field: "narok_danove_zvyhodneni" } },
   { key: `${slot}_studium`, label: "Potvrzení o studiu/předškolní docházce", type: "yesno", store: { t: "pay", slot, field: "potvrzeni_studia" } },
   { key: `${slot}_neuplatneni`, label: "Potvrzení o neuplatnění zvýhodnění druhým poplatníkem", type: "yesno", store: { t: "pay", slot, field: "potvrzeni_neuplatneni_druhym" } },
+  { key: `${slot}_rodny_list`, label: "Rodný list (PDF / sken)", type: "file", kind: `rodny_list:${slot}`, hr: true },
+  { key: `${slot}_studium_doklad`, label: "Potvrzení o studiu (PDF / sken)", type: "file", kind: `studium:${slot}`, hr: true },
 ];
+const childSections = Array.from({ length: MAX_CHILDREN }, (_, idx) => {
+  const i = idx + 1;
+  return dependent(childSlot(i), `${i}. dítě`, childExtra(childSlot(i)), (v) => Number(v.deti_pocet || 0) >= i, { childIndex: i });
+});
 
 export const EMPLOYEE_SECTIONS = [
   {
@@ -183,10 +215,21 @@ export const EMPLOYEE_SECTIONS = [
       { key: "date_of_birth", label: "Datum narození", type: "date", store: { t: "emp", col: "date_of_birth" } },
       { key: "birth_number", label: "Rodné číslo (RČ nebo EČP)", type: "text", tier: "sensitive", store: { t: "sens", col: "birth_number" } },
       { key: "gender", label: "Pohlaví", type: "select", options: GENDER_OPTIONS, store: { t: "emp", col: "gender" } },
+      { key: "rodinny_stav", label: "Rodinný stav", type: "select", options: MARITAL_OPTIONS, store: { t: "emp", col: "data", path: "rodinny_stav" } },
       { key: "nationality", label: "Státní občanství", type: "select", options: STATE_OPTIONS, allowOther: true, def: CZ, store: { t: "emp", col: "nationality" } },
       { key: "country_of_birth", label: "Stát narození", type: "select", options: STATE_OPTIONS, allowOther: true, def: CZ, store: { t: "emp", col: "country_of_birth" } },
       { key: "place_of_birth", label: "Obec narození", type: "text", store: { t: "emp", col: "place_of_birth" } },
       { key: "is_foreigner", label: "Zaměstnanec bez státního občanství ČR (cizinec)", type: "check", store: { t: "emp", col: "is_foreigner" } },
+    ],
+  },
+  {
+    id: "evidence",
+    title: "Evidence – doplní účetní (nepovinné)",
+    hr: true,
+    fields: [
+      { key: "osobni_cislo", label: "Osobní číslo zaměstnance", type: "text", store: { t: "emp", col: "data", path: "osobni_cislo" } },
+      { key: "oic", label: "OIČ – osobní identifikační číslo (přiděluje ČSSZ)", type: "text", store: { t: "emp", col: "data", path: "oic" } },
+      { key: "id_ppv", label: "ID PPV – identifikátor zaměstnání (přiděluje ČSSZ)", type: "text", tier: "job", store: { t: "job", col: "data", path: "id_ppv" } },
     ],
   },
   {
@@ -357,10 +400,8 @@ export const EMPLOYEE_SECTIONS = [
       { key: "tax_invalidita", label: "Sleva na invaliditu (I., II., III. stupeň)", type: "check", showIf: (v) => v.tax_uplatneni === true, store: { t: "pay", bucket: "tax_declaration", field: "sleva_invalidita" } },
     ],
   },
-  dependent("dite1", "1. dítě (jen při uplatnění daňového zvýhodnění)", childExtra("dite1")),
-  dependent("dite2", "2. dítě", childExtra("dite2"), (v) => !!v.dite1_jmeno),
-  dependent("dite3", "3. dítě", childExtra("dite3"), (v) => !!v.dite2_jmeno),
-  dependent("dite4", "4. dítě", childExtra("dite4"), (v) => !!v.dite3_jmeno),
+  { id: "deti", title: "Děti (uveďte všechny děti žijící ve společné domácnosti)", tier: "payroll", control: "children", fields: [] },
+  ...childSections,
   dependent("manzel", "Manžel / manželka", [
     { key: "manzel_narok", label: "Nárok na daňové zvýhodnění", type: "yesno", store: { t: "pay", slot: "manzel", field: "narok_danove_zvyhodneni" } },
     { key: "manzel_sleva", label: "Uplatnění slevy na manžela/manželku", type: "yesno", store: { t: "pay", slot: "manzel", field: "uplatneni_slevy" } },
@@ -378,6 +419,7 @@ export const EMPLOYEE_SECTIONS = [
       { key: "jiny_zamestnavatel_nazev", label: "Souběh u jiného zaměstnavatele – název, sídlo", type: "text", store: { t: "pay", bucket: "concurrent_employment", field: "jiny_zamestnavatel_nazev_sidlo" } },
       { key: "jiny_zamestnavatel_misto", label: "Souběh u jiného zaměstnavatele – místo výkonu práce, druh vztahu", type: "text", showIf: (v) => !!v.jiny_zamestnavatel_nazev, store: { t: "pay", bucket: "concurrent_employment", field: "jiny_zamestnavatel_misto_druh" } },
       { key: "exekuce", label: "Exekuční / insolvenční srážky ze mzdy", type: "yesno", def: false, store: { t: "pay", bucket: "garnishments", field: "exekuce_insolvence_prohlaseni" } },
+      { key: "exekuce_doklad", label: "Doklady k exekuci / insolvenci (PDF / sken)", type: "file", kind: "exekuce", hr: true, showIf: (v) => v.exekuce === true },
     ],
   },
   {
@@ -406,6 +448,8 @@ export function emptyEmployeeValues() {
     else v[f.key] = "";
   }
   v.postaveni = derivePostaveni(v.employment_type);
+  v.deti_pocet = 0;
+  v.prilohy = [];
   return v;
 }
 
@@ -488,6 +532,8 @@ export function valuesFromRecords(records) {
     v.vedouci = records.payroll.concurrent_employment.vedouci_pracovnik === true;
   }
   if (!records.employment?.data?.postaveni && records.employment) v.postaveni = derivePostaveni(v.employment_type);
+  v.deti_pocet = countChildren(v);
+  v.prilohy = Array.isArray(records.payroll?.data?.prilohy) ? records.payroll.data.prilohy : [];
   return v;
 }
 
@@ -503,6 +549,8 @@ export function normalizeLegacyDraft(d) {
   out.highest_education = normalizeEducation(out.highest_education);
   out.health_insurance_company = normalizeHealthInsurance(out.health_insurance_company);
   for (const f of ALL_FIELDS) if (f.type === "fixed") out[f.key] = f.fixedValue;
+  out.deti_pocet = Math.max(Number(out.deti_pocet || 0), countChildren(out));
+  if (!Array.isArray(out.prilohy)) out.prilohy = [];
   return out;
 }
 
@@ -523,7 +571,9 @@ function toDbValue(field, value) {
   return s === "" ? null : s;
 }
 
-export function buildRecordPatches(values, existing = {}, ctx = {}) {
+export function buildRecordPatches(rawValues, existing = {}, ctx = {}) {
+  // Vyplnene dieta sa nikdy nestrati, ani keby deti_pocet chybal (stary draft).
+  const values = { ...rawValues, deti_pocet: Math.max(Number(rawValues.deti_pocet || 0), countChildren(rawValues)) };
   const { mode = "create", canSensitive = true, canPayroll = true } = ctx;
   const emp = {}; const sens = {}; const job = {};
   const pay = {};
@@ -579,7 +629,9 @@ export function buildRecordPatches(values, existing = {}, ctx = {}) {
   return {
     employees: touched.emp ? emp : null,
     sensitive: touched.sens ? sens : null,
-    payroll: touched.pay ? { ...pay, dependents: cleanDependents } : null,
+    payroll: touched.pay
+      ? { ...pay, dependents: cleanDependents, data: { ...(existing.payroll?.data || {}), prilohy: (values.prilohy || []).filter((x) => x.path).map(({ file, ...rest }) => rest) } }
+      : null,
     employment: touched.job ? job : null,
   };
 }
@@ -587,13 +639,13 @@ export function buildRecordPatches(values, existing = {}, ctx = {}) {
 // Ci je v patchi aspon jedna neprazdna hodnota (aby sme pri zakladani
 // nevytvarali prazdne riadky v citlivych tabulkach).
 export function patchHasContent(patch) {
-  if (!patch) return false;
-  return Object.values(patch).some((v) => {
+  const has = (v) => {
     if (v === null || v === undefined || v === false || v === "") return false;
-    if (Array.isArray(v)) return v.length > 0;
-    if (typeof v === "object") return Object.values(v).some((x) => x !== null && x !== undefined && x !== "" && x !== false);
+    if (Array.isArray(v)) return v.some(has);
+    if (typeof v === "object") return Object.values(v).some(has);
     return true;
-  });
+  };
+  return !!patch && has(patch);
 }
 
 // ---------------------------------------------------------------------------
@@ -610,4 +662,43 @@ export function formatCityLine(obec, psc, stat) {
 
 export function isValuesForeigner(v) {
   return isForeigner(v);
+}
+
+// ---------------------------------------------------------------------------
+// Deti - pocet a odobratie (s posunom dalsich deti aj ich priloh)
+// ---------------------------------------------------------------------------
+
+const isFilled = (x) => x !== "" && x !== undefined && x !== null;
+
+export function countChildren(v) {
+  let n = 0;
+  for (let i = 1; i <= MAX_CHILDREN; i++) {
+    if (CHILD_FIELD_SUFFIXES.some((suf) => isFilled(v[`${childSlot(i)}_${suf}`]))) n = i;
+  }
+  return n;
+}
+
+export function addChild(v) {
+  return { ...v, deti_pocet: Math.min(Number(v.deti_pocet || 0) + 1, MAX_CHILDREN) };
+}
+
+export function removeChild(v, index) {
+  const count = Number(v.deti_pocet || 0);
+  const next = { ...v };
+  for (let i = index; i < count; i++) {
+    for (const suf of CHILD_FIELD_SUFFIXES) next[`${childSlot(i)}_${suf}`] = v[`${childSlot(i + 1)}_${suf}`];
+  }
+  for (const suf of CHILD_FIELD_SUFFIXES) next[`${childSlot(count)}_${suf}`] = "";
+  // Prilohy odobraneho dietata sa z karty odpoja (subor v ulozisku ostava -
+  // bucket nema DELETE, viz schema.sql 45.6), dalsie deti sa posunu o 1.
+  const removedSlot = childSlot(index);
+  next.prilohy = (v.prilohy || [])
+    .filter((p) => !p.kind.endsWith(`:${removedSlot}`))
+    .map((p) => {
+      const m = p.kind.match(/^(.*):dite(\d+)$/);
+      if (m && Number(m[2]) > index) return { ...p, kind: `${m[1]}:dite${Number(m[2]) - 1}` };
+      return p;
+    });
+  next.deti_pocet = Math.max(count - 1, 0);
+  return next;
 }

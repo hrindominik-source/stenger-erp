@@ -11,7 +11,7 @@ import { convertFilledDocxToPdf } from "../lib/hr/docxToPdf.js";
 import { extractJmhzFields, detectJmhzVersionCandidates, knownJmhzVersions } from "../lib/hr/jmhzPdf.js";
 import { buildComparisonRows } from "../lib/hr/jmhzImport.js";
 import { sha256Hex, buildSignedScanPath } from "../lib/hr/documentHash.js";
-import { EMPLOYEE_SECTIONS, emptyEmployeeValues, normalizeLegacyDraft, valuesFromRecords, buildRecordPatches, patchHasContent } from "../lib/hr/employeeFields.js";
+import { EMPLOYEE_SECTIONS, emptyEmployeeValues, normalizeLegacyDraft, valuesFromRecords, buildRecordPatches, patchHasContent, maritalStatusText, normalizeGender, HEALTH_INSURANCE_OPTIONS, optionLabel, normalizeHealthInsurance } from "../lib/hr/employeeFields.js";
 import EmployeeFieldsForm, { EmployeeFieldsView, applyFieldChange } from "./EmployeeFieldsForm.jsx";
 
 const HR_DOKUMENTY_BUCKET = "hr-dokumenty";
@@ -555,6 +555,28 @@ function OnboardingReviewTab({ permissions, onOpenEmployee }) {
 /* Polia su definovane v lib/hr/employeeFields.js (zjednotenie ČSSZ registracie
    + JMHZ dotaznika) - tu len stav formulara a zapis do tabuliek. */
 
+// Prilohy (rodny list, potvrzeni o studiu, exekuce) - subory do bucketu
+// hr-dokumenty, metadata do employee_payroll_data.data.prilohy (vidi len
+// HR_VIEW_PAYROLL). Nahraju sa az pri ulozeni formulara.
+async function uploadPendingAttachments(values, employeeId) {
+  const list = [];
+  for (const p of values.prilohy || []) {
+    if (p.path || !p.file) { if (p.path) list.push(p); continue; }
+    const ext = (p.name.match(/\.[a-z0-9]+$/i)?.[0] || "").toLowerCase();
+    const path = `zamestnanci/${employeeId}/prilohy/${p.id}${ext}`;
+    const { error } = await supabase.storage.from(HR_DOKUMENTY_BUCKET).upload(path, p.file, { contentType: p.file.type || "application/octet-stream" });
+    if (error) throw new Error(`Přílohu "${p.name}" se nepodařilo nahrát: ${error.message}`);
+    list.push({ id: p.id, kind: p.kind, name: p.name, size: p.size, path, uploaded_at: new Date().toISOString() });
+  }
+  return { ...values, prilohy: list };
+}
+
+async function openHrFile(path) {
+  const { data, error } = await supabase.storage.from(HR_DOKUMENTY_BUCKET).createSignedUrl(path, 3600);
+  if (error) { window.alert(error.message); return; }
+  window.open(data.signedUrl, "_blank");
+}
+
 function EmployeeCreateForm({ permissions, onCancel, onCreated, initialData, positionLabelHint, onboardingSessionId }) {
   const [f, setF] = useState(() => (initialData ? normalizeLegacyDraft(initialData) : emptyEmployeeValues()));
   const [positions, setPositions] = useState([]);
@@ -563,8 +585,16 @@ function EmployeeCreateForm({ permissions, onCancel, onCreated, initialData, pos
   const canSensitive = hasPerm(permissions, "HR_VIEW_SENSITIVE");
   const canPayroll = hasPerm(permissions, "HR_VIEW_PAYROLL");
 
+  const [nextOsobniCislo, setNextOsobniCislo] = useState(null);
+
   useEffect(() => {
     supabase.from("positions").select("*").eq("active", true).order("name").then(({ data }) => setPositions(data || []));
+    // Osobni cisla idu za sebou - navrhne dalsie (max + 1), uctovnicka ho
+    // moze pouzit jednym klikom alebo zadat ine.
+    supabase.from("employees").select("data").then(({ data }) => {
+      const nums = (data || []).map((e) => parseInt(e.data?.osobni_cislo, 10)).filter((n) => Number.isFinite(n));
+      setNextOsobniCislo(nums.length ? Math.max(...nums) + 1 : 1);
+    });
   }, []);
 
   function onFieldChange(key, value) {
@@ -582,7 +612,8 @@ function EmployeeCreateForm({ permissions, onCancel, onCreated, initialData, pos
     try {
       const employeeId = uid();
       const { data: userData } = await supabase.auth.getUser();
-      const patches = buildRecordPatches(f, {}, { mode: "create", canSensitive, canPayroll });
+      const withFiles = canPayroll ? await uploadPendingAttachments(f, employeeId) : f;
+      const patches = buildRecordPatches(withFiles, {}, { mode: "create", canSensitive, canPayroll });
 
       const { error: empErr } = await supabase.from("employees").insert({
         id: employeeId, ...patches.employees,
@@ -655,7 +686,10 @@ function EmployeeCreateForm({ permissions, onCancel, onCreated, initialData, pos
         </div>
       )}
 
-      <EmployeeFieldsForm values={f} onChange={onFieldChange} mode="create" canSensitive={canSensitive} canPayroll={canPayroll} positions={positions} />
+      <EmployeeFieldsForm
+        values={f} onChange={onFieldChange} mode="create" canSensitive={canSensitive} canPayroll={canPayroll} positions={positions}
+        hints={nextOsobniCislo ? { osobni_cislo: { text: `Použít další v pořadí: ${nextOsobniCislo}`, value: String(nextOsobniCislo) } } : {}}
+      />
 
       {error && <div className="bg-red-50 text-red-700 text-sm px-3 py-2 rounded-md mb-3 flex items-center gap-2"><AlertCircle size={16} /> {error}</div>}
 
@@ -765,7 +799,10 @@ function EmployeeDetail({ id, permissions, onBack }) {
       <div className="flex items-center justify-between mb-4 flex-wrap gap-2">
         <div>
           <h1 className="text-xl font-semibold">{fullName(employee)}</h1>
-          <div className="text-sm text-slate-500">{currentEmployment ? positionLabel(currentEmployment.position_id) : "Bez aktivního pracovního poměru"}</div>
+          <div className="text-sm text-slate-500">
+            {employee.data?.osobni_cislo ? `Os. č. ${employee.data.osobni_cislo} · ` : ""}
+            {currentEmployment ? positionLabel(currentEmployment.position_id) : "Bez aktivního pracovního poměru"}
+          </div>
         </div>
         <div className="flex items-center gap-2">
           <span className={"px-2.5 py-1 rounded-full text-xs font-medium " + (employee.active ? "bg-emerald-100 text-emerald-700" : "bg-slate-200 text-slate-500")}>
@@ -963,7 +1000,8 @@ function OsobniUdajeTab({ employee, sensitive, payroll, currentEmployment, posit
     setError("");
     try {
       const now = new Date().toISOString();
-      const p = buildRecordPatches(f, records, { mode: "edit", canSensitive, canPayroll });
+      const withFiles = canPayroll ? await uploadPendingAttachments(f, employee.id) : f;
+      const p = buildRecordPatches(withFiles, records, { mode: "edit", canSensitive, canPayroll });
       const { error: empErr } = await supabase.from("employees").update({ ...p.employees, updated_at: now }).eq("id", employee.id);
       if (empErr) throw empErr;
       if (canSensitive && p.sensitive && (sensitive || patchHasContent(p.sensitive))) {
@@ -1007,7 +1045,7 @@ function OsobniUdajeTab({ employee, sensitive, payroll, currentEmployment, posit
       <h2 className="font-semibold text-sm mb-3">Upravit osobní údaje</h2>
       <EmployeeFieldsForm
         values={f} onChange={(k, v) => setF((prev) => applyFieldChange(prev, k, v))} mode="edit"
-        canSensitive={canSensitive} canPayroll={canPayroll} positions={positions} sectionIds={sectionIds}
+        canSensitive={canSensitive} canPayroll={canPayroll} positions={positions} sectionIds={sectionIds} onOpenFile={openHrFile}
       />
       {error && <div className="bg-red-50 text-red-700 text-sm px-3 py-2 rounded-md mt-2 mb-2">{error}</div>}
       <div className="flex justify-end gap-2 mt-3 pb-4">
@@ -1786,7 +1824,11 @@ function DokumentyTab({ employee, sensitive, currentEmployment, permissions }) {
 
 function GenerateDocumentForm({ employee, sensitive, currentEmployment, templates, pendingTemplates = [], onCancel, onSaved }) {
   const [templateId, setTemplateId] = useState(templates[0]?.id || "");
-  const [manualFields, setManualFields] = useState({ cele_jmeno: fullName(employee) });
+  const [manualFields, setManualFields] = useState(() => ({
+    cele_jmeno: fullName(employee),
+    rodinny_stav: maritalStatusText(employee.data?.rodinny_stav, normalizeGender(employee.gender)),
+    pojistovna: employee.health_insurance_company ? optionLabel(HEALTH_INSURANCE_OPTIONS, normalizeHealthInsurance(employee.health_insurance_company)) : "",
+  }));
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
   const [version, setVersion] = useState(null);

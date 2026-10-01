@@ -1,7 +1,8 @@
 import React, { useState } from "react";
-import { Lock, ShieldAlert } from "lucide-react";
+import { Lock, ShieldAlert, Plus, Trash2, Paperclip, X } from "lucide-react";
 import {
   EMPLOYEE_SECTIONS, fieldVisibleInMode, isFieldShown, optionLabel, derivePostaveni,
+  addChild, removeChild, MAX_CHILDREN, JMHZ_PDF_CHILDREN,
 } from "../lib/hr/employeeFields.js";
 
 /* Spolocny renderer udajov zamestnanca (definicia v lib/hr/employeeFields.js).
@@ -11,6 +12,9 @@ import {
 // Odvodene predvolby pri zmene pola (postavenie podla typu zmluvy, vznik
 // zamestnania = datum nastupu), kym ich HR rucne neprepise na nieco ine.
 export function applyFieldChange(values, key, value) {
+  // Specialne akcie (deti) - aby rodicia nemuseli poznat nic okrem onChange.
+  if (key === "__add_child") return addChild(values);
+  if (key === "__remove_child") return removeChild(values, value);
   const next = { ...values, [key]: value };
   if (key === "employment_type" && values.postaveni === derivePostaveni(values.employment_type)) {
     next.postaveni = derivePostaveni(value);
@@ -30,10 +34,16 @@ export function visibleSections({ mode, canSensitive, canPayroll, values, sectio
         .map((f) => ({ ...f, tier: f.tier || s.tier || "basic", section: s }))
         .filter((f) => fieldVisibleInMode(f, { mode, canSensitive, canPayroll }) && isFieldShown(f, values)),
     }))
-    .filter((x) => x.fields.length > 0);
+    .filter((x) => x.fields.length > 0 || (x.section.control && sectionTierAllowed(x.section, { mode, canSensitive, canPayroll })));
 }
 
-export default function EmployeeFieldsForm({ values, onChange, mode, canSensitive, canPayroll, positions = [], variant = "office", sectionIds }) {
+function sectionTierAllowed(section, { canSensitive, canPayroll }) {
+  if (section.tier === "sensitive") return !!canSensitive;
+  if (section.tier === "payroll") return !!canPayroll;
+  return true;
+}
+
+export default function EmployeeFieldsForm({ values, onChange, mode, canSensitive, canPayroll, positions = [], variant = "office", sectionIds, hints = {}, onOpenFile }) {
   const big = variant === "kiosk";
   const sections = visibleSections({ mode, canSensitive, canPayroll, values, sectionIds });
   return (
@@ -49,15 +59,29 @@ export default function EmployeeFieldsForm({ values, onChange, mode, canSensitiv
               (big ? "" : sensitiveSection ? "bg-amber-50 border-amber-200" : payrollSection ? "bg-sky-50/40 border-sky-100" : "bg-white border-slate-200")
             }
           >
-            <h2 className={(big ? "text-base font-semibold text-slate-700 mb-3" : "font-semibold text-sm mb-3") + " flex items-center gap-1.5"}>
-              {sensitiveSection && !big && <ShieldAlert size={15} className="text-amber-600" />}
-              {section.title}
-            </h2>
-            <div className={"grid grid-cols-1 sm:grid-cols-2 " + (big ? "gap-x-5" : "lg:grid-cols-3 gap-x-4")}>
-              {fields.map((f) => (
-                <FieldInput key={f.key} field={f} value={values[f.key]} big={big} positions={positions} onChange={(v) => onChange(f.key, v)} />
-              ))}
+            <div className="flex items-center justify-between gap-2 mb-3">
+              <h2 className={(big ? "text-base font-semibold text-slate-700" : "font-semibold text-sm") + " flex items-center gap-1.5"}>
+                {sensitiveSection && !big && <ShieldAlert size={15} className="text-amber-600" />}
+                {section.title}
+              </h2>
+              {section.childIndex && (
+                <button type="button" onClick={() => onChange("__remove_child", section.childIndex)} className="flex items-center gap-1 text-xs text-red-500 hover:text-red-700">
+                  <Trash2 size={13} /> Odebrat dítě
+                </button>
+              )}
             </div>
+            {section.control === "children" && <ChildrenControl count={Number(values.deti_pocet || 0)} big={big} onAdd={() => onChange("__add_child", true)} />}
+            {fields.length > 0 && (
+              <div className={"grid grid-cols-1 sm:grid-cols-2 " + (big ? "gap-x-5" : "lg:grid-cols-3 gap-x-4")}>
+                {fields.map((f) => (
+                  f.type === "file" ? (
+                    <FileField key={f.key} field={f} prilohy={values.prilohy || []} onChange={(list) => onChange("prilohy", list)} onOpenFile={onOpenFile} />
+                  ) : (
+                    <FieldInput key={f.key} field={f} value={values[f.key]} big={big} positions={positions} hint={hints[f.key]} onChange={(v) => onChange(f.key, v)} />
+                  )
+                ))}
+              </div>
+            )}
           </div>
         );
       })}
@@ -65,7 +89,59 @@ export default function EmployeeFieldsForm({ values, onChange, mode, canSensitiv
   );
 }
 
-function FieldInput({ field, value, onChange, big, positions }) {
+function ChildrenControl({ count, big, onAdd }) {
+  return (
+    <div className="flex items-center gap-3 flex-wrap">
+      <span className={big ? "text-base text-slate-600" : "text-sm text-slate-600"}>Počet dětí: <strong>{count}</strong></span>
+      {count < MAX_CHILDREN && (
+        <button type="button" onClick={onAdd} className={(big ? "px-4 py-2.5 text-base" : "px-3 py-1.5 text-sm") + " flex items-center gap-1.5 rounded-md border border-teal-600 text-teal-700 hover:bg-teal-50 font-medium"}>
+          <Plus size={big ? 18 : 15} /> Přidat dítě
+        </button>
+      )}
+      {count > JMHZ_PDF_CHILDREN && (
+        <span className="text-xs text-amber-700">JMHZ dotazník má místo jen pro {JMHZ_PDF_CHILDREN} děti - další je třeba uvést zvlášť.</span>
+      )}
+    </div>
+  );
+}
+
+// Prilohy (PDF/sken) - drzane vo values.prilohy ako [{id, kind, name, path?,
+// file?}]. Bez `path` = este nenahrate (nahra ich rodic pri ulozeni).
+function FileField({ field, prilohy, onChange, onOpenFile }) {
+  const mine = prilohy.filter((p) => p.kind === field.kind);
+  function addFiles(e) {
+    const files = Array.from(e.target.files || []);
+    e.target.value = "";
+    if (!files.length) return;
+    const added = files.map((file) => ({ id: crypto.randomUUID(), kind: field.kind, name: file.name, size: file.size, file }));
+    onChange([...prilohy, ...added]);
+  }
+  return (
+    <div className="mb-3 sm:col-span-2 lg:col-span-3">
+      <span className="block text-xs font-medium text-slate-500 mb-1">{field.label}</span>
+      <div className="flex flex-wrap items-center gap-2">
+        {mine.map((p) => (
+          <span key={p.id} className="flex items-center gap-1.5 text-xs bg-slate-100 border border-slate-200 rounded-md pl-2 pr-1 py-1">
+            <Paperclip size={12} className="text-slate-400" />
+            {p.path && onOpenFile ? (
+              <button type="button" onClick={() => onOpenFile(p.path)} className="text-teal-700 hover:underline max-w-[220px] truncate">{p.name}</button>
+            ) : (
+              <span className="max-w-[220px] truncate">{p.name}</span>
+            )}
+            {!p.path && <span className="text-amber-600">(nahraje se při uložení)</span>}
+            <button type="button" onClick={() => onChange(prilohy.filter((x) => x.id !== p.id))} className="text-slate-400 hover:text-red-600 p-0.5" title="Odebrat"><X size={12} /></button>
+          </span>
+        ))}
+        <label className="flex items-center gap-1 text-xs text-teal-700 hover:text-teal-900 cursor-pointer border border-dashed border-teal-300 rounded-md px-2 py-1">
+          <Plus size={12} /> Přiložit soubor
+          <input type="file" accept=".pdf,image/*" multiple onChange={addFiles} className="hidden" />
+        </label>
+      </div>
+    </div>
+  );
+}
+
+function FieldInput({ field, value, onChange, big, positions, hint }) {
   const [otherMode, setOtherMode] = useState(false);
   const labelCls = big ? "block text-sm font-medium text-slate-500 mb-1.5" : "block text-xs font-medium text-slate-500 mb-1";
   const inputCls = big ? "w-full border border-slate-300 rounded-lg px-3 py-2.5 text-base" : "w-full border border-slate-300 rounded-md px-3 py-2 text-sm";
@@ -148,13 +224,22 @@ function FieldInput({ field, value, onChange, big, positions }) {
     <label className={wrap + (wide ? " sm:col-span-2 lg:col-span-3" : "")}>
       <span className={labelCls}>{field.label}</span>
       {control}
+      {hint && !value && (
+        <button type="button" onClick={(e) => { e.preventDefault(); onChange(hint.value); }} className="text-xs text-teal-700 hover:underline mt-1">
+          {hint.text}
+        </button>
+      )}
     </label>
   );
 }
 
 // Zobrazenie (len citanie) - vypise len vyplnene polia, po sekciach.
-export function formatFieldValue(field, value, positions = []) {
+export function formatFieldValue(field, value, positions = [], values = {}) {
   if (field.type === "fixed") return field.fixedValue;
+  if (field.type === "file") {
+    const names = (values.prilohy || []).filter((p) => p.kind === field.kind && p.path).map((p) => p.name);
+    return names.length ? names.join(", ") : null;
+  }
   if (value === "" || value === null || value === undefined) return null;
   if (field.type === "yesno") return value === true ? "Ano" : value === false ? "Ne" : null;
   if (field.type === "check") return value ? "Ano" : null;
@@ -172,7 +257,7 @@ export function formatFieldValue(field, value, positions = []) {
 
 export function EmployeeFieldsView({ values, mode = "edit", canSensitive, canPayroll, positions = [] }) {
   const sections = visibleSections({ mode, canSensitive, canPayroll, values })
-    .map(({ section, fields }) => ({ section, rows: fields.map((f) => ({ f, text: formatFieldValue(f, values[f.key], positions) })).filter((r) => r.text) }))
+    .map(({ section, fields }) => ({ section, rows: fields.map((f) => ({ f, text: formatFieldValue(f, values[f.key], positions, values) })).filter((r) => r.text) }))
     .filter((s) => s.rows.length > 0);
   return (
     <div className="space-y-3">

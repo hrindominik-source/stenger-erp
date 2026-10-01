@@ -219,6 +219,9 @@ export async function fillJmhzPdf(templateBytes, fontBytes, values, extra = {}) 
     }
   }
 
+  if (Number(values.deti_pocet || 0) > 4) {
+    skipped.push({ label: `Děti 5–${values.deti_pocet}`, reason: "dotazník má místo jen pro 4 děti - uveďte je zvlášť" });
+  }
   form.updateFieldAppearances(font);
   // LibreOffice vzor ma NeedAppearances=true -> prehliadac by polia prekreslil
   // vlastnym pismom (/He = Helvetica bez ceskych znakov: "eská republika").

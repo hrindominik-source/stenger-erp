@@ -96,3 +96,34 @@ describe("employeeFields - zápis a čtení", () => {
     expect(v.health_insurance_company).toBe("205");
   });
 });
+
+describe("děti, rodinný stav, přílohy", () => {
+  it("přidání a odebrání dítěte posune další děti i jejich přílohy", async () => {
+    const { addChild, removeChild, countChildren, maritalStatusText, patchHasContent } = await import("./employeeFields.js");
+    let v = { ...emptyEmployeeValues() };
+    v = addChild(addChild(addChild(v)));
+    expect(v.deti_pocet).toBe(3);
+    v = { ...v, dite1_jmeno: "A", dite2_jmeno: "B", dite3_jmeno: "C",
+      prilohy: [{ id: "1", kind: "rodny_list:dite2", name: "b.pdf", path: "x/b" }, { id: "2", kind: "rodny_list:dite3", name: "c.pdf", path: "x/c" }] };
+    const r = removeChild(v, 2);
+    expect(r.deti_pocet).toBe(2);
+    expect([r.dite1_jmeno, r.dite2_jmeno, r.dite3_jmeno]).toEqual(["A", "C", ""]);
+    expect(r.prilohy).toEqual([{ id: "2", kind: "rodny_list:dite2", name: "c.pdf", path: "x/c" }]);
+    expect(countChildren(r)).toBe(2);
+    const p = buildRecordPatches(r, {}, { mode: "create" });
+    expect(p.payroll.dependents.map((d) => d.slot)).toEqual(["dite1", "dite2"]);
+    expect(p.payroll.data.prilohy).toHaveLength(1);
+    expect(maritalStatusText("zenaty_vdana", "zena")).toBe("vdaná");
+    expect(maritalStatusText("zenaty_vdana", "muz")).toBe("ženatý");
+    expect(patchHasContent({ dependents: [], data: { prilohy: [] } })).toBe(false);
+  });
+
+  it("6 dětí: JMHZ vyplní první 4 a upozorní na zbytek", async () => {
+    const { addChild } = await import("./employeeFields.js");
+    let v = { ...duchkova };
+    for (let i = 0; i < 6; i++) v = addChild(v);
+    for (let i = 1; i <= 6; i++) v[`dite${i}_jmeno`] = `Dítě ${i}`;
+    const { skipped } = await fillJmhzPdf(template, font, v);
+    expect(skipped.map((s) => s.label)).toEqual(["Děti 5–6"]);
+  });
+});
