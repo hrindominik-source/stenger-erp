@@ -991,11 +991,20 @@ function OsobniUdajeTab({ employee, sensitive, payroll, currentEmployment, posit
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
   const records = { employee, sensitive, payroll, employment: currentEmployment };
+  // Starsie pomery bez kategorie: odvod HI-00x z kodu priradenej pozicie.
+  function loadValues() {
+    const v = valuesFromRecords(records);
+    if (!v.pozice_kategorie && currentEmployment?.position_id) {
+      const code = String(positions.find((p) => p.id === currentEmployment.position_id)?.code || "").toUpperCase().replace(/L/g, "I").replace(/\s/g, "");
+      if (/^HI-00[123]$/.test(code)) v.pozice_kategorie = code;
+    }
+    return v;
+  }
   // Bez pracovneho pomeru sa udaje o pozicii nemaju kam ulozit - skryte.
   const sectionIds = currentEmployment ? undefined : EMPLOYEE_SECTIONS.map((s) => s.id).filter((id) => id !== "pozice" && id !== "cinnost");
 
   function startEdit() {
-    setF(valuesFromRecords(records));
+    setF(loadValues());
     setError("");
     setEditing(true);
   }
@@ -1041,7 +1050,7 @@ function OsobniUdajeTab({ employee, sensitive, payroll, currentEmployment, posit
           {canEdit && <button onClick={startEdit} className="flex items-center gap-1 text-sm text-teal-700 hover:text-teal-900"><Pencil size={14} /> Upravit / doplnit</button>}
         </div>
         {!currentEmployment && <div className="text-xs text-slate-400 mb-3">Údaje o pozici (profese, režim…) lze doplnit až po založení pracovního poměru.</div>}
-        <EmployeeFieldsView values={valuesFromRecords(records)} mode="edit" canSensitive={canSensitive} canPayroll={canPayroll} positions={positions} />
+        <EmployeeFieldsView values={loadValues()} mode="edit" canSensitive={canSensitive} canPayroll={canPayroll} positions={positions} />
       </div>
     );
   }

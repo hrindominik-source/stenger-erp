@@ -47,6 +47,11 @@ const MARITAL_WORDS = {
   zenaty_vdana: ["ženatý", "vdaná"], svobodny: ["svobodný", "svobodná"],
   rozvedeny: ["rozvedený", "rozvedená"], vdovec: ["vdovec", "vdova"],
 };
+// Vyber vo formulari: muz -> ženatý/svobodný..., zena -> vdaná/svobodná...
+export function maritalOptionsForGender(gender) {
+  if (gender !== "muz" && gender !== "zena") return MARITAL_OPTIONS;
+  return Object.entries(MARITAL_WORDS).map(([value, w]) => ({ value, label: gender === "muz" ? w[0] : w[1] }));
+}
 // Tvar podla pohlavia pre dokumenty ("vdaná" / "ženatý"); bez pohlavia oba.
 export function maritalStatusText(code, gender) {
   const w = MARITAL_WORDS[code];
@@ -278,7 +283,7 @@ export const EMPLOYEE_SECTIONS = [
       { key: "date_of_birth", label: "Datum narození", type: "date", store: { t: "emp", col: "date_of_birth" } },
       { key: "birth_number", label: "Rodné číslo (RČ nebo EČP)", type: "text", tier: "sensitive", store: { t: "sens", col: "birth_number" } },
       { key: "gender", label: "Pohlaví", type: "select", options: GENDER_OPTIONS, store: { t: "emp", col: "gender" } },
-      { key: "rodinny_stav", label: "Rodinný stav", type: "select", options: MARITAL_OPTIONS, store: { t: "emp", col: "data", path: "rodinny_stav" } },
+      { key: "rodinny_stav", label: "Rodinný stav", type: "select", options: MARITAL_OPTIONS, optionsFn: (v) => maritalOptionsForGender(v.gender), store: { t: "emp", col: "data", path: "rodinny_stav" } },
       { key: "nationality", label: "Státní občanství", type: "select", options: STATE_OPTIONS, allowOther: true, def: CZ, store: { t: "emp", col: "nationality" } },
       { key: "country_of_birth", label: "Stát narození", type: "select", options: STATE_OPTIONS, allowOther: true, def: CZ, store: { t: "emp", col: "country_of_birth" } },
       { key: "place_of_birth", label: "Obec narození", type: "text", store: { t: "emp", col: "place_of_birth" } },
@@ -290,12 +295,12 @@ export const EMPLOYEE_SECTIONS = [
     title: "Evidence – doplní účetní (nepovinné)",
     hr: true,
     fields: [
-      { key: "osobni_cislo", label: "Osobní číslo zaměstnance", type: "text", store: { t: "emp", col: "data", path: "osobni_cislo" } },
-      { key: "oic", label: "OIČ – osobní identifikační číslo (přiděluje ČSSZ)", type: "text", store: { t: "emp", col: "data", path: "oic" } },
-      { key: "cislo_pojistence", label: "Číslo pojištěnce (náhradní / evidenční číslo pojištěnce)", type: "text", store: { t: "emp", col: "data", path: "cislo_pojistence" } },
+      { key: "osobni_cislo", label: "Osobní číslo zaměstnance", type: "text", rowStart: true, store: { t: "emp", col: "data", path: "osobni_cislo" } },
+      { key: "oic", label: "OIČ – osobní identifikační číslo (přiděluje ČSSZ)", type: "text", rowStart: true, store: { t: "emp", col: "data", path: "oic" } },
+      { key: "id_ppv", label: "ID PPV – identifikátor zaměstnání (přiděluje ČSSZ)", type: "text", tier: "job", store: { t: "job", col: "data", path: "id_ppv" } },
+      { key: "cislo_pojistence", label: "Číslo pojištěnce (náhradní / evidenční číslo pojištěnce)", type: "text", rowStart: true, store: { t: "emp", col: "data", path: "cislo_pojistence" } },
       // Prilohy sa ukladaju k mzdovym udajom (payroll.data.prilohy) -> tier payroll.
       { key: "cislo_pojistence_oznameni", label: "Oznámení o přidělení čísla pojištěnce (PDF / sken)", type: "file", kind: "oznameni_cislo_pojistence", tier: "payroll" },
-      { key: "id_ppv", label: "ID PPV – identifikátor zaměstnání (přiděluje ČSSZ)", type: "text", tier: "job", store: { t: "job", col: "data", path: "id_ppv" } },
     ],
   },
   {
@@ -316,6 +321,7 @@ export const EMPLOYEE_SECTIONS = [
       { key: "danovy_identifikator", label: "Daňový identifikátor ve státě rezidence", type: "text", tier: "sensitive", showIf: (v) => !isCz(v.stat_rezidence), store: { t: "sens", col: "foreigner_data", path: "danovy_identifikator" } },
       { key: "rezidence_od", label: "Rezidentem od", type: "date", tier: "sensitive", showIf: (v) => !isCz(v.stat_rezidence), store: { t: "sens", col: "foreigner_data", path: "rezidence_od" } },
       ...addr("rez", "sens", "foreigner_data", "rezidence_", { tier: "sensitive", showIf: (v) => !isCz(v.stat_rezidence) }),
+      { key: "cizinec_doklady", label: "Doklady cizince (sken pasu, rozhodnutí cizinecké policie apod.)", type: "file", kind: "cizinec_doklady", tier: "payroll", hr: true, showIf: (v) => !isCz(v.stat_rezidence) || isForeigner(v) },
     ],
   },
   {
@@ -350,6 +356,9 @@ export const EMPLOYEE_SECTIONS = [
       { key: "id_document_type", label: "Typ průkazu", type: "select", options: DOKLAD_OPTIONS, allowOther: true, def: "Občanský průkaz", store: { t: "emp", col: "id_document_type" } },
       { key: "id_document_number", label: "Číslo průkazu", type: "text", tier: "sensitive", store: { t: "sens", col: "id_document_number" } },
       { key: "bank_account", label: "Číslo bankovního účtu pro výplatu mzdy", type: "text", tier: "sensitive", store: { t: "sens", col: "bank_account" } },
+      // Heslo na zaheslovane PDF vyplatnej pasky posielanej e-mailom (= JMHZ
+      // "Heslo pro elektronickou komunikaci").
+      { key: "heslo_pasky", label: "Heslo pro zaslání výplatní pásky e-mailem", type: "text", tier: "sensitive", store: { t: "sens", col: "data", path: "heslo_vyplatni_pasky" } },
     ],
   },
   {
@@ -362,6 +371,7 @@ export const EMPLOYEE_SECTIONS = [
       { key: "omezeni_do", label: "Zdravotní omezení přiznané do", type: "date", showIf: (v) => !!v.omezeni_typ, store: { t: "pay", bucket: "pension_insurance_status", field: "omezeni_priznane_do" } },
       { key: "potvrzeni_invalidite", label: "Potvrzení o invaliditě doloženo", type: "yesno", showIf: (v) => !!v.omezeni_typ, store: { t: "pay", bucket: "pension_insurance_status", field: "potvrzeni_invalidite" } },
       { key: "ztpp_drzitel", label: "Zaměstnanec je držitelem karty ZTP/P", type: "yesno", def: false, store: { t: "pay", bucket: "pension_insurance_status", field: "ztpp_drzitel" } },
+      { key: "zdravotni_omezeni_rozhodnuti", label: "Rozhodnutí o zdravotním omezení / průkaz ZTP/P (PDF / sken)", type: "file", kind: "zdravotni_omezeni", hr: true, showIf: (v) => !!v.omezeni_typ || v.ztpp_drzitel === true },
     ],
   },
   {
@@ -437,9 +447,10 @@ export const EMPLOYEE_SECTIONS = [
     tier: "job",
     fields: [
       { key: "position_label", label: "Pracovní pozice (název)", type: "text", kiosk: true },
-      { key: "position_id", label: "Pozice", type: "position", hr: true, createOnly: true, store: { t: "job", col: "position_id" } },
-      { key: "pozice_kategorie", label: "Pozice pro ČSSZ (kategorie)", type: "select", options: POSITION_CATEGORIES.map((c) => ({ value: c.code, label: c.label })), hr: true, helpFn: (v) => POSITION_CATEGORIES.find((c) => c.code === v)?.desc, store: { t: "job", col: "data", path: "pozice_kategorie" } },
-      { key: "nazev_pozice", label: "Název pozice (přesně jako na pracovní smlouvě)", type: "select", optionsFn: (v) => positionNameOptions(v.pozice_kategorie, v.gender), allowOther: true, hr: true, showIf: (v) => !!v.pozice_kategorie || !!v.nazev_pozice, store: { t: "job", col: "data", path: "nazev_pozice" } },
+      // Pozicia zo zoznamu pozicii sa priradi automaticky podla kodu kategorie.
+      { key: "position_id", label: "Pozice (seznam)", type: "hidden", hr: true, createOnly: true, store: { t: "job", col: "position_id" } },
+      { key: "pozice_kategorie", label: "Pozice", type: "select", options: POSITION_CATEGORIES.map((c) => ({ value: c.code, label: c.label })), hr: true, helpFn: (v) => POSITION_CATEGORIES.find((c) => c.code === v)?.desc, store: { t: "job", col: "data", path: "pozice_kategorie" } },
+      { key: "nazev_pozice", label: "Pozice pro ČSSZ", info: "Musí se shodovat s pozicí uvedenou na pracovní smlouvě.", type: "select", optionsFn: (v) => positionNameOptions(v.pozice_kategorie, v.gender), allowOther: true, hr: true, showIf: (v) => !!v.pozice_kategorie || !!v.nazev_pozice, store: { t: "job", col: "data", path: "nazev_pozice" } },
       { key: "start_date", label: "Datum nástupu do zaměstnání", type: "date", createOnly: true, store: { t: "job", col: "start_date" } },
       { key: "vznik_zamestnani", label: "Vznik zaměstnání", type: "date", hr: true, store: { t: "job", col: "data", path: "vznik_zamestnani" } },
       { key: "employment_type", label: "Typ smlouvy", type: "select", options: EMPLOYMENT_TYPE_OPTIONS, def: "doba_neurcita", hr: true, createOnly: true, noEmpty: true, store: { t: "job", col: "employment_type" } },
@@ -447,7 +458,7 @@ export const EMPLOYEE_SECTIONS = [
       { key: "probation_end_date", label: "Konec zkušební doby", type: "date", hr: true, createOnly: true, store: { t: "job", col: "probation_end_date" } },
       { key: "weekly_hours", label: "Týdenní úvazek (hodin)", type: "text", def: "40", hr: true, createOnly: true, store: { t: "job", col: "weekly_hours" } },
       { key: "maly_rozsah", label: "Zaměstnání malého rozsahu", type: "yesno", def: false, hr: true, store: { t: "job", col: "data", path: "maly_rozsah" } },
-      { key: "profese", label: "Profese (CZ-ISCO)", type: "select", options: PROFESE_OPTIONS, def: "81830", hr: true, store: { t: "job", col: "data", path: "profese" } },
+      { key: "profese", label: "Profese (CZ-ISCO)", type: "select", options: PROFESE_OPTIONS, allowOther: true, def: "81830", hr: true, store: { t: "job", col: "data", path: "profese" } },
       { key: "postaveni", label: "Postavení v zaměstnání", type: "select", options: POSTAVENI_OPTIONS, hr: true, store: { t: "job", col: "data", path: "postaveni" } },
       { key: "vedouci", label: "Vedoucí zaměstnanec", type: "yesno", def: false, hr: true, store: { t: "job", col: "data", path: "vedouci" } },
       { key: "pracovni_rezim", label: "Pracovní režim", type: "select", options: REZIM_OPTIONS, def: "jednosmenny", hr: true, store: { t: "job", col: "data", path: "pracovni_rezim" } },
@@ -467,14 +478,14 @@ export const EMPLOYEE_SECTIONS = [
       { key: "tax_manzel", label: "Sleva na manžela/manželku", type: "check", showIf: (v) => v.tax_uplatneni === true, store: { t: "pay", bucket: "tax_declaration", field: "sleva_manzel" } },
       { key: "tax_invalidita", label: "Sleva na invaliditu (I., II., III. stupeň)", type: "check", showIf: (v) => v.tax_uplatneni === true, store: { t: "pay", bucket: "tax_declaration", field: "sleva_invalidita" } },
       { key: "tax_invalidita_doklad", label: "Rozhodnutí o invalidním důchodu (PDF / sken)", type: "file", kind: "tax_invalidita", hr: true, showIf: (v) => v.tax_uplatneni === true && !!v.tax_invalidita },
+      { key: "tax_prohlaseni_doklad", label: "Prohlášení poplatníka – formulář (PDF / sken)", type: "file", kind: "prohlaseni_poplatnika", hr: true },
     ],
   },
-  { id: "deti", title: "K. Daně – děti a vyživované osoby (uveďte všechny děti žijící ve společné domácnosti)", tier: "payroll", control: "children", fields: [] },
+  { id: "deti", title: "Děti a vyživované osoby (uveďte všechny děti žijící ve společné domácnosti)", tier: "payroll", control: "children", fields: [] },
   ...childSections,
   dependent("manzel", "Manžel / manželka", [
-    { key: "manzel_narok", label: "Nárok na daňové zvýhodnění", type: "yesno", store: { t: "pay", slot: "manzel", field: "narok_danove_zvyhodneni" } },
-    { key: "manzel_sleva", label: "Uplatnění slevy na manžela/manželku", type: "yesno", store: { t: "pay", slot: "manzel", field: "uplatneni_slevy" } },
-    { key: "manzel_prohlaseni", label: "Čestné prohlášení o výši příjmů manžela/manželky", type: "yesno", store: { t: "pay", slot: "manzel", field: "cestne_prohlaseni_prijmu" } },
+    { key: "manzel_sleva", label: "Uplatnění slevy na manžela/manželku na dani podle § 35ba odst. 1 zákona", type: "yesno", store: { t: "pay", slot: "manzel", field: "uplatneni_slevy" } },
+    { key: "manzel_doklady", label: "Čestné prohlášení o výši příjmu manžela/manželky, potvrzení o zdanitelných příjmech (PDF / sken)", type: "file", kind: "manzel_prijmy", hr: true, showIf: (v) => v.manzel_sleva === true },
   ], (v) => hasChildren(v) || !!v.tax_manzel || !!v.manzel_jmeno),
   {
     id: "dep_jina_osoba",
@@ -489,6 +500,7 @@ export const EMPLOYEE_SECTIONS = [
         ["jina_osoba_adresa", "Adresa", "adresa"],
         ["jina_osoba_platce", "Název plátce daně (zaměstnavatel této osoby)", "nazev_platce_dane"],
       ].map(([key, label, field]) => ({ key, label, type: "text", showIf: (v) => v.jina_osoba_tytez === true || !!v.jina_osoba_jmeno, store: { t: "pay", slot: "jina_osoba", field } })),
+      { key: "jina_osoba_doklady", label: "Potvrzení zaměstnavatele druhého z poplatníků, čestné prohlášení (PDF / sken)", type: "file", kind: "jina_osoba_doklady", hr: true, showIf: (v) => v.jina_osoba_tytez === true || !!v.jina_osoba_jmeno },
     ],
   },
   {

@@ -1,5 +1,5 @@
 import React, { useState } from "react";
-import { Lock, ShieldAlert, Plus, Trash2, Paperclip, X } from "lucide-react";
+import { Lock, ShieldAlert, Plus, Trash2, Paperclip, X, Info } from "lucide-react";
 import {
   EMPLOYEE_SECTIONS, fieldVisibleInMode, isFieldShown, optionLabel, derivePostaveni,
   addChild, removeChild, MAX_CHILDREN, JMHZ_PDF_CHILDREN,
@@ -171,6 +171,8 @@ function FieldInput({ field, value, values = {}, onChange, big, positions, hint 
   const wrap = big ? "block mb-4" : "block mb-3";
   const wide = field.type === "textarea" || (field.type === "select" && options?.some((o) => o.label.length > 60));
 
+  if (field.type === "hidden") return null;
+
   if (field.type === "check") {
     return (
       <label className={(big ? "mb-4 text-base" : "mb-3 text-sm") + " flex items-center gap-2 text-slate-600 sm:col-span-2 lg:col-span-3"}>
@@ -244,10 +246,18 @@ function FieldInput({ field, value, values = {}, onChange, big, positions, hint 
   }
 
   return (
-    <label className={wrap + (wide ? " sm:col-span-2 lg:col-span-3" : "")}>
-      <span className={labelCls}>{field.label}</span>
+    <label className={wrap + (wide ? " sm:col-span-2 lg:col-span-3" : "") + (field.rowStart ? " sm:col-start-1" : "")}>
+      <span className={labelCls + " flex items-center gap-1"}>
+        {field.label}
+        {field.info && (
+          <span title={field.info} className="inline-flex items-center justify-center w-4 h-4 rounded-full border border-slate-400 text-slate-500 cursor-help">
+            <Info size={10} />
+          </span>
+        )}
+      </span>
       {control}
       {field.helpFn && field.helpFn(value) && <span className="block text-xs text-slate-400 mt-1">{field.helpFn(value)}</span>}
+      {field.info && <span className="block text-xs text-slate-400 mt-1">{field.info}</span>}
       {hint && !value && (
         <button type="button" onClick={(e) => { e.preventDefault(); onChange(hint.value); }} className="text-xs text-teal-700 hover:underline mt-1">
           {hint.text}
@@ -271,7 +281,11 @@ export function formatFieldValue(field, value, positions = [], values = {}) {
     const [y, m, d] = String(value).split("-");
     return d ? `${Number(d)}.${Number(m)}.${y}` : value;
   }
-  if (field.type === "select") return field.options ? optionLabel(field.options, value) : String(value);
+  if (field.type === "hidden") return null;
+  if (field.type === "select") {
+    const opts = field.optionsFn ? field.optionsFn(values) : field.options;
+    return opts ? optionLabel(opts, value) : String(value);
+  }
   if (field.type === "position") {
     const p = positions.find((x) => x.id === value);
     return p ? (p.code ? `${p.code} – ${p.name}` : p.name) : null;
