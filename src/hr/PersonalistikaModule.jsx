@@ -11,7 +11,7 @@ import { convertFilledDocxToPdf } from "../lib/hr/docxToPdf.js";
 import { extractJmhzFields, detectJmhzVersionCandidates, knownJmhzVersions } from "../lib/hr/jmhzPdf.js";
 import { buildComparisonRows } from "../lib/hr/jmhzImport.js";
 import { sha256Hex, buildSignedScanPath } from "../lib/hr/documentHash.js";
-import { EMPLOYEE_SECTIONS, emptyEmployeeValues, normalizeLegacyDraft, valuesFromRecords, buildRecordPatches, patchHasContent, maritalStatusText, normalizeGender, HEALTH_INSURANCE_OPTIONS, optionLabel, normalizeHealthInsurance } from "../lib/hr/employeeFields.js";
+import { EMPLOYEE_SECTIONS, emptyEmployeeValues, normalizeLegacyDraft, valuesFromRecords, buildRecordPatches, patchHasContent, maritalStatusText, normalizeGender, HEALTH_INSURANCE_OPTIONS, optionLabel, normalizeHealthInsurance, POSITION_CATEGORIES, positionNameOptions } from "../lib/hr/employeeFields.js";
 import EmployeeFieldsForm, { EmployeeFieldsView, applyFieldChange } from "./EmployeeFieldsForm.jsx";
 
 const HR_DOKUMENTY_BUCKET = "hr-dokumenty";
@@ -645,6 +645,8 @@ function EmployeeCreateForm({ permissions, onCancel, onCreated, initialData, pos
           employee_id: employeeId,
           status: "ACTIVE",
           ...patches.employment,
+          // Kategoria HI-00x -> pozicia v zozname (zalozi sa, ak chyba).
+          ...(f.pozice_kategorie && !patches.employment.position_id ? { position_id: (await ensurePositionForCategory(f.pozice_kategorie)).id } : {}),
           employment_type: f.employment_type,
           fixed_term_end_date: f.employment_type === "doba_urcita" ? (f.fixed_term_end_date || null) : null,
           created_by: userData?.user?.id || null, updated_by: userData?.user?.id || null,
@@ -1029,6 +1031,22 @@ function OsobniUdajeTab({ employee, sensitive, payroll, currentEmployment, posit
       }
       // Udaje o pozicii pre ČSSZ/JMHZ (profese, postaveni, rezim...) idu k
       // aktualnemu pomeru; nastup/typ/uvazek sa menia v zalozke Pracovní poměr.
+      // Zmena kategorie (HI-00x) = zmena pozicie -> position_id + udalost.
+      const prevCategory = loadValues().pozice_kategorie || "";
+      if (currentEmployment && p.employment && f.pozice_kategorie && f.pozice_kategorie !== prevCategory) {
+        const pos = await ensurePositionForCategory(f.pozice_kategorie);
+        p.employment.position_id = pos.id;
+        const oldLabel = positionChoiceLabel(prevCategory || positionChoiceValue(currentEmployment, positions), positions);
+        const newLabel = positionChoiceLabel(f.pozice_kategorie, positions);
+        await supabase.from("employment_contract_events").insert({
+          id: uid(), employment_id: currentEmployment.id, event_type: "POSITION_CHANGED", event_date: now.slice(0, 10),
+          old_value: oldLabel, new_value: newLabel, created_by: (await supabase.auth.getUser()).data?.user?.id || null,
+        });
+        await supabase.from("employee_timeline_events").insert({
+          id: uid(), employee_id: employee.id, event_date: now.slice(0, 10), event_type: "POSITION_CHANGED",
+          title: "Změna pozice", description: `${oldLabel} → ${newLabel}`, source: "MANUAL",
+        });
+      }
       if (currentEmployment && p.employment) {
         const { error: jobErr } = await supabase.from("employment_relationships").update({ ...p.employment, updated_at: now }).eq("id", currentEmployment.id);
         if (jobErr) throw jobErr;
@@ -1164,6 +1182,9 @@ function PracovniPomerTab({ employeeId, employee, employments, contractEvents, p
                   {em.status === "ACTIVE" && (
                     <StartNoticeButton employment={em} onSaved={onChanged} />
                   )}
+                  {em.status === "NOTICE_PERIOD" && (
+                    <CancelNoticeButton employment={em} onSaved={onChanged} />
+                  )}
                   {endingId === em.id
                     ? null
                     : <button onClick={() => setEndingId(em.id)} className="text-sm text-red-600 hover:text-red-800">Ukončit pracovní poměr</button>}
@@ -1211,6 +1232,85 @@ function ContractEventsList({ events }) {
   );
 }
 
+/* ---------------- Pozice = kategorie HI-001/002/003 ----------------
+   Jediny zdroj pravdy je kategoria (employment.data.pozice_kategorie);
+   employment.position_id (tabulka positions - hlavicka karty, historia) sa
+   s nou vzdy synchronizuje. Chybajuca pozicia v tabulke sa zalozi sama. */
+const normPosCode = (c) => String(c || "").toUpperCase().replace(/L/g, "I").replace(/\s/g, "");
+
+function categoryOfPosition(positionId, positions) {
+  const code = normPosCode(positions.find((p) => p.id === positionId)?.code);
+  return POSITION_CATEGORIES.some((c) => c.code === code) ? code : "";
+}
+
+async function ensurePositionForCategory(code) {
+  const { data: all, error } = await supabase.from("positions").select("*");
+  if (error) throw error;
+  const found = (all || []).find((p) => normPosCode(p.code) === code);
+  if (found) {
+    if (!found.active) await supabase.from("positions").update({ active: true, updated_at: new Date().toISOString() }).eq("id", found.id);
+    return found;
+  }
+  const cat = POSITION_CATEGORIES.find((c) => c.code === code);
+  const row = { id: uid(), code, name: cat ? cat.label.split(" – ")[1] : code, active: true };
+  const { error: insErr } = await supabase.from("positions").insert(row);
+  if (insErr) throw insErr;
+  return row;
+}
+
+// Vyber pozicie pre formulare Pracovniho pomeru: 3 kategorie + pripadne
+// starsie pozicie, ktore do kategorii nepatria. Hodnota = kod kategorie
+// alebo "pos:<id>".
+function positionChoiceOptions(positions) {
+  const legacy = positions.filter((p) => !POSITION_CATEGORIES.some((c) => c.code === normPosCode(p.code)));
+  return [
+    { value: "", label: "— nevybráno —" },
+    ...POSITION_CATEGORIES.map((c) => ({ value: c.code, label: c.label })),
+    ...legacy.map((p) => ({ value: `pos:${p.id}`, label: p.code ? `${p.code} – ${p.name}` : p.name })),
+  ];
+}
+function positionChoiceValue(employment, positions) {
+  return employment?.data?.pozice_kategorie || categoryOfPosition(employment?.position_id, positions) || (employment?.position_id ? `pos:${employment.position_id}` : "");
+}
+// -> { position_id, data } patch pre employment_relationships (data zlucene).
+async function resolvePositionChoice(choice, employment, freshData) {
+  if (!choice) return { position_id: null, data: { ...freshData, pozice_kategorie: null } };
+  if (choice.startsWith("pos:")) return { position_id: choice.slice(4), data: { ...freshData, pozice_kategorie: null } };
+  const pos = await ensurePositionForCategory(choice);
+  const data = { ...freshData, pozice_kategorie: choice };
+  // Nazov pozicie z inej kategorie uz neplati.
+  const names = positionNameOptions(choice).map((o) => o.value);
+  if (data.nazev_pozice && !names.includes(data.nazev_pozice)) delete data.nazev_pozice;
+  return { position_id: pos.id, data };
+}
+function positionChoiceLabel(choice, positions) {
+  return positionChoiceOptions(positions).find((o) => o.value === choice)?.label || "—";
+}
+
+function CancelNoticeButton({ employment, onSaved }) {
+  const [saving, setSaving] = useState(false);
+  async function cancel() {
+    if (!window.confirm("Zrušit výpovědní lhůtu? Pracovní poměr bude opět aktivní.")) return;
+    setSaving(true);
+    const { data: userData } = await supabase.auth.getUser();
+    const today = new Date().toISOString().slice(0, 10);
+    const { error } = await supabase.from("employment_relationships").update({ status: "ACTIVE", updated_at: new Date().toISOString(), updated_by: userData?.user?.id || null }).eq("id", employment.id);
+    if (error) { window.alert(error.message); setSaving(false); return; }
+    // CHANGED (nie novy typ udalosti) - check constraint v DB povoluje len znamy zoznam.
+    await supabase.from("employment_contract_events").insert({
+      id: uid(), employment_id: employment.id, event_type: "CHANGED", event_date: today,
+      old_value: "Výpovědní lhůta", new_value: "Výpovědní lhůta zrušena – poměr trvá", created_by: userData?.user?.id || null,
+    });
+    await supabase.from("employee_timeline_events").insert({
+      id: uid(), employee_id: employment.employee_id, event_date: today, event_type: "NOTICE_CANCELLED",
+      title: "Zrušena výpovědní lhůta", source: "MANUAL",
+    });
+    setSaving(false);
+    onSaved();
+  }
+  return <button onClick={cancel} disabled={saving} className="text-sm text-amber-700 hover:text-amber-900">{saving ? "Ukládám..." : "Zrušit výpovědní lhůtu"}</button>;
+}
+
 function StartNoticeButton({ employment, onSaved }) {
   const [saving, setSaving] = useState(false);
   async function start() {
@@ -1233,7 +1333,8 @@ function StartNoticeButton({ employment, onSaved }) {
 }
 
 function ChangePositionHoursForm({ employment, positions, onCancel, onSaved }) {
-  const [positionId, setPositionId] = useState(employment.position_id || "");
+  const [choice, setChoice] = useState(positionChoiceValue(employment, positions));
+  const initialChoice = positionChoiceValue(employment, positions);
   const [workplace, setWorkplace] = useState(employment.workplace || "");
   const [weeklyHours, setWeeklyHours] = useState(employment.weekly_hours ? String(employment.weekly_hours) : "");
   const [effectiveDate, setEffectiveDate] = useState(new Date().toISOString().slice(0, 10));
@@ -1241,32 +1342,36 @@ function ChangePositionHoursForm({ employment, positions, onCancel, onSaved }) {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
 
-  function positionLabelFor(id) { const p = positions.find((x) => x.id === id); return p ? (p.code ? `${p.code} – ${p.name}` : p.name) : "—"; }
-
   async function submit() {
     if (!effectiveDate) { setError("Vyplňte datum účinnosti."); return; }
-    const positionChanged = positionId !== (employment.position_id || "");
+    const positionChanged = choice !== initialChoice;
     const hoursChanged = String(weeklyHours || "") !== String(employment.weekly_hours || "");
     if (!positionChanged && !hoursChanged && workplace === (employment.workplace || "")) { setError("Nebyla provedena žádná změna."); return; }
     setSaving(true);
     setError("");
     try {
       const { data: userData } = await supabase.auth.getUser();
+      let positionPatch = {};
+      if (positionChanged) {
+        const { data: fresh } = await supabase.from("employment_relationships").select("data").eq("id", employment.id).single();
+        positionPatch = await resolvePositionChoice(choice, employment, fresh?.data || employment.data || {});
+      }
       const { error: updErr } = await supabase.from("employment_relationships").update({
-        position_id: positionId || null, workplace: workplace.trim() || null, weekly_hours: weeklyHours ? Number(weeklyHours) : null,
+        ...positionPatch, workplace: workplace.trim() || null, weekly_hours: weeklyHours ? Number(weeklyHours) : null,
         updated_at: new Date().toISOString(), updated_by: userData?.user?.id || null,
       }).eq("id", employment.id);
       if (updErr) throw updErr;
 
       if (positionChanged) {
+        const oldLabel = positionChoiceLabel(initialChoice, positions);
+        const newLabel = positionChoiceLabel(choice, positions);
         await supabase.from("employment_contract_events").insert({
           id: uid(), employment_id: employment.id, event_type: "POSITION_CHANGED", event_date: effectiveDate,
-          old_value: positionLabelFor(employment.position_id), new_value: positionLabelFor(positionId),
-          note: note.trim() || null, created_by: userData?.user?.id || null,
+          old_value: oldLabel, new_value: newLabel, note: note.trim() || null, created_by: userData?.user?.id || null,
         });
         await supabase.from("employee_timeline_events").insert({
           id: uid(), employee_id: employment.employee_id, event_date: effectiveDate, event_type: "POSITION_CHANGED",
-          title: "Změna pozice", description: `${positionLabelFor(employment.position_id)} → ${positionLabelFor(positionId)}`, source: "MANUAL",
+          title: "Změna pozice", description: `${oldLabel} → ${newLabel}`, source: "MANUAL",
         });
       }
       if (hoursChanged) {
@@ -1291,7 +1396,7 @@ function ChangePositionHoursForm({ employment, positions, onCancel, onSaved }) {
   return (
     <div className="mt-3 pt-3 border-t border-slate-100 bg-slate-50 -mx-4 -mb-4 px-4 pb-4 rounded-b-lg">
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-x-4">
-        <SelectFieldLocal label="Nová pozice" value={positionId} onChange={setPositionId} options={[{ value: "", label: "— nevybráno —" }, ...positions.map((p) => ({ value: p.id, label: p.code ? `${p.code} – ${p.name}` : p.name }))]} />
+        <SelectFieldLocal label="Nová pozice" value={choice} onChange={setChoice} options={positionChoiceOptions(positions)} />
         <TextField label="Místo výkonu práce" value={workplace} onChange={setWorkplace} />
         <TextField label="Týdenní úvazek (hodin)" value={weeklyHours} onChange={setWeeklyHours} />
         <DateFieldLocal label="Účinnost od" value={effectiveDate} onChange={setEffectiveDate} />
@@ -1318,7 +1423,7 @@ function ManualHistoricalEntryForm({ employeeId, employee, employments, position
   const [startDate, setStartDate] = useState(currentEmployment?.start_date || "");
   const [employmentType, setEmploymentType] = useState(currentEmployment?.employment_type || "doba_neurcita");
   const [fixedTermEndDate, setFixedTermEndDate] = useState(currentEmployment?.fixed_term_end_date || "");
-  const [positionId, setPositionId] = useState(currentEmployment?.position_id || "");
+  const [choice, setChoice] = useState(positionChoiceValue(currentEmployment, positions));
   const [extensions, setExtensions] = useState([]); // {date, newEndDate, note}
   const [examType, setExamType] = useState("");
   const [examDate, setExamDate] = useState("");
@@ -1338,10 +1443,12 @@ function ManualHistoricalEntryForm({ employeeId, employee, employments, position
       const uidVal = userData?.user?.id || null;
 
       if (currentEmployment) {
+        const { data: fresh } = await supabase.from("employment_relationships").select("data").eq("id", currentEmployment.id).single();
+        const positionPatch = await resolvePositionChoice(choice, currentEmployment, fresh?.data || currentEmployment.data || {});
         const { error: updErr } = await supabase.from("employment_relationships").update({
           start_date: startDate || null, employment_type: employmentType,
           fixed_term_end_date: employmentType === "doba_urcita" ? (fixedTermEndDate || null) : null,
-          position_id: positionId || null, updated_at: new Date().toISOString(), updated_by: uidVal,
+          ...positionPatch, updated_at: new Date().toISOString(), updated_by: uidVal,
         }).eq("id", currentEmployment.id);
         if (updErr) throw updErr;
 
@@ -1386,7 +1493,7 @@ function ManualHistoricalEntryForm({ employeeId, employee, employments, position
             <DateFieldLocal label="Skutečný datum nástupu" value={startDate} onChange={setStartDate} />
             <SelectFieldLocal label="Aktuální typ poměru" value={employmentType} onChange={setEmploymentType} options={[{ value: "doba_neurcita", label: "Doba neurčitá" }, { value: "doba_urcita", label: "Doba určitá" }]} />
             {employmentType === "doba_urcita" && <DateFieldLocal label="Aktuální konec smlouvy" value={fixedTermEndDate} onChange={setFixedTermEndDate} />}
-            <SelectFieldLocal label="Aktuální pozice" value={positionId} onChange={setPositionId} options={[{ value: "", label: "— nevybráno —" }, ...positions.map((p) => ({ value: p.id, label: p.code ? `${p.code} – ${p.name}` : p.name }))]} />
+            <SelectFieldLocal label="Aktuální pozice" value={choice} onChange={setChoice} options={positionChoiceOptions(positions)} />
           </div>
 
           <div className="mt-2 mb-2">
