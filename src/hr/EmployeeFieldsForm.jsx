@@ -31,6 +31,8 @@ export function applyFieldChange(values, key, value) {
     const prevCat = POSITION_CATEGORIES.find((c) => c.code === values.pozice_kategorie);
     const cat = POSITION_CATEGORIES.find((c) => c.code === value);
     if (cat && (!values.profese || values.profese === prevCat?.profese || values.profese === "81830")) next.profese = cat.profese;
+    // THP (HI-003) maju smluvnu zakladnu mzdu, ostatni hodinovu.
+    if (!values.mzda_castka) next.mzda_typ = value === "HI-003" ? "smluvni" : "hodinova";
   }
   if (key === "gender" && values.nazev_pozice) {
     next.nazev_pozice = positionNameForGender(values.nazev_pozice, value);
@@ -248,7 +250,7 @@ function FieldInput({ field, value, values = {}, onChange, big, positions, hint 
   return (
     <label className={wrap + (wide ? " sm:col-span-2 lg:col-span-3" : "") + (field.rowStart ? " sm:col-start-1" : "")}>
       <span className={labelCls + " flex items-center gap-1"}>
-        {field.label}
+        {field.labelFn ? field.labelFn(values) : field.label}
         {field.info && (
           <span title={field.info} className="inline-flex items-center justify-center w-4 h-4 rounded-full border border-slate-400 text-slate-500 cursor-help">
             <Info size={10} />
@@ -312,7 +314,7 @@ export function EmployeeFieldsView({ values, mode = "edit", canSensitive, canPay
                 <div key={f.key} className="flex justify-between gap-3">
                   <dt className={"text-slate-500 " + (f.tier === "sensitive" && !sensitiveSection ? "flex items-center gap-1" : "")}>
                     {f.tier === "sensitive" && !sensitiveSection && <ShieldAlert size={12} className="text-amber-600" />}
-                    {f.label.replace(/ \*$/, "")}
+                    {(f.labelFn ? f.labelFn(values) : f.label).replace(/ \*$/, "")}
                   </dt>
                   <dd className="text-slate-900 font-medium text-right whitespace-pre-wrap">{text}</dd>
                 </div>

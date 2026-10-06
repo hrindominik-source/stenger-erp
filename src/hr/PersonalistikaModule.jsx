@@ -872,7 +872,7 @@ function EmployeeDetail({ id, permissions, onBack }) {
           onChanged={load}
         />
       )}
-      {detailTab === "dokumenty" && <DokumentyTab employee={employee} sensitive={sensitive} currentEmployment={currentEmployment} permissions={permissions} />}
+      {detailTab === "dokumenty" && <DokumentyTab employee={employee} sensitive={sensitive} payroll={payroll} currentEmployment={currentEmployment} permissions={permissions} />}
       {detailTab === "jmhz" && canEdit && (
         <JmhzImportTab
           employee={employee} sensitive={sensitive} payroll={payroll} currentEmployment={currentEmployment} positions={positions}
@@ -1957,7 +1957,7 @@ function downloadArrayBufferAsFile(arrayBuffer, filename, mime) {
   URL.revokeObjectURL(url);
 }
 
-function DokumentyTab({ employee, sensitive, currentEmployment, permissions }) {
+function DokumentyTab({ employee, sensitive, payroll, currentEmployment, permissions }) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [documents, setDocuments] = useState([]);
@@ -2026,7 +2026,7 @@ function DokumentyTab({ employee, sensitive, currentEmployment, permissions }) {
       </div>
       {creating && (
         <GenerateDocumentForm
-          employee={employee} sensitive={sensitive} currentEmployment={currentEmployment} templates={templates} pendingTemplates={pendingTemplates}
+          employee={employee} sensitive={sensitive} payroll={payroll} currentEmployment={currentEmployment} templates={templates} pendingTemplates={pendingTemplates}
           onCancel={() => setCreating(false)} onSaved={() => { setCreating(false); load(); }}
         />
       )}
@@ -2091,7 +2091,7 @@ function DokumentyTab({ employee, sensitive, currentEmployment, permissions }) {
   );
 }
 
-function GenerateDocumentForm({ employee, sensitive, currentEmployment, templates, pendingTemplates = [], onCancel, onSaved }) {
+function GenerateDocumentForm({ employee, sensitive, payroll, currentEmployment, templates, pendingTemplates = [], onCancel, onSaved }) {
   const [templateId, setTemplateId] = useState(templates[0]?.id || "");
   const [manualFields, setManualFields] = useState(() => ({
     cele_jmeno: fullName(employee),
@@ -2100,6 +2100,10 @@ function GenerateDocumentForm({ employee, sensitive, currentEmployment, template
     // Nazov pozicie musi sediet so zmluvou - predvyplni zarazeni aj druh prace.
     zarazeni: currentEmployment?.data?.nazev_pozice || "",
     druh_prace: currentEmployment?.data?.nazev_pozice || "",
+    // Sekcia K (Mzdové podmínky a příplatky) - hodinova mzda a priplatky.
+    mzda_hod: payroll?.data?.mzda_typ !== "smluvni" ? (payroll?.data?.mzda_castka || "") : "",
+    priplatek_noc: payroll?.data?.priplatek_noc_kc || "",
+    priplatek_vikend: payroll?.data?.priplatek_vikend_kc || "",
   }));
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");

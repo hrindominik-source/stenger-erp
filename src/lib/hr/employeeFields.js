@@ -202,6 +202,10 @@ export function positionNameForGender(name, gender) {
   return name;
 }
 
+export const MZDA_TYP_OPTIONS = opts([
+  ["hodinova", "Hodinová mzda (Kč/hod)"],
+  ["smluvni", "Smluvní základní mzda (Kč měsíčně) – např. THP"],
+]);
 export const NEZABAVITELNA_OPTIONS = opts(
   Array.from({ length: 11 }, (_, n) => [String(n), n === 0 ? "osoba povinného + 0 vyživovaných osob" : `osoba povinného + ${n} ${n === 1 ? "vyživovaná osoba" : n < 5 ? "vyživované osoby" : "vyživovaných osob"}`]),
 );
@@ -469,8 +473,25 @@ export const EMPLOYEE_SECTIONS = [
     ],
   },
   {
+    // Mzda patri k mzdovym udajom (HR_VIEW_PAYROLL) - preto v
+    // employee_payroll_data.data, nie pri pracovnom pomere (ten vidi kazdy HR).
+    id: "mzda",
+    title: "K. Mzdové podmínky a příplatky",
+    tier: "payroll",
+    hr: true,
+    fields: [
+      { key: "mzda_typ", label: "Základní mzda", type: "select", options: MZDA_TYP_OPTIONS, def: "hodinova", noEmpty: true, store: { t: "pay", bucket: "data", field: "mzda_typ" } },
+      { key: "mzda_castka", label: "Výše základní mzdy", labelFn: (v) => (v.mzda_typ === "smluvni" ? "Smluvní základní mzda (Kč měsíčně)" : "Hodinová mzda (Kč/hod)"), type: "text", store: { t: "pay", bucket: "data", field: "mzda_castka" } },
+      { key: "priplatek_prescas", label: "Příplatek za práci přesčas (%)", type: "text", def: "25", rowStart: true, store: { t: "pay", bucket: "data", field: "priplatek_prescas_pct" } },
+      { key: "priplatek_vikend", label: "Příplatek za práci v sobotu a v neděli (Kč/hod)", type: "text", store: { t: "pay", bucket: "data", field: "priplatek_vikend_kc" } },
+      { key: "priplatek_noc", label: "Příplatek za práci v noci (Kč/hod)", type: "text", store: { t: "pay", bucket: "data", field: "priplatek_noc_kc" } },
+      { key: "stravenkovy_pausal", label: "Nárok na stravenkový paušál", type: "yesno", rowStart: true, store: { t: "pay", bucket: "data", field: "stravenkovy_pausal" } },
+      { key: "dovolena_hod", label: "Nárok na dovolenou (hodin za rok)", type: "text", store: { t: "pay", bucket: "data", field: "dovolena_hod" } },
+    ],
+  },
+  {
     id: "dane",
-    title: "K. Daně – prohlášení poplatníka",
+    title: "L. Daně – prohlášení poplatníka",
     tier: "payroll",
     fields: [
       { key: "tax_uplatneni", label: "Uplatňuje prohlášení poplatníka („růžový formulář“)", type: "yesno", store: { t: "pay", bucket: "tax_declaration", field: "uplatneni_prohlaseni" } },
@@ -505,7 +526,7 @@ export const EMPLOYEE_SECTIONS = [
   },
   {
     id: "soubeh",
-    title: "L. Souběžné zaměstnání a exekuce",
+    title: "M. Souběžné zaměstnání a exekuce",
     tier: "payroll",
     fields: [
       { key: "soubeh_tehoz", label: "Souběžný pracovní poměr u téhož zaměstnavatele", type: "yesno", def: false, store: { t: "pay", bucket: "concurrent_employment", field: "soubeh_tehoz_zamestnavatele" } },
@@ -520,7 +541,7 @@ export const EMPLOYEE_SECTIONS = [
   },
   {
     id: "poznamka",
-    title: "M. Poznámka",
+    title: "N. Poznámka",
     hr: true,
     fields: [{ key: "notes", label: "Poznámka", type: "textarea", store: { t: "emp", col: "notes" } }],
   },
@@ -726,7 +747,7 @@ export function buildRecordPatches(rawValues, existing = {}, ctx = {}) {
     employees: touched.emp ? emp : null,
     sensitive: touched.sens ? sens : null,
     payroll: touched.pay
-      ? { ...pay, dependents: cleanDependents, data: { ...(existing.payroll?.data || {}), prilohy: (values.prilohy || []).filter((x) => x.path).map(({ file, ...rest }) => rest) } }
+      ? { ...pay, dependents: cleanDependents, data: { ...(existing.payroll?.data || {}), ...(pay.data || {}), prilohy: (values.prilohy || []).filter((x) => x.path).map(({ file, ...rest }) => rest) } }
       : null,
     employment: touched.job ? job : null,
   };

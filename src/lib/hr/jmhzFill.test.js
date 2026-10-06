@@ -127,3 +127,15 @@ describe("děti, rodinný stav, přílohy", () => {
     expect(skipped.map((s) => s.label)).toEqual(["Děti 5–6"]);
   });
 });
+
+describe("K. Mzdové podmínky a příplatky", () => {
+  it("mzda se uloží do payroll.data spolu s přílohami a načte zpět", () => {
+    const v = { ...duchkova, mzda_typ: "smluvni", mzda_castka: "32000", priplatek_noc: "15", priplatek_vikend: "20", stravenkovy_pausal: true, dovolena_hod: "160",
+      prilohy: [{ id: "a", kind: "exekuce", name: "x.pdf", path: "p/x.pdf" }] };
+    const p = buildRecordPatches(v, { payroll: { data: { cizi: 1 } } }, { mode: "edit" });
+    expect(p.payroll.data).toMatchObject({ cizi: 1, mzda_typ: "smluvni", mzda_castka: "32000", priplatek_prescas_pct: "25", priplatek_noc_kc: "15", stravenkovy_pausal: true, dovolena_hod: "160" });
+    expect(p.payroll.data.prilohy).toHaveLength(1);
+    const back = valuesFromRecords({ payroll: p.payroll });
+    expect([back.mzda_typ, back.mzda_castka, back.priplatek_vikend, back.stravenkovy_pausal]).toEqual(["smluvni", "32000", "20", true]);
+  });
+});
