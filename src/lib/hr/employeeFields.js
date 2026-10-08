@@ -480,13 +480,14 @@ export const EMPLOYEE_SECTIONS = [
     tier: "payroll",
     hr: true,
     fields: [
-      { key: "mzda_typ", label: "Základní mzda", type: "select", options: MZDA_TYP_OPTIONS, def: "hodinova", noEmpty: true, store: { t: "pay", bucket: "data", field: "mzda_typ" } },
-      { key: "mzda_castka", label: "Výše základní mzdy", labelFn: (v) => (v.mzda_typ === "smluvni" ? "Smluvní základní mzda (Kč měsíčně)" : "Hodinová mzda (Kč/hod)"), type: "text", store: { t: "pay", bucket: "data", field: "mzda_castka" } },
-      { key: "priplatek_prescas", label: "Příplatek za práci přesčas (%)", type: "text", def: "25", rowStart: true, store: { t: "pay", bucket: "data", field: "priplatek_prescas_pct" } },
-      { key: "priplatek_vikend", label: "Příplatek za práci v sobotu a v neděli (Kč/hod)", type: "text", store: { t: "pay", bucket: "data", field: "priplatek_vikend_kc" } },
-      { key: "priplatek_noc", label: "Příplatek za práci v noci (Kč/hod)", type: "text", store: { t: "pay", bucket: "data", field: "priplatek_noc_kc" } },
-      { key: "stravenkovy_pausal", label: "Nárok na stravenkový paušál", type: "yesno", rowStart: true, store: { t: "pay", bucket: "data", field: "stravenkovy_pausal" } },
-      { key: "dovolena_hod", label: "Nárok na dovolenou (hodin za rok)", type: "text", store: { t: "pay", bucket: "data", field: "dovolena_hod" } },
+      { key: "mzda_platnost_od", label: "Platí od", info: "Nová mzda = nové datum platnosti (předchozí zůstane v historii). Se stejným datem se záznam jen opraví.", type: "date", store: { t: "wage", field: "platnost_od" } },
+      { key: "mzda_typ", label: "Základní mzda", type: "select", options: MZDA_TYP_OPTIONS, def: "hodinova", noEmpty: true, rowStart: true, store: { t: "wage", field: "mzda_typ" } },
+      { key: "mzda_castka", label: "Výše základní mzdy", labelFn: (v) => (v.mzda_typ === "smluvni" ? "Smluvní základní mzda (Kč měsíčně)" : "Hodinová mzda (Kč/hod)"), type: "text", store: { t: "wage", field: "mzda_castka" } },
+      { key: "priplatek_prescas", label: "Příplatek za práci přesčas (%)", type: "text", def: "25", rowStart: true, store: { t: "wage", field: "priplatek_prescas_pct" } },
+      { key: "priplatek_vikend", label: "Příplatek za práci v sobotu a v neděli (Kč/hod)", type: "text", store: { t: "wage", field: "priplatek_vikend_kc" } },
+      { key: "priplatek_noc", label: "Příplatek za práci v noci (Kč/hod)", type: "text", store: { t: "wage", field: "priplatek_noc_kc" } },
+      { key: "stravenkovy_pausal", label: "Nárok na stravenkový paušál", type: "yesno", rowStart: true, store: { t: "wage", field: "stravenkovy_pausal" } },
+      { key: "dovolena_hod", label: "Nárok na dovolenou (hodin za rok)", type: "text", store: { t: "wage", field: "dovolena_hod" } },
     ],
   },
   {
@@ -619,6 +620,7 @@ function readStore(store, { employee, sensitive, payroll, employment }) {
   if (store.t === "emp") return store.path ? employee?.[store.col]?.[store.path] : employee?.[store.col];
   if (store.t === "sens") return store.path ? sensitive?.[store.col]?.[store.path] : sensitive?.[store.col];
   if (store.t === "job") return store.path ? employment?.[store.col]?.[store.path] : employment?.[store.col];
+  if (store.t === "wage") return currentWage(payroll?.data)?.[store.field];
   if (store.t === "pay") {
     if (store.slot) return (payroll?.dependents || []).find((d) => d.slot === store.slot)?.[store.field];
     return payroll?.[store.bucket]?.[store.field];
@@ -695,6 +697,8 @@ export function buildRecordPatches(rawValues, existing = {}, ctx = {}) {
   const emp = {}; const sens = {}; const job = {};
   const pay = {};
   const dependents = JSON.parse(JSON.stringify(existing.payroll?.dependents || []));
+  const wage = {};
+  let wageTouched = false;
   const touched = { emp: false, sens: false, pay: false, job: false };
 
   const jsonInto = (target, existingRow, col, path, val) => {
@@ -721,6 +725,10 @@ export function buildRecordPatches(rawValues, existing = {}, ctx = {}) {
       touched.job = true;
       if (s.path) jsonInto(job, existing.employment, s.col, s.path, val);
       else job[s.col] = val;
+    } else if (s.t === "wage") {
+      touched.pay = true;
+      wageTouched = true;
+      wage[s.field] = val;
     } else if (s.t === "pay") {
       touched.pay = true;
       if (s.slot) {
@@ -740,6 +748,13 @@ export function buildRecordPatches(rawValues, existing = {}, ctx = {}) {
     const pis = pay.pension_insurance_status;
     for (const [k, field] of Object.entries(OMEZENI_LEGACY)) pis[field] = pis.omezeni_typ === k;
     for (const [k, field] of Object.entries(DUCHOD_LEGACY)) pis[field] = pis.duchod_druh === k;
+  }
+
+  // Mzda sa neprepisuje - zmena = novy zaznam historie s datumom platnosti.
+  if (wageTouched) {
+    const baseData = { ...(existing.payroll?.data || {}), ...(pay.data || {}) };
+    const nextData = applyWageChange(baseData, wage, values.start_date);
+    pay.data = { ...(pay.data || {}), mzda_historie: nextData.mzda_historie || [] };
   }
 
   const cleanDependents = dependents.filter((d) => Object.keys(d).some((k) => k !== "slot"));
@@ -818,4 +833,101 @@ export function removeChild(v, index) {
     });
   next.deti_pocet = Math.max(count - 1, 0);
   return next;
+}
+
+// ---------------------------------------------------------------------------
+// Historie mzdy (sekce K / zalozka Mzdové podmínky) - employee_payroll_data.
+// data.mzda_historie = [{ id, platnost_od, mzda_typ, mzda_castka, ... }].
+// Platny je posledny zaznam s platnost_od <= dnes; buduce su "naplanovane".
+// ---------------------------------------------------------------------------
+
+export const WAGE_FIELDS = ["mzda_typ", "mzda_castka", "priplatek_prescas_pct", "priplatek_vikend_kc", "priplatek_noc_kc", "stravenkovy_pausal", "dovolena_hod"];
+// Aktualne pravidlo: prvy rok 155 Kc/hod, po roku od nastupu 165 Kc/hod.
+export const WAGE_STEP = { from: "155", to: "165", afterMonths: 12 };
+
+const todayIso = () => new Date().toISOString().slice(0, 10);
+const wageNorm = (x) => (x === true ? "ano" : x === false ? "ne" : x === null || x === undefined ? "" : String(x).trim().replace(",", "."));
+
+export function wageHistory(data) {
+  const h = Array.isArray(data?.mzda_historie) ? data.mzda_historie : [];
+  if (h.length) return [...h].sort((a, b) => String(a.platnost_od || "").localeCompare(String(b.platnost_od || "")) || String(a.created_at || "").localeCompare(String(b.created_at || "")));
+  // Starsi tvar (pred historiou) - ploche polia v payroll.data.
+  if (data && WAGE_FIELDS.some((f) => isFilled(data[f]))) {
+    return [{ id: "legacy", platnost_od: null, ...Object.fromEntries(WAGE_FIELDS.map((f) => [f, data[f] ?? null])) }];
+  }
+  return [];
+}
+
+export function currentWage(data, today = todayIso()) {
+  const valid = wageHistory(data).filter((e) => !e.platnost_od || e.platnost_od <= today);
+  return valid[valid.length - 1] || null;
+}
+
+export function upcomingWages(data, today = todayIso()) {
+  return wageHistory(data).filter((e) => e.platnost_od && e.platnost_od > today);
+}
+
+const wageHasContent = (w) => ["mzda_castka", "priplatek_vikend_kc", "priplatek_noc_kc", "dovolena_hod"].some((f) => isFilled(w[f])) || w.stravenkovy_pausal === true;
+export const wageEquals = (a, b) => WAGE_FIELDS.every((f) => wageNorm(a?.[f]) === wageNorm(b?.[f]));
+
+// Prida zaznam do historie. Zaznam s rovnakym datumom platnosti sa nahradi
+// (oprava), inak sa prida novy. Vrati nove payroll.data.
+export function addWageEntry(data, entry) {
+  // Starsi ploche udaje sa zmenia na prvy (nedatovany) zaznam historie.
+  const base = wageHistory(data).map((e) => (e.id === "legacy" ? { ...e, id: "legacy-" + Date.now() } : e));
+  const rest = base.filter((e) => (e.platnost_od || "") !== (entry.platnost_od || ""));
+  const row = { id: entry.id || (globalThis.crypto?.randomUUID?.() ?? String(Date.now())), created_at: new Date().toISOString(), ...entry };
+  return { ...(data || {}), mzda_historie: [...rest, row].sort((a, b) => String(a.platnost_od || "").localeCompare(String(b.platnost_od || ""))) };
+}
+
+// Zmena z formulara (Osobni udaje / Novy zamestnanec): ak sa hodnoty lisia od
+// aktualne platnych, vznikne novy zaznam od zadaneho "Platí od"; ak sa zmenil
+// len datum, opravi sa datum aktualneho zaznamu.
+export function applyWageChange(data, wage, startDate) {
+  const current = currentWage(data) || upcomingWages(data)[0] || null;
+  const date = wage.platnost_od || startDate || todayIso();
+  const fields = Object.fromEntries(WAGE_FIELDS.map((f) => [f, wage[f] ?? null]));
+  if (!current) {
+    return wageHasContent(fields) ? addWageEntry(data, { platnost_od: date, ...fields }) : { ...(data || {}), mzda_historie: wageHistory(data).filter((e) => e.platnost_od) };
+  }
+  if (wageEquals(current, fields)) {
+    if ((current.platnost_od || "") === (wage.platnost_od || "") || !wage.platnost_od) return addWageEntry(data, { ...current });
+    // len oprava datumu platnosti aktualneho zaznamu
+    const others = wageHistory(data).filter((e) => e.id !== current.id);
+    return { ...(data || {}), mzda_historie: [...others, { ...current, platnost_od: wage.platnost_od }].sort((a, b) => String(a.platnost_od || "").localeCompare(String(b.platnost_od || ""))) };
+  }
+  return addWageEntry(data, { platnost_od: date, ...fields });
+}
+
+// Upozornenie "uplynul rok od nastupu -> 165 Kc/hod", kym zmena nie je zadana.
+export function wageStepHint(data, startDate, today = todayIso()) {
+  if (!startDate) return null;
+  const cur = currentWage(data, today) || upcomingWages(data, today)[0];
+  if (!cur || cur.mzda_typ === "smluvni" || wageNorm(cur.mzda_castka) !== WAGE_STEP.from) return null;
+  const d = new Date(startDate + "T00:00:00Z");
+  d.setUTCMonth(d.getUTCMonth() + WAGE_STEP.afterMonths);
+  const date = d.toISOString().slice(0, 10);
+  if (wageHistory(data).some((e) => e.platnost_od && e.platnost_od >= date)) return null;
+  const daysLeft = Math.round((new Date(date) - new Date(today)) / 86400000);
+  if (daysLeft > 60) return null;
+  return { date, from: WAGE_STEP.from, to: WAGE_STEP.to, overdue: daysLeft < 0 };
+}
+
+// Zaznam historie <-> ploche hodnoty formulara (kluce poli sekcie K).
+const WAGE_KEY_FIELDS = () => ALL_FIELDS.filter((f) => f.store?.t === "wage").map((f) => [f.key, f.store.field, f.type]);
+export function wageToValues(entry) {
+  const out = {};
+  for (const [key, field, type] of WAGE_KEY_FIELDS()) {
+    const raw = entry?.[field];
+    out[key] = type === "yesno" ? (raw === true ? true : raw === false ? false : "") : (raw === null || raw === undefined ? "" : String(raw));
+  }
+  return out;
+}
+export function valuesToWage(values) {
+  const out = {};
+  for (const [key, field, type] of WAGE_KEY_FIELDS()) {
+    const v = values[key];
+    out[field] = type === "yesno" ? (v === true ? true : v === false ? false : null) : (v === "" || v === undefined || v === null ? null : String(v).trim());
+  }
+  return out;
 }

@@ -133,9 +133,46 @@ describe("K. Mzdové podmínky a příplatky", () => {
     const v = { ...duchkova, mzda_typ: "smluvni", mzda_castka: "32000", priplatek_noc: "15", priplatek_vikend: "20", stravenkovy_pausal: true, dovolena_hod: "160",
       prilohy: [{ id: "a", kind: "exekuce", name: "x.pdf", path: "p/x.pdf" }] };
     const p = buildRecordPatches(v, { payroll: { data: { cizi: 1 } } }, { mode: "edit" });
-    expect(p.payroll.data).toMatchObject({ cizi: 1, mzda_typ: "smluvni", mzda_castka: "32000", priplatek_prescas_pct: "25", priplatek_noc_kc: "15", stravenkovy_pausal: true, dovolena_hod: "160" });
+    expect(p.payroll.data.cizi).toBe(1);
+    expect(p.payroll.data.mzda_historie).toHaveLength(1);
+    expect(p.payroll.data.mzda_historie[0]).toMatchObject({ platnost_od: "2026-09-24", mzda_typ: "smluvni", mzda_castka: "32000", priplatek_prescas_pct: "25", priplatek_noc_kc: "15", stravenkovy_pausal: true, dovolena_hod: "160" });
     expect(p.payroll.data.prilohy).toHaveLength(1);
     const back = valuesFromRecords({ payroll: p.payroll });
     expect([back.mzda_typ, back.mzda_castka, back.priplatek_vikend, back.stravenkovy_pausal]).toEqual(["smluvni", "32000", "20", true]);
+  });
+});
+
+describe("historie mzdy", () => {
+  it("změna mzdy s novým datem přidá záznam, stará zůstane; platná je poslední k dnešku", async () => {
+    const m = await import("./employeeFields.js");
+    let data = m.addWageEntry({}, { platnost_od: "2025-01-01", mzda_typ: "hodinova", mzda_castka: "155" });
+    // Osobni udaje: stejne datum + jina castka = oprava, nove datum = novy zaznam
+    const v = { ...m.valuesFromRecords({ payroll: { data } }) };
+    expect(v.mzda_castka).toBe("155");
+    const p = m.buildRecordPatches({ ...v, mzda_castka: "165", mzda_platnost_od: "2026-01-01" }, { payroll: { data } }, { mode: "edit" });
+    const h = p.payroll.data.mzda_historie;
+    expect(h.map((e) => [e.platnost_od, e.mzda_castka])).toEqual([["2025-01-01", "155"], ["2026-01-01", "165"]]);
+    expect(m.currentWage({ mzda_historie: h }, "2025-06-01").mzda_castka).toBe("155");
+    expect(m.currentWage({ mzda_historie: h }, "2026-02-01").mzda_castka).toBe("165");
+    // beze zmeny -> historie zustava stejna
+    const p2 = m.buildRecordPatches(m.valuesFromRecords({ payroll: { data: { mzda_historie: h } } }), { payroll: { data: { mzda_historie: h } } }, { mode: "edit" });
+    expect(p2.payroll.data.mzda_historie).toHaveLength(2);
+  });
+
+  it("starší ploché údaje se převezmou jako první záznam", async () => {
+    const m = await import("./employeeFields.js");
+    const legacy = { mzda_typ: "hodinova", mzda_castka: "155" };
+    expect(m.currentWage(legacy).mzda_castka).toBe("155");
+    const next = m.addWageEntry(legacy, { platnost_od: "2026-05-01", mzda_typ: "hodinova", mzda_castka: "165" });
+    expect(next.mzda_historie.map((e) => e.mzda_castka)).toEqual(["155", "165"]);
+  });
+
+  it("upozornění 155 -> 165 po roce od nástupu", async () => {
+    const m = await import("./employeeFields.js");
+    const data = m.addWageEntry({}, { platnost_od: "2025-10-15", mzda_typ: "hodinova", mzda_castka: "155" });
+    expect(m.wageStepHint(data, "2025-10-15", "2026-10-08")).toMatchObject({ date: "2026-10-15", to: "165", overdue: false });
+    expect(m.wageStepHint(data, "2025-10-15", "2026-05-01")).toBeNull();
+    const done = m.addWageEntry(data, { platnost_od: "2026-10-15", mzda_typ: "hodinova", mzda_castka: "165" });
+    expect(m.wageStepHint(done, "2025-10-15", "2026-10-08")).toBeNull();
   });
 });

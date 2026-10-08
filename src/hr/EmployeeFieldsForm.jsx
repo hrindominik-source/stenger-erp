@@ -23,6 +23,9 @@ export function applyFieldChange(values, key, value) {
   if (key === "start_date" && (!values.vznik_zamestnani || values.vznik_zamestnani === values.start_date)) {
     next.vznik_zamestnani = value;
   }
+  if (key === "start_date" && (!values.mzda_platnost_od || values.mzda_platnost_od === values.start_date)) {
+    next.mzda_platnost_od = value;
+  }
   if (key === "pozice_kategorie") {
     // Nazov z inej kategorie neplati - predvyplni prvy podla pohlavia.
     const names = positionNameOptions(value, values.gender).map((o) => o.value);

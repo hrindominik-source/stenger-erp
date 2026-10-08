@@ -11,7 +11,7 @@ import { convertFilledDocxToPdf } from "../lib/hr/docxToPdf.js";
 import { extractJmhzFields, detectJmhzVersionCandidates, knownJmhzVersions } from "../lib/hr/jmhzPdf.js";
 import { buildComparisonRows } from "../lib/hr/jmhzImport.js";
 import { sha256Hex, buildSignedScanPath } from "../lib/hr/documentHash.js";
-import { EMPLOYEE_SECTIONS, emptyEmployeeValues, normalizeLegacyDraft, valuesFromRecords, buildRecordPatches, patchHasContent, maritalStatusText, normalizeGender, HEALTH_INSURANCE_OPTIONS, optionLabel, normalizeHealthInsurance, POSITION_CATEGORIES, positionNameOptions } from "../lib/hr/employeeFields.js";
+import { EMPLOYEE_SECTIONS, emptyEmployeeValues, normalizeLegacyDraft, valuesFromRecords, buildRecordPatches, patchHasContent, maritalStatusText, normalizeGender, HEALTH_INSURANCE_OPTIONS, optionLabel, normalizeHealthInsurance, POSITION_CATEGORIES, positionNameOptions, wageHistory, currentWage, upcomingWages, wageStepHint, addWageEntry, wageToValues, valuesToWage, MZDA_TYP_OPTIONS } from "../lib/hr/employeeFields.js";
 import EmployeeFieldsForm, { EmployeeFieldsView, applyFieldChange } from "./EmployeeFieldsForm.jsx";
 
 const HR_DOKUMENTY_BUCKET = "hr-dokumenty";
@@ -717,6 +717,7 @@ const DETAIL_TABS = [
   { key: "prehled", label: "Přehled" },
   { key: "osobni", label: "Osobní údaje" },
   { key: "pomer", label: "Pracovní poměr" },
+  { key: "mzda", label: "Mzdové podmínky", payrollOnly: true },
   { key: "dokumenty", label: "Dokumenty" },
   { key: "jmhz", label: "JMHZ", editOnly: true },
   { key: "lekarske", label: "Lékařské prohlídky", medicalOnly: true },
@@ -726,6 +727,8 @@ const DETAIL_TABS = [
 
 function EmployeeDetail({ id, permissions, onBack }) {
   const [detailTab, setDetailTab] = useState("prehled");
+  // Predvyplnenie platoveho vymeru z historie mzdy (zalozka Mzdové podmínky).
+  const [docPreset, setDocPreset] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [employee, setEmployee] = useState(null);
@@ -846,7 +849,7 @@ function EmployeeDetail({ id, permissions, onBack }) {
       )}
 
       <div className="flex flex-wrap gap-1.5 border-b border-slate-200 mb-4">
-        {DETAIL_TABS.filter((t) => (!t.editOnly || canEdit) && (!t.medicalOnly || canMedical) && (!t.auditOnly || canAudit)).map((t) => (
+        {DETAIL_TABS.filter((t) => (!t.editOnly || canEdit) && (!t.medicalOnly || canMedical) && (!t.auditOnly || canAudit) && (!t.payrollOnly || canPayroll)).map((t) => (
           <button
             key={t.key}
             onClick={() => setDetailTab(t.key)}
@@ -872,7 +875,14 @@ function EmployeeDetail({ id, permissions, onBack }) {
           onChanged={load}
         />
       )}
-      {detailTab === "dokumenty" && <DokumentyTab employee={employee} sensitive={sensitive} payroll={payroll} currentEmployment={currentEmployment} permissions={permissions} />}
+      {detailTab === "mzda" && canPayroll && (
+        <MzdovePodminkyTab
+          employee={employee} payroll={payroll} currentEmployment={currentEmployment} canEdit={canEdit}
+          onSaved={load}
+          onPrintVymer={(entry) => { setDocPreset({ docType: "platovy_vymer", entry }); setDetailTab("dokumenty"); }}
+        />
+      )}
+      {detailTab === "dokumenty" && <DokumentyTab employee={employee} sensitive={sensitive} payroll={payroll} currentEmployment={currentEmployment} permissions={permissions} preset={docPreset} onPresetUsed={() => setDocPreset(null)} />}
       {detailTab === "jmhz" && canEdit && (
         <JmhzImportTab
           employee={employee} sensitive={sensitive} payroll={payroll} currentEmployment={currentEmployment} positions={positions}
@@ -1925,6 +1935,156 @@ function EndDocuments({ employment, canEdit, onChanged }) {
   );
 }
 
+/* ---------------- Mzdové podmínky (historie mzdy) ----------------
+   Kazda zmena = novy zaznam s datumom platnosti (employee_payroll_data.data.
+   mzda_historie), nic sa neprepisuje. V Osobnich udajich je len aktualne
+   platna mzda. Z kazdeho zaznamu sa da vytlacit platovy vymer. */
+
+function formatWageAmount(e) {
+  if (!e || !e.mzda_castka) return "—";
+  return e.mzda_typ === "smluvni" ? `${e.mzda_castka} Kč/měsíc` : `${e.mzda_castka} Kč/hod`;
+}
+
+function MzdovePodminkyTab({ employee, payroll, currentEmployment, canEdit, onSaved, onPrintVymer }) {
+  const [form, setForm] = useState(null);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState("");
+  const data = payroll?.data || {};
+  const history = [...wageHistory(data)].reverse();
+  const current = currentWage(data);
+  const upcoming = upcomingWages(data);
+  const hint = wageStepHint(data, currentEmployment?.start_date);
+  const today = new Date().toISOString().slice(0, 10);
+
+  function startNew(prefill = {}) {
+    const base = current || upcoming[upcoming.length - 1] || null;
+    setForm({ ...emptyEmployeeValues(), ...(base ? wageToValues(base) : {}), mzda_platnost_od: today, ...prefill });
+    setError("");
+  }
+
+  async function save() {
+    if (!form.mzda_platnost_od) { setError("Vyplňte, od kdy nová mzda platí."); return; }
+    setSaving(true);
+    setError("");
+    try {
+      const { data: fresh } = await supabase.from("employee_payroll_data").select("data").eq("employee_id", employee.id).maybeSingle();
+      const entry = { ...valuesToWage(form), platnost_od: form.mzda_platnost_od };
+      const nextData = addWageEntry(fresh?.data || data, entry);
+      const { error: upErr } = await supabase.from("employee_payroll_data").upsert({ employee_id: employee.id, data: nextData, updated_at: new Date().toISOString() }, { onConflict: "employee_id" });
+      if (upErr) throw upErr;
+      await supabase.from("employee_timeline_events").insert({
+        id: uid(), employee_id: employee.id, event_date: form.mzda_platnost_od, event_type: "WAGE_CHANGED",
+        title: `Změna mzdy od ${fmtDate(form.mzda_platnost_od)}`, description: formatWageAmount(entry), source: "MANUAL",
+      });
+      setForm(null);
+      onSaved();
+    } catch (e) {
+      console.error(e);
+      setError(e.message || "Uložení se nezdařilo.");
+    }
+    setSaving(false);
+  }
+
+  return (
+    <div>
+      <div className="bg-white border border-slate-200 rounded-lg p-4 mb-4">
+        <div className="flex justify-between items-start flex-wrap gap-2">
+          <div>
+            <h2 className="font-semibold text-sm">Aktuálně platná mzda</h2>
+            {current ? (
+              <div className="text-sm mt-1">
+                <span className="text-lg font-semibold">{formatWageAmount(current)}</span>
+                <span className="text-slate-500"> · platí od {current.platnost_od ? fmtDate(current.platnost_od) : "—"}</span>
+              </div>
+            ) : <div className="text-sm text-slate-400 mt-1">Zatím není zadána žádná mzda.</div>}
+            {upcoming.map((u) => (
+              <div key={u.id} className="text-xs text-teal-700 mt-1">Naplánovaná změna od {fmtDate(u.platnost_od)}: {formatWageAmount(u)}</div>
+            ))}
+          </div>
+          {canEdit && !form && (
+            <button onClick={() => startNew()} className="flex items-center gap-1.5 bg-teal-700 hover:bg-teal-800 text-white text-sm font-medium px-3 py-2 rounded-md">
+              <Plus size={16} /> Nová změna mzdy
+            </button>
+          )}
+        </div>
+        {hint && !form && (
+          <div className={"mt-3 text-sm rounded-md px-3 py-2 flex items-center justify-between gap-2 flex-wrap " + (hint.overdue ? "bg-red-50 text-red-700" : "bg-amber-50 text-amber-800")}>
+            <span><AlertCircle size={14} className="inline mr-1" />
+              {hint.overdue ? "Uplynul" : "Blíží se"} rok od nástupu ({fmtDate(hint.date)}) – podle pravidla má mzda vzrůst z {hint.from} na {hint.to} Kč/hod.
+            </span>
+            {canEdit && (
+              <button onClick={() => startNew({ mzda_typ: "hodinova", mzda_castka: hint.to, mzda_platnost_od: hint.date })} className="text-xs font-medium underline">
+                Připravit změnu na {hint.to} Kč/hod od {fmtDate(hint.date)}
+              </button>
+            )}
+          </div>
+        )}
+      </div>
+
+      {form && (
+        <div className="mb-4">
+          <EmployeeFieldsForm values={form} onChange={(k, v) => setForm((prev) => applyFieldChange(prev, k, v))} mode="edit" canSensitive canPayroll sectionIds={["mzda"]} />
+          {error && <div className="bg-red-50 text-red-700 text-sm px-3 py-2 rounded-md mb-2">{error}</div>}
+          <div className="flex justify-end gap-2">
+            <button onClick={() => setForm(null)} className="text-sm text-slate-500 px-3 py-2">Zrušit</button>
+            <button onClick={save} disabled={saving} className="bg-teal-700 hover:bg-teal-800 disabled:opacity-50 text-white text-sm font-medium px-4 py-2 rounded-md">{saving ? "Ukládám..." : "Uložit změnu mzdy"}</button>
+          </div>
+        </div>
+      )}
+
+      <div className="bg-white border border-slate-200 rounded-lg overflow-hidden">
+        <div className="px-4 py-2.5 border-b border-slate-100 font-semibold text-sm">Historie mzdy</div>
+        {history.length === 0 ? (
+          <div className="text-sm text-slate-400 px-4 py-4">Zatím žádné záznamy.</div>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead className="bg-slate-50 text-slate-500 text-xs uppercase">
+                <tr>
+                  <th className="text-left px-3 py-2">Platí od</th>
+                  <th className="text-left px-3 py-2">Základní mzda</th>
+                  <th className="text-left px-3 py-2">Přesčas</th>
+                  <th className="text-left px-3 py-2">So/Ne</th>
+                  <th className="text-left px-3 py-2">Noc</th>
+                  <th className="text-left px-3 py-2">Stravenky</th>
+                  <th className="text-left px-3 py-2">Dovolená</th>
+                  <th className="px-3 py-2"></th>
+                </tr>
+              </thead>
+              <tbody>
+                {history.map((e) => {
+                  const isCurrent = current && e.id === current.id;
+                  const isFuture = e.platnost_od && e.platnost_od > today;
+                  return (
+                    <tr key={e.id} className={"border-t border-slate-100 " + (isCurrent ? "bg-emerald-50" : "")}>
+                      <td className="px-3 py-2 whitespace-nowrap">
+                        {e.platnost_od ? fmtDate(e.platnost_od) : "—"}
+                        {isCurrent && <span className="ml-1.5 text-xs text-emerald-700">(platí)</span>}
+                        {isFuture && <span className="ml-1.5 text-xs text-teal-700">(naplánováno)</span>}
+                      </td>
+                      <td className="px-3 py-2 whitespace-nowrap font-medium">{formatWageAmount(e)}</td>
+                      <td className="px-3 py-2">{e.priplatek_prescas_pct ? `${e.priplatek_prescas_pct} %` : "—"}</td>
+                      <td className="px-3 py-2">{e.priplatek_vikend_kc ? `${e.priplatek_vikend_kc} Kč/h` : "—"}</td>
+                      <td className="px-3 py-2">{e.priplatek_noc_kc ? `${e.priplatek_noc_kc} Kč/h` : "—"}</td>
+                      <td className="px-3 py-2">{e.stravenkovy_pausal === true ? "Ano" : e.stravenkovy_pausal === false ? "Ne" : "—"}</td>
+                      <td className="px-3 py-2">{e.dovolena_hod ? `${e.dovolena_hod} h` : "—"}</td>
+                      <td className="px-3 py-2 text-right whitespace-nowrap">
+                        <button onClick={() => onPrintVymer(e)} className="text-xs text-teal-700 hover:underline flex items-center gap-1 ml-auto">
+                          <FileText size={12} /> Platový výměr
+                        </button>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
 /* ---------------- Dokumenty (na karte zamestnanca) ---------------- */
 /* Naplnenie sablony: buildDocumentData rozdeluje udaje na AUTO (z karty
    zamestnanca - person/sensitive, uz existujuce polia) a MANUALNE (specificke
@@ -1957,7 +2117,7 @@ function downloadArrayBufferAsFile(arrayBuffer, filename, mime) {
   URL.revokeObjectURL(url);
 }
 
-function DokumentyTab({ employee, sensitive, payroll, currentEmployment, permissions }) {
+function DokumentyTab({ employee, sensitive, payroll, currentEmployment, permissions, preset, onPresetUsed }) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [documents, setDocuments] = useState([]);
@@ -1967,6 +2127,11 @@ function DokumentyTab({ employee, sensitive, payroll, currentEmployment, permiss
   const [creating, setCreating] = useState(false);
   const [signingId, setSigningId] = useState(null);
   const canGenerate = hasPerm(permissions, "HR_DOCUMENT_GENERATE");
+  const [activePreset, setActivePreset] = useState(null);
+  useEffect(() => {
+    if (preset) { setActivePreset(preset); setCreating(true); onPresetUsed?.(); }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [preset]);
   const canApprove = hasPerm(permissions, "HR_DOCUMENT_APPROVE");
   const canSign = hasPerm(permissions, "HR_DOCUMENT_SIGN");
 
@@ -2026,8 +2191,9 @@ function DokumentyTab({ employee, sensitive, payroll, currentEmployment, permiss
       </div>
       {creating && (
         <GenerateDocumentForm
-          employee={employee} sensitive={sensitive} payroll={payroll} currentEmployment={currentEmployment} templates={templates} pendingTemplates={pendingTemplates}
-          onCancel={() => setCreating(false)} onSaved={() => { setCreating(false); load(); }}
+          key={activePreset ? `preset-${activePreset.entry?.id}` : "plain"}
+          employee={employee} sensitive={sensitive} payroll={payroll} currentEmployment={currentEmployment} templates={templates} pendingTemplates={pendingTemplates} preset={activePreset}
+          onCancel={() => { setCreating(false); setActivePreset(null); }} onSaved={() => { setCreating(false); setActivePreset(null); load(); }}
         />
       )}
       {loading ? (
@@ -2091,8 +2257,15 @@ function DokumentyTab({ employee, sensitive, payroll, currentEmployment, permiss
   );
 }
 
-function GenerateDocumentForm({ employee, sensitive, payroll, currentEmployment, templates, pendingTemplates = [], onCancel, onSaved }) {
-  const [templateId, setTemplateId] = useState(templates[0]?.id || "");
+function GenerateDocumentForm({ employee, sensitive, payroll, currentEmployment, templates, pendingTemplates = [], preset, onCancel, onSaved }) {
+  const pickTemplateId = (list) => (preset ? list.find((t) => t.doc_type === preset.docType)?.id : null) || list[0]?.id || "";
+  const [templateId, setTemplateId] = useState(pickTemplateId(templates));
+  // Sablony sa nacitavaju asynchronne - po nacitani vyber (preset) sablonu.
+  useEffect(() => {
+    if (!templates.some((t) => t.id === templateId)) setTemplateId(pickTemplateId(templates));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [templates]);
+  const wage = preset?.entry || currentWage(payroll?.data);
   const [manualFields, setManualFields] = useState(() => ({
     cele_jmeno: fullName(employee),
     rodinny_stav: maritalStatusText(employee.data?.rodinny_stav, normalizeGender(employee.gender)),
@@ -2101,9 +2274,11 @@ function GenerateDocumentForm({ employee, sensitive, payroll, currentEmployment,
     zarazeni: currentEmployment?.data?.nazev_pozice || "",
     druh_prace: currentEmployment?.data?.nazev_pozice || "",
     // Sekcia K (Mzdové podmínky a příplatky) - hodinova mzda a priplatky.
-    mzda_hod: payroll?.data?.mzda_typ !== "smluvni" ? (payroll?.data?.mzda_castka || "") : "",
-    priplatek_noc: payroll?.data?.priplatek_noc_kc || "",
-    priplatek_vikend: payroll?.data?.priplatek_vikend_kc || "",
+    mzda_hod: wage && wage.mzda_typ !== "smluvni" ? (wage.mzda_castka || "") : "",
+    priplatek_noc: wage?.priplatek_noc_kc || "",
+    priplatek_vikend: wage?.priplatek_vikend_kc || "",
+    // Vymer z historie mzdy: datum = platnost noveho vymeru.
+    ...(preset?.entry?.platnost_od ? { datum: preset.entry.platnost_od } : {}),
   }));
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
