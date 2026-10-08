@@ -2248,7 +2248,9 @@ function MzdovePodminkyTab({ employee, payroll, currentEmployment, canEdit, onSa
 
   function startNew(prefill = {}) {
     const base = current || upcoming[upcoming.length - 1] || null;
-    setForm({ ...emptyEmployeeValues(), ...(base ? wageToValues(base) : {}), mzda_platnost_od: today, ...prefill });
+    // Bez predchadzajucej mzdy: THP (HI-003) maju smluvnu, ostatni hodinovu.
+    const defaultTyp = currentEmployment?.data?.pozice_kategorie === "HI-003" ? { mzda_typ: "smluvni" } : {};
+    setForm({ ...emptyEmployeeValues(), ...defaultTyp, ...(base ? wageToValues(base) : {}), mzda_platnost_od: today, ...prefill });
     setError("");
   }
 
@@ -2810,7 +2812,7 @@ function SignDocumentForm({ doc, onCancel, onSaved }) {
 // vygeneruje - prazdne policka zamestnanec doplni rucne).
 const JMHZ_IMPORTANT_KEYS = [
   ["date_of_birth", "datum narození"], ["birth_number", "rodné číslo"], ["id_document_number", "číslo průkazu"],
-  ["perm_ulice", "adresa trvalého bydliště"], ["perm_obec", "obec trvalého bydliště"], ["bank_account", "číslo účtu"],
+  ["perm_adresa", "adresa trvalého bydliště"], ["perm_obec", "obec trvalého bydliště"], ["bank_account", "číslo účtu"],
   ["highest_education", "vzdělání"], ["health_insurance_company", "zdravotní pojišťovna"], ["start_date", "datum nástupu"],
 ];
 
@@ -2819,7 +2821,8 @@ function JmhzFilledDownload({ employee, sensitive, payroll, currentEmployment, p
   const [error, setError] = useState("");
   const [skipped, setSkipped] = useState([]);
   const values = valuesFromRecords({ employee, sensitive, payroll, employment: currentEmployment });
-  const missing = JMHZ_IMPORTANT_KEYS.filter(([k]) => !values[k]).map(([, label]) => label);
+  // Obec bez ulic (len cislo popisne) je platna adresa.
+  const missing = JMHZ_IMPORTANT_KEYS.filter(([k]) => (k === "perm_adresa" ? !(values.perm_ulice || values.perm_cp) : !values[k])).map(([, label]) => label);
 
   async function download() {
     setBusy(true); setError(""); setSkipped([]);

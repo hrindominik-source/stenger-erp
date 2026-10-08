@@ -538,7 +538,7 @@ export const EMPLOYEE_SECTIONS = [
       { key: "exekuce", label: "Exekuční / insolvenční srážky ze mzdy", type: "yesno", def: false, tier: "basic", store: { t: "emp", col: "data", path: "exekuce" } },
       // Parametr vypoctu nezabavitelne castky (samotnu sumu pocita mzdovy
       // program podla aktualnych zakonnych hodnot - tu sa nevymysla).
-      { key: "nezabavitelna_osoby", label: "Stanovení nezabavitelné částky – na osobu povinného + počet vyživovaných osob", type: "select", options: NEZABAVITELNA_OPTIONS, def: "0", noEmpty: true, showIf: (v) => v.exekuce === true, store: { t: "pay", bucket: "garnishments", field: "nezabavitelna_vyzivovane_osoby" } },
+      { key: "nezabavitelna_osoby", label: "Stanovení nezabavitelné částky – na osobu povinného + počet vyživovaných osob", type: "select", options: NEZABAVITELNA_OPTIONS, def: "0", noEmpty: true, wide: true, showIf: (v) => v.exekuce === true, store: { t: "pay", bucket: "garnishments", field: "nezabavitelna_vyzivovane_osoby" } },
       { key: "exekuce_doklady", label: "Doklady k exekuci / insolvenci (PDF / sken)", type: "custom", custom: "garnishment", tier: "basic", hr: true, showIf: (v) => v.exekuce === true },
     ],
   },
@@ -595,6 +595,17 @@ export function isFieldShown(field, values) {
 // importovanych tvarov: "Muž", "H - Střední...", "205 - Česká..." atd.)
 // ---------------------------------------------------------------------------
 
+// Skratky statov zo starsich zaznamov ("SR", "ČR", "SK"...) -> nazov zo zoznamu.
+const STATE_ALIASES = {
+  "SR": "Slovensko", "SK": "Slovensko", "SVK": "Slovensko", "SLOVENSKA REPUBLIKA": "Slovensko", "SLOVENSKÁ REPUBLIKA": "Slovensko",
+  "ČR": "Česká republika", "CR": "Česká republika", "CZ": "Česká republika", "CZE": "Česká republika", "ČESKO": "Česká republika",
+  "UA": "Ukrajina", "UKR": "Ukrajina", "MD": "Moldavsko", "MDA": "Moldavsko", "BG": "Bulharsko", "BGR": "Bulharsko",
+};
+export function normalizeState(raw) {
+  const s = String(raw || "").trim();
+  return STATE_ALIASES[s.toUpperCase()] || s;
+}
+
 export function normalizeGender(raw) {
   const s = String(raw || "").trim().toLowerCase();
   if (!s) return "";
@@ -645,6 +656,7 @@ export function valuesFromRecords(records) {
   v.gender = normalizeGender(v.gender);
   v.highest_education = normalizeEducation(v.highest_education);
   v.health_insurance_company = normalizeHealthInsurance(v.health_insurance_company);
+  for (const f of ALL_FIELDS) if (f.options === STATE_OPTIONS && v[f.key]) v[f.key] = normalizeState(v[f.key]);
   const pis = records.payroll?.pension_insurance_status || {};
   if (!v.omezeni_typ) v.omezeni_typ = Object.keys(OMEZENI_LEGACY).find((k) => pis[OMEZENI_LEGACY[k]] === true) || "";
   if (!v.duchod_druh) v.duchod_druh = Object.keys(DUCHOD_LEGACY).find((k) => pis[DUCHOD_LEGACY[k]] === true) || "";

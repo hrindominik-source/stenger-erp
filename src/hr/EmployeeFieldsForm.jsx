@@ -176,7 +176,7 @@ function FieldInput({ field, value, values = {}, onChange, big, positions, hint 
   const labelCls = big ? "block text-sm font-medium text-slate-500 mb-1.5" : "block text-xs font-medium text-slate-500 mb-1";
   const inputCls = big ? "w-full border border-slate-300 rounded-lg px-3 py-2.5 text-base" : "w-full border border-slate-300 rounded-md px-3 py-2 text-sm";
   const wrap = big ? "block mb-4" : "block mb-3";
-  const wide = field.type === "textarea" || (field.type === "select" && options?.some((o) => o.label.length > 60));
+  const wide = field.wide || field.type === "textarea" || (field.type === "select" && options?.some((o) => o.label.length > 60));
 
   if (field.type === "hidden") return null;
 
