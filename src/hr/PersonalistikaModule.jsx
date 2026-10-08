@@ -719,7 +719,7 @@ const DETAIL_TABS = [
   { key: "pomer", label: "Pracovní poměr" },
   { key: "mzda", label: "Mzdové podmínky", payrollOnly: true },
   { key: "dokumenty", label: "Dokumenty" },
-  { key: "jmhz", label: "Agenda ZP / ČSSZ", editOnly: true },
+  { key: "jmhz", label: "Agenda ZP / ČSSZ" },
   { key: "lekarske", label: "Lékařské prohlídky", medicalOnly: true },
   { key: "historie", label: "Historie" },
   { key: "audit", label: "Audit", auditOnly: true },
@@ -862,7 +862,7 @@ function EmployeeDetail({ id, permissions, onBack }) {
 
       {detailTab === "prehled" && (
         <PrehledDetailTab
-          employee={employee} currentEmployment={currentEmployment} contractEvents={contractEvents}
+          employee={employee} payroll={payroll} currentEmployment={currentEmployment} contractEvents={contractEvents}
           positionLabel={positionLabel} medicalExams={medicalExams} canMedical={canMedical}
           employments={employments}
         />
@@ -883,8 +883,8 @@ function EmployeeDetail({ id, permissions, onBack }) {
         />
       )}
       {detailTab === "dokumenty" && <DokumentyTab employee={employee} sensitive={sensitive} payroll={payroll} currentEmployment={currentEmployment} permissions={permissions} preset={docPreset} onPresetUsed={() => setDocPreset(null)} />}
-      {detailTab === "jmhz" && canEdit && canPayroll && (
-        <AgendaUraduSection employee={employee} payroll={payroll} onSaved={load} />
+      {detailTab === "jmhz" && (
+        <AgendaUraduSection employee={employee} payroll={payroll} canEdit={canEdit} onSaved={load} />
       )}
       {detailTab === "jmhz" && canEdit && (
         <h2 className="font-semibold text-base mt-6 mb-3">JMHZ dotazník</h2>
@@ -905,7 +905,7 @@ function EmployeeDetail({ id, permissions, onBack }) {
   );
 }
 
-function PrehledDetailTab({ employee, currentEmployment, contractEvents, positionLabel, medicalExams, canMedical, employments }) {
+function PrehledDetailTab({ employee, payroll, currentEmployment, contractEvents, positionLabel, medicalExams, canMedical, employments }) {
   const endDays = currentEmployment ? daysUntilIso(currentEmployment.fixed_term_end_date) : null;
   const fixedTermStatus = currentEmployment && currentEmployment.employment_type === "doba_urcita"
     ? computeFixedTermStatus({ startDate: currentEmployment.start_date, currentEndDate: currentEmployment.fixed_term_end_date, events: contractEvents.filter((e) => e.employment_id === currentEmployment.id) })
@@ -960,6 +960,10 @@ function PrehledDetailTab({ employee, currentEmployment, contractEvents, positio
           )}
         </div>
         <div className="space-y-4">
+          <div className="bg-white border border-slate-200 rounded-lg p-4">
+            <h2 className="font-semibold text-sm mb-2">Přihlášení na úřadech</h2>
+            <RegistrationStatusBadges items={agendaItems(employee, payroll)} employee={employee} />
+          </div>
           <div className="bg-white border border-slate-200 rounded-lg p-4">
             <h2 className="font-semibold text-sm mb-3">Kontakt</h2>
             <dl className="text-sm space-y-1.5">
@@ -1944,7 +1948,37 @@ function EndDocuments({ employment, canEdit, onChanged }) {
 /* ---------------- Agenda ZP / ČSSZ ----------------
    Archiv uradnych podani (prihlaska, odhlaska, zmena, storno, oprava...) na
    ČSSZ, zdravotnu poistovnu, UP. Subory v hr-dokumenty (bez mazania),
-   metadata v employee_payroll_data.data.agenda_uradu (HR_VIEW_PAYROLL). */
+   metadata v employees.data.agenda_uradu - vidi ich KAZDY, kto vidi kartu
+   (kontrola "je prihlaseny, moze do prevadzky?"), pridavat moze HR_EDIT.
+   Starsie zaznamy v employee_payroll_data.data.agenda_uradu sa citaju tiez. */
+function agendaItems(employee, payroll) {
+  const byId = new Map();
+  for (const x of [...(payroll?.data?.agenda_uradu || []), ...(employee?.data?.agenda_uradu || [])]) byId.set(x.id, x);
+  return [...byId.values()].sort((a, b) => String(b.datum || "").localeCompare(String(a.datum || "")) || String(b.created_at || "").localeCompare(String(a.created_at || "")));
+}
+
+// Stav prihlasenia podla posledneho podania Prihlaska/Odhlaska/Storno na dany urad.
+function registrationStatus(items, urad) {
+  const last = items.filter((x) => x.urad === urad && ["Přihláška", "Odhláška", "Storno"].includes(x.typ))[0];
+  if (!last) return { level: "missing", text: "chybí přihláška" };
+  if (last.typ === "Přihláška") return { level: "ok", text: `přihlášen (podáno ${fmtDate(last.datum)})` };
+  if (last.typ === "Odhláška") return { level: "off", text: `odhlášen (${fmtDate(last.datum)})` };
+  return { level: "missing", text: `podání stornováno (${fmtDate(last.datum)})` };
+}
+
+function RegistrationStatusBadges({ items, employee }) {
+  const zpCode = normalizeHealthInsurance(employee.health_insurance_company);
+  const rows = [["cssz", "ČSSZ"], ["zp", zpCode ? `ZP ${zpCode}` : "Zdravotní pojišťovna"]];
+  const cls = { ok: "bg-emerald-100 text-emerald-800", off: "bg-slate-200 text-slate-600", missing: "bg-red-100 text-red-700" };
+  return (
+    <div className="flex flex-wrap gap-2">
+      {rows.map(([u, label]) => {
+        const st = registrationStatus(items, u);
+        return <span key={u} className={"px-2.5 py-1 rounded-full text-xs font-medium " + cls[st.level]}>{label}: {st.text}</span>;
+      })}
+    </div>
+  );
+}
 const AGENDA_URADY = [
   { value: "cssz", label: "ČSSZ" },
   { value: "zp", label: "Zdravotní pojišťovna" },
@@ -1953,14 +1987,14 @@ const AGENDA_URADY = [
 ];
 const AGENDA_TYPY = ["Přihláška", "Odhláška", "Změna", "Storno", "Oprava", "Potvrzení / odpověď úřadu", "Jiné"].map((t) => ({ value: t, label: t }));
 
-function AgendaUraduSection({ employee, payroll, onSaved }) {
+function AgendaUraduSection({ employee, payroll, canEdit, onSaved }) {
   const [adding, setAdding] = useState(false);
   const [f, setF] = useState({ urad: "cssz", typ: "Přihláška", datum: new Date().toISOString().slice(0, 10), poznamka: "" });
   const [files, setFiles] = useState([]);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
   const [filter, setFilter] = useState("");
-  const items = [...(payroll?.data?.agenda_uradu || [])].sort((a, b) => String(b.datum || "").localeCompare(String(a.datum || "")) || String(b.created_at || "").localeCompare(String(a.created_at || "")));
+  const items = agendaItems(employee, payroll);
   const zpCode = normalizeHealthInsurance(employee.health_insurance_company);
   const uradLabel = (u) => (u === "zp" && zpCode ? `ZP ${optionLabel(HEALTH_INSURANCE_OPTIONS, zpCode)}` : AGENDA_URADY.find((x) => x.value === u)?.label || u);
   const shown = filter ? items.filter((x) => x.urad === filter) : items;
@@ -1976,10 +2010,11 @@ function AgendaUraduSection({ employee, payroll, onSaved }) {
         id: crypto.randomUUID(), urad: f.urad, urad_nazev: uradLabel(f.urad), typ: f.typ, datum: f.datum,
         poznamka: f.poznamka.trim() || null, soubory: uploaded, created_at: new Date().toISOString(),
       };
-      const { data: fresh } = await supabase.from("employee_payroll_data").select("data").eq("employee_id", employee.id).maybeSingle();
-      const base = fresh?.data || payroll?.data || {};
+      const { data: fresh, error: rErr } = await supabase.from("employees").select("data").eq("id", employee.id).single();
+      if (rErr) throw rErr;
+      const base = fresh?.data || employee.data || {};
       const nextData = { ...base, agenda_uradu: [...(base.agenda_uradu || []), entry] };
-      const { error: upErr } = await supabase.from("employee_payroll_data").upsert({ employee_id: employee.id, data: nextData, updated_at: new Date().toISOString() }, { onConflict: "employee_id" });
+      const { error: upErr } = await supabase.from("employees").update({ data: nextData, updated_at: new Date().toISOString() }).eq("id", employee.id);
       if (upErr) throw upErr;
       await supabase.from("employee_timeline_events").insert({
         id: uid(), employee_id: employee.id, event_date: f.datum, event_type: "AGENDA_URADU",
@@ -2000,8 +2035,9 @@ function AgendaUraduSection({ employee, payroll, onSaved }) {
         <div>
           <h2 className="font-semibold text-sm">Podání na úřady (archiv)</h2>
           <p className="text-xs text-slate-500 mt-0.5">Přihlášky, odhlášky, změny, storna a opravy na ČSSZ a zdravotní pojišťovnu. Uložené soubory nelze smazat.</p>
+          <div className="mt-2"><RegistrationStatusBadges items={items} employee={employee} /></div>
         </div>
-        {!adding && (
+        {canEdit && !adding && (
           <button onClick={() => { setAdding(true); setError(""); }} className="flex items-center gap-1.5 bg-teal-700 hover:bg-teal-800 text-white text-sm font-medium px-3 py-2 rounded-md">
             <Plus size={16} /> Přidat podání
           </button>
