@@ -189,3 +189,14 @@ describe("exekuce", () => {
     expect(m.valuesFromRecords({ employee: { data: {} }, payroll: { garnishments: { exekuce_insolvence_prohlaseni: true } } }).exekuce).toBe(true);
   });
 });
+
+describe("zkušební doba", () => {
+  it("výpočet konce a upozornění", async () => {
+    const m = await import("./employeeFields.js");
+    expect(m.addMonthsIsoLib("2026-10-01", 4)).toBe("2027-01-31");
+    expect(m.addMonthsIsoLib("2026-01-31", 1)).toBe("2026-02-28");
+    expect(m.probationWarning({ zkusebni_doba_mesice: "6", vedouci: false })).toMatch(/vedoucího/);
+    expect(m.probationWarning({ zkusebni_doba_mesice: "6", vedouci: true })).toBeNull();
+    expect(m.probationWarning({ employment_type: "doba_urcita", start_date: "2026-01-01", fixed_term_end_date: "2026-06-30", probation_end_date: "2026-04-30" })).toMatch(/polovinu/);
+  });
+});

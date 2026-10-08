@@ -206,6 +206,36 @@ export const MZDA_TYP_OPTIONS = opts([
   ["hodinova", "Hodinová mzda (Kč/hod)"],
   ["smluvni", "Smluvní základní mzda (Kč měsíčně) – např. THP"],
 ]);
+// Zkusebni doba (§ 35 ZP): max. 4 mesice, u vedouciho zamestnance max. 8.
+export const PROBATION_OPTIONS = opts([
+  ["0", "Bez zkušební doby"],
+  ["1", "1 měsíc"], ["2", "2 měsíce"], ["3", "3 měsíce"], ["4", "4 měsíce"],
+  ["5", "5 měsíců (jen vedoucí)"], ["6", "6 měsíců (jen vedoucí)"], ["7", "7 měsíců (jen vedoucí)"], ["8", "8 měsíců (jen vedoucí)"],
+]);
+
+export function addMonthsIsoLib(iso, months) {
+  if (!iso || !months) return "";
+  const d = new Date(iso + "T00:00:00Z");
+  const day = d.getUTCDate();
+  d.setUTCMonth(d.getUTCMonth() + Number(months));
+  // 31.1. + 1 mesic: 31.2. neexistuje -> konci posledni den unora
+  if (d.getUTCDate() !== day) { d.setUTCDate(0); return d.toISOString().slice(0, 10); }
+  d.setUTCDate(d.getUTCDate() - 1); // jinak konci den pred "vyrocim" (1.10. + 4 m. -> 31.1.)
+  return d.toISOString().slice(0, 10);
+}
+
+// Upozorneni k zkusebni dobe (zobrazi se pod polem "Zkušební doba do").
+export function probationWarning(v) {
+  const m = Number(v.zkusebni_doba_mesice || 0);
+  if (m > 4 && v.vedouci !== true) return "⚠ Zkušební doba nad 4 měsíce je možná jen u vedoucího zaměstnance.";
+  if (v.employment_type === "doba_urcita" && v.start_date && v.fixed_term_end_date && v.probation_end_date) {
+    const total = (new Date(v.fixed_term_end_date) - new Date(v.start_date)) / 86400000;
+    const prob = (new Date(v.probation_end_date) - new Date(v.start_date)) / 86400000;
+    if (prob > total / 2) return "⚠ U doby určité nesmí zkušební doba přesáhnout polovinu sjednané doby trvání poměru (§ 35 odst. 5 ZP).";
+  }
+  return null;
+}
+
 export const NEZABAVITELNA_OPTIONS = opts(
   Array.from({ length: 11 }, (_, n) => [String(n), n === 0 ? "osoba povinného + 0 vyživovaných osob" : `osoba povinného + ${n} ${n === 1 ? "vyživovaná osoba" : n < 5 ? "vyživované osoby" : "vyživovaných osob"}`]),
 );
@@ -455,20 +485,22 @@ export const EMPLOYEE_SECTIONS = [
       { key: "position_id", label: "Pozice (seznam)", type: "hidden", hr: true, createOnly: true, store: { t: "job", col: "position_id" } },
       { key: "pozice_kategorie", label: "Pozice", type: "select", options: POSITION_CATEGORIES.map((c) => ({ value: c.code, label: c.label })), hr: true, helpFn: (v) => POSITION_CATEGORIES.find((c) => c.code === v)?.desc, store: { t: "job", col: "data", path: "pozice_kategorie" } },
       { key: "nazev_pozice", label: "Pozice pro ČSSZ", info: "Musí se shodovat s pozicí uvedenou na pracovní smlouvě.", type: "select", optionsFn: (v) => positionNameOptions(v.pozice_kategorie, v.gender), allowOther: true, hr: true, showIf: (v) => !!v.pozice_kategorie || !!v.nazev_pozice, store: { t: "job", col: "data", path: "nazev_pozice" } },
-      { key: "start_date", label: "Datum nástupu do zaměstnání", type: "date", createOnly: true, store: { t: "job", col: "start_date" } },
+      { key: "start_date", label: "Datum nástupu do zaměstnání", type: "date", store: { t: "job", col: "start_date" } },
       { key: "vznik_zamestnani", label: "Vznik zaměstnání", type: "date", hr: true, store: { t: "job", col: "data", path: "vznik_zamestnani" } },
-      { key: "employment_type", label: "Typ smlouvy", type: "select", options: EMPLOYMENT_TYPE_OPTIONS, def: "doba_neurcita", hr: true, createOnly: true, noEmpty: true, store: { t: "job", col: "employment_type" } },
-      { key: "fixed_term_end_date", label: "Konec smlouvy", type: "date", hr: true, createOnly: true, showIf: (v) => v.employment_type === "doba_urcita", store: { t: "job", col: "fixed_term_end_date" } },
-      { key: "probation_end_date", label: "Konec zkušební doby", type: "date", hr: true, createOnly: true, store: { t: "job", col: "probation_end_date" } },
-      { key: "weekly_hours", label: "Týdenní úvazek (hodin)", type: "text", def: "40", hr: true, createOnly: true, store: { t: "job", col: "weekly_hours" } },
+      { key: "employment_type", label: "Typ smlouvy", type: "select", options: EMPLOYMENT_TYPE_OPTIONS, def: "doba_neurcita", hr: true, noEmpty: true, store: { t: "job", col: "employment_type" } },
+      { key: "fixed_term_end_date", label: "Konec smlouvy", type: "date", hr: true, showIf: (v) => v.employment_type === "doba_urcita", store: { t: "job", col: "fixed_term_end_date" } },
+      { key: "zkusebni_doba_mesice", label: "Zkušební doba", type: "select", options: PROBATION_OPTIONS, hr: true, store: { t: "job", col: "data", path: "zkusebni_doba_mesice" } },
+      { key: "probation_end_date", label: "Zkušební doba do", info: "Vypočte se automaticky, lze ručně opravit – např. prodloužení o celodenní překážky v práci (nemoc) nebo celodenní dovolenou (§ 35 odst. 4 ZP).", helpFn: (val, v) => probationWarning(v), type: "date", hr: true, store: { t: "job", col: "probation_end_date" } },
+      { key: "weekly_hours", label: "Týdenní úvazek (hodin)", type: "text", def: "40", hr: true, store: { t: "job", col: "weekly_hours" } },
       { key: "maly_rozsah", label: "Zaměstnání malého rozsahu", type: "yesno", def: false, hr: true, store: { t: "job", col: "data", path: "maly_rozsah" } },
       { key: "profese", label: "Profese (CZ-ISCO)", type: "select", options: PROFESE_OPTIONS, allowOther: true, def: "81830", hr: true, store: { t: "job", col: "data", path: "profese" } },
       { key: "postaveni", label: "Postavení v zaměstnání", type: "select", options: POSTAVENI_OPTIONS, hr: true, store: { t: "job", col: "data", path: "postaveni" } },
       { key: "vedouci", label: "Vedoucí zaměstnanec", type: "yesno", def: false, hr: true, store: { t: "job", col: "data", path: "vedouci" } },
       { key: "pracovni_rezim", label: "Pracovní režim", type: "select", options: REZIM_OPTIONS, def: "jednosmenny", hr: true, store: { t: "job", col: "data", path: "pracovni_rezim" } },
       { key: "nepretrzity_provoz", label: "Nepřetržitý provoz", type: "yesno", def: false, hr: true, store: { t: "job", col: "data", path: "nepretrzity_provoz" } },
-      { key: "workplace", label: "Místo výkonu práce ze smlouvy", type: "fixed", fixedValue: FIXED_WORKPLACE.adresa, hr: true, store: { t: "job", col: "workplace" } },
+      { key: "workplace", label: "Místo výkonu práce pro ČSSZ", type: "fixed", fixedValue: FIXED_WORKPLACE.adresa, hr: true, store: { t: "job", col: "workplace" } },
       { key: "obec_vykonu", label: "Název obce", type: "fixed", fixedValue: FIXED_WORKPLACE.obec, hr: true, store: { t: "job", col: "data", path: "obec_vykonu" } },
+      { key: "misto_vykonu_smlouva", label: "Místo výkonu práce do pracovní smlouvy", info: "Znění do smlouvy – doplnit podle doporučení právničky (např. sídlo zaměstnavatele / obec).", type: "text", hr: true, wide: true, store: { t: "job", col: "data", path: "misto_vykonu_smlouva" } },
       { key: "kod_obce", label: "Kód obce", type: "fixed", fixedValue: FIXED_WORKPLACE.kod_obce, hr: true, store: { t: "job", col: "data", path: "kod_obce" } },
     ],
   },
@@ -568,6 +600,7 @@ export function emptyEmployeeValues() {
     else v[f.key] = "";
   }
   v.postaveni = derivePostaveni(v.employment_type);
+  v.zkusebni_doba_mesice = "4";
   v.deti_pocet = 0;
   v.prilohy = [];
   return v;

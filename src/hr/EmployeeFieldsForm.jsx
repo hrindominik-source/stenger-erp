@@ -2,7 +2,7 @@ import React, { useState } from "react";
 import { Lock, ShieldAlert, Plus, Trash2, Paperclip, X, Info } from "lucide-react";
 import {
   EMPLOYEE_SECTIONS, fieldVisibleInMode, isFieldShown, optionLabel, derivePostaveni,
-  addChild, removeChild, MAX_CHILDREN, JMHZ_PDF_CHILDREN,
+  addChild, removeChild, MAX_CHILDREN, JMHZ_PDF_CHILDREN, addMonthsIsoLib,
   POSITION_CATEGORIES, positionNameOptions, positionNameForGender,
 } from "../lib/hr/employeeFields.js";
 
@@ -25,6 +25,14 @@ export function applyFieldChange(values, key, value) {
   }
   if (key === "start_date" && (!values.mzda_platnost_od || values.mzda_platnost_od === values.start_date)) {
     next.mzda_platnost_od = value;
+  }
+  // Zkusebni doba do = nastup + N mesicu; prepocita se len kym ji HR rucne
+  // neopravil (napr. prodlouzeni kvuli nemoci).
+  if (key === "start_date" || key === "zkusebni_doba_mesice") {
+    const autoPrev = addMonthsIsoLib(values.start_date, values.zkusebni_doba_mesice);
+    if (!values.probation_end_date || values.probation_end_date === autoPrev) {
+      next.probation_end_date = Number(next.zkusebni_doba_mesice) > 0 ? addMonthsIsoLib(next.start_date, next.zkusebni_doba_mesice) : "";
+    }
   }
   if (key === "pozice_kategorie") {
     // Nazov z inej kategorie neplati - predvyplni prvy podla pohlavia.
@@ -263,7 +271,7 @@ function FieldInput({ field, value, values = {}, onChange, big, positions, hint 
         )}
       </span>
       {control}
-      {field.helpFn && field.helpFn(value) && <span className="block text-xs text-slate-400 mt-1">{field.helpFn(value)}</span>}
+      {field.helpFn && field.helpFn(value, values) && <span className={"block text-xs mt-1 " + (String(field.helpFn(value, values)).startsWith("⚠") ? "text-amber-700" : "text-slate-400")}>{field.helpFn(value, values)}</span>}
       {field.info && <span className="block text-xs text-slate-400 mt-1">{field.info}</span>}
       {hint && !value && (
         <button type="button" onClick={(e) => { e.preventDefault(); onChange(hint.value); }} className="text-xs text-teal-700 hover:underline mt-1">

@@ -21,11 +21,11 @@ const DOCX_MIME = "application/vnd.openxmlformats-officedocument.wordprocessingm
 // (docxMapping.js TEMPLATE_REQUIRED_KEYS) aj tych, pre ktore vzor este
 // nemame (napr. pracovni_smlouva - user ho dodá neskôr, viz schema.sql 45.10).
 const DOC_TYPE_LABELS = {
-  platovy_vymer: "Platový výměr",
+  platovy_vymer: "Mzdový výměr",
   hi001_naplen_prace_delnice: "HI-001 – Náplň práce dělnice",
   vstupni_skoleni: "Vstupní školení",
   pracovni_smlouva: "Pracovní smlouva",
-  mzdovy_vymer: "Mzdový výměr (obecný)",
+  mzdovy_vymer: "Mzdový výměr – THP (měsíční mzda)",
   popis_pracovniho_mista: "Popis pracovního místa (obecný)",
   dodatek: "Dodatek",
   dohoda_o_skonceni: "Dohoda o skončení",
@@ -701,7 +701,6 @@ function EmployeeCreateForm({ permissions, onCancel, onCreated, initialData, pos
   function onFieldChange(key, value) {
     setF((prev) => {
       const next = applyFieldChange(prev, key, value);
-      if (key === "start_date") next.probation_end_date = addMonthsIso(value, PROBATION_MONTHS);
       return next;
     });
   }
@@ -981,7 +980,7 @@ function EmployeeDetail({ id, permissions, onBack }) {
         <MzdovePodminkyTab
           employee={employee} payroll={payroll} currentEmployment={currentEmployment} canEdit={canEdit}
           onSaved={load}
-          onPrintVymer={(entry) => { setDocPreset({ docType: "platovy_vymer", entry }); setDetailTab("dokumenty"); }}
+          onPrintVymer={(entry) => { setDocPreset({ docType: entry.mzda_typ === "smluvni" ? "mzdovy_vymer" : "platovy_vymer", entry }); setDetailTab("dokumenty"); }}
         />
       )}
       {detailTab === "dokumenty" && <DokumentyTab employee={employee} sensitive={sensitive} payroll={payroll} currentEmployment={currentEmployment} permissions={permissions} preset={docPreset} onPresetUsed={() => setDocPreset(null)} />}
@@ -1109,6 +1108,38 @@ function Row({ label, value }) {
   );
 }
 
+// Zmeny udajov pracovniho pomeru provedene v Osobnich udajich se zapisi do
+// historie pomeru stejne jako ze zalozky Pracovni pomer (dodatky).
+async function logEmploymentChanges(before, patch, today) {
+  const { data: userData } = await supabase.auth.getUser();
+  const by = userData?.user?.id || null;
+  const events = [];
+  const ev = (event_type, old_value, new_value, extra = {}) => events.push({ id: uid(), employment_id: before.id, event_type, event_date: today, old_value, new_value, created_by: by, ...extra });
+  const d = (x) => (x ? fmtDate(x) : "—");
+  if ("start_date" in patch && (patch.start_date || null) !== (before.start_date || null)) ev("CHANGED", `Nástup ${d(before.start_date)}`, `Nástup ${d(patch.start_date)}`);
+  if ("employment_type" in patch && patch.employment_type !== before.employment_type) {
+    if (patch.employment_type === "doba_neurcita") ev("CONVERTED_TO_INDEFINITE", "Doba určitá", "Doba neurčitá");
+    else ev("CHANGED", "Doba neurčitá", "Doba určitá");
+  }
+  if ("fixed_term_end_date" in patch && patch.employment_type === "doba_urcita" && (patch.fixed_term_end_date || null) !== (before.fixed_term_end_date || null)) {
+    if (before.fixed_term_end_date && patch.fixed_term_end_date && patch.fixed_term_end_date > before.fixed_term_end_date) {
+      ev("EXTENDED", d(before.fixed_term_end_date), d(patch.fixed_term_end_date), { valid_to: patch.fixed_term_end_date });
+    } else ev("CHANGED", `Konec smlouvy ${d(before.fixed_term_end_date)}`, `Konec smlouvy ${d(patch.fixed_term_end_date)}`);
+  }
+  if ("probation_end_date" in patch && (patch.probation_end_date || null) !== (before.probation_end_date || null)) {
+    ev("CHANGED", `Zkušební doba do ${d(before.probation_end_date)}`, `Zkušební doba do ${d(patch.probation_end_date)}`);
+  }
+  if ("weekly_hours" in patch && String(patch.weekly_hours ?? "") !== String(before.weekly_hours ?? "")) {
+    ev("WORKING_HOURS_CHANGED", before.weekly_hours ? `${before.weekly_hours} h/týden` : "—", patch.weekly_hours ? `${patch.weekly_hours} h/týden` : "—");
+  }
+  if (!events.length) return;
+  await supabase.from("employment_contract_events").insert(events);
+  await supabase.from("employee_timeline_events").insert(events.map((e) => ({
+    id: uid(), employee_id: before.employee_id, event_date: today, event_type: "EMPLOYMENT_CHANGED",
+    title: "Změna pracovního poměru", description: `${e.old_value} → ${e.new_value}`, source: "MANUAL",
+  })));
+}
+
 function OsobniUdajeTab({ employee, sensitive, payroll, currentEmployment, positions, canEdit, canSensitive, canPayroll, canGarnishment, onSaved }) {
   const [editing, setEditing] = useState(false);
   const [f, setF] = useState(null);
@@ -1170,8 +1201,10 @@ function OsobniUdajeTab({ employee, sensitive, payroll, currentEmployment, posit
         });
       }
       if (currentEmployment && p.employment) {
+        if (p.employment.employment_type === "doba_neurcita") p.employment.fixed_term_end_date = null;
         const { error: jobErr } = await supabase.from("employment_relationships").update({ ...p.employment, updated_at: now }).eq("id", currentEmployment.id);
         if (jobErr) throw jobErr;
+        await logEmploymentChanges(currentEmployment, p.employment, now.slice(0, 10));
       }
       setEditing(false);
       onSaved();
@@ -2362,7 +2395,7 @@ function MzdovePodminkyTab({ employee, payroll, currentEmployment, canEdit, onSa
                       <td className="px-3 py-2">{e.dovolena_hod ? `${e.dovolena_hod} h` : "—"}</td>
                       <td className="px-3 py-2 text-right whitespace-nowrap">
                         <button onClick={() => onPrintVymer(e)} className="text-xs text-teal-700 hover:underline flex items-center gap-1 ml-auto">
-                          <FileText size={12} /> Platový výměr
+                          <FileText size={12} /> Mzdový výměr
                         </button>
                       </td>
                     </tr>
