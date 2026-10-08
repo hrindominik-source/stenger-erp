@@ -4,7 +4,7 @@
 // Hodnoty su ploche hodnoty z employeeFields.js (valuesFromRecords).
 // Datum a podpis na poslednej strane sa zamerne NEVYPLNUJU (podpisuje
 // zamestnanec), rovnako "Heslo pro elektronickou komunikaci".
-import { PDFDocument, PDFName, PDFBool } from "pdf-lib";
+import { PDFDocument, PDFName, PDFBool, rgb } from "pdf-lib";
 import fontkit from "@pdf-lib/fontkit";
 import { JMHZ_FIELD_MAPS, buildDecodedFieldIndex } from "./jmhzPdf.js";
 import {
@@ -16,6 +16,31 @@ export const JMHZ_FILL_VERSION = "20.3.2026 C";
 const BASE = import.meta.env?.BASE_URL ?? "/";
 export const JMHZ_TEMPLATE_URL = `${BASE}hr/JMHZ_dotaznik_2026-03-20C.pdf`;
 export const JMHZ_FONT_URL = `${BASE}hr/DejaVuSans.ttf`;
+export const STENGER_LOGO_URL = `${BASE}stenger-logo.png`;
+export const OSOBNI_DOTAZNIK_TITLE = "Osobní dotazník zaměstnance";
+
+// Firemna hlavicka: prekryje povodny riadok "Vytvořeno firmou MRP-Informatics..."
+// (horny okraj kazdej strany, nad vsetkymi polami formulara - najvyssie pole
+// konci na y=744) logom a udajmi Stenger.
+function drawCompanyHeader(pdfDoc, font, logo) {
+  const LEFT = 56.7, RIGHT = 538.6;
+  for (const page of pdfDoc.getPages()) {
+    const { width, height } = page.getSize();
+    page.drawRectangle({ x: 0, y: height - 74, width, height: 74, color: rgb(1, 1, 1) });
+    let textX = LEFT;
+    if (logo) {
+      const h = 26;
+      const w = (logo.width / logo.height) * h;
+      page.drawImage(logo, { x: LEFT, y: height - 58, width: w, height: h });
+      textX = LEFT + w + 10;
+    }
+    page.drawText("Stenger Czech s.r.o.", { x: textX, y: height - 43, size: 10, font, color: rgb(0.1, 0.1, 0.1) });
+    page.drawText("IČO: 28501381", { x: textX, y: height - 55, size: 8, font, color: rgb(0.35, 0.35, 0.35) });
+    const title = OSOBNI_DOTAZNIK_TITLE;
+    page.drawText(title, { x: RIGHT - font.widthOfTextAtSize(title, 8), y: height - 55, size: 8, font, color: rgb(0.35, 0.35, 0.35) });
+    page.drawLine({ start: { x: LEFT, y: height - 66 }, end: { x: RIGHT, y: height - 66 }, thickness: 0.6, color: rgb(0.2, 0.2, 0.2) });
+  }
+}
 
 // ISO "1972-06-16" -> "16.6.1972" (rovnaky format, aky cita JMHZ import).
 export function isoToCz(iso) {
@@ -187,6 +212,7 @@ function fitFontSize(field, font, text, reserve) {
 // Vrati { bytes, filled, skipped } - skipped = polia, ktore sa nepodarilo
 // nastavit (napr. hodnota mimo ciselnika PDF), aby ich UI mohlo ukazat.
 export async function fillJmhzPdf(templateBytes, fontBytes, values, extra = {}) {
+  // extra.logoBytes (PNG) -> firemni hlavicka Stenger misto puvodni MRP.
   const map = JMHZ_FIELD_MAPS[JMHZ_FILL_VERSION];
   const pdfDoc = await PDFDocument.load(templateBytes);
   pdfDoc.registerFontkit(fontkit);
@@ -224,6 +250,12 @@ export async function fillJmhzPdf(templateBytes, fontBytes, values, extra = {}) 
     skipped.push({ label: `Děti 5–${values.deti_pocet}`, reason: "dotazník má místo jen pro 4 děti - uveďte je zvlášť" });
   }
   form.updateFieldAppearances(font);
+  const logo = extra.logoBytes ? await pdfDoc.embedPng(extra.logoBytes) : null;
+  drawCompanyHeader(pdfDoc, font, logo);
+  pdfDoc.setTitle(OSOBNI_DOTAZNIK_TITLE);
+  pdfDoc.setAuthor("Stenger Czech s.r.o.");
+  // Verzia v metadatach - JMHZ import ju pri spatnom nahrati navrhne sam.
+  pdfDoc.setSubject(`Verze dokumentu ze dne ${JMHZ_FILL_VERSION}`);
   // LibreOffice vzor ma NeedAppearances=true -> prehliadac by polia prekreslil
   // vlastnym pismom (/He = Helvetica bez ceskych znakov: "eská republika").
   // Vypnutim sa pouziju nase vygenerovane vzhlady s vlozenym DejaVu Sans.

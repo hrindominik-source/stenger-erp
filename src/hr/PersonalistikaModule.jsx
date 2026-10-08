@@ -784,7 +784,7 @@ function EmployeeCreateForm({ permissions, onCancel, onCreated, initialData, pos
     <div>
       <button onClick={onCancel} className="text-sm text-slate-500 flex items-center gap-1 hover:text-slate-800 mb-3"><ArrowLeft size={14} /> Zpět</button>
       <h1 className="text-xl font-semibold mb-1">Nový zaměstnanec</h1>
-      <p className="text-xs text-slate-400 mb-4">Údaje podle registrace zaměstnance na ePortálu ČSSZ a JMHZ dotazníku. Z nich se v kartě zaměstnance vygeneruje vyplněný JMHZ dotazník i ostatní dokumenty.</p>
+      <p className="text-xs text-slate-400 mb-4">Údaje podle registrace zaměstnance na ePortálu ČSSZ a osobního dotazníku zaměstnance. Z nich se v kartě zaměstnance vygeneruje vyplněný osobní dotazník i ostatní dokumenty.</p>
 
       {onboardingSessionId && (
         <div className="bg-teal-50 border border-teal-200 rounded-lg px-4 py-3 mb-4 text-sm text-teal-800">
@@ -989,7 +989,7 @@ function EmployeeDetail({ id, permissions, onBack }) {
         <AgendaUraduSection employee={employee} payroll={payroll} canEdit={canEdit} onSaved={load} />
       )}
       {detailTab === "jmhz" && canEdit && (
-        <h2 className="font-semibold text-base mt-6 mb-3">JMHZ dotazník</h2>
+        <h2 className="font-semibold text-base mt-6 mb-3">Osobní dotazník zaměstnance</h2>
       )}
       {detailTab === "jmhz" && canEdit && (
         <JmhzImportTab
@@ -2828,19 +2828,19 @@ function JmhzFilledDownload({ employee, sensitive, payroll, currentEmployment, p
     setBusy(true); setError(""); setSkipped([]);
     try {
       // Dynamicky import - pdf-lib + fontkit + pismo sa nacitaju az na klik.
-      const { fillJmhzPdf, JMHZ_TEMPLATE_URL, JMHZ_FONT_URL } = await import("../lib/hr/jmhzFill.js");
-      const [tpl, font] = await Promise.all([JMHZ_TEMPLATE_URL, JMHZ_FONT_URL].map(async (u) => {
+      const { fillJmhzPdf, JMHZ_TEMPLATE_URL, JMHZ_FONT_URL, STENGER_LOGO_URL } = await import("../lib/hr/jmhzFill.js");
+      const [tpl, font, logo] = await Promise.all([JMHZ_TEMPLATE_URL, JMHZ_FONT_URL, STENGER_LOGO_URL].map(async (u) => {
         const r = await fetch(u);
         if (!r.ok) throw new Error(`Nepodařilo se načíst ${u}`);
         return r.arrayBuffer();
       }));
       const position = positions.find((p) => p.id === currentEmployment?.position_id);
-      const res = await fillJmhzPdf(tpl, font, values, { positionName: position?.name, legacyForeignerData: sensitive?.foreigner_data });
-      downloadArrayBufferAsFile(res.bytes, `JMHZ dotaznik - ${employee.last_name} ${employee.first_name}.pdf`, "application/pdf");
+      const res = await fillJmhzPdf(tpl, font, values, { positionName: position?.name, legacyForeignerData: sensitive?.foreigner_data, logoBytes: logo });
+      downloadArrayBufferAsFile(res.bytes, "Osobní dotazník zaměstnance.pdf", "application/pdf");
       setSkipped(res.skipped);
       await supabase.from("employee_timeline_events").insert({
         id: uid(), employee_id: employee.id, event_date: new Date().toISOString().slice(0, 10), event_type: "JMHZ_EXPORT",
-        title: "Stažen vyplněný JMHZ dotazník", description: `Vyplněno ${res.filled.length} polí.`, source: "MANUAL",
+        title: "Stažen vyplněný osobní dotazník zaměstnance", description: `Vyplněno ${res.filled.length} polí.`, source: "MANUAL",
       });
     } catch (e) {
       console.error(e);
@@ -2853,14 +2853,14 @@ function JmhzFilledDownload({ employee, sensitive, payroll, currentEmployment, p
     <div className="bg-white border border-slate-200 rounded-lg p-4 mb-4">
       <div className="flex items-start justify-between gap-3 flex-wrap">
         <div>
-          <h2 className="font-semibold text-sm">Vyplněný JMHZ dotazník</h2>
+          <h2 className="font-semibold text-sm">Vyplněný osobní dotazník zaměstnance</h2>
           <p className="text-xs text-slate-500 mt-1 max-w-xl">
             Prázdný dotazník (verze 20.3.2026 C) se vyplní údaji z karty zaměstnance (Osobní údaje + Pracovní poměr).
             Datum a podpis zůstávají prázdné pro zaměstnance.
           </p>
         </div>
         <button onClick={download} disabled={busy} className="flex items-center gap-1.5 bg-teal-700 hover:bg-teal-800 disabled:opacity-50 text-white text-sm font-medium px-4 py-2 rounded-md">
-          {busy ? <Loader2 size={16} className="animate-spin" /> : <Download size={16} />} {busy ? "Připravuji..." : "Stáhnout vyplněný JMHZ dotazník"}
+          {busy ? <Loader2 size={16} className="animate-spin" /> : <Download size={16} />} {busy ? "Připravuji..." : "Stáhnout osobní dotazník zaměstnance"}
         </button>
       </div>
       {(!canSensitive || !canPayroll) && (
@@ -3020,7 +3020,7 @@ function JmhzImportTab({ employee, sensitive, payroll, currentEmployment, positi
 
       await supabase.from("employee_timeline_events").insert({
         id: uid(), employee_id: employee.id, event_date: new Date().toISOString().slice(0, 10), event_type: "JMHZ_IMPORT",
-        title: `Import z JMHZ dotazníku (verze ${version})`, description: `Zapsáno ${selected.length} polí po ruční kontrole.`, source: "MANUAL",
+        title: `Import z osobního dotazníku zaměstnance (verze ${version})`, description: `Zapsáno ${selected.length} polí po ruční kontrole.`, source: "MANUAL",
       });
 
       setSuccessMsg(`Zapsáno ${selected.length} polí do karty zaměstnance.`);
@@ -3037,9 +3037,9 @@ function JmhzImportTab({ employee, sensitive, payroll, currentEmployment, positi
     <div>
       <JmhzFilledDownload employee={employee} sensitive={sensitive} payroll={payroll} currentEmployment={currentEmployment} positions={positions || []} canSensitive={canSensitive} canPayroll={canPayroll} />
       <div className="bg-white border border-slate-200 rounded-lg p-4 mb-4">
-        <h2 className="font-semibold text-sm mb-3">Načíst vyplněný JMHZ dotazník od zaměstnance</h2>
+        <h2 className="font-semibold text-sm mb-3">Načíst vyplněný osobní dotazník zaměstnance</h2>
         <p className="text-xs text-slate-500 mb-3">
-          Nahrajte vyplněný PDF dotazník (JMHZ). Verzi dotazníku potvrďte ručně podle textu "Verze dokumentu ze dne..." na stránce PDF -
+          Nahrajte vyplněný PDF osobní dotazník zaměstnance. Verzi dotazníku potvrďte ručně podle textu "Verze dokumentu ze dne..." na stránce PDF -
           appka ji sama nedomýšlí. Neznámá/nepodporovaná verze se vždy zastaví na ruční kontrolu, nikdy se tiše nezapíše.
         </p>
         <label className="block mb-3">
