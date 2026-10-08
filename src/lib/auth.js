@@ -15,8 +15,14 @@ export function useAuth() {
     return () => sub.subscription.unsubscribe();
   }, []);
 
+  // Profil sa nacita len pri zmene POUZIVATELA - nie pri kazdej auth udalosti.
+  // Supabase posiela TOKEN_REFRESHED/SIGNED_IN aj pri obnove tokenu (cca raz
+  // za hodinu) a pri navrate na kartu prehliadaca; predtym to zakazdym
+  // nastavilo loading=true, appka sa prekreslila na "Načítám..." a stratil sa
+  // rozpisany formular (napr. v Personalistike).
+  const userId = session?.user?.id ?? null;
   useEffect(() => {
-    if (!session) {
+    if (!userId) {
       setProfile(null);
       setProfileError("");
       return;
@@ -27,7 +33,7 @@ export function useAuth() {
     supabase
       .from("profiles")
       .select("full_name, role")
-      .eq("id", session.user.id)
+      .eq("id", userId)
       .single()
       .then(({ data, error }) => {
         if (cancelled) return;
@@ -42,7 +48,7 @@ export function useAuth() {
     return () => {
       cancelled = true;
     };
-  }, [session]);
+  }, [userId]);
 
   return {
     loading: session === undefined || profileLoading,
