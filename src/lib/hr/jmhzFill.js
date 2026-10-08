@@ -17,6 +17,46 @@ const BASE = import.meta.env?.BASE_URL ?? "/";
 export const JMHZ_TEMPLATE_URL = `${BASE}hr/JMHZ_dotaznik_2026-03-20C.pdf`;
 export const JMHZ_FONT_URL = `${BASE}hr/DejaVuSans.ttf`;
 export const STENGER_LOGO_URL = `${BASE}stenger-logo.png`;
+export const FONT_BOLD_URL = `${BASE}hr/DejaVuSans-Bold.ttf`;
+export const FONT_SERIF_URL = `${BASE}hr/DejaVuSerif.ttf`;
+
+// Text prohlaseni na posledni strane (formulace HR / ucetni) - nahrazuje
+// puvodni "...o změnách souvisejících se souběžnou prací v jiném státě EU".
+export const PROHLASENI_TEXT = "Zaměstnanec prohlašuje, že všechny uvedené údaje jsou pravdivé a úplné. Dále svým podpisem potvrzuje povinnost oznámit změny bez zbytečného odkladu nejpozději do 3 dní od nastalé skutečnosti.";
+
+function wrapText(text, font, size, maxWidth) {
+  const lines = [];
+  let line = "";
+  for (const word of text.split(" ")) {
+    const test = line ? `${line} ${word}` : word;
+    if (font.widthOfTextAtSize(test, size) > maxWidth && line) { lines.push(line); line = word; } else line = test;
+  }
+  if (line) lines.push(line);
+  return lines;
+}
+
+// Strana 1: nadpis jen "Osobní dotazník zaměstnance" (puvodne "... pro registraci
+// JMHZ a podání JMHZ"). Strana 8: nove zneni prohlaseni. Polohy overene
+// vykreslenim vzoru (nadpis y 676-746, odstavec y 683-729; pole Datum zacina
+// na y=666 a zustava nedotcene).
+function drawCustomTexts(pdfDoc, boldFont, serifFont) {
+  const pages = pdfDoc.getPages();
+  if (boldFont) {
+    const p1 = pages[0];
+    const { width } = p1.getSize();
+    p1.drawRectangle({ x: 40, y: 676, width: 515, height: 70, color: rgb(1, 1, 1) });
+    let size = 30;
+    while (boldFont.widthOfTextAtSize(OSOBNI_DOTAZNIK_TITLE, size) > 480) size -= 1;
+    const w = boldFont.widthOfTextAtSize(OSOBNI_DOTAZNIK_TITLE, size);
+    p1.drawText(OSOBNI_DOTAZNIK_TITLE, { x: (width - w) / 2, y: 701, size, font: boldFont, color: rgb(0, 0, 0) });
+  }
+  if (serifFont && pages[7]) {
+    const p8 = pages[7];
+    p8.drawRectangle({ x: 50, y: 682, width: 495, height: 48, color: rgb(1, 1, 1) });
+    const lines = wrapText(PROHLASENI_TEXT, serifFont, 11, 480);
+    lines.forEach((line, i) => p8.drawText(line, { x: 56.7, y: 717 - i * 14, size: 11, font: serifFont, color: rgb(0, 0, 0) }));
+  }
+}
 export const OSOBNI_DOTAZNIK_TITLE = "Osobní dotazník zaměstnance";
 
 // Firemna hlavicka: prekryje povodny riadok "Vytvořeno firmou MRP-Informatics..."
@@ -252,6 +292,9 @@ export async function fillJmhzPdf(templateBytes, fontBytes, values, extra = {}) 
   form.updateFieldAppearances(font);
   const logo = extra.logoBytes ? await pdfDoc.embedPng(extra.logoBytes) : null;
   drawCompanyHeader(pdfDoc, font, logo);
+  const boldFont = extra.boldFontBytes ? await pdfDoc.embedFont(extra.boldFontBytes, { subset: true }) : null;
+  const serifFont = extra.serifFontBytes ? await pdfDoc.embedFont(extra.serifFontBytes, { subset: true }) : null;
+  drawCustomTexts(pdfDoc, boldFont, serifFont);
   pdfDoc.setTitle(OSOBNI_DOTAZNIK_TITLE);
   pdfDoc.setAuthor("Stenger Czech s.r.o.");
   // Verzia v metadatach - JMHZ import ju pri spatnom nahrati navrhne sam.

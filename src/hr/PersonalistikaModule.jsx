@@ -2861,14 +2861,14 @@ function JmhzFilledDownload({ employee, sensitive, payroll, currentEmployment, p
     setBusy(true); setError(""); setSkipped([]);
     try {
       // Dynamicky import - pdf-lib + fontkit + pismo sa nacitaju az na klik.
-      const { fillJmhzPdf, JMHZ_TEMPLATE_URL, JMHZ_FONT_URL, STENGER_LOGO_URL } = await import("../lib/hr/jmhzFill.js");
-      const [tpl, font, logo] = await Promise.all([JMHZ_TEMPLATE_URL, JMHZ_FONT_URL, STENGER_LOGO_URL].map(async (u) => {
+      const { fillJmhzPdf, JMHZ_TEMPLATE_URL, JMHZ_FONT_URL, STENGER_LOGO_URL, FONT_BOLD_URL, FONT_SERIF_URL } = await import("../lib/hr/jmhzFill.js");
+      const [tpl, font, logo, boldFont, serifFont] = await Promise.all([JMHZ_TEMPLATE_URL, JMHZ_FONT_URL, STENGER_LOGO_URL, FONT_BOLD_URL, FONT_SERIF_URL].map(async (u) => {
         const r = await fetch(u);
         if (!r.ok) throw new Error(`Nepodařilo se načíst ${u}`);
         return r.arrayBuffer();
       }));
       const position = positions.find((p) => p.id === currentEmployment?.position_id);
-      const res = await fillJmhzPdf(tpl, font, values, { positionName: position?.name, legacyForeignerData: sensitive?.foreigner_data, logoBytes: logo });
+      const res = await fillJmhzPdf(tpl, font, values, { positionName: position?.name, legacyForeignerData: sensitive?.foreigner_data, logoBytes: logo, boldFontBytes: boldFont, serifFontBytes: serifFont });
       downloadArrayBufferAsFile(res.bytes, "Osobní dotazník zaměstnance.pdf", "application/pdf");
       setSkipped(res.skipped);
       await supabase.from("employee_timeline_events").insert({
