@@ -719,7 +719,7 @@ const DETAIL_TABS = [
   { key: "pomer", label: "Pracovní poměr" },
   { key: "mzda", label: "Mzdové podmínky", payrollOnly: true },
   { key: "dokumenty", label: "Dokumenty" },
-  { key: "jmhz", label: "JMHZ", editOnly: true },
+  { key: "jmhz", label: "Agenda ZP / ČSSZ", editOnly: true },
   { key: "lekarske", label: "Lékařské prohlídky", medicalOnly: true },
   { key: "historie", label: "Historie" },
   { key: "audit", label: "Audit", auditOnly: true },
@@ -883,6 +883,12 @@ function EmployeeDetail({ id, permissions, onBack }) {
         />
       )}
       {detailTab === "dokumenty" && <DokumentyTab employee={employee} sensitive={sensitive} payroll={payroll} currentEmployment={currentEmployment} permissions={permissions} preset={docPreset} onPresetUsed={() => setDocPreset(null)} />}
+      {detailTab === "jmhz" && canEdit && canPayroll && (
+        <AgendaUraduSection employee={employee} payroll={payroll} onSaved={load} />
+      )}
+      {detailTab === "jmhz" && canEdit && (
+        <h2 className="font-semibold text-base mt-6 mb-3">JMHZ dotazník</h2>
+      )}
       {detailTab === "jmhz" && canEdit && (
         <JmhzImportTab
           employee={employee} sensitive={sensitive} payroll={payroll} currentEmployment={currentEmployment} positions={positions}
@@ -1931,6 +1937,142 @@ function EndDocuments({ employment, canEdit, onChanged }) {
         })}
       </div>
       {error && <div className="text-red-600 text-xs mt-2">{error}</div>}
+    </div>
+  );
+}
+
+/* ---------------- Agenda ZP / ČSSZ ----------------
+   Archiv uradnych podani (prihlaska, odhlaska, zmena, storno, oprava...) na
+   ČSSZ, zdravotnu poistovnu, UP. Subory v hr-dokumenty (bez mazania),
+   metadata v employee_payroll_data.data.agenda_uradu (HR_VIEW_PAYROLL). */
+const AGENDA_URADY = [
+  { value: "cssz", label: "ČSSZ" },
+  { value: "zp", label: "Zdravotní pojišťovna" },
+  { value: "up", label: "Úřad práce" },
+  { value: "jiny", label: "Jiný úřad" },
+];
+const AGENDA_TYPY = ["Přihláška", "Odhláška", "Změna", "Storno", "Oprava", "Potvrzení / odpověď úřadu", "Jiné"].map((t) => ({ value: t, label: t }));
+
+function AgendaUraduSection({ employee, payroll, onSaved }) {
+  const [adding, setAdding] = useState(false);
+  const [f, setF] = useState({ urad: "cssz", typ: "Přihláška", datum: new Date().toISOString().slice(0, 10), poznamka: "" });
+  const [files, setFiles] = useState([]);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState("");
+  const [filter, setFilter] = useState("");
+  const items = [...(payroll?.data?.agenda_uradu || [])].sort((a, b) => String(b.datum || "").localeCompare(String(a.datum || "")) || String(b.created_at || "").localeCompare(String(a.created_at || "")));
+  const zpCode = normalizeHealthInsurance(employee.health_insurance_company);
+  const uradLabel = (u) => (u === "zp" && zpCode ? `ZP ${optionLabel(HEALTH_INSURANCE_OPTIONS, zpCode)}` : AGENDA_URADY.find((x) => x.value === u)?.label || u);
+  const shown = filter ? items.filter((x) => x.urad === filter) : items;
+
+  async function save() {
+    if (!f.datum) { setError("Vyplňte datum."); return; }
+    if (files.length === 0) { setError("Přiložte alespoň jeden soubor."); return; }
+    setSaving(true); setError("");
+    try {
+      const uploaded = [];
+      for (const file of files) uploaded.push(await uploadHrFile(employee.id, "agenda_uradu", file));
+      const entry = {
+        id: crypto.randomUUID(), urad: f.urad, urad_nazev: uradLabel(f.urad), typ: f.typ, datum: f.datum,
+        poznamka: f.poznamka.trim() || null, soubory: uploaded, created_at: new Date().toISOString(),
+      };
+      const { data: fresh } = await supabase.from("employee_payroll_data").select("data").eq("employee_id", employee.id).maybeSingle();
+      const base = fresh?.data || payroll?.data || {};
+      const nextData = { ...base, agenda_uradu: [...(base.agenda_uradu || []), entry] };
+      const { error: upErr } = await supabase.from("employee_payroll_data").upsert({ employee_id: employee.id, data: nextData, updated_at: new Date().toISOString() }, { onConflict: "employee_id" });
+      if (upErr) throw upErr;
+      await supabase.from("employee_timeline_events").insert({
+        id: uid(), employee_id: employee.id, event_date: f.datum, event_type: "AGENDA_URADU",
+        title: `${entry.urad_nazev}: ${f.typ}`, description: entry.poznamka || uploaded.map((x) => x.name).join(", "), source: "MANUAL",
+      });
+      setAdding(false); setFiles([]); setF({ ...f, poznamka: "" });
+      onSaved();
+    } catch (e) {
+      console.error(e);
+      setError(e.message || "Uložení se nezdařilo.");
+    }
+    setSaving(false);
+  }
+
+  return (
+    <div className="bg-white border border-slate-200 rounded-lg p-4 mb-4">
+      <div className="flex justify-between items-start flex-wrap gap-2 mb-3">
+        <div>
+          <h2 className="font-semibold text-sm">Podání na úřady (archiv)</h2>
+          <p className="text-xs text-slate-500 mt-0.5">Přihlášky, odhlášky, změny, storna a opravy na ČSSZ a zdravotní pojišťovnu. Uložené soubory nelze smazat.</p>
+        </div>
+        {!adding && (
+          <button onClick={() => { setAdding(true); setError(""); }} className="flex items-center gap-1.5 bg-teal-700 hover:bg-teal-800 text-white text-sm font-medium px-3 py-2 rounded-md">
+            <Plus size={16} /> Přidat podání
+          </button>
+        )}
+      </div>
+
+      {adding && (
+        <div className="bg-slate-50 rounded-md p-3 mb-3">
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-x-4">
+            <SelectFieldLocal label="Úřad" value={f.urad} onChange={(v) => setF({ ...f, urad: v })} options={AGENDA_URADY.map((u) => ({ value: u.value, label: uradLabel(u.value) }))} />
+            <SelectFieldLocal label="Typ podání" value={f.typ} onChange={(v) => setF({ ...f, typ: v })} options={AGENDA_TYPY} />
+            <DateFieldLocal label="Datum podání" value={f.datum} onChange={(v) => setF({ ...f, datum: v })} />
+          </div>
+          <TextField label="Poznámka (např. číslo podání, důvod opravy)" value={f.poznamka} onChange={(v) => setF({ ...f, poznamka: v })} />
+          <label className="block mb-2">
+            <span className="block text-xs font-medium text-slate-500 mb-1">Soubory (PDF / sken)</span>
+            <input type="file" accept=".pdf,image/*,.xml" multiple onChange={(e) => setFiles(Array.from(e.target.files || []))} className="text-sm" />
+          </label>
+          {error && <div className="text-red-600 text-xs mb-2">{error}</div>}
+          <div className="flex justify-end gap-2">
+            <button onClick={() => { setAdding(false); setFiles([]); }} className="text-sm text-slate-500 px-3 py-2">Zrušit</button>
+            <button onClick={save} disabled={saving} className="bg-teal-700 hover:bg-teal-800 disabled:opacity-50 text-white text-sm font-medium px-4 py-2 rounded-md">{saving ? "Nahrávám..." : "Uložit podání"}</button>
+          </div>
+        </div>
+      )}
+
+      {items.length > 0 && (
+        <div className="flex gap-1.5 mb-2 flex-wrap">
+          {[{ value: "", label: "Vše" }, ...AGENDA_URADY].filter((u) => !u.value || items.some((x) => x.urad === u.value)).map((u) => (
+            <button key={u.value} onClick={() => setFilter(u.value)} className={"text-xs px-2.5 py-1 rounded-full border " + (filter === u.value ? "bg-teal-700 border-teal-700 text-white" : "border-slate-200 text-slate-600 hover:bg-slate-50")}>
+              {u.value ? uradLabel(u.value) : u.label}
+            </button>
+          ))}
+        </div>
+      )}
+      {shown.length === 0 ? (
+        <div className="text-sm text-slate-400">Zatím žádná podání.</div>
+      ) : (
+        <div className="overflow-x-auto">
+          <table className="w-full text-sm">
+            <thead className="bg-slate-50 text-slate-500 text-xs uppercase">
+              <tr>
+                <th className="text-left px-3 py-2">Datum</th>
+                <th className="text-left px-3 py-2">Úřad</th>
+                <th className="text-left px-3 py-2">Typ</th>
+                <th className="text-left px-3 py-2">Poznámka</th>
+                <th className="text-left px-3 py-2">Soubory</th>
+              </tr>
+            </thead>
+            <tbody>
+              {shown.map((x) => (
+                <tr key={x.id} className="border-t border-slate-100 align-top">
+                  <td className="px-3 py-2 whitespace-nowrap">{fmtDate(x.datum)}</td>
+                  <td className="px-3 py-2 whitespace-nowrap">{x.urad_nazev || uradLabel(x.urad)}</td>
+                  <td className="px-3 py-2 whitespace-nowrap font-medium">{x.typ}</td>
+                  <td className="px-3 py-2 text-slate-600">{x.poznamka || "—"}</td>
+                  <td className="px-3 py-2">
+                    {(x.soubory || []).map((d) => (
+                      <div key={d.id} className="flex items-center gap-2 whitespace-nowrap">
+                        <span className="truncate max-w-[180px]" title={d.name}>{d.name}</span>
+                        <button onClick={() => openHrFile(d.path)} className="text-xs text-teal-700 hover:underline">Otevřít</button>
+                        <button onClick={() => openHrFile(d.path, d.name)} className="text-xs text-teal-700 hover:underline flex items-center gap-0.5"><Download size={12} /> Stáhnout</button>
+                      </div>
+                    ))}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
     </div>
   );
 }
