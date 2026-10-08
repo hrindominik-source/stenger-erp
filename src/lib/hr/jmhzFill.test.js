@@ -176,3 +176,16 @@ describe("historie mzdy", () => {
     expect(m.wageStepHint(done, "2025-10-15", "2026-10-08")).toBeNull();
   });
 });
+
+describe("exekuce", () => {
+  it("Ano/Ne se ukládá do základních údajů (vidí všichni), i bez mzdového oprávnění", async () => {
+    const m = await import("./employeeFields.js");
+    const p = m.buildRecordPatches({ ...duchkova, exekuce: true }, {}, { mode: "edit", canSensitive: false, canPayroll: false });
+    expect(p.employees.data.exekuce).toBe(true);
+    expect(p.payroll).toBeNull();
+    const f = m.ALL_FIELDS.find((x) => x.key === "exekuce");
+    expect(m.fieldVisibleInMode(f, { mode: "edit", canSensitive: false, canPayroll: false })).toBe(true);
+    // starsi zaznam z importu (payroll.garnishments) sa prevezme
+    expect(m.valuesFromRecords({ employee: { data: {} }, payroll: { garnishments: { exekuce_insolvence_prohlaseni: true } } }).exekuce).toBe(true);
+  });
+});

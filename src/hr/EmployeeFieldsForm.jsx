@@ -61,7 +61,7 @@ function sectionTierAllowed(section, { canSensitive, canPayroll }) {
   return true;
 }
 
-export default function EmployeeFieldsForm({ values, onChange, mode, canSensitive, canPayroll, positions = [], variant = "office", sectionIds, hints = {}, onOpenFile }) {
+export default function EmployeeFieldsForm({ values, onChange, mode, canSensitive, canPayroll, positions = [], variant = "office", sectionIds, hints = {}, onOpenFile, renderCustom }) {
   const big = variant === "kiosk";
   const sections = visibleSections({ mode, canSensitive, canPayroll, values, sectionIds });
   // Kategoria HI-00x -> zodpovedajuca pozicia zo zoznamu pozicii (podla kodu).
@@ -101,7 +101,9 @@ export default function EmployeeFieldsForm({ values, onChange, mode, canSensitiv
             {fields.length > 0 && (
               <div className={"grid grid-cols-1 sm:grid-cols-2 " + (big ? "gap-x-5" : "lg:grid-cols-3 gap-x-4")}>
                 {fields.map((f) => (
-                  f.type === "file" ? (
+                  f.type === "custom" ? (
+                    <div key={f.key} className="sm:col-span-2 lg:col-span-3">{renderCustom ? renderCustom(f, values, handleChange) : null}</div>
+                  ) : f.type === "file" ? (
                     <FileField key={f.key} field={f} prilohy={values.prilohy || []} onChange={(list) => handleChange("prilohy", list)} onOpenFile={onOpenFile} />
                   ) : (
                     <FieldInput key={f.key} field={f} value={values[f.key]} values={values} big={big} positions={positions} hint={hints[f.key]} onChange={(v) => handleChange(f.key, v)} />
@@ -286,7 +288,7 @@ export function formatFieldValue(field, value, positions = [], values = {}) {
     const [y, m, d] = String(value).split("-");
     return d ? `${Number(d)}.${Number(m)}.${y}` : value;
   }
-  if (field.type === "hidden") return null;
+  if (field.type === "hidden" || field.type === "custom") return null;
   if (field.type === "select") {
     const opts = field.optionsFn ? field.optionsFn(values) : field.options;
     return opts ? optionLabel(opts, value) : String(value);

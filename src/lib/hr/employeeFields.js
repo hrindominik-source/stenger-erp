@@ -533,11 +533,13 @@ export const EMPLOYEE_SECTIONS = [
       { key: "soubeh_tehoz", label: "Souběžný pracovní poměr u téhož zaměstnavatele", type: "yesno", def: false, store: { t: "pay", bucket: "concurrent_employment", field: "soubeh_tehoz_zamestnavatele" } },
       { key: "jiny_zamestnavatel_nazev", label: "Souběh u jiného zaměstnavatele – název, sídlo", type: "text", store: { t: "pay", bucket: "concurrent_employment", field: "jiny_zamestnavatel_nazev_sidlo" } },
       { key: "jiny_zamestnavatel_misto", label: "Souběh u jiného zaměstnavatele – místo výkonu práce, druh vztahu", type: "text", showIf: (v) => !!v.jiny_zamestnavatel_nazev, store: { t: "pay", bucket: "concurrent_employment", field: "jiny_zamestnavatel_misto_druh" } },
-      { key: "exekuce", label: "Exekuční / insolvenční srážky ze mzdy", type: "yesno", def: false, store: { t: "pay", bucket: "garnishments", field: "exekuce_insolvence_prohlaseni" } },
+      // Ano/Ne vidi kazdy s pristupom ku karte (tier basic, employees.data);
+      // doklady len opravnenie HR_EXEKUCE (viz GarnishmentDocs + SQL sekcia 47).
+      { key: "exekuce", label: "Exekuční / insolvenční srážky ze mzdy", type: "yesno", def: false, tier: "basic", store: { t: "emp", col: "data", path: "exekuce" } },
       // Parametr vypoctu nezabavitelne castky (samotnu sumu pocita mzdovy
       // program podla aktualnych zakonnych hodnot - tu sa nevymysla).
       { key: "nezabavitelna_osoby", label: "Stanovení nezabavitelné částky – na osobu povinného + počet vyživovaných osob", type: "select", options: NEZABAVITELNA_OPTIONS, def: "0", noEmpty: true, showIf: (v) => v.exekuce === true, store: { t: "pay", bucket: "garnishments", field: "nezabavitelna_vyzivovane_osoby" } },
-      { key: "exekuce_doklad", label: "Doklady k exekuci / insolvenci (PDF / sken)", type: "file", kind: "exekuce", hr: true, showIf: (v) => v.exekuce === true },
+      { key: "exekuce_doklady", label: "Doklady k exekuci / insolvenci (PDF / sken)", type: "custom", custom: "garnishment", tier: "basic", hr: true, showIf: (v) => v.exekuce === true },
     ],
   },
   {
@@ -653,6 +655,9 @@ export function valuesFromRecords(records) {
   if (!records.employment?.data?.postaveni && records.employment) v.postaveni = derivePostaveni(v.employment_type);
   v.deti_pocet = countChildren(v);
   v.prilohy = Array.isArray(records.payroll?.data?.prilohy) ? records.payroll.data.prilohy : [];
+  if (records.employee?.data?.exekuce === undefined && typeof records.payroll?.garnishments?.exekuce_insolvence_prohlaseni === "boolean") {
+    v.exekuce = records.payroll.garnishments.exekuce_insolvence_prohlaseni;
+  }
   return v;
 }
 

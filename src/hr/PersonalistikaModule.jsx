@@ -62,6 +62,7 @@ const HR_PERMISSION_OPTIONS = [
   { value: "HR_DOCUMENT_APPROVE", label: "Schvalovat dokumenty/šablony" },
   { value: "HR_DOCUMENT_SIGN", label: "Zaznamenávat podpisy" },
   { value: "HR_AUDIT_VIEW", label: "Zobrazit audit log" },
+  { value: "HR_EXEKUCE", label: "Exekuce – plný přístup k dokladům (manažer, účetní)" },
   { value: "HR_ADMIN", label: "Administrátor (má vše)" },
 ];
 
@@ -583,6 +584,100 @@ async function openHrFile(path, downloadName) {
   window.open(data.signedUrl, "_blank");
 }
 
+/* ---------------- Exekuce - doklady (len HR_EXEKUCE) ----------------
+   Subory pod exekuce/<employee_id>/ + tabulka employee_garnishment_documents
+   (SQL sekcia 47 / supabase/2026-10-08_exekuce_doklady.sql). Kym SQL nie je
+   spustene, nahravanie je zablokovane - subor by inak nebol chraneny. */
+async function uploadGarnishmentFiles(employeeId, files) {
+  for (const file of files) {
+    const id = crypto.randomUUID();
+    const ext = (file.name.match(/\.[a-z0-9]+$/i)?.[0] || "").toLowerCase();
+    const path = `exekuce/${employeeId}/${id}${ext}`;
+    const { error: upErr } = await supabase.storage.from(HR_DOKUMENTY_BUCKET).upload(path, file, { contentType: file.type || "application/octet-stream" });
+    if (upErr) throw new Error(`Doklad "${file.name}" se nepodařilo nahrát: ${upErr.message}`);
+    const { error: insErr } = await supabase.from("employee_garnishment_documents").insert({ id, employee_id: employeeId, file_path: path, file_name: file.name, file_size: file.size });
+    if (insErr) throw insErr;
+  }
+  await supabase.from("employee_timeline_events").insert({
+    id: uid(), employee_id: employeeId, event_date: new Date().toISOString().slice(0, 10), event_type: "GARNISHMENT_DOC",
+    title: `Nahrán doklad k exekuci (${files.length})`, source: "MANUAL",
+  });
+}
+
+// employeeId = null pri zakladani noveho zamestnanca -> subory sa len
+// pripravia (values.exekuce_pending) a nahraju sa po ulozeni.
+function GarnishmentDocs({ employeeId, canFull, canUpload, pending = [], onPendingChange, legacyPrilohy = [] }) {
+  const [dbReady, setDbReady] = useState(null);
+  const [count, setCount] = useState(0);
+  const [docs, setDocs] = useState([]);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+
+  const load = useCallback(async () => {
+    const { data, error: rpcErr } = await supabase.rpc("hr_garnishment_doc_count", { p_employee_id: employeeId || "" });
+    if (rpcErr) { setDbReady(false); return; }
+    setDbReady(true);
+    setCount(data || 0);
+    if (canFull && employeeId) {
+      const { data: rows } = await supabase.from("employee_garnishment_documents").select("*").eq("employee_id", employeeId).order("created_at", { ascending: false });
+      setDocs(rows || []);
+    }
+  }, [employeeId, canFull]);
+  useEffect(() => { load(); }, [load]);
+
+  async function onFiles(e) {
+    const files = Array.from(e.target.files || []);
+    e.target.value = "";
+    if (!files.length) return;
+    if (!employeeId) { onPendingChange?.([...pending, ...files]); return; }
+    setBusy(true); setError("");
+    try { await uploadGarnishmentFiles(employeeId, files); await load(); } catch (err) { setError(err.message || String(err)); }
+    setBusy(false);
+  }
+
+  return (
+    <div className="border border-red-200 bg-red-50/40 rounded-md px-3 py-2 mb-3">
+      <div className="text-xs font-medium text-slate-600 mb-1 flex items-center gap-1"><ShieldAlert size={13} className="text-red-600" /> Doklady k exekuci / insolvenci – důvěrné</div>
+      {dbReady === false && (
+        <div className="text-xs text-amber-800 bg-amber-50 rounded px-2 py-1 mb-1">
+          Ukládání dokladů čeká na aktivaci v databázi (SQL skript <code>supabase/2026-10-08_exekuce_doklady.sql</code>). Do té doby nahrávání není možné, aby doklady nebyly přístupné všem.
+        </div>
+      )}
+      {canFull ? (
+        <>
+          {docs.length === 0 && legacyPrilohy.length === 0 && <div className="text-xs text-slate-400">Zatím žádné doklady.</div>}
+          {[...docs.map((d) => ({ id: d.id, name: d.file_name, path: d.file_path, date: d.created_at })), ...legacyPrilohy.map((p) => ({ id: p.id, name: p.name, path: p.path, date: p.uploaded_at }))].map((d) => (
+            <div key={d.id} className="flex items-center justify-between gap-2 text-sm py-0.5">
+              <span className="truncate" title={d.name}>{d.name}</span>
+              <span className="flex items-center gap-2 whitespace-nowrap">
+                <span className="text-xs text-slate-400">{fmtDate(String(d.date || "").slice(0, 10))}</span>
+                <button type="button" onClick={() => openHrFile(d.path)} className="text-xs text-teal-700 hover:underline">Otevřít</button>
+                <button type="button" onClick={() => openHrFile(d.path, d.name)} className="text-xs text-teal-700 hover:underline flex items-center gap-0.5"><Download size={12} /> Stáhnout</button>
+              </span>
+            </div>
+          ))}
+        </>
+      ) : (
+        <div className="text-xs text-slate-600">
+          {employeeId ? `Nahráno dokladů: ${count}. ` : ""}Obsah dokladů vidí jen oprávnění (manažer, účetní).
+        </div>
+      )}
+      {pending.length > 0 && (
+        <div className="text-xs text-amber-700 mt-1">Připraveno k nahrání po uložení: {pending.map((f) => f.name).join(", ")}
+          <button type="button" onClick={() => onPendingChange?.([])} className="ml-2 underline">zrušit</button>
+        </div>
+      )}
+      {canUpload && dbReady && (
+        <label className="mt-1 inline-flex items-center gap-1 text-xs text-teal-700 hover:text-teal-900 cursor-pointer">
+          {busy ? <Loader2 size={12} className="animate-spin" /> : <Upload size={12} />} {busy ? "Nahrávám..." : "Nahrát doklad (PDF / sken)"}
+          <input type="file" accept=".pdf,image/*" multiple disabled={busy} onChange={onFiles} className="hidden" />
+        </label>
+      )}
+      {error && <div className="text-red-600 text-xs mt-1">{error}</div>}
+    </div>
+  );
+}
+
 function EmployeeCreateForm({ permissions, onCancel, onCreated, initialData, positionLabelHint, onboardingSessionId }) {
   const [f, setF] = useState(() => (initialData ? normalizeLegacyDraft(initialData) : emptyEmployeeValues()));
   const [positions, setPositions] = useState([]);
@@ -666,6 +761,10 @@ function EmployeeCreateForm({ permissions, onCancel, onCreated, initialData, pos
         source: "MANUAL",
       });
 
+      if (f.exekuce === true && (f.exekuce_pending || []).length) {
+        await uploadGarnishmentFiles(employeeId, f.exekuce_pending);
+      }
+
       if (onboardingSessionId) {
         const { error: revErr } = await supabase.rpc("hr_onboarding_review", {
           p_session_id: onboardingSessionId, p_status: "REVIEWED", p_resulting_employee_id: employeeId,
@@ -696,6 +795,9 @@ function EmployeeCreateForm({ permissions, onCancel, onCreated, initialData, pos
 
       <EmployeeFieldsForm
         values={f} onChange={onFieldChange} mode="create" canSensitive={canSensitive} canPayroll={canPayroll} positions={positions}
+        renderCustom={(field, values) => field.custom === "garnishment" && (
+          <GarnishmentDocs employeeId={null} canFull={false} canUpload pending={values.exekuce_pending || []} onPendingChange={(list) => onFieldChange("exekuce_pending", list)} />
+        )}
         hints={nextOsobniCislo ? { osobni_cislo: { text: `Použít další v pořadí: ${nextOsobniCislo}`, value: String(nextOsobniCislo) } } : {}}
       />
 
@@ -867,7 +969,7 @@ function EmployeeDetail({ id, permissions, onBack }) {
           employments={employments}
         />
       )}
-      {detailTab === "osobni" && <OsobniUdajeTab employee={employee} sensitive={sensitive} payroll={payroll} currentEmployment={currentEmployment} positions={positions} canEdit={canEdit} canSensitive={canSensitive} canPayroll={canPayroll} onSaved={load} />}
+      {detailTab === "osobni" && <OsobniUdajeTab employee={employee} sensitive={sensitive} payroll={payroll} currentEmployment={currentEmployment} positions={positions} canEdit={canEdit} canSensitive={canSensitive} canPayroll={canPayroll} canGarnishment={hasPerm(permissions, "HR_EXEKUCE")} onSaved={load} />}
       {detailTab === "pomer" && (
         <PracovniPomerTab
           employeeId={id} employee={employee} employments={employments} contractEvents={contractEvents}
@@ -1007,7 +1109,7 @@ function Row({ label, value }) {
   );
 }
 
-function OsobniUdajeTab({ employee, sensitive, payroll, currentEmployment, positions, canEdit, canSensitive, canPayroll, onSaved }) {
+function OsobniUdajeTab({ employee, sensitive, payroll, currentEmployment, positions, canEdit, canSensitive, canPayroll, canGarnishment, onSaved }) {
   const [editing, setEditing] = useState(false);
   const [f, setF] = useState(null);
   const [saving, setSaving] = useState(false);
@@ -1089,6 +1191,12 @@ function OsobniUdajeTab({ employee, sensitive, payroll, currentEmployment, posit
         </div>
         {!currentEmployment && <div className="text-xs text-slate-400 mb-3">Údaje o pozici (profese, režim…) lze doplnit až po založení pracovního poměru.</div>}
         <EmployeeFieldsView values={loadValues()} mode="edit" canSensitive={canSensitive} canPayroll={canPayroll} positions={positions} />
+        {loadValues().exekuce === true && (
+          <div className="mt-3">
+            <GarnishmentDocs employeeId={employee.id} canFull={canGarnishment} canUpload={canEdit}
+              legacyPrilohy={canGarnishment ? (payroll?.data?.prilohy || []).filter((p) => p.kind === "exekuce") : []} />
+          </div>
+        )}
       </div>
     );
   }
@@ -1099,6 +1207,10 @@ function OsobniUdajeTab({ employee, sensitive, payroll, currentEmployment, posit
       <EmployeeFieldsForm
         values={f} onChange={(k, v) => setF((prev) => applyFieldChange(prev, k, v))} mode="edit"
         canSensitive={canSensitive} canPayroll={canPayroll} positions={positions} sectionIds={sectionIds} onOpenFile={openHrFile}
+        renderCustom={(field) => field.custom === "garnishment" && (
+          <GarnishmentDocs employeeId={employee.id} canFull={canGarnishment} canUpload={canEdit}
+            legacyPrilohy={canGarnishment ? (payroll?.data?.prilohy || []).filter((p) => p.kind === "exekuce") : []} />
+        )}
       />
       {error && <div className="bg-red-50 text-red-700 text-sm px-3 py-2 rounded-md mt-2 mb-2">{error}</div>}
       <div className="flex justify-end gap-2 mt-3 pb-4">
