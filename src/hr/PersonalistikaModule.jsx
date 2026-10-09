@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback } from "react";
-import { Loader2, AlertCircle, Users2, UserPlus, ArrowLeft, ShieldAlert, Settings, LayoutDashboard, FileText, Pencil, CheckCircle2, Briefcase, Plus, Upload, Download, Stamp, HeartPulse, History } from "lucide-react";
+import { Loader2, AlertCircle, Users2, UserPlus, ArrowLeft, ShieldAlert, Settings, LayoutDashboard, FileText, Pencil, CheckCircle2, Briefcase, Plus, Upload, Download, Stamp, HeartPulse, History, Trash2 } from "lucide-react";
 import { supabase } from "../supabaseClient.js";
 import { uid, skDateStrFromIso } from "../lib/utils.js";
 import { computeFixedTermStatus, canProposeExtension, FIXED_TERM_RULES, sortContractEventsChronologically, shouldMarkEmployeeInactive } from "../lib/hrContractRules.js";
@@ -2099,6 +2099,8 @@ function EndDocuments({ employment, canEdit, onChanged }) {
 function agendaItems(employee, payroll) {
   const byId = new Map();
   for (const x of [...(payroll?.data?.agenda_uradu || []), ...(employee?.data?.agenda_uradu || [])]) byId.set(x.id, x);
+  // Odstranene podania (omyl) - zaznam ostava v employees.data.agenda_uradu_odstranene.
+  for (const r of employee?.data?.agenda_uradu_odstranene || []) byId.delete(r.id);
   return [...byId.values()].sort((a, b) => String(b.datum || "").localeCompare(String(a.datum || "")) || String(b.created_at || "").localeCompare(String(a.created_at || "")));
 }
 
@@ -2133,9 +2135,13 @@ const AGENDA_URADY = [
 const AGENDA_TYPY = ["Přihláška", "Odhláška", "Změna", "Storno", "Oprava", "Potvrzení / odpověď úřadu", "Jiné"].map((t) => ({ value: t, label: t }));
 
 function AgendaUraduSection({ employee, payroll, canEdit, onSaved }) {
+  const emptyForm = () => ({ urad: "cssz", typ: "Přihláška", datum: new Date().toISOString().slice(0, 10), poznamka: "" });
   const [adding, setAdding] = useState(false);
-  const [f, setF] = useState({ urad: "cssz", typ: "Přihláška", datum: new Date().toISOString().slice(0, 10), poznamka: "" });
+  const [editingId, setEditingId] = useState(null); // null = nove podanie
+  const [f, setF] = useState(emptyForm);
   const [files, setFiles] = useState([]);
+  const [keptFiles, setKeptFiles] = useState([]); // pri oprave: uz nahrate subory, ktore ostavaju
+  const [confirmDeleteId, setConfirmDeleteId] = useState(null);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
   const [filter, setFilter] = useState("");
@@ -2144,32 +2150,74 @@ function AgendaUraduSection({ employee, payroll, canEdit, onSaved }) {
   const uradLabel = (u) => (u === "zp" && zpCode ? `ZP ${optionLabel(HEALTH_INSURANCE_OPTIONS, zpCode)}` : AGENDA_URADY.find((x) => x.value === u)?.label || u);
   const shown = filter ? items.filter((x) => x.urad === filter) : items;
 
+  function startAdd() { setEditingId(null); setF(emptyForm()); setFiles([]); setKeptFiles([]); setError(""); setAdding(true); }
+  function startEdit(x) {
+    setEditingId(x.id);
+    setF({ urad: x.urad, typ: x.typ, datum: x.datum || "", poznamka: x.poznamka || "" });
+    setFiles([]); setKeptFiles(x.soubory || []); setError(""); setAdding(true);
+  }
+  function closeForm() { setAdding(false); setEditingId(null); setFiles([]); setKeptFiles([]); }
+
+  // Nacita cerstve employees.data, aplikuje zmenu a ulozi (aby sa neprepisali
+  // medzitym ulozene ine udaje karty).
+  async function writeData(mutate) {
+    const { data: fresh, error: rErr } = await supabase.from("employees").select("data").eq("id", employee.id).single();
+    if (rErr) throw rErr;
+    const nextData = mutate({ ...(fresh?.data || employee.data || {}) });
+    const { error: upErr } = await supabase.from("employees").update({ data: nextData, updated_at: new Date().toISOString() }).eq("id", employee.id);
+    if (upErr) throw upErr;
+  }
+
   async function save() {
     if (!f.datum) { setError("Vyplňte datum."); return; }
-    if (files.length === 0) { setError("Přiložte alespoň jeden soubor."); return; }
+    if (files.length === 0 && keptFiles.length === 0) { setError("Přiložte alespoň jeden soubor."); return; }
     setSaving(true); setError("");
     try {
       const uploaded = [];
       for (const file of files) uploaded.push(await uploadHrFile(employee.id, "agenda_uradu", file));
+      const original = editingId ? items.find((x) => x.id === editingId) : null;
       const entry = {
-        id: crypto.randomUUID(), urad: f.urad, urad_nazev: uradLabel(f.urad), typ: f.typ, datum: f.datum,
-        poznamka: f.poznamka.trim() || null, soubory: uploaded, created_at: new Date().toISOString(),
+        ...(original || {}),
+        id: editingId || crypto.randomUUID(), urad: f.urad, urad_nazev: uradLabel(f.urad), typ: f.typ, datum: f.datum,
+        poznamka: f.poznamka.trim() || null, soubory: [...keptFiles, ...uploaded],
+        created_at: original?.created_at || new Date().toISOString(),
+        ...(editingId ? { upraveno_at: new Date().toISOString() } : {}),
       };
-      const { data: fresh, error: rErr } = await supabase.from("employees").select("data").eq("id", employee.id).single();
-      if (rErr) throw rErr;
-      const base = fresh?.data || employee.data || {};
-      const nextData = { ...base, agenda_uradu: [...(base.agenda_uradu || []), entry] };
-      const { error: upErr } = await supabase.from("employees").update({ data: nextData, updated_at: new Date().toISOString() }).eq("id", employee.id);
-      if (upErr) throw upErr;
+      await writeData((data) => ({ ...data, agenda_uradu: [...(data.agenda_uradu || []).filter((x) => x.id !== entry.id), entry] }));
       await supabase.from("employee_timeline_events").insert({
-        id: uid(), employee_id: employee.id, event_date: f.datum, event_type: "AGENDA_URADU",
-        title: `${entry.urad_nazev}: ${f.typ}`, description: entry.poznamka || uploaded.map((x) => x.name).join(", "), source: "MANUAL",
+        id: uid(), employee_id: employee.id, event_date: editingId ? new Date().toISOString().slice(0, 10) : f.datum, event_type: "AGENDA_URADU",
+        title: editingId ? `Opraveno podání – ${entry.urad_nazev}: ${f.typ} (${fmtDate(f.datum)})` : `${entry.urad_nazev}: ${f.typ}`,
+        description: entry.poznamka || entry.soubory.map((x) => x.name).join(", "), source: "MANUAL",
       });
-      setAdding(false); setFiles([]); setF({ ...f, poznamka: "" });
+      closeForm();
       onSaved();
     } catch (e) {
       console.error(e);
       setError(e.message || "Uložení se nezdařilo.");
+    }
+    setSaving(false);
+  }
+
+  async function remove(x) {
+    setSaving(true); setError("");
+    try {
+      // Subory v ulozisku ostavaju (bez DELETE politiky) - podanie sa len
+      // vyradi zo zoznamu a odlozi do agenda_uradu_odstranene.
+      await writeData((data) => ({
+        ...data,
+        agenda_uradu: (data.agenda_uradu || []).filter((e) => e.id !== x.id),
+        agenda_uradu_odstranene: [...(data.agenda_uradu_odstranene || []), { ...x, odstraneno_at: new Date().toISOString() }],
+      }));
+      await supabase.from("employee_timeline_events").insert({
+        id: uid(), employee_id: employee.id, event_date: new Date().toISOString().slice(0, 10), event_type: "AGENDA_URADU_REMOVED",
+        title: `Odstraněno podání – ${x.urad_nazev || uradLabel(x.urad)}: ${x.typ} (${fmtDate(x.datum)})`,
+        description: (x.soubory || []).map((d) => d.name).join(", ") || undefined, source: "MANUAL",
+      });
+      setConfirmDeleteId(null);
+      onSaved();
+    } catch (e) {
+      console.error(e);
+      setError(e.message || "Odstranění se nezdařilo.");
     }
     setSaving(false);
   }
@@ -2179,11 +2227,11 @@ function AgendaUraduSection({ employee, payroll, canEdit, onSaved }) {
       <div className="flex justify-between items-start flex-wrap gap-2 mb-3">
         <div>
           <h2 className="font-semibold text-sm">Podání na úřady (archiv)</h2>
-          <p className="text-xs text-slate-500 mt-0.5">Přihlášky, odhlášky, změny, storna a opravy na ČSSZ a zdravotní pojišťovnu. Uložené soubory nelze smazat.</p>
+          <p className="text-xs text-slate-500 mt-0.5">Přihlášky, odhlášky, změny, storna a opravy na ČSSZ a zdravotní pojišťovnu. Chybně zadané podání lze opravit nebo odstranit – zůstane o tom záznam v Historii.</p>
           <div className="mt-2"><RegistrationStatusBadges items={items} employee={employee} /></div>
         </div>
         {canEdit && !adding && (
-          <button onClick={() => { setAdding(true); setError(""); }} className="flex items-center gap-1.5 bg-teal-700 hover:bg-teal-800 text-white text-sm font-medium px-3 py-2 rounded-md">
+          <button onClick={startAdd} className="flex items-center gap-1.5 bg-teal-700 hover:bg-teal-800 text-white text-sm font-medium px-3 py-2 rounded-md">
             <Plus size={16} /> Přidat podání
           </button>
         )}
@@ -2191,20 +2239,32 @@ function AgendaUraduSection({ employee, payroll, canEdit, onSaved }) {
 
       {adding && (
         <div className="bg-slate-50 rounded-md p-3 mb-3">
+          <div className="text-sm font-medium mb-2">{editingId ? "Opravit podání" : "Nové podání"}</div>
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-x-4">
             <SelectFieldLocal label="Úřad" value={f.urad} onChange={(v) => setF({ ...f, urad: v })} options={AGENDA_URADY.map((u) => ({ value: u.value, label: uradLabel(u.value) }))} />
             <SelectFieldLocal label="Typ podání" value={f.typ} onChange={(v) => setF({ ...f, typ: v })} options={AGENDA_TYPY} />
             <DateFieldLocal label="Datum podání" value={f.datum} onChange={(v) => setF({ ...f, datum: v })} />
           </div>
           <TextField label="Poznámka (např. číslo podání, důvod opravy)" value={f.poznamka} onChange={(v) => setF({ ...f, poznamka: v })} />
+          {keptFiles.length > 0 && (
+            <div className="mb-2">
+              <span className="block text-xs font-medium text-slate-500 mb-1">Nahrané soubory</span>
+              {keptFiles.map((d) => (
+                <div key={d.id} className="flex items-center gap-2 text-sm">
+                  <span className="truncate max-w-[260px]" title={d.name}>{d.name}</span>
+                  <button type="button" onClick={() => setKeptFiles((prev) => prev.filter((x) => x.id !== d.id))} className="text-xs text-red-600 hover:underline">Odebrat</button>
+                </div>
+              ))}
+            </div>
+          )}
           <label className="block mb-2">
-            <span className="block text-xs font-medium text-slate-500 mb-1">Soubory (PDF / sken)</span>
+            <span className="block text-xs font-medium text-slate-500 mb-1">{editingId ? "Přidat další soubory (PDF / sken)" : "Soubory (PDF / sken)"}</span>
             <input type="file" accept=".pdf,image/*,.xml" multiple onChange={(e) => setFiles(Array.from(e.target.files || []))} className="text-sm" />
           </label>
           {error && <div className="text-red-600 text-xs mb-2">{error}</div>}
           <div className="flex justify-end gap-2">
-            <button onClick={() => { setAdding(false); setFiles([]); }} className="text-sm text-slate-500 px-3 py-2">Zrušit</button>
-            <button onClick={save} disabled={saving} className="bg-teal-700 hover:bg-teal-800 disabled:opacity-50 text-white text-sm font-medium px-4 py-2 rounded-md">{saving ? "Nahrávám..." : "Uložit podání"}</button>
+            <button onClick={closeForm} className="text-sm text-slate-500 px-3 py-2">Zrušit</button>
+            <button onClick={save} disabled={saving} className="bg-teal-700 hover:bg-teal-800 disabled:opacity-50 text-white text-sm font-medium px-4 py-2 rounded-md">{saving ? "Ukládám..." : editingId ? "Uložit opravu" : "Uložit podání"}</button>
           </div>
         </div>
       )}
@@ -2230,6 +2290,7 @@ function AgendaUraduSection({ employee, payroll, canEdit, onSaved }) {
                 <th className="text-left px-3 py-2">Typ</th>
                 <th className="text-left px-3 py-2">Poznámka</th>
                 <th className="text-left px-3 py-2">Soubory</th>
+                {canEdit && <th className="px-3 py-2"></th>}
               </tr>
             </thead>
             <tbody>
@@ -2248,6 +2309,22 @@ function AgendaUraduSection({ employee, payroll, canEdit, onSaved }) {
                       </div>
                     ))}
                   </td>
+                  {canEdit && (
+                    <td className="px-3 py-2 text-right whitespace-nowrap">
+                      {confirmDeleteId === x.id ? (
+                        <span className="inline-flex items-center gap-2 text-xs">
+                          <span className="text-red-700">Opravdu odstranit?</span>
+                          <button onClick={() => remove(x)} disabled={saving} className="text-white bg-red-600 hover:bg-red-700 rounded px-2 py-0.5">Ano</button>
+                          <button onClick={() => setConfirmDeleteId(null)} className="text-slate-500 hover:underline">Ne</button>
+                        </span>
+                      ) : (
+                        <span className="inline-flex items-center gap-3">
+                          <button onClick={() => startEdit(x)} className="text-xs text-teal-700 hover:underline flex items-center gap-0.5"><Pencil size={12} /> Opravit</button>
+                          <button onClick={() => setConfirmDeleteId(x.id)} className="text-xs text-red-600 hover:underline flex items-center gap-0.5"><Trash2 size={12} /> Odstranit</button>
+                        </span>
+                      )}
+                    </td>
+                  )}
                 </tr>
               ))}
             </tbody>
