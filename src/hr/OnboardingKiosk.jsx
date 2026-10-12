@@ -34,7 +34,7 @@ const STEPS = [
   { id: "pojisteni", label: "Vzdělání, pojištění, zdraví", sections: ["vzdelani", "pojisteni", "zdravi", "cizi_predpisy", "duchod"] },
   { id: "cizinec", label: "Údaje cizince", sections: ["cizinec"] },
   { id: "pozice", label: "Nástup", sections: ["pozice"] },
-  { id: "dane", label: "Daně a děti", sections: ["dane", "deti", ...Array.from({ length: MAX_CHILDREN }, (_, i) => `dep_dite${i + 1}`), "dep_manzel", "dep_jina_osoba", "soubeh"] },
+  { id: "dane", label: "Daně a děti", sections: ["dane", "deti", ...Array.from({ length: MAX_CHILDREN }, (_, i) => `dep_dite${i + 1}`), "dep_jina_osoba", "soubeh"] },
   { id: "shrnuti", label: "Shrnutí", sections: [] },
 ];
 const KIOSK_CTX = { mode: "kiosk", canSensitive: true, canPayroll: true };

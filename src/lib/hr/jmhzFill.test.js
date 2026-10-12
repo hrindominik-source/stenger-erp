@@ -200,3 +200,14 @@ describe("zkušební doba", () => {
     expect(m.probationWarning({ employment_type: "doba_urcita", start_date: "2026-01-01", fixed_term_end_date: "2026-06-30", probation_end_date: "2026-04-30" })).toMatch(/polovinu/);
   });
 });
+
+describe("L. Daně – § 35ba", () => {
+  it("rozšířená sleva na invaliditu (písm. d) zaškrtne v dotazníku slevu na invaliditu, manžel se nevyplňuje", async () => {
+    const { buildJmhzFillValues } = await import("./jmhzFill.js");
+    const d = buildJmhzFillValues({ ...duchkova, tax_uplatneni: true, tax_invalidita: false, tax_invalidita_iii: true });
+    expect(d.tax_sleva_invalidita).toBe(true);
+    expect(d.tax_sleva_manzel).toBe(false);
+    const p = buildRecordPatches({ ...duchkova, tax_uplatneni: true, tax_ztpp: true }, {}, { mode: "create" });
+    expect(p.payroll.tax_declaration).toMatchObject({ uplatneni_prohlaseni: true, sleva_ztpp: true });
+  });
+});

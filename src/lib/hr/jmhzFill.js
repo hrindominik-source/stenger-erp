@@ -157,8 +157,9 @@ export function buildJmhzFillValues(v, extra = {}) {
 
     tax_uplatneni_prohlaseni: yn(v.tax_uplatneni === "" ? null : v.tax_uplatneni),
     tax_zakladni_sleva: v.tax_uplatneni === true && !!v.tax_zakladni,
-    tax_sleva_manzel: v.tax_uplatneni === true && !!v.tax_manzel,
-    tax_sleva_invalidita: v.tax_uplatneni === true && !!v.tax_invalidita,
+    tax_sleva_manzel: false, // sleva na manzela/manzelku se v karte neeviduje
+    // JMHZ ma jedno policko "Sleva na invaliditu (I., II., III. stupeň)" = pism. c nebo d.
+    tax_sleva_invalidita: v.tax_uplatneni === true && (!!v.tax_invalidita || !!v.tax_invalidita_iii),
 
     ...Object.fromEntries(["dite1", "dite2", "dite3", "dite4"].flatMap((s) => [
       [`${s}_jmeno`, v[`${s}_jmeno`]],

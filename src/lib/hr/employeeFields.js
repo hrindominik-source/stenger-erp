@@ -523,24 +523,23 @@ export const EMPLOYEE_SECTIONS = [
     ],
   },
   {
+    // Oddil 1: slevy na dani - § 35ba zakona c. 586/1992 Sb. (pismena a, c, d, e).
+    // Sleva na manzela/manzelku (pism. b) zamerne vynechana - HR ji neeviduje.
     id: "dane",
-    title: "L. Daně – prohlášení poplatníka",
+    title: "L. Daně – sleva na dani z příjmu (§ 35ba zákona č. 586/1992 Sb.)",
     tier: "payroll",
     fields: [
-      { key: "tax_uplatneni", label: "Uplatňuje prohlášení poplatníka („růžový formulář“)", type: "yesno", store: { t: "pay", bucket: "tax_declaration", field: "uplatneni_prohlaseni" } },
-      { key: "tax_zakladni", label: "Základní sleva na poplatníka", type: "check", showIf: (v) => v.tax_uplatneni === true, store: { t: "pay", bucket: "tax_declaration", field: "zakladni_sleva" } },
-      { key: "tax_manzel", label: "Sleva na manžela/manželku", type: "check", showIf: (v) => v.tax_uplatneni === true, store: { t: "pay", bucket: "tax_declaration", field: "sleva_manzel" } },
-      { key: "tax_invalidita", label: "Sleva na invaliditu (I., II., III. stupeň)", type: "check", showIf: (v) => v.tax_uplatneni === true, store: { t: "pay", bucket: "tax_declaration", field: "sleva_invalidita" } },
-      { key: "tax_invalidita_doklad", label: "Rozhodnutí o invalidním důchodu (PDF / sken)", type: "file", kind: "tax_invalidita", hr: true, showIf: (v) => v.tax_uplatneni === true && !!v.tax_invalidita },
+      { key: "tax_uplatneni", label: "Prohlášení poplatníka – sleva na dani z příjmu – § 35ba zákona č. 586/1992 Sb.", type: "yesno", store: { t: "pay", bucket: "tax_declaration", field: "uplatneni_prohlaseni" } },
+      { key: "tax_zakladni", label: "Základní sleva na poplatníka (písm. a)", type: "check", showIf: (v) => v.tax_uplatneni === true, store: { t: "pay", bucket: "tax_declaration", field: "zakladni_sleva" } },
+      { key: "tax_invalidita", label: "Základní sleva na invaliditu I. nebo II. stupně (písm. c)", type: "check", showIf: (v) => v.tax_uplatneni === true, store: { t: "pay", bucket: "tax_declaration", field: "sleva_invalidita" } },
+      { key: "tax_invalidita_iii", label: "Rozšířená sleva na invaliditu III. stupně (písm. d)", type: "check", showIf: (v) => v.tax_uplatneni === true, store: { t: "pay", bucket: "tax_declaration", field: "sleva_invalidita_iii" } },
+      { key: "tax_ztpp", label: "Sleva na držitele průkazu ZTP/P (písm. e)", type: "check", showIf: (v) => v.tax_uplatneni === true, store: { t: "pay", bucket: "tax_declaration", field: "sleva_ztpp" } },
       { key: "tax_prohlaseni_doklad", label: "Prohlášení poplatníka – formulář (PDF / sken)", type: "file", kind: "prohlaseni_poplatnika", hr: true },
     ],
   },
-  { id: "deti", title: "Děti a vyživované osoby (uveďte všechny děti žijící ve společné domácnosti)", tier: "payroll", control: "children", fields: [] },
+  // Oddil 2: danove zvyhodneni na vyzivovane dite - § 35c zakona c. 586/1992 Sb.
+  { id: "deti", title: "Daňové zvýhodnění na vyživované dítě (§ 35c zákona č. 586/1992 Sb.) – uveďte všechny děti žijící ve společné domácnosti", tier: "payroll", control: "children", fields: [] },
   ...childSections,
-  dependent("manzel", "Manžel / manželka", [
-    { key: "manzel_sleva", label: "Uplatnění slevy na manžela/manželku na dani podle § 35ba odst. 1 zákona", type: "yesno", store: { t: "pay", slot: "manzel", field: "uplatneni_slevy" } },
-    { key: "manzel_doklady", label: "Čestné prohlášení o výši příjmu manžela/manželky, potvrzení o zdanitelných příjmech (PDF / sken)", type: "file", kind: "manzel_prijmy", hr: true, showIf: (v) => v.manzel_sleva === true },
-  ], (v) => hasChildren(v) || !!v.tax_manzel || !!v.manzel_jmeno),
   {
     id: "dep_jina_osoba",
     title: "Jiná vyživovaná osoba (§ 38k odst. 4 zákona o daních z příjmů)",
