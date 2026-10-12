@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback } from "react";
-import { Loader2, AlertCircle, Users2, UserPlus, ArrowLeft, ShieldAlert, Settings, LayoutDashboard, FileText, Pencil, CheckCircle2, Briefcase, Plus, Upload, Download, Stamp, HeartPulse, History, Trash2 } from "lucide-react";
+import { Loader2, AlertCircle, Users2, UserPlus, ArrowLeft, ShieldAlert, Settings, LayoutDashboard, FileText, Pencil, CheckCircle2, Briefcase, Plus, Upload, Download, Stamp, HeartPulse, History, Trash2, Paperclip } from "lucide-react";
 import { supabase } from "../supabaseClient.js";
 import { uid, skDateStrFromIso } from "../lib/utils.js";
 import { computeFixedTermStatus, canProposeExtension, FIXED_TERM_RULES, sortContractEventsChronologically, shouldMarkEmployeeInactive } from "../lib/hrContractRules.js";
@@ -13,6 +13,7 @@ import { buildComparisonRows } from "../lib/hr/jmhzImport.js";
 import { sha256Hex, buildSignedScanPath } from "../lib/hr/documentHash.js";
 import { EMPLOYEE_SECTIONS, emptyEmployeeValues, normalizeLegacyDraft, valuesFromRecords, buildRecordPatches, patchHasContent, maritalStatusText, normalizeGender, HEALTH_INSURANCE_OPTIONS, optionLabel, normalizeHealthInsurance, POSITION_CATEGORIES, positionNameOptions, wageHistory, currentWage, upcomingWages, wageStepHint, addWageEntry, wageToValues, valuesToWage, MZDA_TYP_OPTIONS } from "../lib/hr/employeeFields.js";
 import EmployeeFieldsForm, { EmployeeFieldsView, applyFieldChange } from "./EmployeeFieldsForm.jsx";
+import { ABSENCE_TYPES, ABSENCE_DOC_TYPES, absenceType, absenceList, isAbsenceActive, activeAbsence, absenceStatusText, probationOverlapDays, absenceInProbation, addDaysIso } from "../lib/hr/absences.js";
 
 const HR_DOKUMENTY_BUCKET = "hr-dokumenty";
 const DOCX_MIME = "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
@@ -209,7 +210,7 @@ function DashboardTab({ permissions, onOpenEmployee }) {
     (async () => {
       setLoading(true);
       const [empRes, empmRes, posRes] = await Promise.all([
-        supabase.from("employees").select("id, first_name, last_name, title, active").eq("active", true),
+        supabase.from("employees").select("id, first_name, last_name, title, active, data").eq("active", true),
         supabase.from("employment_relationships").select("id, employee_id, status, fixed_term_end_date, employment_type, start_date, workplace, weekly_hours, position_id").in("status", ["ACTIVE", "PLANNED", "NOTICE_PERIOD"]),
         supabase.from("positions").select("id, code, name"),
       ]);
@@ -266,6 +267,7 @@ function DashboardTab({ permissions, onOpenEmployee }) {
         <StatCard label="Smlouvy do 60 dnů" value={ending60.length} />
         <StatCard label="Smlouvy do 90 dnů" value={ending90.length} />
         <StatCard label="Ve výpovědní lhůtě" value={noticePeriod} alert={noticePeriod > 0} />
+        <StatCard label="Nepřítomní (PN, OČR…)" value={employees.filter((e) => activeAbsence(e)).length} />
         {canMedical && <StatCard label="Prohlídky po platnosti" value={medExpired.length} alert={medExpired.length > 0} />}
         {canMedical && <StatCard label="Prohlídky do 60 dnů" value={medExpiring90.filter((m) => daysUntilIso(m.valid_until) <= DEFAULT_EXPIRING_THRESHOLD_DAYS).length - medExpired.length} />}
         {canReviewOnboarding && <StatCard label="Probíhající nástupy" value={onboardingPendingCount} alert={onboardingPendingCount > 0} />}
@@ -318,7 +320,10 @@ function DashboardTab({ permissions, onOpenEmployee }) {
                   <td className="px-4 py-2 text-slate-500 whitespace-nowrap">{em?.fixed_term_end_date ? fmtDate(em.fixed_term_end_date) : "—"}</td>
                   <td className="px-4 py-2 text-slate-500 whitespace-nowrap">{em ? extensionsCountFor(em.id) : "—"}</td>
                   <td className="px-4 py-2 whitespace-nowrap">{canMedical ? (exam ? <MedicalStatusBadge status={medStatus} /> : "—") : "—"}</td>
-                  <td className="px-4 py-2 whitespace-nowrap"><span className="px-2 py-0.5 rounded-full text-xs font-medium bg-slate-100 text-slate-600">{em ? EMPLOYMENT_STATUS_LABEL[em.status] : "—"}</span></td>
+                  <td className="px-4 py-2 whitespace-nowrap">
+                    <span className="px-2 py-0.5 rounded-full text-xs font-medium bg-slate-100 text-slate-600">{em ? EMPLOYMENT_STATUS_LABEL[em.status] : "—"}</span>
+                    {activeAbsence(e) && <span className="ml-1.5"><AbsenceBadge employee={e} compact /></span>}
+                  </td>
                 </tr>
               );
             })}
@@ -454,6 +459,7 @@ function EmployeesListTab({ mode, permissions, onOpen }) {
                     <td className="px-4 py-2 text-slate-500 whitespace-nowrap">{em?.fixed_term_end_date ? fmtDate(em.fixed_term_end_date) : "—"}</td>
                     <td className="px-4 py-2 whitespace-nowrap">
                       <span className="px-2 py-0.5 rounded-full text-xs font-medium bg-slate-100 text-slate-600">{em ? EMPLOYMENT_STATUS_LABEL[em.status] : "—"}</span>
+                      {activeAbsence(e) && <span className="ml-1.5"><AbsenceBadge employee={e} compact /></span>}
                     </td>
                   </tr>
                 );
@@ -916,7 +922,8 @@ function EmployeeDetail({ id, permissions, onBack }) {
             {currentEmployment ? positionLabel(currentEmployment.position_id) : "Bez aktivního pracovního poměru"}
           </div>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 flex-wrap">
+          <AbsenceBadge employee={employee} />
           <span className={"px-2.5 py-1 rounded-full text-xs font-medium " + (employee.active ? "bg-emerald-100 text-emerald-700" : "bg-slate-200 text-slate-500")}>
             {employee.active ? "Aktivní" : "Bývalý zaměstnanec"}
           </span>
@@ -986,6 +993,9 @@ function EmployeeDetail({ id, permissions, onBack }) {
       {detailTab === "dokumenty" && <DokumentyTab employee={employee} sensitive={sensitive} payroll={payroll} currentEmployment={currentEmployment} permissions={permissions} preset={docPreset} onPresetUsed={() => setDocPreset(null)} />}
       {detailTab === "jmhz" && (
         <AgendaUraduSection employee={employee} payroll={payroll} canEdit={canEdit} onSaved={load} />
+      )}
+      {detailTab === "jmhz" && (
+        <NepritomnostiSection employee={employee} payroll={payroll} currentEmployment={currentEmployment} canEdit={canEdit} canPayroll={canPayroll} onSaved={load} />
       )}
       {detailTab === "jmhz" && canEdit && (
         <h2 className="font-semibold text-base mt-6 mb-3">Osobní dotazník zaměstnance</h2>
@@ -2086,6 +2096,255 @@ function EndDocuments({ employment, canEdit, onChanged }) {
         })}
       </div>
       {error && <div className="text-red-600 text-xs mt-2">{error}</div>}
+    </div>
+  );
+}
+
+/* ---------------- Nepřítomnosti (PN, OČR, mateřská...) ----------------
+   Zaznam (druh, od, do, cislo eNeschopenky) v employees.data.nepritomnosti -
+   stav vidi kazdy s pristupom ku karte. Doklady (hlasenia z DS, ziadosti o
+   davky) v employee_payroll_data.data.nepritomnosti_doklady - len
+   HR_VIEW_PAYROLL. Bez prepojenia na plan zmien (rozhodnutie HR). */
+
+function AbsenceBadge({ employee, compact = false }) {
+  const a = activeAbsence(employee);
+  if (!a) return null;
+  return (
+    <span className={"inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-medium bg-orange-100 text-orange-800 " + (compact ? "py-0.5" : "")}>
+      <HeartPulse size={12} /> {compact ? absenceType(a.druh).status : absenceStatusText(a)}
+    </span>
+  );
+}
+
+function NepritomnostiSection({ employee, payroll, currentEmployment, canEdit, canPayroll, onSaved }) {
+  const empty = () => ({ druh: "pn_nemoc", od: new Date().toISOString().slice(0, 10), do: "", cislo: "", poznamka: "" });
+  const [formOpen, setFormOpen] = useState(false);
+  const [editingId, setEditingId] = useState(null);
+  const [f, setF] = useState(empty);
+  const [confirmDeleteId, setConfirmDeleteId] = useState(null);
+  const [docFor, setDocFor] = useState(null); // id nepritomnosti, ku ktorej sa nahrava doklad
+  const [docType, setDocType] = useState("Hlášení o vzniku");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  const list = absenceList(employee);
+  const docs = payroll?.data?.nepritomnosti_doklady || [];
+  const today = new Date().toISOString().slice(0, 10);
+
+  async function writeEmployee(mutate) {
+    const { data: fresh, error: rErr } = await supabase.from("employees").select("data").eq("id", employee.id).single();
+    if (rErr) throw rErr;
+    const nextData = mutate({ ...(fresh?.data || employee.data || {}) });
+    const { error: upErr } = await supabase.from("employees").update({ data: nextData, updated_at: new Date().toISOString() }).eq("id", employee.id);
+    if (upErr) throw upErr;
+  }
+  async function timeline(title, description) {
+    await supabase.from("employee_timeline_events").insert({
+      id: uid(), employee_id: employee.id, event_date: today, event_type: "ABSENCE", title, description: description || undefined, source: "MANUAL",
+    });
+  }
+  const run = async (fn) => {
+    setBusy(true); setError("");
+    try { await fn(); onSaved(); } catch (e) { console.error(e); setError(e.message || "Uložení se nezdařilo."); }
+    setBusy(false);
+  };
+
+  function openNew() { setEditingId(null); setF(empty()); setError(""); setFormOpen(true); }
+  function openEdit(a, endToday = false) {
+    setEditingId(a.id);
+    setF({ druh: a.druh, od: a.od || "", do: endToday ? today : a.do || "", cislo: a.cislo || "", poznamka: a.poznamka || "" });
+    setError(""); setFormOpen(true);
+  }
+
+  function save() {
+    if (!f.od) { setError("Vyplňte datum od."); return; }
+    if (f.do && f.do < f.od) { setError("Datum do nemůže být před datem od."); return; }
+    run(async () => {
+      const original = list.find((x) => x.id === editingId);
+      const entry = {
+        ...(original || {}), id: editingId || crypto.randomUUID(), druh: f.druh, od: f.od, do: f.do || null,
+        cislo: f.cislo.trim() || null, poznamka: f.poznamka.trim() || null,
+        created_at: original?.created_at || new Date().toISOString(),
+      };
+      await writeEmployee((data) => ({ ...data, nepritomnosti: [...(data.nepritomnosti || []).filter((x) => x.id !== entry.id), entry] }));
+      const label = absenceType(entry.druh).label;
+      if (!original) await timeline(`Nepřítomnost: ${label} od ${fmtDate(entry.od)}`, entry.cislo ? `č. ${entry.cislo}` : entry.poznamka);
+      else if (!original.do && entry.do) await timeline(`Ukončena nepřítomnost: ${label} (${fmtDate(entry.od)} – ${fmtDate(entry.do)})`);
+      else await timeline(`Opravena nepřítomnost: ${label} (${fmtDate(entry.od)} – ${entry.do ? fmtDate(entry.do) : "trvá"})`);
+      setFormOpen(false); setEditingId(null);
+    });
+  }
+
+  function remove(a) {
+    run(async () => {
+      await writeEmployee((data) => ({
+        ...data,
+        nepritomnosti: (data.nepritomnosti || []).filter((x) => x.id !== a.id),
+        nepritomnosti_odstranene: [...(data.nepritomnosti_odstranene || []), { ...a, odstraneno_at: new Date().toISOString() }],
+      }));
+      await timeline(`Odstraněn záznam nepřítomnosti: ${absenceType(a.druh).label} (${fmtDate(a.od)} – ${a.do ? fmtDate(a.do) : "trvá"})`);
+      setConfirmDeleteId(null);
+    });
+  }
+
+  function uploadDocs(absenceId, fileList) {
+    const files = Array.from(fileList || []);
+    if (!files.length) return;
+    run(async () => {
+      const uploaded = [];
+      for (const file of files) uploaded.push({ ...(await uploadHrFile(employee.id, "nepritomnost", file)), absence_id: absenceId, typ: docType });
+      const { data: fresh } = await supabase.from("employee_payroll_data").select("data").eq("employee_id", employee.id).maybeSingle();
+      const base = fresh?.data || payroll?.data || {};
+      const nextData = { ...base, nepritomnosti_doklady: [...(base.nepritomnosti_doklady || []), ...uploaded] };
+      const { error: upErr } = await supabase.from("employee_payroll_data").upsert({ employee_id: employee.id, data: nextData, updated_at: new Date().toISOString() }, { onConflict: "employee_id" });
+      if (upErr) throw upErr;
+      await timeline(`Nahrán doklad k nepřítomnosti: ${docType}`, files.map((x) => x.name).join(", "));
+      setDocFor(null);
+    });
+  }
+
+  function unlinkDoc(d) {
+    run(async () => {
+      const { data: fresh } = await supabase.from("employee_payroll_data").select("data").eq("employee_id", employee.id).maybeSingle();
+      const base = fresh?.data || payroll?.data || {};
+      const nextData = { ...base, nepritomnosti_doklady: (base.nepritomnosti_doklady || []).filter((x) => x.id !== d.id) };
+      const { error: upErr } = await supabase.from("employee_payroll_data").upsert({ employee_id: employee.id, data: nextData, updated_at: new Date().toISOString() }, { onConflict: "employee_id" });
+      if (upErr) throw upErr;
+      await timeline(`Odebrán doklad k nepřítomnosti: ${d.typ || ""}`, d.name);
+    });
+  }
+
+  // § 35 odst. 4 ZP - prodlouzeni zkusebni doby o dny neprítomnosti.
+  function extendProbation(a, days) {
+    run(async () => {
+      const { data: userData } = await supabase.auth.getUser();
+      const oldEnd = currentEmployment.probation_end_date;
+      const newEnd = addDaysIso(oldEnd, days);
+      const { error: e1 } = await supabase.from("employment_relationships").update({ probation_end_date: newEnd, updated_at: new Date().toISOString() }).eq("id", currentEmployment.id);
+      if (e1) throw e1;
+      await supabase.from("employment_contract_events").insert({
+        id: uid(), employment_id: currentEmployment.id, event_type: "CHANGED", event_date: today,
+        old_value: `Zkušební doba do ${fmtDate(oldEnd)}`, new_value: `Zkušební doba do ${fmtDate(newEnd)}`,
+        note: `Prodloužení o ${days} dní – ${absenceType(a.druh).label} ${fmtDate(a.od)} – ${fmtDate(a.do)} (§ 35 odst. 4 ZP)`, created_by: userData?.user?.id || null,
+      });
+      await writeEmployee((data) => ({ ...data, nepritomnosti: (data.nepritomnosti || []).map((x) => (x.id === a.id ? { ...x, zkusebni_prodlouzeno_dni: days } : x)) }));
+      await timeline(`Zkušební doba prodloužena o ${days} dní do ${fmtDate(newEnd)}`, `${absenceType(a.druh).label} ${fmtDate(a.od)} – ${fmtDate(a.do)}`);
+    });
+  }
+
+  return (
+    <div className="bg-white border border-slate-200 rounded-lg p-4 mb-4">
+      <div className="flex justify-between items-start flex-wrap gap-2 mb-3">
+        <div>
+          <h2 className="font-semibold text-sm">Nepřítomnosti – PN, OČR, mateřská a dávky</h2>
+          <p className="text-xs text-slate-500 mt-0.5">Neschopenky a hlášení z datové schránky, žádosti o dávky. Stav vidí všichni, doklady jen oprávnění ke mzdovým údajům.</p>
+          <div className="mt-2">{activeAbsence(employee) ? <AbsenceBadge employee={employee} /> : <span className="text-xs text-slate-400">Momentálně bez nepřítomnosti.</span>}</div>
+        </div>
+        {canEdit && !formOpen && (
+          <button onClick={openNew} className="flex items-center gap-1.5 bg-teal-700 hover:bg-teal-800 text-white text-sm font-medium px-3 py-2 rounded-md">
+            <Plus size={16} /> Přidat nepřítomnost
+          </button>
+        )}
+      </div>
+
+      {formOpen && (
+        <div className="bg-slate-50 rounded-md p-3 mb-3">
+          <div className="text-sm font-medium mb-2">{editingId ? "Upravit nepřítomnost" : "Nová nepřítomnost"}</div>
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-x-4">
+            <SelectFieldLocal label="Druh" value={f.druh} onChange={(v) => setF({ ...f, druh: v })} options={ABSENCE_TYPES.map((t) => ({ value: t.value, label: t.label }))} />
+            <DateFieldLocal label="Od" value={f.od} onChange={(v) => setF({ ...f, od: v })} />
+            <DateFieldLocal label="Do (prázdné = trvá)" value={f.do} onChange={(v) => setF({ ...f, do: v })} />
+            {absenceType(f.druh).pn && <TextField label="Číslo eNeschopenky" value={f.cislo} onChange={(v) => setF({ ...f, cislo: v })} />}
+          </div>
+          <TextField label="Poznámka" value={f.poznamka} onChange={(v) => setF({ ...f, poznamka: v })} />
+          {error && <div className="text-red-600 text-xs mb-2">{error}</div>}
+          <div className="flex justify-end gap-2">
+            <button onClick={() => { setFormOpen(false); setEditingId(null); }} className="text-sm text-slate-500 px-3 py-2">Zrušit</button>
+            <button onClick={save} disabled={busy} className="bg-teal-700 hover:bg-teal-800 disabled:opacity-50 text-white text-sm font-medium px-4 py-2 rounded-md">{busy ? "Ukládám..." : "Uložit"}</button>
+          </div>
+        </div>
+      )}
+
+      {list.length === 0 ? (
+        <div className="text-sm text-slate-400">Zatím žádné záznamy.</div>
+      ) : (
+        <div className="space-y-2">
+          {list.map((a) => {
+            const active = isAbsenceActive(a);
+            const myDocs = docs.filter((d) => d.absence_id === a.id);
+            const overlap = currentEmployment ? probationOverlapDays(a, currentEmployment) : 0;
+            const offerExtend = canEdit && overlap > 0 && !a.zkusebni_prodlouzeno_dni;
+            const inProbationRunning = !a.do && currentEmployment && absenceInProbation(a, currentEmployment);
+            return (
+              <div key={a.id} className={"border rounded-md px-3 py-2 " + (active ? "border-orange-300 bg-orange-50/50" : "border-slate-200")}>
+                <div className="flex justify-between items-start gap-2 flex-wrap">
+                  <div className="text-sm">
+                    <span className="font-medium">{absenceType(a.druh).label}</span>
+                    <span className="text-slate-500"> · {fmtDate(a.od)} – {a.do ? fmtDate(a.do) : "trvá"}</span>
+                    {a.cislo && <span className="text-slate-500"> · č. {a.cislo}</span>}
+                    {active && <span className="ml-2 text-xs font-medium text-orange-700">(probíhá)</span>}
+                    {a.poznamka && <div className="text-xs text-slate-500">{a.poznamka}</div>}
+                    {a.zkusebni_prodlouzeno_dni && <div className="text-xs text-emerald-700">Zkušební doba prodloužena o {a.zkusebni_prodlouzeno_dni} dní.</div>}
+                  </div>
+                  {canEdit && (
+                    confirmDeleteId === a.id ? (
+                      <span className="inline-flex items-center gap-2 text-xs">
+                        <span className="text-red-700">Opravdu odstranit?</span>
+                        <button onClick={() => remove(a)} disabled={busy} className="text-white bg-red-600 hover:bg-red-700 rounded px-2 py-0.5">Ano</button>
+                        <button onClick={() => setConfirmDeleteId(null)} className="text-slate-500 hover:underline">Ne</button>
+                      </span>
+                    ) : (
+                      <span className="inline-flex items-center gap-3 text-xs whitespace-nowrap">
+                        {!a.do && <button onClick={() => openEdit(a, true)} className="text-teal-700 hover:underline">Ukončit</button>}
+                        <button onClick={() => openEdit(a)} className="text-teal-700 hover:underline flex items-center gap-0.5"><Pencil size={12} /> Upravit</button>
+                        <button onClick={() => setConfirmDeleteId(a.id)} className="text-red-600 hover:underline flex items-center gap-0.5"><Trash2 size={12} /> Odstranit</button>
+                      </span>
+                    )
+                  )}
+                </div>
+                {inProbationRunning && (
+                  <div className="text-xs text-amber-700 mt-1">Nepřítomnost probíhá ve zkušební době – po zadání data „do“ nabídnu prodloužení zkušební doby.</div>
+                )}
+                {offerExtend && (
+                  <div className="text-xs mt-1 flex items-center gap-2 flex-wrap bg-amber-50 text-amber-800 rounded px-2 py-1">
+                    Zasahuje do zkušební doby: {overlap} dní (§ 35 odst. 4 ZP).
+                    <button onClick={() => extendProbation(a, overlap)} disabled={busy} className="font-medium underline">
+                      Prodloužit zkušební dobu do {fmtDate(addDaysIso(currentEmployment.probation_end_date, overlap))}
+                    </button>
+                  </div>
+                )}
+                {canPayroll && (
+                  <div className="mt-1.5">
+                    {myDocs.map((d) => (
+                      <div key={d.id} className="flex items-center gap-2 text-xs py-0.5 flex-wrap">
+                        <span className="text-slate-500">{d.typ}:</span>
+                        <span className="truncate max-w-[220px]" title={d.name}>{d.name}</span>
+                        <button onClick={() => openHrFile(d.path)} className="text-teal-700 hover:underline">Otevřít</button>
+                        <button onClick={() => openHrFile(d.path, d.name)} className="text-teal-700 hover:underline flex items-center gap-0.5"><Download size={11} /> Stáhnout</button>
+                        {canEdit && <button onClick={() => unlinkDoc(d)} disabled={busy} className="text-red-600 hover:underline">Odebrat</button>}
+                      </div>
+                    ))}
+                    {canEdit && (docFor === a.id ? (
+                      <div className="flex items-center gap-2 flex-wrap mt-1">
+                        <select value={docType} onChange={(e) => setDocType(e.target.value)} className="border border-slate-300 rounded px-2 py-1 text-xs bg-white">
+                          {ABSENCE_DOC_TYPES.map((t) => <option key={t.value} value={t.value}>{t.label}</option>)}
+                        </select>
+                        <label className="inline-flex items-center gap-1 text-xs text-teal-700 hover:text-teal-900 cursor-pointer">
+                          {busy ? <Loader2 size={12} className="animate-spin" /> : <Upload size={12} />} Vybrat soubor
+                          <input type="file" accept=".pdf,image/*,.xml" multiple disabled={busy} onChange={(e) => { uploadDocs(a.id, e.target.files); e.target.value = ""; }} className="hidden" />
+                        </label>
+                        <button onClick={() => setDocFor(null)} className="text-xs text-slate-500">Zrušit</button>
+                      </div>
+                    ) : (
+                      <button onClick={() => setDocFor(a.id)} className="text-xs text-teal-700 hover:underline mt-0.5 flex items-center gap-1"><Paperclip size={11} /> Přidat doklad (neschopenka, žádost o dávku…)</button>
+                    ))}
+                  </div>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      )}
+      {error && !formOpen && <div className="text-red-600 text-xs mt-2">{error}</div>}
     </div>
   );
 }
