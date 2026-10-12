@@ -66,12 +66,12 @@ describe("employeeFields - zápis a čtení", () => {
     expect(p.employees.permanent_address).toMatchObject({ ulice: "Lnáře", cislo_popisne: "214", mesto: "Lnáře", psc: "38742", stat: "Česká republika" });
     expect(p.employment.workplace).toBe("Plynárenská 366, 261 01 Příbram");
     expect(p.employment.data).toMatchObject({ postaveni: "1112", kod_obce: "539911", profese: "81830" });
-    expect(p.payroll.dependents).toEqual([{ slot: "dite1", jmeno: "Petr Duchek", datum_narozeni_rc: "1.2.2010", narok_danove_zvyhodneni: true, potvrzeni_studia: true, potvrzeni_neuplatneni_druhym: false }]);
+    expect(p.payroll.dependents).toEqual([{ slot: "dite1", jmeno: "Petr Duchek", datum_narozeni_rc: "1.2.2010", narok_danove_zvyhodneni: true, potvrzeni_studia: true }]);
     const back = valuesFromRecords({
       employee: p.employees, sensitive: p.sensitive, payroll: p.payroll,
       employment: { ...p.employment, start_date: "2026-09-24", employment_type: "doba_urcita" },
     });
-    for (const k of ["first_name", "perm_cp", "kontakt_obec", "highest_education", "health_insurance_company", "dite1_neuplatneni", "tax_zakladni", "postaveni"]) {
+    for (const k of ["first_name", "perm_cp", "kontakt_obec", "highest_education", "health_insurance_company", "dite1_studium", "tax_zakladni", "postaveni"]) {
       expect(back[k]).toEqual(duchkova[k]);
     }
   });
