@@ -1208,6 +1208,15 @@ function OsobniUdajeTab({ employee, sensitive, payroll, currentEmployment, posit
       const p = buildRecordPatches(withFiles, records, { mode: "edit", canSensitive, canPayroll });
       const { error: empErr } = await supabase.from("employees").update({ ...p.employees, updated_at: now }).eq("id", employee.id);
       if (empErr) throw empErr;
+      const zpBefore = normalizeHealthInsurance(employee.health_insurance_company || "");
+      const zpAfter = normalizeHealthInsurance(p.employees.health_insurance_company || "");
+      if (zpBefore && zpAfter && zpBefore !== zpAfter) {
+        await supabase.from("employee_timeline_events").insert({
+          id: uid(), employee_id: employee.id, event_date: f.zp_platnost_od || now.slice(0, 10), event_type: "ZP_CHANGED",
+          title: `Změna zdravotní pojišťovny: ${zpBefore} → ${zpAfter}${f.zp_platnost_od ? ` od ${fmtDate(f.zp_platnost_od)}` : ""}`,
+          description: "Oznámit změnu oběma pojišťovnám (Agenda ZP / ČSSZ).", source: "MANUAL",
+        });
+      }
       if (canSensitive && p.sensitive && (sensitive || patchHasContent(p.sensitive))) {
         const { error: sensErr } = await supabase.from("employee_sensitive_data").upsert({ employee_id: employee.id, ...p.sensitive, updated_at: now }, { onConflict: "employee_id" });
         if (sensErr) throw sensErr;

@@ -211,3 +211,17 @@ describe("L. Daně – § 35ba", () => {
     expect(p.payroll.tax_declaration).toMatchObject({ uplatneni_prohlaseni: true, sleva_ztpp: true });
   });
 });
+
+describe("historie zdravotní pojišťovny", () => {
+  it("změna pojišťovny přidá záznam, původní zůstane", async () => {
+    const m = await import("./employeeFields.js");
+    const existing = { employee: { health_insurance_company: "111", data: {} } };
+    const v = { ...m.valuesFromRecords(existing), first_name: "A", last_name: "B", health_insurance_company: "205", zp_platnost_od: "2026-07-01" };
+    const p = m.buildRecordPatches(v, existing, { mode: "edit" });
+    expect(p.employees.data.zp_historie.map((h) => [h.kod, h.od])).toEqual([["111", null], ["205", "2026-07-01"]]);
+    expect(m.zpHistoryText(p.employees.data.zp_historie)).toContain("205 – Česká průmyslová zdravotní pojišťovna (od 1.7.2026)");
+    // bez zmeny se nic nepridava
+    const p2 = m.buildRecordPatches({ ...v }, { employee: { health_insurance_company: "205", data: { zp_historie: p.employees.data.zp_historie } } }, { mode: "edit" });
+    expect(p2.employees.data.zp_historie).toHaveLength(2);
+  });
+});

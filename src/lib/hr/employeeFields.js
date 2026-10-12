@@ -292,8 +292,8 @@ export const childSlot = (i) => `dite${i}`;
 const childExtra = (slot) => [
   { key: `${slot}_narok`, label: "Nárok na daňové zvýhodnění", type: "yesno", store: { t: "pay", slot, field: "narok_danove_zvyhodneni" } },
   { key: `${slot}_ztpp`, label: "Dítě je držitelem průkazu ZTP/P", type: "yesno", store: { t: "pay", slot, field: "ztpp" } },
-  { key: `${slot}_studium`, label: "Potvrzení o studiu/předškolní docházce", type: "yesno", store: { t: "pay", slot, field: "potvrzeni_studia" } },
-  { key: `${slot}_neuplatneni`, label: "Potvrzení o neuplatnění zvýhodnění druhým poplatníkem", type: "yesno", store: { t: "pay", slot, field: "potvrzeni_neuplatneni_druhym" } },
+  // Doklada se az studium po ukonceni povinne skolni dochazky (predskolni ne).
+  { key: `${slot}_studium`, label: "Potvrzení o studiu (po ukončení povinné školní docházky)", type: "yesno", store: { t: "pay", slot, field: "potvrzeni_studia" } },
   { key: `${slot}_rodny_list`, label: "Rodný list (PDF / sken)", type: "file", kind: `rodny_list:${slot}`, hr: true },
   { key: `${slot}_studium_doklad`, label: "Potvrzení o studiu (PDF / sken)", type: "file", kind: `studium:${slot}`, hr: true },
 ];
@@ -421,6 +421,9 @@ export const EMPLOYEE_SECTIONS = [
     title: "G. Pojištění",
     fields: [
       { key: "health_insurance_company", label: "Kód zdravotní pojišťovny", type: "select", options: HEALTH_INSURANCE_OPTIONS, store: { t: "emp", col: "health_insurance_company" } },
+      // Zmena pojistovny = novy zaznam v employees.data.zp_historie (viz buildRecordPatches).
+      { key: "zp_platnost_od", label: "Pojišťovna platí od", info: "Při změně pojišťovny zadejte datum, od kdy platí nová – předchozí zůstane v historii. Změnu oznamte oběma pojišťovnám (Agenda ZP / ČSSZ).", type: "date", store: { t: "emp", col: "data", path: "zp_platnost_od" } },
+      { key: "zp_historie_text", label: "Historie pojišťoven", type: "readonly", valueFn: (v) => zpHistoryText(v.zp_historie), showIf: (v) => (v.zp_historie || []).length > 1 },
       { key: "predchozi_organ_np", label: "Předchozí orgán, který prováděl nemocenské pojištění", type: "text", store: { t: "emp", col: "data", path: "predchozi_organ_np" } },
       { key: "soucasny_organ_np", label: "Současný orgán, který provádí nemocenské pojištění", type: "text", store: { t: "emp", col: "data", path: "soucasny_organ_np" } },
       { key: "cizi_np_ucast", label: "Účast na nemocenském pojištění mimo ČR (cizozemský nositel)", type: "select", options: CIZI_NP_UCAST_OPTIONS, tier: "sensitive", store: { t: "sens", col: "foreigner_data", path: "cizi_np_ucast" } },
@@ -557,6 +560,7 @@ export const EMPLOYEE_SECTIONS = [
         ["jina_osoba_platce", "Název plátce daně (zaměstnavatel této osoby)", "nazev_platce_dane"],
       ].map(([key, label, field]) => ({ key, label, type: "text", showIf: (v) => v.jina_osoba_tytez === true || !!v.jina_osoba_jmeno, store: { t: "pay", slot: "jina_osoba", field } })),
       { key: "jina_osoba_doklady", label: "Potvrzení zaměstnavatele druhého z poplatníků, čestné prohlášení (PDF / sken)", type: "file", kind: "jina_osoba_doklady", hr: true, showIf: (v) => v.jina_osoba_tytez === true || !!v.jina_osoba_jmeno },
+      { key: "jina_osoba_ne_doklady", label: "Dokument prokazující oprávněný nárok na uplatnění daňového zvýhodnění (rozsudek soudu o svěření dítěte do péče, čestné prohlášení) – PDF / sken", type: "file", kind: "narok_zvyhodneni_doklady", hr: true, showIf: (v) => v.jina_osoba_tytez === false },
     ],
   },
   {
@@ -702,6 +706,7 @@ export function valuesFromRecords(records) {
   if (!records.employment?.data?.postaveni && records.employment) v.postaveni = derivePostaveni(v.employment_type);
   v.deti_pocet = countChildren(v);
   v.prilohy = Array.isArray(records.payroll?.data?.prilohy) ? records.payroll.data.prilohy : [];
+  v.zp_historie = Array.isArray(records.employee?.data?.zp_historie) ? records.employee.data.zp_historie : [];
   if (records.employee?.data?.exekuce === undefined && typeof records.payroll?.garnishments?.exekuce_insolvence_prohlaseni === "boolean") {
     v.exekuce = records.payroll.garnishments.exekuce_insolvence_prohlaseni;
   }
@@ -800,6 +805,20 @@ export function buildRecordPatches(rawValues, existing = {}, ctx = {}) {
     const pis = pay.pension_insurance_status;
     for (const [k, field] of Object.entries(OMEZENI_LEGACY)) pis[field] = pis.omezeni_typ === k;
     for (const [k, field] of Object.entries(DUCHOD_LEGACY)) pis[field] = pis.duchod_druh === k;
+  }
+
+  // Zdravotni pojistovna: zmena kodu (alebo prvy zapis) = novy zaznam historie.
+  if (touched.emp && "health_insurance_company" in emp) {
+    const before = normalizeHealthInsurance(existing.employee?.health_insurance_company || "");
+    const after = normalizeHealthInsurance(emp.health_insurance_company || "");
+    const hist = Array.isArray(existing.employee?.data?.zp_historie) ? [...existing.employee.data.zp_historie] : [];
+    const od = values.zp_platnost_od || (hist.length ? new Date().toISOString().slice(0, 10) : values.start_date) || null;
+    if (after && (after !== before || hist.length === 0)) {
+      if (!hist.length && before && before !== after) hist.push({ kod: before, od: null });
+      hist.push({ kod: after, od, zapsano: new Date().toISOString() });
+      if (!emp.data) emp.data = { ...(existing.employee?.data || {}) };
+      emp.data.zp_historie = hist;
+    }
   }
 
   // Mzda sa neprepisuje - zmena = novy zaznam historie s datumom platnosti.
@@ -982,4 +1001,11 @@ export function valuesToWage(values) {
     out[field] = type === "yesno" ? (v === true ? true : v === false ? false : null) : (v === "" || v === undefined || v === null ? null : String(v).trim());
   }
   return out;
+}
+
+// "111 – VZP (do 30.6.2026) → 205 – ČPZP (od 1.7.2026)"
+export function zpHistoryText(hist) {
+  if (!Array.isArray(hist) || !hist.length) return "";
+  const f = (iso) => { if (!iso) return ""; const [y, m, d] = iso.split("-").map(Number); return `${d}.${m}.${y}`; };
+  return hist.map((h) => `${optionLabel(HEALTH_INSURANCE_OPTIONS, h.kod)}${h.od ? ` (od ${f(h.od)})` : ""}`).join("\n→ ");
 }

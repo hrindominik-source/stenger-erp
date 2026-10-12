@@ -191,6 +191,15 @@ function FieldInput({ field, value, values = {}, onChange, big, positions, hint 
   const wide = field.wide || field.type === "textarea" || (field.type === "select" && options?.some((o) => o.label.length > 60));
 
   if (field.type === "hidden") return null;
+  if (field.type === "readonly") {
+    const text = field.valueFn ? field.valueFn(values) : value;
+    return (
+      <div className={(big ? "mb-4" : "mb-3") + " sm:col-span-2 lg:col-span-3"}>
+        <span className={big ? "block text-sm font-medium text-slate-500 mb-1.5" : "block text-xs font-medium text-slate-500 mb-1"}>{field.label}</span>
+        <div className="text-sm text-slate-700 whitespace-pre-line bg-slate-50 rounded-md px-3 py-2">{text || "—"}</div>
+      </div>
+    );
+  }
 
   if (field.type === "check") {
     return (
@@ -301,6 +310,7 @@ export function formatFieldValue(field, value, positions = [], values = {}) {
     return d ? `${Number(d)}.${Number(m)}.${y}` : value;
   }
   if (field.type === "hidden" || field.type === "custom") return null;
+  if (field.type === "readonly") return field.valueFn ? field.valueFn(values) || null : null;
   if (field.type === "select") {
     const opts = field.optionsFn ? field.optionsFn(values) : field.options;
     return opts ? optionLabel(opts, value) : String(value);
