@@ -523,14 +523,16 @@ export const EMPLOYEE_SECTIONS = [
       { key: "dovolena_hod", label: "Nárok na dovolenou (hodin za rok)", type: "text", store: { t: "wage", field: "dovolena_hod" } },
     ],
   },
+  // L. Dane = nadpis + dva rovnocenne oddily (§ 35ba slevy, § 35c deti).
+  { id: "dane_nadpis", title: "L. Daně", tier: "payroll", control: "heading", fields: [] },
   {
     // Oddil 1: slevy na dani - § 35ba zakona c. 586/1992 Sb. (pismena a, c, d, e).
     // Sleva na manzela/manzelku (pism. b) zamerne vynechana - HR ji neeviduje.
     id: "dane",
-    title: "L. Daně – sleva na dani z příjmu (§ 35ba zákona č. 586/1992 Sb.)",
+    title: "Základní sleva na dani z příjmu (§ 35ba zákona č. 586/1992 Sb.)",
     tier: "payroll",
     fields: [
-      { key: "tax_uplatneni", label: "Prohlášení poplatníka – sleva na dani z příjmu – § 35ba zákona č. 586/1992 Sb.", type: "yesno", store: { t: "pay", bucket: "tax_declaration", field: "uplatneni_prohlaseni" } },
+      { key: "tax_uplatneni", label: "Uplatňuje prohlášení poplatníka", type: "yesno", store: { t: "pay", bucket: "tax_declaration", field: "uplatneni_prohlaseni" } },
       { key: "tax_zakladni", label: "Základní sleva na poplatníka (písm. a)", type: "check", showIf: (v) => v.tax_uplatneni === true, store: { t: "pay", bucket: "tax_declaration", field: "zakladni_sleva" } },
       { key: "tax_invalidita", label: "Základní sleva na invaliditu I. nebo II. stupně (písm. c)", type: "check", showIf: (v) => v.tax_uplatneni === true, store: { t: "pay", bucket: "tax_declaration", field: "sleva_invalidita" } },
       { key: "tax_invalidita_iii", label: "Rozšířená sleva na invaliditu III. stupně (písm. d)", type: "check", showIf: (v) => v.tax_uplatneni === true, store: { t: "pay", bucket: "tax_declaration", field: "sleva_invalidita_iii" } },
@@ -539,7 +541,7 @@ export const EMPLOYEE_SECTIONS = [
     ],
   },
   // Oddil 2: danove zvyhodneni na vyzivovane dite - § 35c zakona c. 586/1992 Sb.
-  { id: "deti", title: "Daňové zvýhodnění na vyživované dítě (§ 35c zákona č. 586/1992 Sb.) – uveďte všechny děti žijící ve společné domácnosti", tier: "payroll", control: "children", fields: [] },
+  { id: "deti", title: "Daňové zvýhodnění na vyživované dítě (§ 35c zákona č. 586/1992 Sb.)", tier: "payroll", control: "children", fields: [] },
   ...childSections,
   {
     id: "dep_jina_osoba",

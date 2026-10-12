@@ -85,13 +85,16 @@ export default function EmployeeFieldsForm({ values, onChange, mode, canSensitiv
     <div>
       {sections.map(({ section, fields }) => {
         const sensitiveSection = fields.every((f) => f.tier === "sensitive");
-        const payrollSection = fields.every((f) => f.tier === "payroll");
+        // Nadpis skupiny (napr. "L. Daně") - bez ramceka, oddily su pod nim.
+        if (section.control === "heading") {
+          return <h2 key={section.id} className={(big ? "text-lg" : "text-base") + " font-semibold text-slate-800 mt-6 mb-2"}>{section.title}</h2>;
+        }
         return (
           <div
             key={section.id}
             className={
               (big ? "mb-6" : "rounded-lg p-4 mb-4 border ") +
-              (big ? "" : sensitiveSection ? "bg-amber-50 border-amber-200" : payrollSection ? "bg-sky-50/40 border-sky-100" : "bg-white border-slate-200")
+              (big ? "" : sensitiveSection ? "bg-amber-50 border-amber-200" : "bg-white border-slate-200")
             }
           >
             <div className="flex items-center justify-between gap-2 mb-3">
@@ -129,6 +132,7 @@ export default function EmployeeFieldsForm({ values, onChange, mode, canSensitiv
 function ChildrenControl({ count, big, onAdd }) {
   return (
     <div className="flex items-center gap-3 flex-wrap">
+      <span className="text-xs text-slate-500 w-full -mt-1">Uveďte všechny děti žijící ve společné domácnosti.</span>
       <span className={big ? "text-base text-slate-600" : "text-sm text-slate-600"}>Počet dětí: <strong>{count}</strong></span>
       {count < MAX_CHILDREN && (
         <button type="button" onClick={onAdd} className={(big ? "px-4 py-2.5 text-base" : "px-3 py-1.5 text-sm") + " flex items-center gap-1.5 rounded-md border border-teal-600 text-teal-700 hover:bg-teal-50 font-medium"}>
@@ -311,10 +315,15 @@ export function formatFieldValue(field, value, positions = [], values = {}) {
 export function EmployeeFieldsView({ values, mode = "edit", canSensitive, canPayroll, positions = [] }) {
   const sections = visibleSections({ mode, canSensitive, canPayroll, values })
     .map(({ section, fields }) => ({ section, rows: fields.map((f) => ({ f, text: formatFieldValue(f, values[f.key], positions, values) })).filter((r) => r.text) }))
-    .filter((s) => s.rows.length > 0);
+    // Nadpis "L. Daně" len ak je pod nim vyplneny niektory danovy oddil.
+    .filter((s, all) => s.rows.length > 0 || (s.section.control === "heading"));
+  const taxRows = sections.some((s) => s.rows.length > 0 && /^(dane|deti|dep_)/.test(s.section.id));
   return (
     <div className="space-y-3">
       {sections.map(({ section, rows }) => {
+        if (section.control === "heading") {
+          return taxRows ? <h3 key={section.id} className="font-semibold text-base text-slate-800 pt-2">{section.title}</h3> : null;
+        }
         const sensitiveSection = rows.every((r) => r.f.tier === "sensitive");
         return (
           <div key={section.id} className={"rounded-lg p-4 border " + (sensitiveSection ? "bg-amber-50 border-amber-200" : "bg-white border-slate-200")}>
