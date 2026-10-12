@@ -13,6 +13,7 @@ import { buildComparisonRows } from "../lib/hr/jmhzImport.js";
 import { sha256Hex, buildSignedScanPath } from "../lib/hr/documentHash.js";
 import { EMPLOYEE_SECTIONS, emptyEmployeeValues, normalizeLegacyDraft, valuesFromRecords, buildRecordPatches, patchHasContent, maritalStatusText, normalizeGender, HEALTH_INSURANCE_OPTIONS, optionLabel, normalizeHealthInsurance, POSITION_CATEGORIES, positionNameOptions, wageHistory, currentWage, upcomingWages, wageStepHint, addWageEntry, wageToValues, valuesToWage, MZDA_TYP_OPTIONS } from "../lib/hr/employeeFields.js";
 import EmployeeFieldsForm, { EmployeeFieldsView, applyFieldChange } from "./EmployeeFieldsForm.jsx";
+import { childTaxWarnings } from "../lib/hr/taxChildren.js";
 import { ABSENCE_TYPES, ABSENCE_DOC_TYPES, absenceType, absenceList, isAbsenceActive, activeAbsence, absenceStatusText, probationOverlapDays, absenceInProbation, addDaysIso } from "../lib/hr/absences.js";
 
 const HR_DOKUMENTY_BUCKET = "hr-dokumenty";
@@ -202,7 +203,9 @@ function DashboardTab({ permissions, onOpenEmployee }) {
   const [contractEvents, setContractEvents] = useState([]);
   const [medicalExams, setMedicalExams] = useState([]);
   const [onboardingPendingCount, setOnboardingPendingCount] = useState(0);
+  const [payrolls, setPayrolls] = useState([]);
   const canMedical = hasPerm(permissions, "HR_VIEW_MEDICAL_ADMIN");
+  const canPayrollDash = hasPerm(permissions, "HR_VIEW_PAYROLL");
   const canReviewOnboarding = hasPerm(permissions, "HR_EDIT");
 
   useEffect(() => {
@@ -234,10 +237,14 @@ function DashboardTab({ permissions, onOpenEmployee }) {
       setContractEvents(evRes.data || []);
       setMedicalExams(medRes.data || []);
       setOnboardingPendingCount(onbRes.count || 0);
+      if (canPayrollDash && emps.length > 0) {
+        const { data: pays } = await supabase.from("employee_payroll_data").select("employee_id, dependents, tax_declaration, data").in("employee_id", emps.map((e) => e.id));
+        if (!cancelled) setPayrolls(pays || []);
+      }
       setLoading(false);
     })();
     return () => { cancelled = true; };
-  }, [canMedical, canReviewOnboarding]);
+  }, [canMedical, canReviewOnboarding, canPayrollDash]);
 
   if (loading) return <div className="text-center text-slate-400 py-10"><Loader2 className="animate-spin mx-auto mb-2" size={24} /> Načítám...</div>;
   if (error) return <div className="bg-red-50 text-red-700 text-sm px-3 py-2 rounded-md">{error}</div>;
@@ -254,7 +261,11 @@ function DashboardTab({ permissions, onOpenEmployee }) {
   for (const m of medicalExams) {
     if (!latestExamByEmployee.has(m.employee_id)) latestExamByEmployee.set(m.employee_id, m);
   }
-  const warnings = computeHrWarnings({ employments, medicalExams: [...latestExamByEmployee.values()], employees });
+  const warnings = [
+    ...computeHrWarnings({ employments, medicalExams: [...latestExamByEmployee.values()], employees }),
+    // dane: deti 26 let / studium, chybejici prohlaseni poplatnika
+    ...employees.flatMap((e) => taxWarningsFor(e, payrolls.find((p) => p.employee_id === e.id)).map((w) => ({ ...w, employeeId: e.id, employeeName: fullName(e) }))),
+  ];
 
   const positionLabel = (positionId) => { const p = positions.find((x) => x.id === positionId); return p ? (p.code ? `${p.code} – ${p.name}` : p.name) : "—"; };
   const extensionsCountFor = (employmentId) => contractEvents.filter((e) => e.employment_id === employmentId && e.event_type === "EXTENDED").length;
@@ -935,6 +946,16 @@ function EmployeeDetail({ id, permissions, onBack }) {
         </div>
       </div>
 
+      {canPayroll && taxWarningsFor(employee, payroll).length > 0 && (
+        <div className="mb-3 space-y-1">
+          {taxWarningsFor(employee, payroll).map((w, i) => (
+            <div key={i} className={"text-xs px-2.5 py-1.5 rounded-md flex items-center gap-1.5 " + (w.level === "red" ? "bg-red-50 text-red-700 font-medium" : "bg-amber-50 text-amber-800")}>
+              {w.level === "red" ? "🔴" : "🟠"} {w.message}
+            </div>
+          ))}
+        </div>
+      )}
+
       {confirmingDelete && (
         <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
           <div className="bg-white rounded-lg shadow-xl w-full max-w-md p-5">
@@ -993,6 +1014,9 @@ function EmployeeDetail({ id, permissions, onBack }) {
       {detailTab === "dokumenty" && <DokumentyTab employee={employee} sensitive={sensitive} payroll={payroll} currentEmployment={currentEmployment} permissions={permissions} preset={docPreset} onPresetUsed={() => setDocPreset(null)} />}
       {detailTab === "jmhz" && (
         <AgendaUraduSection employee={employee} payroll={payroll} canEdit={canEdit} onSaved={load} />
+      )}
+      {detailTab === "jmhz" && canPayroll && (
+        <ProhlaseniPoplatnikaSection employee={employee} sensitive={sensitive} payroll={payroll} canEdit={canEdit} onSaved={load} />
       )}
       {detailTab === "jmhz" && (
         <NepritomnostiSection employee={employee} payroll={payroll} currentEmployment={currentEmployment} canEdit={canEdit} canPayroll={canPayroll} onSaved={load} />
@@ -2347,6 +2371,146 @@ function NepritomnostiSection({ employee, payroll, currentEmployment, canEdit, c
       {error && !formOpen && <div className="text-red-600 text-xs mt-2">{error}</div>}
     </div>
   );
+}
+
+/* ---------------- Prohlášení poplatníka (MFin 5457) ----------------
+   Kazdorocne prohlasenie k dani - vygeneruje sa vyplnene z karty (sekcia L,
+   deti, jina vyzivovana osoba), zamestnanec podpise a podpisany sken sa
+   ulozi k danemu roku (employee_payroll_data.data.prohlaseni_poplatnika). */
+
+function declarationYearDefault() {
+  const now = new Date();
+  // od listopadu se pripravuje prohlaseni na nasledujici rok
+  return now.getMonth() >= 10 ? now.getFullYear() + 1 : now.getFullYear();
+}
+
+function ProhlaseniPoplatnikaSection({ employee, sensitive, payroll, canEdit, onSaved }) {
+  const [year, setYear] = useState(declarationYearDefault());
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  const [info, setInfo] = useState("");
+  const signed = [...(payroll?.data?.prohlaseni_poplatnika || [])].sort((a, b) => b.rok - a.rok || String(b.uploaded_at).localeCompare(String(a.uploaded_at)));
+  const values = valuesFromRecords({ employee, sensitive, payroll });
+  const thisYear = new Date().getFullYear();
+  const years = [thisYear - 1, thisYear, thisYear + 1];
+
+  async function generate() {
+    setBusy(true); setError(""); setInfo("");
+    try {
+      const { fillDeclarationPdf, PROHLASENI_TEMPLATE } = await import("../lib/hr/prohlaseniFill.js");
+      const { JMHZ_FONT_URL } = await import("../lib/hr/jmhzFill.js");
+      const [tpl, font] = await Promise.all([PROHLASENI_TEMPLATE.url, JMHZ_FONT_URL].map(async (u) => {
+        const r = await fetch(u);
+        if (!r.ok) throw new Error(`Nepodařilo se načíst ${u}`);
+        return r.arrayBuffer();
+      }));
+      const res = await fillDeclarationPdf(tpl, font, values, year);
+      downloadArrayBufferAsFile(res.bytes, `Prohlášení poplatníka ${year} - ${employee.last_name} ${employee.first_name}.pdf`, "application/pdf");
+      if (res.extraChildren > 0) setInfo(`Tiskopis má místo jen pro 5 dětí – dalších ${res.extraChildren} uveďte na samostatném listu.`);
+    } catch (e) {
+      console.error(e);
+      setError("Vytvoření prohlášení se nezdařilo: " + (e.message || e));
+    }
+    setBusy(false);
+  }
+
+  async function writePayroll(mutate) {
+    const { data: fresh } = await supabase.from("employee_payroll_data").select("data").eq("employee_id", employee.id).maybeSingle();
+    const nextData = mutate({ ...(fresh?.data || payroll?.data || {}) });
+    const { error: upErr } = await supabase.from("employee_payroll_data").upsert({ employee_id: employee.id, data: nextData, updated_at: new Date().toISOString() }, { onConflict: "employee_id" });
+    if (upErr) throw upErr;
+  }
+
+  async function uploadSigned(fileList) {
+    const files = Array.from(fileList || []);
+    if (!files.length) return;
+    setBusy(true); setError("");
+    try {
+      const uploaded = [];
+      for (const file of files) uploaded.push({ ...(await uploadHrFile(employee.id, "prohlaseni_poplatnika", file)), rok: year });
+      await writePayroll((data) => ({ ...data, prohlaseni_poplatnika: [...(data.prohlaseni_poplatnika || []), ...uploaded] }));
+      await supabase.from("employee_timeline_events").insert({
+        id: uid(), employee_id: employee.id, event_date: new Date().toISOString().slice(0, 10), event_type: "TAX_DECLARATION",
+        title: `Podepsané prohlášení poplatníka na rok ${year}`, description: files.map((f) => f.name).join(", "), source: "MANUAL",
+      });
+      onSaved();
+    } catch (e) {
+      console.error(e);
+      setError(e.message || "Nahrání se nezdařilo.");
+    }
+    setBusy(false);
+  }
+
+  async function unlink(d) {
+    setBusy(true); setError("");
+    try {
+      await writePayroll((data) => ({ ...data, prohlaseni_poplatnika: (data.prohlaseni_poplatnika || []).filter((x) => x.id !== d.id) }));
+      await supabase.from("employee_timeline_events").insert({
+        id: uid(), employee_id: employee.id, event_date: new Date().toISOString().slice(0, 10), event_type: "TAX_DECLARATION",
+        title: `Odebráno prohlášení poplatníka na rok ${d.rok}`, description: d.name, source: "MANUAL",
+      });
+      onSaved();
+    } catch (e) { setError(e.message || "Odebrání se nezdařilo."); }
+    setBusy(false);
+  }
+
+  return (
+    <div className="bg-white border border-slate-200 rounded-lg p-4 mb-4">
+      <h2 className="font-semibold text-sm">Prohlášení poplatníka daně z příjmů (MFin 5457)</h2>
+      <p className="text-xs text-slate-500 mt-0.5 mb-3">
+        Každoroční prohlášení k dani – vyplní se z karty (sekce L, děti, jiná vyživovaná osoba). Zaměstnanec zkontroluje a podepíše, podepsaný sken uložte k danému roku.
+        Tiskopis: vzor č. 27 (Finanční správa, od roku 2026) – pokud MF vydá nový vzor, je třeba ho do aplikace doplnit.
+      </p>
+      {values.tax_uplatneni !== true && <div className="text-xs text-amber-700 mb-2">V kartě (sekce L) není zaškrtnuto, že zaměstnanec uplatňuje prohlášení poplatníka.</div>}
+      <div className="flex items-end gap-3 flex-wrap mb-3">
+        <label className="block">
+          <span className="block text-xs font-medium text-slate-500 mb-1">Zdaňovací období</span>
+          <select value={year} onChange={(e) => setYear(Number(e.target.value))} className="border border-slate-300 rounded-md px-3 py-2 text-sm bg-white">
+            {years.map((y) => <option key={y} value={y}>{y}</option>)}
+          </select>
+        </label>
+        <button onClick={generate} disabled={busy} className="flex items-center gap-1.5 bg-teal-700 hover:bg-teal-800 disabled:opacity-50 text-white text-sm font-medium px-4 py-2 rounded-md">
+          {busy ? <Loader2 size={16} className="animate-spin" /> : <Download size={16} />} Vytvořit vyplněné prohlášení {year}
+        </button>
+        {canEdit && (
+          <label className="flex items-center gap-1.5 text-sm text-teal-700 hover:text-teal-900 cursor-pointer border border-teal-600 rounded-md px-3 py-2">
+            <Upload size={15} /> Nahrát podepsané ({year})
+            <input type="file" accept=".pdf,image/*" multiple disabled={busy} onChange={(e) => { uploadSigned(e.target.files); e.target.value = ""; }} className="hidden" />
+          </label>
+        )}
+      </div>
+      {info && <div className="text-xs text-amber-700 mb-2">{info}</div>}
+      {error && <div className="text-red-600 text-xs mb-2">{error}</div>}
+      {signed.length === 0 ? (
+        <div className="text-sm text-slate-400">Zatím žádné podepsané prohlášení.</div>
+      ) : (
+        <div className="space-y-1">
+          {signed.map((d) => (
+            <div key={d.id} className="flex items-center gap-3 text-sm flex-wrap">
+              <span className="font-medium w-12">{d.rok}</span>
+              <span className="truncate max-w-[260px]" title={d.name}>{d.name}</span>
+              <button onClick={() => openHrFile(d.path)} className="text-xs text-teal-700 hover:underline">Otevřít</button>
+              <button onClick={() => openHrFile(d.path, d.name)} className="text-xs text-teal-700 hover:underline flex items-center gap-0.5"><Download size={12} /> Stáhnout</button>
+              {canEdit && <button onClick={() => unlink(d)} disabled={busy} className="text-xs text-red-600 hover:underline">Odebrat</button>}
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// Upozorneni k danim pro kartu a prehled: deti 26 let / studium + chybejici
+// podepsane prohlaseni (v lednu a unoru za bezny rok, v prosinci za dalsi).
+function taxWarningsFor(employee, payroll, today = new Date()) {
+  const v = valuesFromRecords({ employee, payroll });
+  const out = childTaxWarnings(v, today.toISOString().slice(0, 10));
+  const month = today.getMonth() + 1;
+  const checkYear = month <= 2 ? today.getFullYear() : month === 12 ? today.getFullYear() + 1 : null;
+  if (checkYear && v.tax_uplatneni === true && !(payroll?.data?.prohlaseni_poplatnika || []).some((d) => d.rok === checkYear)) {
+    out.push({ level: "amber", message: `Chybí podepsané prohlášení poplatníka na rok ${checkYear}` });
+  }
+  return out;
 }
 
 /* ---------------- Agenda ZP / ČSSZ ----------------

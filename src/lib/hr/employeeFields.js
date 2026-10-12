@@ -287,10 +287,11 @@ const dependent = (slot, title, extraFields, showIf, extra = {}) => ({
 // JMHZ PDF ma miesto len pre 4, dalsie su v karte a HR ich prilozi zvlast.
 export const MAX_CHILDREN = 10;
 export const JMHZ_PDF_CHILDREN = 4;
-const CHILD_FIELD_SUFFIXES = ["jmeno", "datum_rc", "narok", "studium", "neuplatneni"];
+const CHILD_FIELD_SUFFIXES = ["jmeno", "datum_rc", "narok", "ztpp", "studium", "neuplatneni"];
 export const childSlot = (i) => `dite${i}`;
 const childExtra = (slot) => [
   { key: `${slot}_narok`, label: "Nárok na daňové zvýhodnění", type: "yesno", store: { t: "pay", slot, field: "narok_danove_zvyhodneni" } },
+  { key: `${slot}_ztpp`, label: "Dítě je držitelem průkazu ZTP/P", type: "yesno", store: { t: "pay", slot, field: "ztpp" } },
   { key: `${slot}_studium`, label: "Potvrzení o studiu/předškolní docházce", type: "yesno", store: { t: "pay", slot, field: "potvrzeni_studia" } },
   { key: `${slot}_neuplatneni`, label: "Potvrzení o neuplatnění zvýhodnění druhým poplatníkem", type: "yesno", store: { t: "pay", slot, field: "potvrzeni_neuplatneni_druhym" } },
   { key: `${slot}_rodny_list`, label: "Rodný list (PDF / sken)", type: "file", kind: `rodny_list:${slot}`, hr: true },
