@@ -6,7 +6,7 @@ import {
   ClipboardList, ArrowLeft, Download, Layers, FileSignature, Printer, Package,
   LogOut, PackageCheck, PackageX, Euro, Factory, Boxes, PackagePlus, Camera,
   LayoutDashboard, Warehouse, MinusCircle, FlaskConical, ClipboardCheck, UserCheck, Menu, Mail, Calendar, FileSpreadsheet, Receipt,
-  Recycle, Calculator, Image, Construction, BookOpen, ListChecks, CalendarClock, Coffee, ChevronDown, ChevronUp, BarChart3, Settings, KeyRound, History, ShieldCheck, Stamp, Ban, RotateCcw
+  Recycle, Calculator, Image, Construction, BookOpen, ListChecks, CalendarClock, Coffee, ChevronDown, ChevronUp, BarChart3, Settings, KeyRound, History, ShieldCheck, Stamp, Ban, RotateCcw, ScanBarcode
 } from "lucide-react";
 import { supabase } from "./supabaseClient.js";
 import { useAuth } from "./lib/auth.js";
@@ -17,6 +17,8 @@ const PlanSmienView = lazy(() => import("./PlanSmienView.jsx"));
 const KvalitaView = lazy(() => import("./KvalitaView.jsx"));
 const UctovnictviView = lazy(() => import("./UctovnictviView.jsx"));
 const OnboardingKiosk = lazy(() => import("./hr/OnboardingKiosk.jsx"));
+const PdaApp = lazy(() => import("./pda/PdaMobileView.jsx"));
+const PdaOfficeView = lazy(() => import("./pda/PdaOfficeView.jsx"));
 import { extractCityFromAddress, todayStr, uid, parseSkDate, isoFromSkDateStr, skDateStrFromIso, durationMinutes, formatMinutes } from "./lib/utils.js";
 import { parsePricelistFile, computeTransportPrice, computeTransportPriceForCity, formatEur, formatPriceNumber } from "./lib/pricelist.js";
 import { buildLieferscheinXlsx } from "./lib/lieferscheinXlsx.js";
@@ -707,7 +709,22 @@ export function isOnboardingKioskUrl() {
   return new URLSearchParams(window.location.search).get("kiosk") === "nastup";
 }
 
+// PDA / Expedice pre Zebra TC25 (?pda=1) - samostatne zjednodusene mobilne
+// rozhranie bez launchera, ale s beznym prihlasenim (ucet Sklad). Vetvi sa
+// tu, aby sa neukladala/neprepisovala volba appky v launcheri (localStorage).
+export function isPdaUrl() {
+  if (typeof window === "undefined") return false;
+  return new URLSearchParams(window.location.search).get("pda") === "1";
+}
+
 export default function MiniERPRoot() {
+  if (isPdaUrl()) {
+    return (
+      <Suspense fallback={<div className="min-h-screen flex items-center justify-center text-slate-500"><Loader2 className="animate-spin mr-2" size={20} /> Načítám...</div>}>
+        <PdaApp />
+      </Suspense>
+    );
+  }
   if (isOnboardingKioskUrl()) {
     return (
       <Suspense fallback={<div className="min-h-screen flex items-center justify-center text-slate-500"><Loader2 className="animate-spin mr-2" size={20} /> Načítám...</div>}>
@@ -2064,6 +2081,11 @@ function OfficeApp({ userFullName, userEmail, onSignOut }) {
         {view === "products" && (
           <ProductsView products={products} designs={designs} swPricelist={swPricelist} onSave={persistProducts} onEdit={(p) => setEditingProduct(p)} />
         )}
+        {view === "pda" && (
+          <Suspense fallback={<div className="flex items-center justify-center text-slate-500 py-10"><Loader2 className="animate-spin mr-2" size={20} /> Načítám...</div>}>
+            <PdaOfficeView />
+          </Suspense>
+        )}
         {view === "productionplan" && (
           <ProductionPlanView
             productionPlan={productionPlan}
@@ -2590,6 +2612,7 @@ function Header({ view, setView, company, userFullName, userEmail, onSignOut }) 
           <NavButton icon={<PackagePlus size={18} />} label="Příjem zboží" color="emerald" active={view === "goodsreceipts"} onClick={() => setView("goodsreceipts")} />
           <NavButton icon={<Warehouse size={18} />} label="Stav zásob" color="violet" active={view === "stock"} onClick={() => setView("stock")} />
           <NavButton icon={<ClipboardCheck size={18} />} label="Výroba" color="rose" active={view === "productionplan"} onClick={() => setView("productionplan")} />
+          <NavButton icon={<ScanBarcode size={18} />} label="PDA / Expedice" color="cyan" active={view === "pda"} onClick={() => setView("pda")} />
         </nav>
       </div>
     </header>
@@ -2603,6 +2626,7 @@ const NAV_COLORS = {
   emerald: { badge: "from-emerald-400 to-emerald-600", shadow: "shadow-emerald-500/40" },
   violet: { badge: "from-violet-400 to-violet-600", shadow: "shadow-violet-500/40" },
   rose: { badge: "from-rose-400 to-rose-600", shadow: "shadow-rose-500/40" },
+  cyan: { badge: "from-cyan-400 to-cyan-600", shadow: "shadow-cyan-500/40" },
 };
 
 function NavButton({ icon, label, active, onClick, color }) {
