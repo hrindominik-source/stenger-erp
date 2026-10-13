@@ -17,7 +17,8 @@ const PlanSmienView = lazy(() => import("./PlanSmienView.jsx"));
 const KvalitaView = lazy(() => import("./KvalitaView.jsx"));
 const UctovnictviView = lazy(() => import("./UctovnictviView.jsx"));
 const OnboardingKiosk = lazy(() => import("./hr/OnboardingKiosk.jsx"));
-const PdaApp = lazy(() => import("./pda/PdaMobileView.jsx"));
+const PdaApp = lazy(() => import("./pda/PdaApp.jsx"));
+const PdaTestMode = lazy(() => import("./pda/PdaTestMode.jsx"));
 const PdaOfficeView = lazy(() => import("./pda/PdaOfficeView.jsx"));
 import { extractCityFromAddress, todayStr, uid, parseSkDate, isoFromSkDateStr, skDateStrFromIso, durationMinutes, formatMinutes } from "./lib/utils.js";
 import { parsePricelistFile, computeTransportPrice, computeTransportPriceForCity, formatEur, formatPriceNumber } from "./lib/pricelist.js";
@@ -717,7 +718,22 @@ export function isPdaUrl() {
   return new URLSearchParams(window.location.search).get("pda") === "1";
 }
 
+// Testovaci rezim PDA (?pda=test) - simulacia skenovania na PC nad
+// simulovanou DB v prehliadaci (pda/pdaMockApi.js), bez prihlasenia a bez
+// akehokolvek zapisu do Supabase.
+export function isPdaTestUrl() {
+  if (typeof window === "undefined") return false;
+  return new URLSearchParams(window.location.search).get("pda") === "test";
+}
+
 export default function MiniERPRoot() {
+  if (isPdaTestUrl()) {
+    return (
+      <Suspense fallback={<div className="min-h-screen flex items-center justify-center text-slate-500"><Loader2 className="animate-spin mr-2" size={20} /> Načítám...</div>}>
+        <PdaTestMode />
+      </Suspense>
+    );
+  }
   if (isPdaUrl()) {
     return (
       <Suspense fallback={<div className="min-h-screen flex items-center justify-center text-slate-500"><Loader2 className="animate-spin mr-2" size={20} /> Načítám...</div>}>

@@ -1,5 +1,5 @@
 import { describe, it, expect, afterEach } from "vitest";
-import { isPdaUrl, isOnboardingKioskUrl } from "./App.jsx";
+import { isPdaUrl, isPdaTestUrl, isOnboardingKioskUrl } from "./App.jsx";
 
 // ?pda=1 otvara zjednodusene PDA rozhranie (Zebra TC25) namiesto launchera.
 // Funguje aj na GitHub Pages pod /stenger-erp/ - je to query parameter na
@@ -39,5 +39,13 @@ describe("isPdaUrl", () => {
   it("PDA URL nespusti onboarding kiosk", () => {
     globalThis.window = { location: { search: "?pda=1" } };
     expect(isOnboardingKioskUrl()).toBe(false);
+  });
+
+  it("?pda=test je testovaci rezim, nie ostre PDA", () => {
+    globalThis.window = { location: { search: "?pda=test" } };
+    expect(isPdaTestUrl()).toBe(true);
+    expect(isPdaUrl()).toBe(false);
+    globalThis.window = { location: { search: "?pda=1" } };
+    expect(isPdaTestUrl()).toBe(false);
   });
 });

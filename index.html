@@ -8,6 +8,25 @@
   </head>
   <body>
     <div id="root"></div>
+    <script>
+      // Kontrola prehliadaca (ES5) - na starom Chrome (napr. neaktualizovana
+      // Zebra TC25) ukaze namiesto bielej obrazovky hlasku s verziou.
+      // Bezny build potrebuje Chrome 85+, zalozny COMPAT_BUILD Chrome 64+.
+      (function () {
+        var compat = "%VITE_COMPAT_BUILD%" === "true";
+        var ok = false;
+        try {
+          ok = compat ? typeof Promise.prototype["finally"] === "function" : new Function("var o = {}; o.a ??= 1; return o?.a ?? 0")() === 1;
+        } catch (e) {}
+        if (ok) return;
+        var m = navigator.userAgent.match(/Chrome\/(\d+)/);
+        document.getElementById("root").innerHTML =
+          '<div style="font-family:system-ui,sans-serif;max-width:420px;margin:48px auto;padding:0 16px;text-align:center;color:#334155">' +
+          '<h2 style="color:#0f172a">Prohlížeč je příliš starý</h2>' +
+          "<p>Zjištěno: Chrome " + (m ? m[1] : "?") + ". Stenger ONE potřebuje Chrome " + (compat ? "64" : "85") + " nebo novější.</p>" +
+          "<p>Aktualizujte Google Chrome (Obchod Play → Chrome → Aktualizovat). Pokud to na zařízení nejde, kontaktujte správce – existuje kompatibilní verze pro starší zařízení.</p></div>";
+      })();
+    </script>
     <script type="module" src="/src/main.jsx"></script>
   </body>
 </html>

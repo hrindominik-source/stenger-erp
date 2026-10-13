@@ -1,9 +1,10 @@
 // PDA / Expedice - prehlad v Stenger ONE (Office). Vydajky naskenovane na
 // PDA (?pda=1), palety (SSCC, GTIN, BBD, sarza, mnozstvo), suhrn a export.
-// Data si nacitava sam (nie cez OfficeApp), zmeny prichadzaju cez realtime.
+// Data si nacitava sam cez PDA API (nie cez OfficeApp), zmeny prichadzaju
+// cez realtime. V testovacom rezime (?pda=test) dostane simulovane API.
 //
-// Excel export je zatial PRACOVNA verzia - presny format MAXIM sa doplni,
-// ked bude k dispozicii vzorovy subor.
+// Excel export je zatial PRACOVNA verzia (lib/pdaExport.js) - presny format
+// MAXIM sa doplni, ked bude k dispozicii vzorovy subor.
 
 import React, { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import { Loader2, AlertCircle, Search, Download, ChevronDown, ChevronRight, RotateCcw, Trash2, PackageCheck, Clock, Smartphone } from "lucide-react";
@@ -11,24 +12,8 @@ import { supabase } from "../supabaseClient.js";
 import { formatDateTime } from "../lib/utils.js";
 import { exportSheetsToExcel } from "../lib/exportExcel.js";
 import { pdaErrorMessage, summarizePallets } from "../lib/pdaScan.js";
-
-function formatDate(iso) {
-  if (!iso) return "";
-  const [y, m, d] = String(iso).slice(0, 10).split("-");
-  return `${d}.${m}.${y}`;
-}
-
-// PostgREST vracia max. 1000 riadkov na dotaz - nacitame po strankach.
-async function fetchAll(build) {
-  const PAGE = 1000;
-  const out = [];
-  for (let from = 0; ; from += PAGE) {
-    const { data, error } = await build().range(from, from + PAGE - 1);
-    if (error) return { data: null, error };
-    out.push(...(data || []));
-    if (!data || data.length < PAGE) return { data: out, error: null };
-  }
-}
+import { buildPdaExportSheets, formatIsoDate as formatDate } from "../lib/pdaExport.js";
+import { createSupabasePdaApi } from "./pdaApi.js";
 
 function localIso(d) {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
@@ -48,7 +33,8 @@ function StavBadge({ stav }) {
   );
 }
 
-export default function PdaOfficeView() {
+export default function PdaOfficeView({ api: apiProp }) {
+  const api = useMemo(() => apiProp || createSupabasePdaApi(supabase), [apiProp]);
   const [vydajky, setVydajky] = useState(null);
   const [palety, setPalety] = useState([]);
   const [error, setError] = useState("");
@@ -65,18 +51,7 @@ export default function PdaOfficeView() {
 
   const load = useCallback(async () => {
     const odTs = od ? new Date(od + "T00:00:00").toISOString() : null;
-    const [vRes, pRes] = await Promise.all([
-      fetchAll(() => {
-        let q = supabase.from("pda_vydajky").select("*");
-        if (odTs) q = q.gte("created_at", odTs);
-        return q.order("created_at", { ascending: false }).order("id");
-      }),
-      fetchAll(() => {
-        let q = supabase.from("pda_palety").select("*, pda_vydajky!inner(created_at)");
-        if (odTs) q = q.gte("pda_vydajky.created_at", odTs);
-        return q.order("created_at", { ascending: true }).order("id");
-      }),
-    ]);
+    const [vRes, pRes] = await Promise.all([api.listVydajkyOd(odTs), api.listPaletyOd(odTs)]);
     if (vRes.error || pRes.error) {
       setError(pdaErrorMessage(vRes.error || pRes.error));
       return;
@@ -84,24 +59,19 @@ export default function PdaOfficeView() {
     setError("");
     setVydajky(vRes.data || []);
     setPalety(pRes.data || []);
-  }, [od]);
+  }, [api, od]);
 
   useEffect(() => {
     load();
-    const schedule = () => {
+    const unsubscribe = api.subscribe(() => {
       clearTimeout(reloadTimer.current);
       reloadTimer.current = setTimeout(load, 400);
-    };
-    const channel = supabase
-      .channel("pda-office")
-      .on("postgres_changes", { event: "*", schema: "public", table: "pda_vydajky" }, schedule)
-      .on("postgres_changes", { event: "*", schema: "public", table: "pda_palety" }, schedule)
-      .subscribe();
+    });
     return () => {
       clearTimeout(reloadTimer.current);
-      supabase.removeChannel(channel);
+      unsubscribe();
     };
-  }, [load]);
+  }, [api, load]);
 
   const paletyPodla = useMemo(() => {
     const m = new Map();
@@ -127,7 +97,7 @@ export default function PdaOfficeView() {
 
   async function znovuOtvorit(v) {
     setBusyId(v.id);
-    const { data, error: err } = await supabase.from("pda_vydajky").update({ stav: "rozpracovana" }).eq("id", v.id).select().maybeSingle();
+    const { data, error: err } = await api.reopenVydajka(v.id);
     setBusyId(null);
     if (err || !data) setError(pdaErrorMessage(err) || "Změna nebyla potvrzena.");
     else load();
@@ -136,63 +106,14 @@ export default function PdaOfficeView() {
   async function smazat(v) {
     setConfirmDeleteId(null);
     setBusyId(v.id);
-    const { data, error: err } = await supabase.from("pda_vydajky").delete().eq("id", v.id).select();
+    const { data, error: err } = await api.deleteVydajka(v.id);
     setBusyId(null);
     if (err || !data || data.length !== 1) setError(pdaErrorMessage(err) || "Smazání nebylo potvrzeno.");
     else load();
   }
 
   async function exportExcel() {
-    const ids = new Set(filtered.map((v) => v.id));
-    const vMap = new Map(filtered.map((v) => [v.id, v]));
-    const rows = palety.filter((p) => ids.has(p.vydajka_id));
-    const paletyRows = rows.map((p) => {
-      const v = vMap.get(p.vydajka_id);
-      return {
-        "Lieferschein": v.cislo_lieferschein,
-        "Stav výdejky": v.stav === "dokoncena" ? "Dokončená" : "Rozpracovaná",
-        "Datum výdejky": formatDate(v.created_at),
-        "SSCC": p.sscc,
-        "GTIN": p.gtin || "",
-        "BBD": formatDate(p.bbd),
-        "Typ data (AI)": p.bbd_ai || "",
-        "Šarže": p.sarza || "",
-        "Množství (AI 37)": p.mnozstvo != null ? p.mnozstvo : "",
-        "Naskenoval": p.pracovnik || "",
-        "Čas skenu": formatDateTime(p.created_at),
-      };
-    });
-    const souhrnRows = [];
-    for (const v of filtered) {
-      for (const s of summarizePallets(paletyPodla.get(v.id) || [])) {
-        souhrnRows.push({
-          "Lieferschein": v.cislo_lieferschein,
-          "GTIN": s.gtin,
-          "BBD": formatDate(s.bbd),
-          "Šarže": s.sarza,
-          "Palet": s.palet,
-          "Množství celkem": s.mnozstvo,
-          "Neúplné množství": s.mnozstvoNeuplne ? "ano" : "",
-        });
-      }
-    }
-    const vydajkyRows = filtered.map((v) => ({
-      "Lieferschein": v.cislo_lieferschein,
-      "Stav": v.stav === "dokoncena" ? "Dokončená" : "Rozpracovaná",
-      "Založeno": formatDateTime(v.created_at),
-      "Založil": v.pracovnik || "",
-      "Dokončeno": formatDateTime(v.dokoncena_at),
-      "Dokončil": v.dokoncil || "",
-      "Palet": (paletyPodla.get(v.id) || []).length,
-    }));
-    await exportSheetsToExcel(
-      [
-        { name: "Palety", rows: paletyRows.length ? paletyRows : [{ Info: "Žádné palety" }], colWidth: 20 },
-        { name: "Souhrn", rows: souhrnRows.length ? souhrnRows : [{ Info: "Žádné palety" }] },
-        { name: "Výdejky", rows: vydajkyRows.length ? vydajkyRows : [{ Info: "Žádné výdejky" }] },
-      ],
-      "PDA_vydejky_pracovni"
-    );
+    await exportSheetsToExcel(buildPdaExportSheets(filtered, palety), api.isDemo ? "PDA_TEST_vydejky_pracovni" : "PDA_vydejky_pracovni");
   }
 
   const pdaUrl = `${window.location.origin}${import.meta.env.BASE_URL}?pda=1`;

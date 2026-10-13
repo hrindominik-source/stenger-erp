@@ -98,6 +98,11 @@ describe("parseGs1 - produktovy kod", () => {
     expect(r.ok).toBe(false);
     expect(r.errors.join(" ")).toMatch(/oddělovač/);
   });
+  it("chybajuci GS medzi AI 37 a AI 10 (sarza s pismenami) = napoveda o oddelovaci", () => {
+    const r = parseGs1("02" + GTIN + "3748" + "10L1", TODAY);
+    expect(r.ok).toBe(false);
+    expect(r.errors[0]).toMatch(/nechybí oddělovač FNC1\/GS/);
+  });
   it("AI 37 pred AI 10 oddelene GS", () => {
     const r = parseGs1("02" + GTIN + "37" + "60" + GS + "10" + "ABC" + GS + "15" + "270400", TODAY);
     expect(r.ok).toBe(true);

@@ -74,15 +74,19 @@ function matchAi(s) {
   return null;
 }
 
-export function gs1CheckDigitOk(digits) {
-  if (!/^\d+$/.test(digits) || digits.length < 2) return false;
+// Kontrolna cislica GS1 (mod 10, vahy 3/1 sprava) pre telo bez nej.
+export function gs1CheckDigit(body) {
   let sum = 0;
-  const body = digits.slice(0, -1);
   for (let i = 0; i < body.length; i++) {
     const d = Number(body[body.length - 1 - i]);
     sum += i % 2 === 0 ? d * 3 : d;
   }
-  return (10 - (sum % 10)) % 10 === Number(digits[digits.length - 1]);
+  return (10 - (sum % 10)) % 10;
+}
+
+export function gs1CheckDigitOk(digits) {
+  if (!/^\d+$/.test(digits) || digits.length < 2) return false;
+  return gs1CheckDigit(digits.slice(0, -1)) === Number(digits[digits.length - 1]);
 }
 
 function lastDayOfMonth(year, month) {
@@ -189,7 +193,10 @@ function validateElement(el, today, errors, warnings) {
   const v = el.value;
   if (spec.fixed && v.length !== spec.fixed) errors.push(`AI (${el.ai}) má mít ${spec.fixed} znaků, má ${v.length}.`);
   if (spec.max && (v.length < 1 || v.length > spec.max)) errors.push(`AI (${el.ai}) má mít 1–${spec.max} znaků, má ${v.length}${v.length > spec.max ? " - nechybí oddělovač FNC1/GS?" : ""}.`);
-  if (spec.numeric && !/^\d*$/.test(v)) errors.push(`AI (${el.ai}) smí obsahovat jen číslice.`);
+  if (spec.numeric && !/^\d*$/.test(v)) {
+    // Typicky: chyba FNC1/GS za AI 37 a nasledujuci AI 10 sa prilepil k mnozstvu.
+    errors.push(`AI (${el.ai}) smí obsahovat jen číslice${spec.max ? " - nechybí oddělovač FNC1/GS?" : "."}`);
+  }
   if ((el.ai === "00" || el.ai === "01" || el.ai === "02") && /^\d+$/.test(v) && v.length === spec.fixed && !gs1CheckDigitOk(v)) {
     errors.push(`${spec.label} ${v} má chybnou kontrolní číslici.`);
   }

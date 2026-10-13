@@ -1,6 +1,7 @@
-// PDA / Expedice - zjednodusene mobilne rozhranie pre Zebra TC25 (Chrome),
-// otvara sa cez ?pda=1 (viz isPdaUrl v App.jsx). Prihlasenie je existujuci
-// spolocny ucet Sklad, konkretny pracovnik sa vybera z tabulky workers.
+// PDA / Expedice - zjednodusene mobilne rozhranie pre Zebra TC25 (Chrome).
+// Obrazovky pracuju len cez PdaApiContext: ostro PdaApp.jsx (?pda=1, Supabase,
+// ucet Sklad), testovaci rezim PdaTestMode.jsx (?pda=test, simulacia).
+// Konkretny pracovnik sa vybera z tabulky workers.
 //
 // Zasady:
 //   * paleta je "Uložena" az ked ju databaza potvrdi (insert ... select),
@@ -8,13 +9,15 @@
 //   * skenovaci input drzi fokus sam (DataWedge posiela kod ako klavesnicu),
 //   * ziadne zasahy do Expedice v SkladView ani do zasob.
 
-import React, { useState, useEffect, useRef, useCallback } from "react";
+import React, { useState, useEffect, useRef, useCallback, createContext, useContext } from "react";
 import { Loader2, AlertCircle, LogOut, ArrowLeft, Plus, ScanLine, CheckCircle2, XCircle, Trash2, RotateCcw, PackageCheck, User, Wifi, WifiOff, Keyboard } from "lucide-react";
-import { supabase } from "../supabaseClient.js";
-import { useAuth } from "../lib/auth.js";
-import Login from "../Login.jsx";
 import { parseGs1, visibleControlChars, GS } from "../lib/gs1.js";
-import { mergeScan, EMPTY_PENDING, pdaErrorMessage, isPrimaryKeyConflict, pdaId, summarizePallets } from "../lib/pdaScan.js";
+import { mergeScan, EMPTY_PENDING, pdaErrorMessage, pdaId, summarizePallets } from "../lib/pdaScan.js";
+import { savePalletFlow, deletePalletFlow, finishFlow, canFinish, createVydajkaFlow, mergeLoadedRows } from "../lib/pdaFlow.js";
+
+// Datova vrstva (Supabase alebo simulacia v testovacom rezime ?pda=test).
+export const PdaApiContext = createContext(null);
+const usePdaApi = () => useContext(PdaApiContext);
 
 const PRACOVNIK_KEY = "stenger_pda_pracovnik";
 const FONT = { fontFamily: "system-ui, -apple-system, Segoe UI, sans-serif" };
@@ -67,7 +70,8 @@ function isOtherEditable(el, own) {
 // Neviditelny input, ktory prijima kod zo skenera (DataWedge keystroke) a
 // drzi si fokus: po blur, po tapnuti kamkolvek, po navrate na kartu a
 // kontrolou kazdych 700 ms. Ak ma fokus ine textove pole (rucne zadanie),
-// fokus nekradne. inputMode="none" = nevyskakuje softverova klavesnica.
+// fokus nekradne. Klavesy mimo pola (fokus na tlacidle) zachyti na urovni
+// dokumentu. inputMode="none" = nevyskakuje softverova klavesnica.
 function ScanInput({ onScan, active = true }) {
   const ref = useRef(null);
   const idleTimer = useRef(null);
@@ -110,29 +114,58 @@ function ScanInput({ onScan, active = true }) {
     };
   }, [active, refocus]);
 
-  function onKeyDown(e) {
-    const k = e.key;
-    const code = e.keyCode || e.which;
-    if (k === "Enter" || code === 13 || k === "Tab" || code === 9) {
-      e.preventDefault();
-      commit();
-      return;
-    }
-    // FNC1/GS poslany ako klavesa (Ctrl+] alebo keyCode 29) - Chrome ho do
-    // inputu sam nevlozi, doplnime ho rucne.
-    if (code === 29 || (e.ctrlKey && (k === "]" || code === 221))) {
-      e.preventDefault();
-      ref.current.value += GS;
-    }
-  }
-
   // Zalozne ukoncenie, ak by DataWedge neposielal Enter na konci.
-  function onInput() {
+  function armIdleCommit() {
     clearTimeout(idleTimer.current);
     idleTimer.current = setTimeout(() => {
       if (ref.current && ref.current.value.length >= 16) commit();
     }, 1000);
   }
+
+  // Spolocne spracovanie klavesy - z pola samotneho aj zachytene na urovni
+  // dokumentu. Vracia true, ak klavesu spracoval.
+  function handleKey(e, fromDocument) {
+    const el = ref.current;
+    const k = e.key;
+    const code = e.keyCode || e.which;
+    if (k === "Enter" || code === 13 || k === "Tab" || code === 9) {
+      // Enter mimo pola bez rozpisaneho kodu nechame tak (klavesnica na PC).
+      if (fromDocument && !el.value) return false;
+      e.preventDefault();
+      commit();
+      return true;
+    }
+    // FNC1/GS poslany ako klavesa (Ctrl+] alebo keyCode 29) - Chrome ho do
+    // inputu sam nevlozi, doplnime ho rucne.
+    if (code === 29 || (e.ctrlKey && (k === "]" || code === 221))) {
+      e.preventDefault();
+      el.value += GS;
+      return true;
+    }
+    if (fromDocument && k && k.length === 1 && !e.ctrlKey && !e.altKey && !e.metaKey) {
+      e.preventDefault();
+      el.value += k;
+      armIdleCommit();
+      refocus();
+      return true;
+    }
+    return false;
+  }
+  const handleKeyRef = useRef(handleKey);
+  handleKeyRef.current = handleKey;
+
+  // Ak fokus prave nie je v poli (napr. po tapnuti na tlacidlo), znaky zo
+  // skenera sa nesmu stratit a Enter na konci nesmie "stlacit" tlacidlo.
+  useEffect(() => {
+    if (!active) return undefined;
+    function onDocKeyDown(e) {
+      const el = ref.current;
+      if (!el || e.target === el || isOtherEditable(e.target, el)) return;
+      handleKeyRef.current(e, true);
+    }
+    document.addEventListener("keydown", onDocKeyDown, true);
+    return () => document.removeEventListener("keydown", onDocKeyDown, true);
+  }, [active]);
 
   return (
     <input
@@ -144,8 +177,9 @@ function ScanInput({ onScan, active = true }) {
       autoCapitalize="off"
       spellCheck={false}
       aria-label="Skenovací pole"
-      onKeyDown={onKeyDown}
-      onInput={onInput}
+      data-pda-scan-input="1"
+      onKeyDown={(e) => handleKey(e, false)}
+      onInput={armIdleCommit}
       onBlur={() => setTimeout(refocus, 60)}
       style={{ position: "fixed", top: 0, left: 0, width: 1, height: 1, opacity: 0, fontSize: 16, border: 0, padding: 0 }}
     />
@@ -208,39 +242,20 @@ function useOnline() {
   return online;
 }
 
-/* ---------------- Root: prihlasenie ---------------- */
-
-export default function PdaApp() {
-  const { loading, session, profile, profileError, signIn, signOut } = useAuth();
-  if (loading) {
-    return <div className="min-h-screen flex items-center justify-center text-slate-500" style={FONT}><Loader2 className="animate-spin mr-2" size={20} /> Načítám...</div>;
-  }
-  if (!session) return <Login onSignIn={signIn} />;
-  const role = profile && profile.role;
-  if (profileError || (role !== "sklad" && role !== "office")) {
-    return (
-      <div className="min-h-screen flex flex-col items-center justify-center gap-3 px-4 text-center text-slate-600" style={FONT}>
-        <AlertCircle size={24} className="text-red-500" />
-        <p className="max-w-sm text-sm">{profileError || "Tento účet nemá přístup k PDA / Expedici."}</p>
-        <button onClick={signOut} className="flex items-center gap-1.5 text-sm text-teal-700"><LogOut size={14} /> Odhlásit</button>
-      </div>
-    );
-  }
-  return <PdaMain onSignOut={signOut} />;
-}
-
 /* ---------------- Hlavny stav PDA ---------------- */
 
-function PdaMain({ onSignOut }) {
+export function PdaMain({ onSignOut }) {
+  const api = usePdaApi();
+  const pracovnikKey = PRACOVNIK_KEY + (api.isDemo ? "_test" : "");
   const online = useOnline();
   const [pracovnik, setPracovnik] = useState(() => {
-    try { return localStorage.getItem(PRACOVNIK_KEY) || ""; } catch (e) { return ""; }
+    try { return localStorage.getItem(pracovnikKey) || ""; } catch (e) { return ""; }
   });
   const [screen, setScreen] = useState("domov"); // domov | pracovnik | nova | vydajka | test
   const [vydajka, setVydajka] = useState(null);
 
   function choosePracovnik(meno) {
-    try { localStorage.setItem(PRACOVNIK_KEY, meno); } catch (e) {}
+    try { localStorage.setItem(pracovnikKey, meno); } catch (e) {}
     setPracovnik(meno);
     setScreen("domov");
   }
@@ -272,19 +287,20 @@ function PdaMain({ onSignOut }) {
 /* ---------------- Vyber pracovnika ---------------- */
 
 function PracovnikScreen({ online, onSignOut, onChoose, onBack }) {
+  const api = usePdaApi();
   const [workers, setWorkers] = useState(null);
   const [error, setError] = useState("");
   const [ukazatZaskok, setUkazatZaskok] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
-    supabase.from("workers").select("*").then(({ data, error: err }) => {
+    api.listWorkers().then(({ data, error: err }) => {
       if (cancelled) return;
       if (err) setError(pdaErrorMessage(err));
       else setWorkers((data || []).map((r) => r.data).filter((w) => w && w.meno && (w.typ === "sklad" || w.zaskok)));
     });
     return () => { cancelled = true; };
-  }, []);
+  }, [api]);
 
   const bezni = (workers || []).filter((w) => !w.zaskok).sort((a, b) => a.meno.localeCompare(b.meno));
   const zaskok = (workers || []).filter((w) => w.zaskok).sort((a, b) => a.meno.localeCompare(b.meno));
@@ -316,19 +332,16 @@ function PracovnikScreen({ online, onSignOut, onChoose, onBack }) {
 /* ---------------- Domov: rozpracovane vydajky ---------------- */
 
 function DomovScreen({ pracovnik, online, onSignOut, onNova, onOpen, onZmenitPracovnika, onTest }) {
+  const api = usePdaApi();
   const [list, setList] = useState(null);
   const [error, setError] = useState("");
 
   const load = useCallback(async () => {
     setError("");
-    const { data, error: err } = await supabase
-      .from("pda_vydajky")
-      .select("*, pda_palety(count)")
-      .eq("stav", "rozpracovana")
-      .order("created_at", { ascending: false });
+    const { data, error: err } = await api.listOpenVydajky();
     if (err) setError(pdaErrorMessage(err));
     else setList(data || []);
-  }, []);
+  }, [api]);
 
   useEffect(() => { load(); }, [load]);
 
@@ -376,11 +389,13 @@ function DomovScreen({ pracovnik, online, onSignOut, onNova, onOpen, onZmenitPra
 /* ---------------- Nova vydajka ---------------- */
 
 function NovaVydajkaScreen({ pracovnik, online, onBack, onCreated }) {
+  const api = usePdaApi();
   const [ls, setLs] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [existujuce, setExistujuce] = useState(null); // varovanie: LS uz existuje
   const inputRef = useRef(null);
+  const pendingId = useRef(null); // { id, cislo } - nepotvrdene zalozenie
 
   useEffect(() => { if (inputRef.current) inputRef.current.focus(); }, []);
 
@@ -392,24 +407,29 @@ function NovaVydajkaScreen({ pracovnik, online, onBack, onCreated }) {
     }
     setBusy(true);
     setError("");
+    // ID drzime rovnake pri opakovani (pre to iste LS), aby stratena odpoved
+    // nezalozila druhu vydajku.
+    if (!pendingId.current || pendingId.current.cislo !== cislo) pendingId.current = { id: pdaId(), cislo };
+    const id = pendingId.current.id;
     if (!force) {
-      const { data: dup } = await supabase.from("pda_vydajky").select("id, stav, created_at").eq("cislo_lieferschein", cislo);
-      if (dup && dup.length) {
+      const { data: dup } = await api.findVydajkyByLs(cislo);
+      const ine = (dup || []).filter((d) => d.id !== id);
+      if (ine.length) {
         setBusy(false);
-        setExistujuce(dup);
+        setExistujuce(ine);
         return;
       }
     }
-    const row = { id: pdaId(), cislo_lieferschein: cislo, pracovnik };
-    const { data, error: err } = await supabase.from("pda_vydajky").insert(row).select().single();
+    const res = await createVydajkaFlow(api, { id, cislo_lieferschein: cislo, pracovnik });
     setBusy(false);
-    if (err || !data) {
-      setError(pdaErrorMessage(err) || "Výdejka nebyla uložena.");
+    if (!res.ok) {
+      setError(res.message + (res.retry ? " Zkuste znovu." : ""));
       feedback("error");
       return;
     }
+    pendingId.current = null;
     feedback("ok");
-    onCreated(data);
+    onCreated(res.data);
   }
 
   return (
@@ -457,6 +477,7 @@ function PendingSlot({ label, done, children }) {
 }
 
 function VydajkaScreen({ vydajka: initial, pracovnik, online, onBack }) {
+  const api = usePdaApi();
   const [vydajka, setVydajka] = useState(initial);
   const [rows, setRows] = useState(null); // [{...paleta, _status: ok|saving|error|deleting, _error}]
   const [loadError, setLoadError] = useState("");
@@ -473,15 +494,24 @@ function VydajkaScreen({ vydajka: initial, pracovnik, online, onBack }) {
   pendingRef.current = pending;
   const rowsRef = useRef(rows);
   rowsRef.current = rows;
+  const queuedScans = useRef([]);
 
   const load = useCallback(async () => {
     setLoadError("");
-    const { data, error } = await supabase.from("pda_palety").select("*").eq("vydajka_id", initial.id).order("created_at", { ascending: false });
+    const { data, error } = await api.loadPalety(initial.id);
     if (error) setLoadError(pdaErrorMessage(error));
-    else setRows((data || []).map((r) => ({ ...r, _status: "ok" })));
-  }, [initial.id]);
+    else setRows((prev) => mergeLoadedRows(prev, data));
+  }, [api, initial.id]);
 
   useEffect(() => { load(); }, [load]);
+
+  // Skeny zachytene pocas nacitania spracovat v poradi, ako prisli.
+  useEffect(() => {
+    if (rows === null || !queuedScans.current.length) return;
+    const fronta = queuedScans.current;
+    queuedScans.current = [];
+    fronta.forEach((raw) => handleScan(raw));
+  }, [rows]);
 
   // Varovanie pri zatvoreni karty, ak nieco este nie je ulozene.
   useEffect(() => {
@@ -506,45 +536,31 @@ function VydajkaScreen({ vydajka: initial, pracovnik, online, onBack }) {
   async function savePallet(row) {
     patchRow(row.id, { _status: "saving", _error: "" });
     setBanner({ status: "saving", message: `Ukládám paletu …${row.sscc.slice(-6)}` });
-
-    // Prijemnejsia hlaska vopred - tvrda kontrola je v DB triggri.
-    const { data: dup } = await supabase.from("pda_palety").select("vydajka_id, pda_vydajky(stav, cislo_lieferschein)").eq("sscc", row.sscc);
-    const inaVydajka = (dup || []).filter((d) => d.vydajka_id !== row.vydajka_id && d.pda_vydajky);
-    const dokoncena = inaVydajka.find((d) => d.pda_vydajky.stav === "dokoncena");
-    if (dokoncena) {
-      removeRow(row.id);
-      setBanner({ status: "error", message: `SSCC …${row.sscc.slice(-6)} už je v dokončené výdejce LS ${dokoncena.pda_vydajky.cislo_lieferschein}. Paleta NEULOŽENA.` });
-      feedback("error");
+    const res = await savePalletFlow(api, row);
+    if (res.outcome === "ok") {
+      patchRow(row.id, { ...res.data, _status: "ok", _error: "" });
+      const varovanie = res.warning || ((row.data && row.data.warnings) || []).join(" ");
+      setBanner({ status: varovanie ? "warn" : "ok", message: `Uloženo ✓ paleta …${row.sscc.slice(-6)}.${varovanie ? " " + varovanie : ""}` });
+      feedback("ok");
       return;
     }
-
-    const payload = {};
-    for (const k of ["id", "vydajka_id", "sscc", "gtin", "bbd", "bbd_ai", "sarza", "mnozstvo", "raw_sscc", "raw_produkt", "pracovnik", "data"]) payload[k] = row[k];
-    let { data, error } = await supabase.from("pda_palety").insert(payload).select().single();
-    if (error && isPrimaryKeyConflict(error)) {
-      // Opakovane odoslanie - prvy pokus uz v DB je (odpoved sa stratila).
-      const res = await supabase.from("pda_palety").select("*").eq("id", row.id).maybeSingle();
-      if (res.data && res.data.sscc === row.sscc) { data = res.data; error = null; }
-    }
-    if (error || !data) {
-      const msg = pdaErrorMessage(error) || "Databáze uložení nepotvrdila.";
-      const definitivne = /PDA_|23505/.test(String((error && error.message) || "") + String((error && error.code) || ""));
-      if (definitivne) removeRow(row.id);
-      else patchRow(row.id, { _status: "error", _error: msg });
-      setBanner({ status: "error", message: "Paleta NEULOŽENA: " + msg });
-      feedback("error");
-      return;
-    }
-    patchRow(row.id, { ...data, _status: "ok", _error: "" });
-    const varovanie = (row.data && row.data.warnings) || [];
-    const ina = inaVydajka.find((d) => d.pda_vydajky.stav === "rozpracovana");
-    const extra = ina ? ` Pozor: SSCC je i v rozpracované výdejce LS ${ina.pda_vydajky.cislo_lieferschein}.` : varovanie.length ? " " + varovanie.join(" ") : "";
-    setBanner({ status: extra ? "warn" : "ok", message: `Uloženo ✓ paleta …${row.sscc.slice(-6)}.${extra}` });
-    feedback("ok");
+    // Pravidlo DB (duplicita, dokoncena vydajka) - riadok zmizne, opakovanie
+    // nema zmysel. Chyba siete - riadok ostava "Neuloženo" na opakovanie.
+    if (res.outcome === "rejected") removeRow(row.id);
+    else patchRow(row.id, { _status: "error", _error: res.message });
+    setBanner({ status: "error", message: "Paleta NEULOŽENA: " + res.message });
+    feedback("error");
   }
 
   function handleScan(raw) {
     if (souhrn || hotovo) return;
+    // Kym nevieme, ake palety uz vydajka ma, sken len odlozime do fronty
+    // (kontrola duplicit potrebuje zoznam) - spracuje sa hned po nacitani.
+    if (rowsRef.current === null) {
+      queuedScans.current.push(raw);
+      setBanner({ status: "saving", message: "Načítám palety výdejky… sken se zpracuje hned potom." });
+      return;
+    }
     const parsed = parseGs1(raw);
     const ssccSet = new Set((rowsRef.current || []).map((r) => r.sscc));
     const res = mergeScan(pendingRef.current, parsed, ssccSet);
@@ -580,10 +596,10 @@ function VydajkaScreen({ vydajka: initial, pracovnik, online, onBack }) {
       return;
     }
     patchRow(row.id, { _status: "deleting" });
-    const { data, error } = await supabase.from("pda_palety").delete().eq("id", row.id).select();
-    if (error || !data || data.length !== 1) {
+    const res = await deletePalletFlow(api, row.id);
+    if (!res.ok) {
       patchRow(row.id, { _status: "ok" });
-      setBanner({ status: "error", message: "Paleta NESMAZÁNA: " + (pdaErrorMessage(error) || "databáze smazání nepotvrdila.") });
+      setBanner({ status: "error", message: "Paleta NESMAZÁNA: " + res.message });
       feedback("error");
       return;
     }
@@ -592,7 +608,7 @@ function VydajkaScreen({ vydajka: initial, pracovnik, online, onBack }) {
   }
 
   async function zrusitVydajku() {
-    const { data, error } = await supabase.from("pda_vydajky").delete().eq("id", vydajka.id).select();
+    const { data, error } = await api.deleteVydajka(vydajka.id);
     if (error || !data || data.length !== 1) {
       setBanner({ status: "error", message: "Výdejku nelze zrušit: " + (pdaErrorMessage(error) || "nepotvrzeno.") });
       return;
@@ -603,20 +619,14 @@ function VydajkaScreen({ vydajka: initial, pracovnik, online, onBack }) {
   async function dokoncit() {
     setFinishing(true);
     setFinishError("");
-    const { data, error } = await supabase
-      .from("pda_vydajky")
-      .update({ stav: "dokoncena", dokoncil: pracovnik })
-      .eq("id", vydajka.id)
-      .eq("stav", "rozpracovana")
-      .select()
-      .maybeSingle();
+    const res = await finishFlow(api, vydajka.id, pracovnik);
     setFinishing(false);
-    if (error || !data || data.stav !== "dokoncena") {
-      setFinishError(pdaErrorMessage(error) || "Databáze dokončení nepotvrdila - zkuste znovu.");
+    if (!res.ok) {
+      setFinishError(res.message);
       feedback("error");
       return;
     }
-    setVydajka(data);
+    setVydajka(res.data);
     setHotovo(true);
     feedback("ok");
   }
@@ -624,8 +634,8 @@ function VydajkaScreen({ vydajka: initial, pracovnik, online, onBack }) {
   const okRows = (rows || []).filter((r) => r._status === "ok" || r._status === "deleting");
   const unsaved = (rows || []).filter((r) => r._status === "saving" || r._status === "error");
   const maPending = !!(pending.sscc || pending.produkt);
-  const mazeSa = (rows || []).some((r) => r._status === "deleting");
-  const mozeDokoncit = okRows.length > 0 && unsaved.length === 0 && !maPending && !mazeSa && online;
+  const finish = canFinish({ rows, pending, online });
+  const mozeDokoncit = finish.ok;
 
   if (hotovo) {
     return (
@@ -674,7 +684,7 @@ function VydajkaScreen({ vydajka: initial, pracovnik, online, onBack }) {
   }
 
   return (
-    <div className="min-h-screen bg-slate-50 text-slate-900 pb-24" style={FONT}>
+    <div className="min-h-screen bg-slate-50 text-slate-900 pb-32" style={FONT}>
       <ScanInput onScan={handleScan} active={!rucne} />
       <PdaHeader title={"LS " + vydajka.cislo_lieferschein} pracovnik={pracovnik} online={online} onBack={onBack} />
       <div className="p-3 space-y-3">
@@ -758,10 +768,8 @@ function VydajkaScreen({ vydajka: initial, pracovnik, online, onBack }) {
         <button onClick={() => setSouhrn(true)} disabled={!mozeDokoncit} className="w-full flex items-center justify-center gap-2 bg-emerald-600 text-white rounded-xl py-3.5 text-lg font-bold disabled:bg-slate-300 disabled:text-slate-500">
           <PackageCheck size={22} /> Dokončit výdejku ({okRows.length})
         </button>
-        {!mozeDokoncit && okRows.length > 0 && (
-          <div className="text-[11px] text-slate-500 text-center mt-1">
-            {maPending ? "Dokončete nebo zrušte rozpracovanou paletu." : unsaved.length ? "Některé palety nejsou uložené." : !online ? "Bez připojení." : ""}
-          </div>
+        {!mozeDokoncit && (rows || []).length > 0 && (
+          <div className="text-[11px] text-slate-500 text-center mt-1">{finish.reason}</div>
         )}
       </div>
     </div>
