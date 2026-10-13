@@ -2892,7 +2892,7 @@ function ZpHistorySection({ employee }) {
           </div>
         ))}
       </div>
-      <div className="text-xs text-slate-400 mt-2">Změna pojišťovny se zadává v kartě zaměstnance (s datem „Pojišťovna platí od“). Text pro tisk: {zpHistoryText(hist).replace(/\n/g, " ")}</div>
+      <div className="text-xs text-slate-400 mt-2">Změna pojišťovny se zadává v kartě zaměstnance (s datem „Pojišťovna platí od“).</div>
     </div>
   );
 }
