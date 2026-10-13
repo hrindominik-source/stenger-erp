@@ -11,7 +11,7 @@ import { convertFilledDocxToPdf } from "../lib/hr/docxToPdf.js";
 import { extractJmhzFields, detectJmhzVersionCandidates, knownJmhzVersions } from "../lib/hr/jmhzPdf.js";
 import { buildComparisonRows } from "../lib/hr/jmhzImport.js";
 import { sha256Hex, buildSignedScanPath } from "../lib/hr/documentHash.js";
-import { EMPLOYEE_SECTIONS, emptyEmployeeValues, normalizeLegacyDraft, valuesFromRecords, buildRecordPatches, patchHasContent, maritalStatusText, normalizeGender, HEALTH_INSURANCE_OPTIONS, optionLabel, normalizeHealthInsurance, POSITION_CATEGORIES, positionNameOptions, wageHistory, currentWage, upcomingWages, wageStepHint, addWageEntry, wageToValues, valuesToWage, MZDA_TYP_OPTIONS } from "../lib/hr/employeeFields.js";
+import { EMPLOYEE_SECTIONS, emptyEmployeeValues, normalizeLegacyDraft, valuesFromRecords, buildRecordPatches, patchHasContent, maritalStatusText, normalizeGender, HEALTH_INSURANCE_OPTIONS, optionLabel, normalizeHealthInsurance, POSITION_CATEGORIES, positionNameOptions, wageHistory, currentWage, upcomingWages, wageStepHint, valuesToWage } from "../lib/hr/employeeFields.js";
 import EmployeeFieldsForm, { EmployeeFieldsView, applyFieldChange } from "./EmployeeFieldsForm.jsx";
 import { childTaxWarnings } from "../lib/hr/taxChildren.js";
 import { RZ_POLOZKY, RZ_SLEVY, VYUCTOVANI, VYUCTOVANI_STAV, taxYearRecord, taxYearStatus, childMonthsForYear, childrenUnder3, rzWarnings, settlementWarning } from "../lib/hr/taxYear.js";
@@ -834,7 +834,7 @@ function EmployeeCreateForm({ permissions, onCancel, onCreated, initialData, pos
 
 const DETAIL_TABS = [
   { key: "prehled", label: "Přehled" },
-  { key: "osobni", label: "Osobní údaje" },
+  { key: "osobni", label: "Karta zaměstnance" },
   { key: "pomer", label: "Pracovní poměr" },
   { key: "mzda", label: "Mzdové podmínky", payrollOnly: true },
   { key: "dane", label: "Daně", payrollOnly: true },
@@ -849,6 +849,9 @@ function EmployeeDetail({ id, permissions, onBack }) {
   const [detailTab, setDetailTab] = useState("prehled");
   // Predvyplnenie platoveho vymeru z historie mzdy (zalozka Mzdové podmínky).
   const [docPreset, setDocPreset] = useState(null);
+  // Zmeny sa zadavaju len v Karte zamestnanca - bloky ju otvoria v uprave (s predvyplnenim).
+  const [kartaEdit, setKartaEdit] = useState(null);
+  const openKarta = (prefill = {}) => { setKartaEdit({ prefill, at: Date.now() }); setDetailTab("osobni"); };
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [employee, setEmployee] = useState(null);
@@ -998,22 +1001,29 @@ function EmployeeDetail({ id, permissions, onBack }) {
           employments={employments}
         />
       )}
-      {detailTab === "osobni" && <OsobniUdajeTab employee={employee} sensitive={sensitive} payroll={payroll} currentEmployment={currentEmployment} positions={positions} canEdit={canEdit} canSensitive={canSensitive} canPayroll={canPayroll} canGarnishment={hasPerm(permissions, "HR_EXEKUCE")} onSaved={load} />}
+      {detailTab === "osobni" && (
+        <OsobniUdajeTab
+          key={kartaEdit?.at || "karta"} employee={employee} sensitive={sensitive} payroll={payroll} currentEmployment={currentEmployment} positions={positions}
+          contractEvents={contractEvents} canEdit={canEdit} canSensitive={canSensitive} canPayroll={canPayroll} canGarnishment={hasPerm(permissions, "HR_EXEKUCE")}
+          canOverride={hasPerm(permissions, "HR_ADMIN")} autoEdit={kartaEdit} onSaved={() => { setKartaEdit(null); load(); }} onCancelEdit={() => setKartaEdit(null)}
+        />
+      )}
       {detailTab === "pomer" && (
         <PracovniPomerTab
           employeeId={id} employee={employee} employments={employments} contractEvents={contractEvents}
-          positions={positions} positionLabel={positionLabel} canEdit={canEdit} canOverride={hasPerm(permissions, "HR_ADMIN")}
-          onChanged={load}
+          positions={positions} positionLabel={positionLabel} canEdit={canEdit}
+          onChanged={load} onEditInKarta={() => openKarta()}
         />
       )}
       {detailTab === "mzda" && canPayroll && (
         <MzdovePodminkyTab
           employee={employee} payroll={payroll} currentEmployment={currentEmployment} canEdit={canEdit}
-          onSaved={load}
+          onEditInKarta={openKarta}
           onPrintVymer={(entry) => { setDocPreset({ docType: entry.mzda_typ === "smluvni" ? "mzdovy_vymer" : "platovy_vymer", entry }); setDetailTab("dokumenty"); }}
         />
       )}
       {detailTab === "dokumenty" && <DokumentyTab employee={employee} sensitive={sensitive} payroll={payroll} currentEmployment={currentEmployment} permissions={permissions} preset={docPreset} onPresetUsed={() => setDocPreset(null)} />}
+      {detailTab === "jmhz" && <ZpHistorySection employee={employee} />}
       {detailTab === "jmhz" && (
         <AgendaUraduSection employee={employee} payroll={payroll} canEdit={canEdit} onSaved={load} />
       )}
@@ -1146,7 +1156,7 @@ function Row({ label, value }) {
 
 // Zmeny udajov pracovniho pomeru provedene v Osobnich udajich se zapisi do
 // historie pomeru stejne jako ze zalozky Pracovni pomer (dodatky).
-async function logEmploymentChanges(before, patch, today) {
+async function logEmploymentChanges(before, patch, today, override = null) {
   const { data: userData } = await supabase.auth.getUser();
   const by = userData?.user?.id || null;
   const events = [];
@@ -1159,7 +1169,10 @@ async function logEmploymentChanges(before, patch, today) {
   }
   if ("fixed_term_end_date" in patch && patch.employment_type === "doba_urcita" && (patch.fixed_term_end_date || null) !== (before.fixed_term_end_date || null)) {
     if (before.fixed_term_end_date && patch.fixed_term_end_date && patch.fixed_term_end_date > before.fixed_term_end_date) {
-      ev("EXTENDED", d(before.fixed_term_end_date), d(patch.fixed_term_end_date), { valid_to: patch.fixed_term_end_date });
+      ev("EXTENDED", d(before.fixed_term_end_date), d(patch.fixed_term_end_date), {
+        valid_from: before.fixed_term_end_date, valid_to: patch.fixed_term_end_date,
+        is_legal_override: !!override, override_reason: override || null, overridden_by: override ? by : null,
+      });
     } else ev("CHANGED", `Konec smlouvy ${d(before.fixed_term_end_date)}`, `Konec smlouvy ${d(patch.fixed_term_end_date)}`);
   }
   if ("probation_end_date" in patch && (patch.probation_end_date || null) !== (before.probation_end_date || null)) {
@@ -1176,9 +1189,17 @@ async function logEmploymentChanges(before, patch, today) {
   })));
 }
 
-function OsobniUdajeTab({ employee, sensitive, payroll, currentEmployment, positions, canEdit, canSensitive, canPayroll, canGarnishment, onSaved }) {
+// Polia pracovneho pomeru, ktorych zmena = zmena pracovnych podmienok
+// (udalost v bloku Pracovní poměr, datum ucinnosti, neskor dodatek).
+const JOB_CHANGE_KEYS = ["pozice_kategorie", "nazev_pozice", "employment_type", "fixed_term_end_date", "weekly_hours", "misto_vykonu_smlouva"];
+
+function OsobniUdajeTab({ employee, sensitive, payroll, currentEmployment, positions, contractEvents = [], canEdit, canSensitive, canPayroll, canGarnishment, canOverride, autoEdit, onSaved, onCancelEdit }) {
   const [editing, setEditing] = useState(false);
   const [f, setF] = useState(null);
+  const [initial, setInitial] = useState(null);
+  const [ucinnost, setUcinnost] = useState(new Date().toISOString().slice(0, 10));
+  const [overrideOk, setOverrideOk] = useState(false);
+  const [overrideReason, setOverrideReason] = useState("");
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
   const records = { employee, sensitive, payroll, employment: currentEmployment };
@@ -1194,14 +1215,32 @@ function OsobniUdajeTab({ employee, sensitive, payroll, currentEmployment, posit
   // Bez pracovneho pomeru sa udaje o pozicii nemaju kam ulozit - skryte.
   const sectionIds = currentEmployment ? undefined : EMPLOYEE_SECTIONS.map((s) => s.id).filter((id) => id !== "pozice" && id !== "cinnost");
 
-  function startEdit() {
-    setF(loadValues());
+  function startEdit(prefill = {}) {
+    const v = loadValues();
+    setInitial(v);
+    setF({ ...v, ...prefill });
+    setUcinnost(prefill.mzda_platnost_od || new Date().toISOString().slice(0, 10));
+    setOverrideOk(false); setOverrideReason("");
     setError("");
     setEditing(true);
   }
+  useEffect(() => { if (autoEdit && canEdit) startEdit(autoEdit.prefill || {}); }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const jobChanged = !!(editing && currentEmployment && initial && JOB_CHANGE_KEYS.some((k) => String(f[k] ?? "") !== String(initial[k] ?? "")));
+  // Prodlouzeni doby urcite - zakonny limit (pocet prodlouzeni / celkova doba).
+  const extension = editing && currentEmployment && f.employment_type === "doba_urcita" && currentEmployment.employment_type === "doba_urcita"
+    && f.fixed_term_end_date && currentEmployment.fixed_term_end_date && f.fixed_term_end_date > currentEmployment.fixed_term_end_date
+    ? canProposeExtension({ startDate: currentEmployment.start_date, proposedEndDate: f.fixed_term_end_date, events: contractEvents.filter((e) => e.employment_id === currentEmployment.id) })
+    : null;
+  const needsOverride = !!(extension && !extension.withinLimits);
 
   async function save() {
     if (!f.first_name.trim() || !f.last_name.trim()) { setError("Vyplňte jméno a příjmení."); return; }
+    if (jobChanged && !ucinnost) { setError("Vyplňte, od kdy změna pracovních podmínek platí."); return; }
+    if (needsOverride && !(canOverride && overrideOk && overrideReason.trim())) {
+      setError(canOverride ? "Prodloužení přesahuje zákonný limit doby určité – potvrďte výjimku s důvodem, nebo zvolte dřívější datum." : "Prodloužení přesahuje zákonný limit doby určité – může ho potvrdit jen administrátor.");
+      return;
+    }
     setSaving(true);
     setError("");
     try {
@@ -1231,17 +1270,18 @@ function OsobniUdajeTab({ employee, sensitive, payroll, currentEmployment, posit
       // aktualnemu pomeru; nastup/typ/uvazek sa menia v zalozke Pracovní poměr.
       // Zmena kategorie (HI-00x) = zmena pozicie -> position_id + udalost.
       const prevCategory = loadValues().pozice_kategorie || "";
+      const changeDate = jobChanged ? ucinnost : now.slice(0, 10);
       if (currentEmployment && p.employment && f.pozice_kategorie && f.pozice_kategorie !== prevCategory) {
         const pos = await ensurePositionForCategory(f.pozice_kategorie);
         p.employment.position_id = pos.id;
         const oldLabel = positionChoiceLabel(prevCategory || positionChoiceValue(currentEmployment, positions), positions);
         const newLabel = positionChoiceLabel(f.pozice_kategorie, positions);
         await supabase.from("employment_contract_events").insert({
-          id: uid(), employment_id: currentEmployment.id, event_type: "POSITION_CHANGED", event_date: now.slice(0, 10),
+          id: uid(), employment_id: currentEmployment.id, event_type: "POSITION_CHANGED", event_date: changeDate,
           old_value: oldLabel, new_value: newLabel, created_by: (await supabase.auth.getUser()).data?.user?.id || null,
         });
         await supabase.from("employee_timeline_events").insert({
-          id: uid(), employee_id: employee.id, event_date: now.slice(0, 10), event_type: "POSITION_CHANGED",
+          id: uid(), employee_id: employee.id, event_date: changeDate, event_type: "POSITION_CHANGED",
           title: "Změna pozice", description: `${oldLabel} → ${newLabel}`, source: "MANUAL",
         });
       }
@@ -1249,7 +1289,17 @@ function OsobniUdajeTab({ employee, sensitive, payroll, currentEmployment, posit
         if (p.employment.employment_type === "doba_neurcita") p.employment.fixed_term_end_date = null;
         const { error: jobErr } = await supabase.from("employment_relationships").update({ ...p.employment, updated_at: now }).eq("id", currentEmployment.id);
         if (jobErr) throw jobErr;
-        await logEmploymentChanges(currentEmployment, p.employment, now.slice(0, 10));
+        await logEmploymentChanges(currentEmployment, p.employment, changeDate, needsOverride ? overrideReason.trim() : null);
+      }
+      // Zmena mzdy z karty -> zaznam v historii (blok Mzdové podmínky).
+      const wageKeys = EMPLOYEE_SECTIONS.find((x) => x.id === "mzda")?.fields.map((x) => x.key) || [];
+      if (canPayroll && p.payroll && wageKeys.some((k) => String(f[k] ?? "") !== String(initial[k] ?? ""))) {
+        const isNew = (f.mzda_platnost_od || "") !== (initial.mzda_platnost_od || "");
+        await supabase.from("employee_timeline_events").insert({
+          id: uid(), employee_id: employee.id, event_date: f.mzda_platnost_od || now.slice(0, 10), event_type: "WAGE_CHANGED",
+          title: isNew ? `Změna mzdy od ${fmtDate(f.mzda_platnost_od)}` : `Oprava mzdy platné od ${fmtDate(f.mzda_platnost_od)}`,
+          description: formatWageAmount(valuesToWage(f)), source: "MANUAL",
+        });
       }
       setEditing(false);
       onSaved();
@@ -1263,10 +1313,11 @@ function OsobniUdajeTab({ employee, sensitive, payroll, currentEmployment, posit
   if (!editing) {
     return (
       <div>
-        <div className="flex justify-between items-center mb-3">
-          <h2 className="font-semibold text-sm">Osobní údaje</h2>
-          {canEdit && <button onClick={startEdit} className="flex items-center gap-1 text-sm text-teal-700 hover:text-teal-900"><Pencil size={14} /> Upravit / doplnit</button>}
+        <div className="flex justify-between items-center mb-1">
+          <h2 className="font-semibold text-sm">Karta zaměstnance – aktuální stav</h2>
+          {canEdit && <button onClick={() => startEdit()} className="flex items-center gap-1 text-sm text-teal-700 hover:text-teal-900"><Pencil size={14} /> Upravit / doplnit</button>}
         </div>
+        <div className="text-xs text-slate-400 mb-3">Všechny změny a opravy se zadávají zde. Historie změn je v blocích Pracovní poměr, Mzdové podmínky a Agenda ZP / ČSSZ.</div>
         {!currentEmployment && <div className="text-xs text-slate-400 mb-3">Údaje o pozici (profese, režim…) lze doplnit až po založení pracovního poměru.</div>}
         <EmployeeFieldsView values={loadValues()} mode="edit" canSensitive={canSensitive} canPayroll={canPayroll} positions={positions} />
         {loadValues().exekuce === true && (
@@ -1281,7 +1332,7 @@ function OsobniUdajeTab({ employee, sensitive, payroll, currentEmployment, posit
 
   return (
     <div>
-      <h2 className="font-semibold text-sm mb-3">Upravit osobní údaje</h2>
+      <h2 className="font-semibold text-sm mb-3">Upravit kartu zaměstnance</h2>
       <EmployeeFieldsForm
         values={f} onChange={(k, v) => setF((prev) => applyFieldChange(prev, k, v))} mode="edit"
         canSensitive={canSensitive} canPayroll={canPayroll} positions={positions} sectionIds={sectionIds} onOpenFile={openHrFile}
@@ -1290,9 +1341,38 @@ function OsobniUdajeTab({ employee, sensitive, payroll, currentEmployment, posit
             legacyPrilohy={canGarnishment ? (payroll?.data?.prilohy || []).filter((p) => p.kind === "exekuce") : []} />
         )}
       />
+      {jobChanged && (
+        <div className="bg-sky-50 border border-sky-200 rounded-md px-3 py-2.5 mt-2 text-sm">
+          <div className="font-medium text-sky-900 mb-1">Mění se pracovní podmínky – změna se zapíše do bloku Pracovní poměr</div>
+          <div className="text-xs text-sky-800 mb-2">
+            {JOB_CHANGE_KEYS.filter((k) => String(f[k] ?? "") !== String(initial[k] ?? "")).map((k) => {
+              const fld = EMPLOYEE_SECTIONS.flatMap((x) => x.fields).find((x) => x.key === k);
+              return fld?.label || k;
+            }).join(", ")}
+          </div>
+          <label className="inline-flex items-center gap-2 text-sm">Změna platí od
+            <input type="date" value={ucinnost} onChange={(e) => setUcinnost(e.target.value)} className="border border-slate-300 rounded-md px-2.5 py-1.5 text-sm bg-white" />
+          </label>
+          {needsOverride && (
+            <div className="mt-2 text-xs px-2.5 py-2 rounded-md bg-amber-100 text-amber-800">
+              <div className="flex items-center gap-1.5 font-medium"><ShieldAlert size={13} />
+                {extension.overExtensionLimit
+                  ? `Toto by bylo ${extension.extensionsCount + 1}. prodloužení – zákon dovoluje max. ${FIXED_TERM_RULES.maxExtensions}×.`
+                  : `Toto by přesáhlo max. celkovou dobu určitou (do ${fmtDate(extension.maxAllowedEndDate)}).`}
+              </div>
+              {canOverride ? (
+                <div className="mt-2 space-y-1.5">
+                  <label className="flex items-center gap-2"><input type="checkbox" checked={overrideOk} onChange={(e) => setOverrideOk(e.target.checked)} /> Přesto prodloužit (evidovaná výjimka)</label>
+                  {overrideOk && <input value={overrideReason} onChange={(e) => setOverrideReason(e.target.value)} placeholder="Důvod výjimky (povinné)" className="w-full border border-amber-300 rounded-md px-2.5 py-1.5 text-sm" />}
+                </div>
+              ) : <div className="mt-1">Prodloužení nad tento limit může potvrdit jen administrátor.</div>}
+            </div>
+          )}
+        </div>
+      )}
       {error && <div className="bg-red-50 text-red-700 text-sm px-3 py-2 rounded-md mt-2 mb-2">{error}</div>}
       <div className="flex justify-end gap-2 mt-3 pb-4">
-        <button onClick={() => setEditing(false)} className="text-sm text-slate-500 px-3 py-2">Zrušit</button>
+        <button onClick={() => { setEditing(false); onCancelEdit?.(); }} className="text-sm text-slate-500 px-3 py-2">Zrušit</button>
         <button onClick={save} disabled={saving} className="bg-teal-700 hover:bg-teal-800 disabled:opacity-50 text-white text-sm font-medium px-4 py-2 rounded-md">
           {saving ? "Ukládám..." : "Uložit"}
         </button>
@@ -1313,11 +1393,9 @@ const CONTRACT_EVENT_TYPE_LABEL = {
   ENDED: "Pracovní poměr ukončen",
 };
 
-function PracovniPomerTab({ employeeId, employee, employments, contractEvents, positions, positionLabel, canEdit, canOverride, onChanged }) {
+function PracovniPomerTab({ employeeId, employee, employments, contractEvents, positions, positionLabel, canEdit, onChanged, onEditInKarta }) {
   const [addingNew, setAddingNew] = useState(false);
   const [endingId, setEndingId] = useState(null);
-  const [extendingId, setExtendingId] = useState(null);
-  const [changingId, setChangingId] = useState(null);
   const [historicalOpen, setHistoricalOpen] = useState(false);
 
   return (
@@ -1382,13 +1460,10 @@ function PracovniPomerTab({ employeeId, employee, employments, contractEvents, p
               )}
               {events.length > 0 && <ContractEventsList events={events} />}
               {canEdit && ["ACTIVE", "NOTICE_PERIOD"].includes(em.status) && (
-                <div className="flex gap-3 mt-3 pt-3 border-t border-slate-100 flex-wrap">
-                  {em.employment_type === "doba_urcita" && (
-                    extendingId === em.id
-                      ? null
-                      : <button onClick={() => setExtendingId(em.id)} className="text-sm text-teal-700 hover:text-teal-900">Prodloužit smlouvu</button>
-                  )}
-                  {changingId === em.id ? null : <button onClick={() => setChangingId(em.id)} className="text-sm text-teal-700 hover:text-teal-900">Změnit pozici / úvazek</button>}
+                <div className="flex gap-3 mt-3 pt-3 border-t border-slate-100 flex-wrap items-center">
+                  <button onClick={onEditInKarta} className="text-sm text-teal-700 hover:text-teal-900 flex items-center gap-1" title="Pozice, úvazek, typ a konec smlouvy, zkušební doba">
+                    <Pencil size={13} /> Změnit podmínky v kartě zaměstnance
+                  </button>
                   {em.status === "ACTIVE" && (
                     <StartNoticeButton employment={em} onSaved={onChanged} />
                   )}
@@ -1400,8 +1475,6 @@ function PracovniPomerTab({ employeeId, employee, employments, contractEvents, p
                     : <button onClick={() => setEndingId(em.id)} className="text-sm text-red-600 hover:text-red-800">Ukončit pracovní poměr</button>}
                 </div>
               )}
-              {extendingId === em.id && <ExtendEmploymentForm employment={em} events={events} canOverride={canOverride} onCancel={() => setExtendingId(null)} onSaved={() => { setExtendingId(null); onChanged(); }} />}
-              {changingId === em.id && <ChangePositionHoursForm employment={em} positions={positions} onCancel={() => setChangingId(null)} onSaved={() => { setChangingId(null); onChanged(); }} />}
               {endingId === em.id && <EndEmploymentForm employment={em} onCancel={() => setEndingId(null)} onSaved={() => { setEndingId(null); onChanged(); }} />}
               {["NOTICE_PERIOD", "ENDED"].includes(em.status) && <EndDocuments employment={em} canEdit={canEdit} onChanged={onChanged} />}
               {["NOTICE_PERIOD", "ENDED"].includes(em.status) && <OffboardingChecklist employment={em} canEdit={canEdit} onChanged={onChanged} />}
@@ -1540,85 +1613,6 @@ function StartNoticeButton({ employment, onSaved }) {
     onSaved();
   }
   return <button onClick={start} disabled={saving} className="text-sm text-amber-700 hover:text-amber-900">{saving ? "Ukládám..." : "Zahájit výpovědní lhůtu"}</button>;
-}
-
-function ChangePositionHoursForm({ employment, positions, onCancel, onSaved }) {
-  const [choice, setChoice] = useState(positionChoiceValue(employment, positions));
-  const initialChoice = positionChoiceValue(employment, positions);
-  const [workplace, setWorkplace] = useState(employment.workplace || "");
-  const [weeklyHours, setWeeklyHours] = useState(employment.weekly_hours ? String(employment.weekly_hours) : "");
-  const [effectiveDate, setEffectiveDate] = useState(new Date().toISOString().slice(0, 10));
-  const [note, setNote] = useState("");
-  const [saving, setSaving] = useState(false);
-  const [error, setError] = useState("");
-
-  async function submit() {
-    if (!effectiveDate) { setError("Vyplňte datum účinnosti."); return; }
-    const positionChanged = choice !== initialChoice;
-    const hoursChanged = String(weeklyHours || "") !== String(employment.weekly_hours || "");
-    if (!positionChanged && !hoursChanged && workplace === (employment.workplace || "")) { setError("Nebyla provedena žádná změna."); return; }
-    setSaving(true);
-    setError("");
-    try {
-      const { data: userData } = await supabase.auth.getUser();
-      let positionPatch = {};
-      if (positionChanged) {
-        const { data: fresh } = await supabase.from("employment_relationships").select("data").eq("id", employment.id).single();
-        positionPatch = await resolvePositionChoice(choice, employment, fresh?.data || employment.data || {});
-      }
-      const { error: updErr } = await supabase.from("employment_relationships").update({
-        ...positionPatch, workplace: workplace.trim() || null, weekly_hours: weeklyHours ? Number(weeklyHours) : null,
-        updated_at: new Date().toISOString(), updated_by: userData?.user?.id || null,
-      }).eq("id", employment.id);
-      if (updErr) throw updErr;
-
-      if (positionChanged) {
-        const oldLabel = positionChoiceLabel(initialChoice, positions);
-        const newLabel = positionChoiceLabel(choice, positions);
-        await supabase.from("employment_contract_events").insert({
-          id: uid(), employment_id: employment.id, event_type: "POSITION_CHANGED", event_date: effectiveDate,
-          old_value: oldLabel, new_value: newLabel, note: note.trim() || null, created_by: userData?.user?.id || null,
-        });
-        await supabase.from("employee_timeline_events").insert({
-          id: uid(), employee_id: employment.employee_id, event_date: effectiveDate, event_type: "POSITION_CHANGED",
-          title: "Změna pozice", description: `${oldLabel} → ${newLabel}`, source: "MANUAL",
-        });
-      }
-      if (hoursChanged) {
-        await supabase.from("employment_contract_events").insert({
-          id: uid(), employment_id: employment.id, event_type: "WORKING_HOURS_CHANGED", event_date: effectiveDate,
-          old_value: employment.weekly_hours ? `${employment.weekly_hours} h/týden` : "—", new_value: weeklyHours ? `${weeklyHours} h/týden` : "—",
-          note: note.trim() || null, created_by: userData?.user?.id || null,
-        });
-        await supabase.from("employee_timeline_events").insert({
-          id: uid(), employee_id: employment.employee_id, event_date: effectiveDate, event_type: "WORKING_HOURS_CHANGED",
-          title: "Změna úvazku", description: `${employment.weekly_hours || "—"} → ${weeklyHours || "—"} h/týden`, source: "MANUAL",
-        });
-      }
-      onSaved();
-    } catch (e) {
-      console.error(e);
-      setError(e.message || "Uložení se nezdařilo.");
-    }
-    setSaving(false);
-  }
-
-  return (
-    <div className="mt-3 pt-3 border-t border-slate-100 bg-slate-50 -mx-4 -mb-4 px-4 pb-4 rounded-b-lg">
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-x-4">
-        <SelectFieldLocal label="Nová pozice" value={choice} onChange={setChoice} options={positionChoiceOptions(positions)} />
-        <TextField label="Místo výkonu práce" value={workplace} onChange={setWorkplace} />
-        <TextField label="Týdenní úvazek (hodin)" value={weeklyHours} onChange={setWeeklyHours} />
-        <DateFieldLocal label="Účinnost od" value={effectiveDate} onChange={setEffectiveDate} />
-      </div>
-      <TextField label="Poznámka" value={note} onChange={setNote} />
-      {error && <div className="text-red-600 text-xs mb-2">{error}</div>}
-      <div className="flex justify-end gap-2">
-        <button onClick={onCancel} className="text-sm text-slate-500 px-3 py-2">Zrušit</button>
-        <button onClick={submit} disabled={saving} className="bg-teal-700 hover:bg-teal-800 disabled:opacity-50 text-white text-sm font-medium px-4 py-2 rounded-md">{saving ? "Ukládám..." : "Uložit změnu"}</button>
-      </div>
-    </div>
-  );
 }
 
 /* ---------------- Doplnit historická data (bod 11 zadania) ---------------- */
@@ -1844,80 +1838,6 @@ function NewEmploymentForm({ employeeId, positions, onCancel, onSaved }) {
         <button onClick={onCancel} className="text-sm text-slate-500 px-3 py-2">Zrušit</button>
         <button onClick={submit} disabled={saving} className="bg-teal-700 hover:bg-teal-800 disabled:opacity-50 text-white text-sm font-medium px-4 py-2 rounded-md">{saving ? "Ukládám..." : "Uložit"}</button>
       </div>
-    </div>
-  );
-}
-
-function ExtendEmploymentForm({ employment, events, canOverride, onCancel, onSaved }) {
-  const [newEnd, setNewEnd] = useState("");
-  const [overrideChecked, setOverrideChecked] = useState(false);
-  const [overrideReason, setOverrideReason] = useState("");
-  const [saving, setSaving] = useState(false);
-  const [error, setError] = useState("");
-
-  const proposed = newEnd ? canProposeExtension({ startDate: employment.start_date, proposedEndDate: newEnd, events }) : null;
-  const needsOverride = proposed && !proposed.withinLimits;
-  const canSubmit = newEnd && (!needsOverride || (canOverride && overrideChecked && overrideReason.trim()));
-
-  async function submit() {
-    if (!newEnd) { setError("Vyplňte nové datum konce."); return; }
-    if (needsOverride && !canSubmit) { setError("Přesahuje zákonný limit doby určité - potvrďte výjimku s důvodem, nebo zvolte dřívější datum."); return; }
-    setSaving(true);
-    setError("");
-    try {
-      const { data: userData } = await supabase.auth.getUser();
-      const { error: emErr } = await supabase.from("employment_relationships").update({ fixed_term_end_date: newEnd, updated_at: new Date().toISOString(), updated_by: userData?.user?.id || null }).eq("id", employment.id);
-      if (emErr) throw emErr;
-      await supabase.from("employment_contract_events").insert({
-        id: uid(), employment_id: employment.id, event_type: "EXTENDED", event_date: new Date().toISOString().slice(0, 10),
-        valid_from: employment.fixed_term_end_date, valid_to: newEnd,
-        old_value: employment.fixed_term_end_date ? fmtDate(employment.fixed_term_end_date) : "—", new_value: fmtDate(newEnd),
-        is_legal_override: needsOverride ? true : false,
-        override_reason: needsOverride ? overrideReason.trim() : null,
-        overridden_by: needsOverride ? userData?.user?.id || null : null,
-        created_by: userData?.user?.id || null,
-      });
-      await supabase.from("employee_timeline_events").insert({
-        id: uid(), employee_id: employment.employee_id, event_date: new Date().toISOString().slice(0, 10), event_type: "CONTRACT_EXTENDED",
-        title: "Smlouva prodloužena", description: `Nový konec: ${skDateStrFromIso(newEnd)}` + (needsOverride ? ` (výjimka: ${overrideReason.trim()})` : ""), source: "MANUAL",
-      });
-      onSaved();
-    } catch (e) {
-      console.error(e);
-      setError(e.message || "Uložení se nezdařilo.");
-    }
-    setSaving(false);
-  }
-
-  return (
-    <div className="bg-slate-50 border border-slate-200 rounded-md p-3 w-full">
-      <div className="flex items-end gap-2 flex-wrap">
-        <DateFieldLocal label="Nový konec smlouvy" value={newEnd} onChange={setNewEnd} />
-        <button onClick={onCancel} className="text-sm text-slate-500 px-2 py-2">Zrušit</button>
-        <button onClick={submit} disabled={saving || !canSubmit} className="bg-teal-700 hover:bg-teal-800 disabled:opacity-50 disabled:cursor-not-allowed text-white text-sm font-medium px-3 py-2 rounded-md">{saving ? "Ukládám..." : "Prodloužit"}</button>
-      </div>
-      {needsOverride && (
-        <div className="mt-2 text-xs px-2.5 py-2 rounded-md bg-amber-100 text-amber-800">
-          <div className="flex items-center gap-1.5 font-medium"><ShieldAlert size={13} />
-            {proposed.overExtensionLimit
-              ? `Toto by bylo ${proposed.extensionsCount + 1}. prodloužení - zákon dovoluje max. ${FIXED_TERM_RULES.maxExtensions}x.`
-              : `Toto by přesáhlo max. celkovou dobu určitou (do ${fmtDate(proposed.maxAllowedEndDate)}).`}
-          </div>
-          {canOverride ? (
-            <div className="mt-2 space-y-1.5">
-              <label className="flex items-center gap-2">
-                <input type="checkbox" checked={overrideChecked} onChange={(e) => setOverrideChecked(e.target.checked)} /> Přesto prodloužit (evidovaná výjimka)
-              </label>
-              {overrideChecked && (
-                <input value={overrideReason} onChange={(e) => setOverrideReason(e.target.value)} placeholder="Důvod výjimky (povinné)" className="w-full border border-amber-300 rounded-md px-2.5 py-1.5 text-sm" />
-              )}
-            </div>
-          ) : (
-            <div className="mt-1">Prodloužení nad tento limit může potvrdit jen administrátor.</div>
-          )}
-        </div>
-      )}
-      {error && <div className="text-red-600 text-xs mt-1.5">{error}</div>}
     </div>
   );
 }
@@ -2958,6 +2878,25 @@ function taxWarningsFor(employee, payroll, today = new Date()) {
   return out;
 }
 
+// Historie zdravotnich pojistoven (zmena se zadava v Karte zamestnance).
+function ZpHistorySection({ employee }) {
+  const hist = Array.isArray(employee?.data?.zp_historie) ? employee.data.zp_historie : [];
+  if (!hist.length) return null;
+  return (
+    <div className="bg-white border border-slate-200 rounded-lg p-4 mb-4">
+      <h2 className="font-semibold text-sm mb-2">Historie zdravotních pojišťoven</h2>
+      <div className="space-y-0.5 text-sm">
+        {[...hist].reverse().map((h, i) => (
+          <div key={i} className={i === 0 ? "font-medium" : "text-slate-500"}>
+            {optionLabel(HEALTH_INSURANCE_OPTIONS, h.kod)} <span className="text-xs">{h.od ? `od ${fmtDate(h.od)}` : ""}{i === 0 ? " · aktuální" : ""}</span>
+          </div>
+        ))}
+      </div>
+      <div className="text-xs text-slate-400 mt-2">Změna pojišťovny se zadává v kartě zaměstnance (s datem „Pojišťovna platí od“). Text pro tisk: {zpHistoryText(hist).replace(/\n/g, " ")}</div>
+    </div>
+  );
+}
+
 /* ---------------- Agenda ZP / ČSSZ ----------------
    Archiv uradnych podani (prihlaska, odhlaska, zmena, storno, oprava...) na
    ČSSZ, zdravotnu poistovnu, UP. Subory v hr-dokumenty (bez mazania),
@@ -3213,47 +3152,13 @@ function formatWageAmount(e) {
   return e.mzda_typ === "smluvni" ? `${e.mzda_castka} Kč/měsíc` : `${e.mzda_castka} Kč/hod`;
 }
 
-function MzdovePodminkyTab({ employee, payroll, currentEmployment, canEdit, onSaved, onPrintVymer }) {
-  const [form, setForm] = useState(null);
-  const [saving, setSaving] = useState(false);
-  const [error, setError] = useState("");
+function MzdovePodminkyTab({ payroll, currentEmployment, canEdit, onEditInKarta, onPrintVymer }) {
   const data = payroll?.data || {};
   const history = [...wageHistory(data)].reverse();
   const current = currentWage(data);
   const upcoming = upcomingWages(data);
   const hint = wageStepHint(data, currentEmployment?.start_date);
   const today = new Date().toISOString().slice(0, 10);
-
-  function startNew(prefill = {}) {
-    const base = current || upcoming[upcoming.length - 1] || null;
-    // Bez predchadzajucej mzdy: THP (HI-003) maju smluvnu, ostatni hodinovu.
-    const defaultTyp = currentEmployment?.data?.pozice_kategorie === "HI-003" ? { mzda_typ: "smluvni" } : {};
-    setForm({ ...emptyEmployeeValues(), ...defaultTyp, ...(base ? wageToValues(base) : {}), mzda_platnost_od: today, ...prefill });
-    setError("");
-  }
-
-  async function save() {
-    if (!form.mzda_platnost_od) { setError("Vyplňte, od kdy nová mzda platí."); return; }
-    setSaving(true);
-    setError("");
-    try {
-      const { data: fresh } = await supabase.from("employee_payroll_data").select("data").eq("employee_id", employee.id).maybeSingle();
-      const entry = { ...valuesToWage(form), platnost_od: form.mzda_platnost_od };
-      const nextData = addWageEntry(fresh?.data || data, entry);
-      const { error: upErr } = await supabase.from("employee_payroll_data").upsert({ employee_id: employee.id, data: nextData, updated_at: new Date().toISOString() }, { onConflict: "employee_id" });
-      if (upErr) throw upErr;
-      await supabase.from("employee_timeline_events").insert({
-        id: uid(), employee_id: employee.id, event_date: form.mzda_platnost_od, event_type: "WAGE_CHANGED",
-        title: `Změna mzdy od ${fmtDate(form.mzda_platnost_od)}`, description: formatWageAmount(entry), source: "MANUAL",
-      });
-      setForm(null);
-      onSaved();
-    } catch (e) {
-      console.error(e);
-      setError(e.message || "Uložení se nezdařilo.");
-    }
-    setSaving(false);
-  }
 
   return (
     <div>
@@ -3271,36 +3176,25 @@ function MzdovePodminkyTab({ employee, payroll, currentEmployment, canEdit, onSa
               <div key={u.id} className="text-xs text-teal-700 mt-1">Naplánovaná změna od {fmtDate(u.platnost_od)}: {formatWageAmount(u)}</div>
             ))}
           </div>
-          {canEdit && !form && (
-            <button onClick={() => startNew()} className="flex items-center gap-1.5 bg-teal-700 hover:bg-teal-800 text-white text-sm font-medium px-3 py-2 rounded-md">
-              <Plus size={16} /> Nová změna mzdy
+          {canEdit && (
+            <button onClick={() => onEditInKarta()} className="flex items-center gap-1.5 text-sm text-teal-700 hover:text-teal-900 border border-teal-600 px-3 py-2 rounded-md">
+              <Pencil size={14} /> Změnit mzdu v kartě zaměstnance
             </button>
           )}
         </div>
-        {hint && !form && (
+        {hint && (
           <div className={"mt-3 text-sm rounded-md px-3 py-2 flex items-center justify-between gap-2 flex-wrap " + (hint.overdue ? "bg-red-50 text-red-700" : "bg-amber-50 text-amber-800")}>
             <span><AlertCircle size={14} className="inline mr-1" />
               {hint.overdue ? "Uplynul" : "Blíží se"} rok od nástupu ({fmtDate(hint.date)}) – podle pravidla má mzda vzrůst z {hint.from} na {hint.to} Kč/hod.
             </span>
             {canEdit && (
-              <button onClick={() => startNew({ mzda_typ: "hodinova", mzda_castka: hint.to, mzda_platnost_od: hint.date })} className="text-xs font-medium underline">
+              <button onClick={() => onEditInKarta({ mzda_typ: "hodinova", mzda_castka: String(hint.to), mzda_platnost_od: hint.date })} className="text-xs font-medium underline">
                 Připravit změnu na {hint.to} Kč/hod od {fmtDate(hint.date)}
               </button>
             )}
           </div>
         )}
       </div>
-
-      {form && (
-        <div className="mb-4">
-          <EmployeeFieldsForm values={form} onChange={(k, v) => setForm((prev) => applyFieldChange(prev, k, v))} mode="edit" canSensitive canPayroll sectionIds={["mzda"]} />
-          {error && <div className="bg-red-50 text-red-700 text-sm px-3 py-2 rounded-md mb-2">{error}</div>}
-          <div className="flex justify-end gap-2">
-            <button onClick={() => setForm(null)} className="text-sm text-slate-500 px-3 py-2">Zrušit</button>
-            <button onClick={save} disabled={saving} className="bg-teal-700 hover:bg-teal-800 disabled:opacity-50 text-white text-sm font-medium px-4 py-2 rounded-md">{saving ? "Ukládám..." : "Uložit změnu mzdy"}</button>
-          </div>
-        </div>
-      )}
 
       <div className="bg-white border border-slate-200 rounded-lg overflow-hidden">
         <div className="px-4 py-2.5 border-b border-slate-100 font-semibold text-sm">Historie mzdy</div>
@@ -3833,7 +3727,7 @@ function JmhzFilledDownload({ employee, sensitive, payroll, currentEmployment, p
         <div>
           <h2 className="font-semibold text-sm">Vyplněný osobní dotazník zaměstnance</h2>
           <p className="text-xs text-slate-500 mt-1 max-w-xl">
-            Prázdný dotazník (verze 20.3.2026 C) se vyplní údaji z karty zaměstnance (Osobní údaje + Pracovní poměr).
+            Prázdný dotazník (verze 20.3.2026 C) se vyplní údaji z karty zaměstnance (Karta zaměstnance).
             Datum a podpis zůstávají prázdné pro zaměstnance.
           </p>
         </div>
@@ -3847,7 +3741,7 @@ function JmhzFilledDownload({ employee, sensitive, payroll, currentEmployment, p
         </div>
       )}
       {missing.length > 0 && (
-        <div className="text-xs text-slate-500 mt-3">V kartě chybí: <strong>{missing.join(", ")}</strong> - doplňte v záložce Osobní údaje, jinak zůstanou v dotazníku prázdné.</div>
+        <div className="text-xs text-slate-500 mt-3">V kartě chybí: <strong>{missing.join(", ")}</strong> - doplňte v kartě zaměstnance, jinak zůstanou v dotazníku prázdné.</div>
       )}
       {skipped.length > 0 && (
         <div className="text-xs text-amber-700 bg-amber-50 rounded-md px-3 py-2 mt-3">

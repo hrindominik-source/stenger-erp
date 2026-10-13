@@ -422,8 +422,7 @@ export const EMPLOYEE_SECTIONS = [
     fields: [
       { key: "health_insurance_company", label: "Kód zdravotní pojišťovny", type: "select", options: HEALTH_INSURANCE_OPTIONS, store: { t: "emp", col: "health_insurance_company" } },
       // Zmena pojistovny = novy zaznam v employees.data.zp_historie (viz buildRecordPatches).
-      { key: "zp_platnost_od", label: "Pojišťovna platí od", info: "Při změně pojišťovny zadejte datum, od kdy platí nová – předchozí zůstane v historii. Změnu oznamte oběma pojišťovnám (Agenda ZP / ČSSZ).", type: "date", store: { t: "emp", col: "data", path: "zp_platnost_od" } },
-      { key: "zp_historie_text", label: "Historie pojišťoven", type: "readonly", valueFn: (v) => zpHistoryText(v.zp_historie), showIf: (v) => (v.zp_historie || []).length > 1 },
+      { key: "zp_platnost_od", label: "Pojišťovna platí od", info: "Při změně pojišťovny zadejte datum, od kdy platí nová – předchozí se uloží do historie (záložka Agenda ZP / ČSSZ). Změnu oznamte oběma pojišťovnám.", type: "date", store: { t: "emp", col: "data", path: "zp_platnost_od" } },
       { key: "predchozi_organ_np", label: "Předchozí orgán, který prováděl nemocenské pojištění", type: "text", store: { t: "emp", col: "data", path: "predchozi_organ_np" } },
       { key: "soucasny_organ_np", label: "Současný orgán, který provádí nemocenské pojištění", type: "text", store: { t: "emp", col: "data", path: "soucasny_organ_np" } },
       { key: "cizi_np_ucast", label: "Účast na nemocenském pojištění mimo ČR (cizozemský nositel)", type: "select", options: CIZI_NP_UCAST_OPTIONS, tier: "sensitive", store: { t: "sens", col: "foreigner_data", path: "cizi_np_ucast" } },
@@ -516,7 +515,7 @@ export const EMPLOYEE_SECTIONS = [
     tier: "payroll",
     hr: true,
     fields: [
-      { key: "mzda_platnost_od", label: "Platí od", info: "Nová mzda = nové datum platnosti (předchozí zůstane v historii). Se stejným datem se záznam jen opraví.", type: "date", store: { t: "wage", field: "platnost_od" } },
+      { key: "mzda_platnost_od", label: "Platí od", info: "Nová mzda = nové datum platnosti (předchozí se uloží do historie v záložce Mzdové podmínky). Se stejným datem se záznam jen opraví.", type: "date", store: { t: "wage", field: "platnost_od" } },
       { key: "mzda_typ", label: "Základní mzda", type: "select", options: MZDA_TYP_OPTIONS, def: "hodinova", noEmpty: true, rowStart: true, store: { t: "wage", field: "mzda_typ" } },
       { key: "mzda_castka", label: "Výše základní mzdy", labelFn: (v) => (v.mzda_typ === "smluvni" ? "Smluvní základní mzda (Kč měsíčně)" : "Hodinová mzda (Kč/hod)"), type: "text", store: { t: "wage", field: "mzda_castka" } },
       { key: "priplatek_prescas", label: "Příplatek za práci přesčas (%)", type: "text", def: "25", rowStart: true, store: { t: "wage", field: "priplatek_prescas_pct" } },
