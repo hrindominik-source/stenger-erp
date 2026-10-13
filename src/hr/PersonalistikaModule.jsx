@@ -14,6 +14,7 @@ import { sha256Hex, buildSignedScanPath } from "../lib/hr/documentHash.js";
 import { EMPLOYEE_SECTIONS, emptyEmployeeValues, normalizeLegacyDraft, valuesFromRecords, buildRecordPatches, patchHasContent, maritalStatusText, normalizeGender, HEALTH_INSURANCE_OPTIONS, optionLabel, normalizeHealthInsurance, POSITION_CATEGORIES, positionNameOptions, wageHistory, currentWage, upcomingWages, wageStepHint, addWageEntry, wageToValues, valuesToWage, MZDA_TYP_OPTIONS } from "../lib/hr/employeeFields.js";
 import EmployeeFieldsForm, { EmployeeFieldsView, applyFieldChange } from "./EmployeeFieldsForm.jsx";
 import { childTaxWarnings } from "../lib/hr/taxChildren.js";
+import { RZ_POLOZKY, RZ_SLEVY, VYUCTOVANI, VYUCTOVANI_STAV, taxYearRecord, taxYearStatus, childMonthsForYear, childrenUnder3, rzWarnings, settlementWarning } from "../lib/hr/taxYear.js";
 import { ABSENCE_TYPES, ABSENCE_DOC_TYPES, absenceType, absenceList, isAbsenceActive, activeAbsence, absenceStatusText, probationOverlapDays, absenceInProbation, addDaysIso } from "../lib/hr/absences.js";
 
 const HR_DOKUMENTY_BUCKET = "hr-dokumenty";
@@ -836,6 +837,7 @@ const DETAIL_TABS = [
   { key: "osobni", label: "Osobní údaje" },
   { key: "pomer", label: "Pracovní poměr" },
   { key: "mzda", label: "Mzdové podmínky", payrollOnly: true },
+  { key: "dane", label: "Daně", payrollOnly: true },
   { key: "dokumenty", label: "Dokumenty" },
   { key: "jmhz", label: "Agenda ZP / ČSSZ" },
   { key: "lekarske", label: "Lékařské prohlídky", medicalOnly: true },
@@ -1015,8 +1017,8 @@ function EmployeeDetail({ id, permissions, onBack }) {
       {detailTab === "jmhz" && (
         <AgendaUraduSection employee={employee} payroll={payroll} canEdit={canEdit} onSaved={load} />
       )}
-      {detailTab === "jmhz" && canPayroll && (
-        <ProhlaseniPoplatnikaSection employee={employee} sensitive={sensitive} payroll={payroll} canEdit={canEdit} onSaved={load} />
+      {detailTab === "dane" && canPayroll && (
+        <DaneTab employee={employee} sensitive={sensitive} payroll={payroll} currentEmployment={currentEmployment} canEdit={canEdit} onSaved={load} />
       )}
       {detailTab === "jmhz" && (
         <NepritomnostiSection employee={employee} payroll={payroll} currentEmployment={currentEmployment} canEdit={canEdit} canPayroll={canPayroll} onSaved={load} />
@@ -2382,6 +2384,437 @@ function NepritomnostiSection({ employee, payroll, currentEmployment, canEdit, c
   );
 }
 
+/* ---------------- Daně (zalozka) ----------------
+   Vsetko k dani zamestnanca po rokoch: prohlaseni poplatnika (5457),
+   rocne zuctovanie (5457/B) alebo potvrdenie o zdanitelnych prijmoch,
+   potvrdenie pre druheho z poplatnikov (5558). Data roka su v
+   employee_payroll_data.data.dane[rok] { vyuctovani, rz, doklady[], potvrzeni_5558[] }. */
+
+const DANE_INPUT = "border border-slate-300 rounded-md px-2.5 py-1.5 text-sm bg-white";
+
+function daneYearDefault() {
+  const now = new Date();
+  const m = now.getMonth() + 1;
+  // leden-brezen: rocni zuctovani za predchozi rok; listopad-prosinec: prohlaseni na dalsi rok
+  return m <= 3 ? now.getFullYear() - 1 : m >= 11 ? now.getFullYear() + 1 : now.getFullYear();
+}
+
+async function updateTaxYear(employeeId, year, mutate) {
+  const { data: fresh, error: rdErr } = await supabase.from("employee_payroll_data").select("data").eq("employee_id", employeeId).maybeSingle();
+  if (rdErr) throw rdErr;
+  const data = { ...(fresh?.data || {}) };
+  const dane = { ...(data.dane || {}) };
+  dane[String(year)] = mutate({ ...(dane[String(year)] || {}) });
+  const { error } = await supabase.from("employee_payroll_data").upsert({ employee_id: employeeId, data: { ...data, dane }, updated_at: new Date().toISOString() }, { onConflict: "employee_id" });
+  if (error) throw error;
+}
+
+async function fetchTaxPdf(urls) {
+  return Promise.all(urls.map(async (u) => {
+    const r = await fetch(u);
+    if (!r.ok) throw new Error(`Nepodařilo se načíst ${u}`);
+    return r.arrayBuffer();
+  }));
+}
+
+function DaneTab({ employee, sensitive, payroll, currentEmployment, canEdit, onSaved }) {
+  const thisYear = new Date().getFullYear();
+  const startYear = currentEmployment?.start_date ? Number(currentEmployment.start_date.slice(0, 4)) : thisYear - 2;
+  const years = [];
+  for (let y = thisYear + 1; y >= Math.max(startYear, thisYear - 3); y--) years.push(y);
+  const [year, setYear] = useState(years.includes(daneYearDefault()) ? daneYearDefault() : years[0]);
+  const values = valuesFromRecords({ employee, sensitive, payroll });
+
+  return (
+    <div>
+      <div className="bg-white border border-slate-200 rounded-lg p-4 mb-4">
+        <h2 className="font-semibold text-sm mb-1">Daně – přehled po letech</h2>
+        <p className="text-xs text-slate-500 mb-3">
+          Prohlášení poplatníka se podepisuje na každý rok. Do 15. 2. se zaměstnanec rozhodne: buď požádá o roční zúčtování (MFin 5457/B), nebo si podá přiznání sám a vydáte mu potvrzení o zdanitelných příjmech.
+        </p>
+        <div className="overflow-x-auto">
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="text-left text-xs text-slate-500 border-b border-slate-200">
+                <th className="py-1.5 pr-3">Rok</th><th className="py-1.5 pr-3">Prohlášení</th><th className="py-1.5 pr-3">Vyúčtování</th><th className="py-1.5 pr-3">Potvrzení 5558</th><th />
+              </tr>
+            </thead>
+            <tbody>
+              {years.map((y) => {
+                const st = taxYearStatus(payroll, y);
+                const vs = VYUCTOVANI_STAV[st.vyuctovani];
+                return (
+                  <tr key={y} onClick={() => setYear(y)} className={"border-b border-slate-100 cursor-pointer " + (y === year ? "bg-teal-50" : "hover:bg-slate-50")}>
+                    <td className="py-1.5 pr-3 font-medium">{y}</td>
+                    <td className={"py-1.5 pr-3 " + (st.prohlaseni ? "text-emerald-700" : "text-slate-400")}>{st.prohlaseni ? "podepsané" : "—"}</td>
+                    <td className={"py-1.5 pr-3 " + vs.cls}>{y >= thisYear ? (st.vyuctovani === "nezvoleno" ? "—" : vs.text) : vs.text}</td>
+                    <td className="py-1.5 pr-3 text-slate-600">{st.potvrzeni5558 ? `vydáno ${st.potvrzeni5558}×` : "—"}</td>
+                    <td className="py-1.5 text-right text-xs text-teal-700">{y === year ? "▼ vybráno" : "otevřít"}</td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+        <div className="text-xs text-slate-500 mt-3 flex gap-3 flex-wrap">
+          Prázdné tiskopisy FS:
+          <a className="text-teal-700 hover:underline" href={`${import.meta.env.BASE_URL}hr/MFin5457_vzor27.pdf`} target="_blank" rel="noreferrer">Prohlášení 5457 (vzor 27)</a>
+          <a className="text-teal-700 hover:underline" href={`${import.meta.env.BASE_URL}hr/MFin5457B_vzor4.pdf`} target="_blank" rel="noreferrer">Žádost o RZ 5457/B (vzor 4)</a>
+          <a className="text-teal-700 hover:underline" href={`${import.meta.env.BASE_URL}hr/MFin5558_vzor3.pdf`} target="_blank" rel="noreferrer">Potvrzení 5558 (vzor 3)</a>
+        </div>
+      </div>
+
+      <h2 className="font-semibold text-base mb-3">Rok {year}</h2>
+      <ProhlaseniPoplatnikaSection employee={employee} sensitive={sensitive} payroll={payroll} canEdit={canEdit} onSaved={onSaved} fixedYear={year} />
+      {year < thisYear + 1 && (
+        <VyuctovaniSection key={`v${year}`} employee={employee} values={values} payroll={payroll} year={year} canEdit={canEdit} onSaved={onSaved} />
+      )}
+      <Potvrzeni5558Section key={`p${year}`} employee={employee} values={values} payroll={payroll} employment={currentEmployment} year={year} canEdit={canEdit} onSaved={onSaved} />
+    </div>
+  );
+}
+
+// Zoznam dokladov k polozke + nahranie (nahrava sa hned, subor je archivny).
+function TaxDocs({ employee, year, rec, polozka, canEdit, onSaved, label = "Nahrát doklad", setError }) {
+  const [busy, setBusy] = useState(false);
+  const docs = (rec.doklady || []).filter((d) => d.polozka === polozka);
+  async function upload(fileList) {
+    const files = Array.from(fileList || []);
+    if (!files.length) return;
+    setBusy(true); setError("");
+    try {
+      const up = [];
+      for (const f of files) up.push({ ...(await uploadHrFile(employee.id, `dane_${polozka}`, f)), polozka });
+      await updateTaxYear(employee.id, year, (r) => ({ ...r, doklady: [...(r.doklady || []), ...up] }));
+      onSaved();
+    } catch (e) { setError(e.message || "Nahrání se nezdařilo."); }
+    setBusy(false);
+  }
+  async function unlink(d) {
+    setBusy(true); setError("");
+    try {
+      await updateTaxYear(employee.id, year, (r) => ({ ...r, doklady: (r.doklady || []).filter((x) => x.id !== d.id) }));
+      onSaved();
+    } catch (e) { setError(e.message || "Odebrání se nezdařilo."); }
+    setBusy(false);
+  }
+  return (
+    <div className="flex items-center gap-2 flex-wrap">
+      {docs.map((d) => (
+        <span key={d.id} className="inline-flex items-center gap-1 text-xs bg-slate-100 rounded px-1.5 py-0.5">
+          <Paperclip size={11} />
+          <button onClick={() => openHrFile(d.path)} className="text-teal-700 hover:underline max-w-[180px] truncate" title={d.name}>{d.name}</button>
+          {canEdit && <button onClick={() => unlink(d)} disabled={busy} className="text-red-600 hover:text-red-800" title="Odebrat">×</button>}
+        </span>
+      ))}
+      {canEdit && (
+        <label className="inline-flex items-center gap-1 text-xs text-teal-700 hover:text-teal-900 cursor-pointer">
+          {busy ? <Loader2 size={12} className="animate-spin" /> : <Upload size={12} />} {label}
+          <input type="file" accept=".pdf,image/*" multiple disabled={busy} onChange={(e) => { upload(e.target.files); e.target.value = ""; }} className="hidden" />
+        </label>
+      )}
+    </div>
+  );
+}
+
+function VyuctovaniSection({ employee, values, payroll, year, canEdit, onSaved }) {
+  const rec = taxYearRecord(payroll, year);
+  const [rz, setRz] = useState(() => ({ polozky: {}, predchozi: [{}, {}], jina_osoba: [{}, {}], manzel: {}, manzel_deti: [{}, {}], ...(rec.rz || {}) }));
+  const [dirty, setDirty] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  const [saved, setSaved] = useState("");
+  const set = (patch) => { setRz((r) => ({ ...r, ...patch })); setDirty(true); setSaved(""); };
+  const setIn = (key, idx, field, val) => set({ [key]: (rz[key] || []).map((row, i) => (i === idx ? { ...row, [field]: val } : row)) });
+  const warnings = rzWarnings(rz);
+  const under3 = childrenUnder3(values, year);
+
+  async function choose(v) {
+    setBusy(true); setError("");
+    try {
+      await updateTaxYear(employee.id, year, (r) => ({ ...r, vyuctovani: v, vyuctovani_zmeneno: new Date().toISOString() }));
+      await supabase.from("employee_timeline_events").insert({
+        id: uid(), employee_id: employee.id, event_date: new Date().toISOString().slice(0, 10), event_type: "TAX_SETTLEMENT",
+        title: `Daně ${year}: ${VYUCTOVANI.find((o) => o.value === v)?.label || "zrušena volba"}`, source: "MANUAL",
+      });
+      onSaved();
+    } catch (e) { setError(e.message || "Uložení se nezdařilo."); }
+    setBusy(false);
+  }
+
+  async function save() {
+    await updateTaxYear(employee.id, year, (r) => ({ ...r, rz }));
+    setDirty(false);
+    onSaved();
+  }
+
+  async function saveClick() {
+    setBusy(true); setError("");
+    try { await save(); setSaved("Uloženo."); } catch (e) { setError(e.message || "Uložení se nezdařilo."); }
+    setBusy(false);
+  }
+
+  async function generate() {
+    setBusy(true); setError("");
+    try {
+      if (dirty && canEdit) await save();
+      const { fill5457bPdf, TAX_FORM_TEMPLATES } = await import("../lib/hr/taxForms.js");
+      const { JMHZ_FONT_URL } = await import("../lib/hr/jmhzFill.js");
+      const [tpl, font] = await fetchTaxPdf([TAX_FORM_TEMPLATES.f5457b.url, JMHZ_FONT_URL]);
+      const prilohy = (rec.doklady || []).filter((d) => !["zadost_rz", "potvrzeni_prijmy"].includes(d.polozka));
+      const res = await fill5457bPdf(tpl, font, values, year, rz, prilohy);
+      downloadArrayBufferAsFile(res.bytes, `Žádost o roční zúčtování ${year} - ${employee.last_name} ${employee.first_name}.pdf`, "application/pdf");
+    } catch (e) {
+      console.error(e);
+      setError("Vytvoření žádosti se nezdařilo: " + (e.message || e));
+    }
+    setBusy(false);
+  }
+
+  const docProps = { employee, year, rec, canEdit, onSaved, setError };
+  const num = (v) => (v === "" || v === undefined || v === null ? "" : v);
+
+  return (
+    <div className="bg-white border border-slate-200 rounded-lg p-4 mb-4">
+      <h2 className="font-semibold text-sm">Vyúčtování daně za rok {year}</h2>
+      <p className="text-xs text-slate-500 mt-0.5 mb-3">Zaměstnanec do 15. 2. {year + 1} požádá o roční zúčtování, nebo si podá daňové přiznání sám – pak mu vydáte potvrzení o zdanitelných příjmech (z mzdového programu).</p>
+      <div className="flex gap-4 flex-wrap mb-3">
+        {VYUCTOVANI.map((o) => (
+          <label key={o.value} className="flex items-center gap-1.5 text-sm">
+            <input type="radio" name={`vyuct-${year}`} checked={rec.vyuctovani === o.value} disabled={!canEdit || busy} onChange={() => choose(o.value)} /> {o.label}
+          </label>
+        ))}
+        {rec.vyuctovani && canEdit && <button onClick={() => choose(null)} disabled={busy} className="text-xs text-slate-500 hover:underline">zrušit volbu</button>}
+      </div>
+      {error && <div className="text-red-600 text-xs mb-2">{error}</div>}
+
+      {rec.vyuctovani === "potvrzeni" && (
+        <div className="text-sm">
+          <div className="text-xs font-medium text-slate-500 mb-1">Potvrzení o zdanitelných příjmech ze závislé činnosti (podepsané / předané)</div>
+          <TaxDocs {...docProps} polozka="potvrzeni_prijmy" label="Nahrát potvrzení" />
+        </div>
+      )}
+
+      {rec.vyuctovani === "rz" && (
+        <div>
+          <h3 className="text-xs font-semibold text-slate-600 uppercase mb-1">Nezdanitelné části základu daně (§ 15) – částky dle potvrzení zaměstnance</h3>
+          <div className="border border-slate-200 rounded-md divide-y divide-slate-100 mb-3">
+            {RZ_POLOZKY.map((p) => (
+              <div key={p.key} className="px-3 py-2 flex items-start gap-3 flex-wrap">
+                <div className="flex-1 min-w-[220px]">
+                  <div className="text-sm">{p.label}</div>
+                  <div className="text-[11px] text-slate-400">Doklad: {p.doklad}</div>
+                  <div className="mt-1"><TaxDocs {...docProps} polozka={p.key} /></div>
+                </div>
+                <label className="flex items-center gap-1.5 text-sm">
+                  <input type="number" min="0" step="1" disabled={!canEdit} value={num(rz.polozky?.[p.key])}
+                    onChange={(e) => set({ polozky: { ...(rz.polozky || {}), [p.key]: e.target.value === "" ? "" : Number(e.target.value) } })}
+                    className={DANE_INPUT + " w-32 text-right"} placeholder="0" /> Kč
+                </label>
+              </div>
+            ))}
+          </div>
+
+          {Number(rz.polozky?.uroky) > 0 && (
+            <div className="border border-slate-200 rounded-md p-3 mb-3 space-y-2">
+              <div className="text-xs font-semibold text-slate-600 uppercase">Úroky z úvěru – doplnění</div>
+              <label className="flex items-center gap-2 text-sm"><input type="checkbox" disabled={!canEdit} checked={!!rz.uver_pred2021} onChange={(e) => set({ uver_pred2021: e.target.checked })} /> bytová potřeba obstaraná před 1. 1. 2021 (limit 300 000 Kč)</label>
+              <label className="flex items-center gap-2 text-sm"><input type="checkbox" disabled={!canEdit} checked={!!rz.uver_od2021} onChange={(e) => set({ uver_od2021: e.target.checked })} /> bytová potřeba obstaraná od 1. 1. 2021 (limit 150 000 Kč)</label>
+              <label className="block">
+                <span className="block text-xs text-slate-500 mb-1">Adresa bytové potřeby</span>
+                <textarea rows={2} disabled={!canEdit} value={rz.adresa_bytu || ""} onChange={(e) => set({ adresa_bytu: e.target.value })} className={DANE_INPUT + " w-full"} />
+              </label>
+              <div className="text-xs text-slate-500">Úroky uplatňuje i jiná osoba (spoludlužník) – vyplňte, jinak nechte prázdné:</div>
+              {(rz.jina_osoba || []).map((o, i) => (
+                <div key={i} className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                  <input disabled={!canEdit} placeholder="Jméno" value={o.jmeno || ""} onChange={(e) => setIn("jina_osoba", i, "jmeno", e.target.value)} className={DANE_INPUT} />
+                  <input disabled={!canEdit} placeholder="Příjmení" value={o.prijmeni || ""} onChange={(e) => setIn("jina_osoba", i, "prijmeni", e.target.value)} className={DANE_INPUT} />
+                  <input disabled={!canEdit} placeholder="Rodné číslo" value={o.rc || ""} onChange={(e) => setIn("jina_osoba", i, "rc", e.target.value)} className={DANE_INPUT} />
+                  <input disabled={!canEdit} placeholder="Adresa" value={o.adresa || ""} onChange={(e) => setIn("jina_osoba", i, "adresa", e.target.value)} className={DANE_INPUT} />
+                </div>
+              ))}
+            </div>
+          )}
+
+          <h3 className="text-xs font-semibold text-slate-600 uppercase mb-1">Slevy na dani a předchozí plátci</h3>
+          <div className="border border-slate-200 rounded-md divide-y divide-slate-100 mb-3">
+            <div className="px-3 py-2 flex items-start gap-3 flex-wrap">
+              <div className="flex-1 min-w-[220px]">
+                <div className="text-sm">{RZ_SLEVY[0].label}</div>
+                <div className="text-[11px] text-slate-400">Doklad: {RZ_SLEVY[0].doklad} · max. 450 Kč za jednu exekuci</div>
+                <div className="mt-1"><TaxDocs {...docProps} polozka="exekuce" /></div>
+              </div>
+              <label className="flex items-center gap-1.5 text-sm">
+                <input type="number" min="0" disabled={!canEdit} value={num(rz.exekuce)} onChange={(e) => set({ exekuce: e.target.value === "" ? "" : Number(e.target.value) })} className={DANE_INPUT + " w-32 text-right"} placeholder="0" /> Kč
+              </label>
+            </div>
+            <div className="px-3 py-2">
+              <div className="text-sm">{RZ_SLEVY[1].label}</div>
+              <div className="text-[11px] text-slate-400 mb-1.5">Jen pokud žije ve společné domácnosti s manželem a dítětem do 3 let a manžel neměl příjem nad 68 000 Kč. Doklad: {RZ_SLEVY[1].doklad}</div>
+              <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2 mb-2">
+                {[["jmeno", "Jméno"], ["prijmeni", "Příjmení"], ["rc", "Rodné číslo"], ["mesice", "Nárok za měsíce (např. 1–12)"], ["mesice_ztpp", "ZTP/P za měsíce"]].map(([k, l]) => (
+                  <input key={k} disabled={!canEdit} placeholder={l} title={l} value={rz.manzel?.[k] || ""} onChange={(e) => set({ manzel: { ...(rz.manzel || {}), [k]: e.target.value } })} className={DANE_INPUT} />
+                ))}
+                <label className="flex items-center gap-1.5 text-sm"><input type="checkbox" disabled={!canEdit} checked={!!rz.manzel?.ztpp} onChange={(e) => set({ manzel: { ...(rz.manzel || {}), ztpp: e.target.checked } })} /> ZTP/P</label>
+              </div>
+              {(rz.manzel?.jmeno || rz.manzel?.prijmeni) && (
+                <>
+                  <div className="text-xs text-slate-500 mb-1">Dítě do 3 let:{under3.length > 0 && canEdit && <> {under3.map((c, i) => <button key={i} onClick={() => set({ manzel_deti: [c, ...(rz.manzel_deti || []).slice(1)] })} className="ml-2 text-teal-700 hover:underline">doplnit {c.jmeno} {c.prijmeni}</button>)}</>}</div>
+                  {(rz.manzel_deti || []).map((c, i) => (
+                    <div key={i} className="grid grid-cols-3 gap-2 mb-1.5">
+                      <input disabled={!canEdit} placeholder="Jméno" value={c.jmeno || ""} onChange={(e) => setIn("manzel_deti", i, "jmeno", e.target.value)} className={DANE_INPUT} />
+                      <input disabled={!canEdit} placeholder="Příjmení" value={c.prijmeni || ""} onChange={(e) => setIn("manzel_deti", i, "prijmeni", e.target.value)} className={DANE_INPUT} />
+                      <input disabled={!canEdit} placeholder="Rodné číslo" value={c.rc || ""} onChange={(e) => setIn("manzel_deti", i, "rc", e.target.value)} className={DANE_INPUT} />
+                    </div>
+                  ))}
+                </>
+              )}
+              <TaxDocs {...docProps} polozka="manzel" />
+            </div>
+            <div className="px-3 py-2">
+              <div className="text-sm">{RZ_SLEVY[2].label}</div>
+              <div className="text-[11px] text-slate-400 mb-1.5">Vyplňte, pokud měl v roce {year} příjmy od jiného zaměstnavatele, u kterého podepsal prohlášení. Doklad: {RZ_SLEVY[2].doklad}</div>
+              {(rz.predchozi || []).map((r, i) => (
+                <div key={i} className="grid grid-cols-3 gap-2 mb-1.5">
+                  <input disabled={!canEdit} placeholder="Měsíce od–do" value={r.obdobi || ""} onChange={(e) => setIn("predchozi", i, "obdobi", e.target.value)} className={DANE_INPUT} />
+                  <input disabled={!canEdit} placeholder="Název a adresa předchozího plátce" value={r.platce || ""} onChange={(e) => setIn("predchozi", i, "platce", e.target.value)} className={DANE_INPUT + " col-span-2"} />
+                </div>
+              ))}
+              <TaxDocs {...docProps} polozka="predchozi" />
+            </div>
+          </div>
+          <label className="flex items-center gap-2 text-sm mb-3">
+            <input type="checkbox" disabled={!canEdit} checked={!!rz.dodatecne} onChange={(e) => set({ dodatecne: e.target.checked })} />
+            Současně žádá o dodatečné uplatnění slev / daňového zvýhodnění (§ 38k odst. 7) – pak vyplnit i prohlášení poplatníka za rok {year}
+          </label>
+
+          {warnings.length > 0 && (
+            <div className="mb-3 space-y-1">{warnings.map((w, i) => <div key={i} className="text-xs bg-amber-50 text-amber-800 px-2.5 py-1.5 rounded-md">🟠 {w}</div>)}</div>
+          )}
+          <div className="flex items-center gap-3 flex-wrap mb-3">
+            {canEdit && <button onClick={saveClick} disabled={busy || !dirty} className="bg-teal-700 hover:bg-teal-800 disabled:opacity-40 text-white text-sm font-medium px-4 py-2 rounded-md">Uložit částky</button>}
+            <button onClick={generate} disabled={busy} className="flex items-center gap-1.5 border border-teal-600 text-teal-700 hover:bg-teal-50 disabled:opacity-50 text-sm font-medium px-4 py-2 rounded-md">
+              {busy ? <Loader2 size={16} className="animate-spin" /> : <Download size={16} />} Vytvořit vyplněnou žádost {year}
+            </button>
+            {saved && <span className="text-xs text-emerald-700">{saved}</span>}
+            {dirty && <span className="text-xs text-amber-700">neuložené změny</span>}
+          </div>
+          <div className="text-sm">
+            <div className="text-xs font-medium text-slate-500 mb-1">Podepsaná žádost o roční zúčtování</div>
+            <TaxDocs {...docProps} polozka="zadost_rz" label="Nahrát podepsanou žádost" />
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// Kontakt "Vyhotovil" - jmeno prihlaseneho uzivatele; telefon/e-mail si
+// prohlizec pamatuje (per uzivatel, jen pohodli).
+function useCurrentUserContact() {
+  const [state, setState] = useState({ name: "", kontakt: "" });
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      const { data } = await supabase.auth.getUser();
+      const user = data?.user;
+      if (!user) return;
+      const { data: prof } = await supabase.from("profiles").select("full_name").eq("id", user.id).maybeSingle();
+      let kontakt = user.email || "";
+      try { kontakt = window.localStorage.getItem(`stenger.hr.kontakt.${user.id}`) || kontakt; } catch { /* bez ulozenia */ }
+      if (!cancelled) setState({ name: prof?.full_name || user.email || "", kontakt, userId: user.id });
+    })();
+    return () => { cancelled = true; };
+  }, []);
+  return state;
+}
+
+function Potvrzeni5558Section({ employee, values, payroll, employment, year, canEdit, onSaved }) {
+  const rec = taxYearRecord(payroll, year);
+  const me = useCurrentUserContact();
+  const [deti, setDeti] = useState(() => childMonthsForYear(values, year, employment));
+  const [vyhotovil, setVyhotovil] = useState("");
+  const [kontakt, setKontakt] = useState("");
+  const [nahrazuje, setNahrazuje] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  useEffect(() => { setVyhotovil((v) => v || me.name); setKontakt((k) => k || me.kontakt); }, [me.name, me.kontakt]);
+  const prohlaseniRok = (payroll?.data?.prohlaseni_poplatnika || []).some((d) => d.rok === year);
+  const vydano = [...(rec.potvrzeni_5558 || [])].reverse();
+
+  async function generate() {
+    setBusy(true); setError("");
+    try {
+      const { fill5558Pdf, TAX_FORM_TEMPLATES } = await import("../lib/hr/taxForms.js");
+      const { JMHZ_FONT_URL } = await import("../lib/hr/jmhzFill.js");
+      const [tpl, font] = await fetchTaxPdf([TAX_FORM_TEMPLATES.f5558.url, JMHZ_FONT_URL]);
+      const dne = new Date().toISOString().slice(0, 10);
+      const res = await fill5558Pdf(tpl, font, values, year, employment, { deti, vyhotovil, kontakt, dne, nahrazujeDne: nahrazuje || null });
+      downloadArrayBufferAsFile(res.bytes, `Potvrzení zaměstnavatele 5558 ${year} - ${employee.last_name} ${employee.first_name}.pdf`, "application/pdf");
+      try { if (me.userId) window.localStorage.setItem(`stenger.hr.kontakt.${me.userId}`, kontakt); } catch { /* bez ulozenia */ }
+      if (canEdit) {
+        const entry = { dne, vyhotovil, uplatnil: res.data.uplatnil, deti: res.data.deti.map((c) => ({ jmeno: c.jmeno, prijmeni: c.prijmeni, poradi: c.poradi, mesice: c.mesice })), nahrazuje: nahrazuje || null, at: new Date().toISOString() };
+        await updateTaxYear(employee.id, year, (r) => ({ ...r, potvrzeni_5558: [...(r.potvrzeni_5558 || []), entry] }));
+        await supabase.from("employee_timeline_events").insert({
+          id: uid(), employee_id: employee.id, event_date: dne, event_type: "TAX_CONFIRMATION",
+          title: `Potvrzení pro druhého z poplatníků (5558) za rok ${year}`,
+          description: res.data.uplatnil ? res.data.deti.map((c) => `${c.jmeno} ${c.prijmeni}: ${c.mesice} měs.`).join(", ") : "neuplatňuje daňové zvýhodnění", source: "MANUAL",
+        });
+        onSaved();
+      }
+    } catch (e) {
+      console.error(e);
+      setError("Vytvoření potvrzení se nezdařilo: " + (e.message || e));
+    }
+    setBusy(false);
+  }
+
+  return (
+    <div className="bg-white border border-slate-200 rounded-lg p-4 mb-4">
+      <h2 className="font-semibold text-sm">Potvrzení zaměstnavatele druhého z poplatníků (MFin 5558)</h2>
+      <p className="text-xs text-slate-500 mt-0.5 mb-3">
+        Vydává se na žádost zaměstnance pro jeho partnera/partnerku, kteří uplatňují zvýhodnění na stejné děti v daňovém přiznání. Měsíce jsou spočítané z karty (děti s nárokem, věk do 26 let, trvání pracovního poměru) – zkontrolujte je.
+      </p>
+      {!prohlaseniRok && <div className="text-xs text-amber-700 mb-2">Na rok {year} není nahrané podepsané prohlášení poplatníka – ověřte, zda zaměstnanec zvýhodnění skutečně uplatnil.</div>}
+      {deti.length === 0 ? (
+        <div className="text-sm text-slate-600 mb-3">Na rok {year} se neuplatňuje zvýhodnění na žádné dítě → v potvrzení bude „neuplatňuje daňové zvýhodnění na žádné vyživované dítě“.</div>
+      ) : (
+        <table className="text-sm mb-3">
+          <thead><tr className="text-left text-xs text-slate-500"><th className="pr-4 py-1">Dítě</th><th className="pr-4 py-1">Pořadí</th><th className="py-1">Počet měsíců</th></tr></thead>
+          <tbody>
+            {deti.map((c, i) => (
+              <tr key={i}>
+                <td className="pr-4 py-1">{c.jmeno} {c.prijmeni} <span className="text-xs text-slate-400">{c.rc}</span></td>
+                <td className="pr-4 py-1">{c.poradi === 3 ? "3. a další" : `${c.poradi}.`}</td>
+                <td className="py-1"><input type="number" min="0" max="12" value={c.mesice} onChange={(e) => setDeti((d) => d.map((x, j) => (j === i ? { ...x, mesice: Math.max(0, Math.min(12, Number(e.target.value) || 0)) } : x)))} className={DANE_INPUT + " w-16 text-right"} /></td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      )}
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mb-3">
+        <label className="block"><span className="block text-xs text-slate-500 mb-1">Vyhotovil</span><input value={vyhotovil} onChange={(e) => setVyhotovil(e.target.value)} className={DANE_INPUT + " w-full"} /></label>
+        <label className="block"><span className="block text-xs text-slate-500 mb-1">Telefon / e-mail</span><input value={kontakt} onChange={(e) => setKontakt(e.target.value)} className={DANE_INPUT + " w-full"} /></label>
+        <label className="block"><span className="block text-xs text-slate-500 mb-1">Nahrazuje potvrzení ze dne (jen opravné)</span><input type="date" value={nahrazuje} onChange={(e) => setNahrazuje(e.target.value)} className={DANE_INPUT + " w-full"} /></label>
+      </div>
+      <div className="flex items-center gap-3 flex-wrap">
+        <button onClick={generate} disabled={busy} className="flex items-center gap-1.5 bg-teal-700 hover:bg-teal-800 disabled:opacity-50 text-white text-sm font-medium px-4 py-2 rounded-md">
+          {busy ? <Loader2 size={16} className="animate-spin" /> : <Download size={16} />} Vytvořit potvrzení {year}
+        </button>
+        <TaxDocs employee={employee} year={year} rec={rec} polozka="potvrzeni_5558" canEdit={canEdit} onSaved={onSaved} setError={setError} label="Nahrát podepsané" />
+      </div>
+      {error && <div className="text-red-600 text-xs mt-2">{error}</div>}
+      {vydano.length > 0 && (
+        <div className="mt-3 text-xs text-slate-600 space-y-0.5">
+          {vydano.map((v, i) => (
+            <div key={i}>Vydáno {fmtDate(v.dne)} ({v.vyhotovil || "—"}): {v.uplatnil ? v.deti.map((c) => `${c.jmeno} ${c.prijmeni} ${c.mesice} měs.`).join(", ") : "neuplatňuje"}{v.nahrazuje ? ` · nahrazuje potvrzení z ${fmtDate(v.nahrazuje)}` : ""}</div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 /* ---------------- Prohlášení poplatníka (MFin 5457) ----------------
    Kazdorocne prohlasenie k dani - vygeneruje sa vyplnene z karty (sekcia L,
    deti, jina vyzivovana osoba), zamestnanec podpise a podpisany sken sa
@@ -2393,12 +2826,13 @@ function declarationYearDefault() {
   return now.getMonth() >= 10 ? now.getFullYear() + 1 : now.getFullYear();
 }
 
-function ProhlaseniPoplatnikaSection({ employee, sensitive, payroll, canEdit, onSaved }) {
-  const [year, setYear] = useState(declarationYearDefault());
+function ProhlaseniPoplatnikaSection({ employee, sensitive, payroll, canEdit, onSaved, fixedYear }) {
+  const [yearState, setYear] = useState(declarationYearDefault());
+  const year = fixedYear ?? yearState;
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [info, setInfo] = useState("");
-  const signed = [...(payroll?.data?.prohlaseni_poplatnika || [])].sort((a, b) => b.rok - a.rok || String(b.uploaded_at).localeCompare(String(a.uploaded_at)));
+  const signed = [...(payroll?.data?.prohlaseni_poplatnika || [])].filter((d) => !fixedYear || d.rok === fixedYear).sort((a, b) => b.rok - a.rok || String(b.uploaded_at).localeCompare(String(a.uploaded_at)));
   const values = valuesFromRecords({ employee, sensitive, payroll });
   const thisYear = new Date().getFullYear();
   const years = [thisYear - 1, thisYear, thisYear + 1];
@@ -2472,12 +2906,12 @@ function ProhlaseniPoplatnikaSection({ employee, sensitive, payroll, canEdit, on
       </p>
       {values.tax_uplatneni !== true && <div className="text-xs text-amber-700 mb-2">V kartě (sekce L) není zaškrtnuto, že zaměstnanec uplatňuje prohlášení poplatníka.</div>}
       <div className="flex items-end gap-3 flex-wrap mb-3">
-        <label className="block">
+        {!fixedYear && <label className="block">
           <span className="block text-xs font-medium text-slate-500 mb-1">Zdaňovací období</span>
           <select value={year} onChange={(e) => setYear(Number(e.target.value))} className="border border-slate-300 rounded-md px-3 py-2 text-sm bg-white">
             {years.map((y) => <option key={y} value={y}>{y}</option>)}
           </select>
-        </label>
+        </label>}
         <button onClick={generate} disabled={busy} className="flex items-center gap-1.5 bg-teal-700 hover:bg-teal-800 disabled:opacity-50 text-white text-sm font-medium px-4 py-2 rounded-md">
           {busy ? <Loader2 size={16} className="animate-spin" /> : <Download size={16} />} Vytvořit vyplněné prohlášení {year}
         </button>
@@ -2491,7 +2925,7 @@ function ProhlaseniPoplatnikaSection({ employee, sensitive, payroll, canEdit, on
       {info && <div className="text-xs text-amber-700 mb-2">{info}</div>}
       {error && <div className="text-red-600 text-xs mb-2">{error}</div>}
       {signed.length === 0 ? (
-        <div className="text-sm text-slate-400">Zatím žádné podepsané prohlášení.</div>
+        <div className="text-sm text-slate-400">Zatím žádné podepsané prohlášení{fixedYear ? ` na rok ${fixedYear}` : ""}.</div>
       ) : (
         <div className="space-y-1">
           {signed.map((d) => (
@@ -2519,6 +2953,8 @@ function taxWarningsFor(employee, payroll, today = new Date()) {
   if (checkYear && v.tax_uplatneni === true && !(payroll?.data?.prohlaseni_poplatnika || []).some((d) => d.rok === checkYear)) {
     out.push({ level: "amber", message: `Chybí podepsané prohlášení poplatníka na rok ${checkYear}` });
   }
+  const settle = settlementWarning(payroll, v.tax_uplatneni === true, today);
+  if (settle) out.push(settle);
   return out;
 }
 
