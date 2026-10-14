@@ -18,6 +18,7 @@ export function createPglitePdaApi(q, role = "sklad") {
   return {
     isDemo: false,
     listWorkers: () => run(async () => []),
+    listProducts: () => run(async () => []),
     listOpenVydajky: () =>
       run(async () =>
         (await sql("select v.*, (select count(*)::int from pda_palety p where p.vydajka_id = v.id) as cnt from pda_vydajky v where stav = 'rozpracovana' order by created_at desc")).map(({ cnt, ...v }) => ({ ...v, pda_palety: [{ count: cnt }] }))

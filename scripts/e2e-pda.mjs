@@ -218,9 +218,26 @@ try {
     assert(/\b5\b/.test(await row.innerText()), "počet palet 5");
   });
 
-  await step("Excel export (pracovní verze): 3 listy, 5 palet LS-4711", async () => {
+  await step("NVE list (MAXIM): LS-4711.xlsx, list NVE List, 5 SSCC jako text, součty", async () => {
     const office = page.locator("text=Kancelář (Stenger ONE").locator("xpath=..");
-    const [download] = await Promise.all([page.waitForEvent("download"), office.getByRole("button", { name: /Export Excel/ }).click()]);
+    await office.locator("tr", { hasText: "LS-4711" }).first().click();
+    const [download] = await Promise.all([page.waitForEvent("download"), office.getByRole("button", { name: /NVE list \(MAXIM\)/ }).click()]);
+    assert(download.suggestedFilename() === "LS-4711.xlsx", "název souboru: " + download.suggestedFilename());
+    const file = join(OUT, download.suggestedFilename());
+    await download.saveAs(file);
+    const ws = XLSX.read(readFileSync(file), { cellFormula: true }).Sheets["NVE List"];
+    assert(ws && ws.A1.v === "NVE LIST Nr: LS-4711", "nadpis: " + (ws && ws.A1 && ws.A1.v));
+    const sscc = Object.keys(ws).filter((k) => /^D\d+$/.test(k) && /^\d{18}$/.test(String(ws[k].v)));
+    assert(sscc.length === 5 && sscc.every((k) => ws[k].t === "s"), "SSCC: " + sscc.length);
+    assert(ws.D7.v === (await db()).palety.slice().sort((a, b) => (a.created_at < b.created_at ? -1 : 1))[0].sscc, "pořadí skenování");
+    assert(ws.E12.f === "SUM(E7:E11)" && ws.D14.v === "TOTAL" && ws.E14.v === 5, "součty");
+    assert(/TEST POPCORN 200g/.test(ws.C7.v) && ws.B7.v === "62 99901", "produkt: " + ws.B7.v + " / " + ws.C7.v);
+    console.log("      → " + file);
+  });
+
+  await step("Přehled výdejek (Excel): 3 listy, 5 palet LS-4711", async () => {
+    const office = page.locator("text=Kancelář (Stenger ONE").locator("xpath=..");
+    const [download] = await Promise.all([page.waitForEvent("download"), office.getByRole("button", { name: /Přehled výdejek/ }).click()]);
     const file = join(OUT, download.suggestedFilename());
     await download.saveAs(file);
     const wb = XLSX.read(readFileSync(file));

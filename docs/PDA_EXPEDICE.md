@@ -30,6 +30,30 @@ Simulácia na PC bez Zebry a bez databázy. Nič sa neukladá do Supabase, žiad
 Lokálne: `npm run dev` → `http://localhost:5173/?pda=test`.
 Testovací režim funguje aj na samotnej Zebre (po nasadení) – vhodné na skúšku skenera bez zápisu do DB.
 
+## NVE list (formát MAXIM)
+
+Kancelária → PDA / Expedice → rozkliknúť výdajku → **NVE list (MAXIM)** → súbor `<číslo LS>.xlsx`.
+Formát zodpovedá originálnemu exportu MJ Soft MAXIM (`2026-2212015.xls`):
+
+| Časť | Obsah |
+|---|---|
+| Hárok | `NVE List` |
+| A1:E1 (zlúčené) | `NVE LIST Nr: <číslo LS>` – Arial 14 tučne |
+| H1 | `Datum: dd.mm.rrrr` (deň dokončenia výdajky) – kurzíva, vpravo |
+| A2:E4 (zlúčené) | príjemca: Stenger Waffeln GmbH / Nikolaus - otto - str.12 / D – 56727  Mayen |
+| riadok 6 | ` `, Number, Product, SSCC code, Amount, Unit, LOT, MHD – tučne, čiara dole |
+| palety | poradie (text), **Number** = „Artiklové číslo Stenger Waffeln (Sage 100)“ produktu, **Product** = značka + gramáž, **SSCC** 18-miestny text, **Amount** = AI 37 (`#,##0.00`), Unit `box`, **LOT** = šarža (AI 10), ak chýba tak dátum MHD, **MHD** = AI 15/17 `dd.mm.rrrr` |
+| pod paletami | `=SUM(E…)` množstva, prázdny riadok s čiarou, `TOTAL` + počet paliet + `pal` |
+
+- Poradie paliet = poradie skenovania. SSCC, čísla aj dátumy sú **text** (bez straty úvodných núl).
+- Produkt sa hľadá podľa GTIN z etikety v poli **EAN karton** (alebo EAN unit) produktu; ak chýba,
+  NVE list sa stiahne s `GTIN …` v stĺpci Product a kancelária dostane upozornenie.
+- Formátovanie sa berie z `src/lib/__fixtures__/nveListMaxim.layout.json`, vytiahnutého z originálu
+  (`python -I scripts/maxim-nve-spec.py pda-podklady/2026-2212015.xls`) – pri zmene formátu MAXIM stačí znova spustiť.
+- Originál je v `pda-podklady/` (mimo gitu – reálne dáta, repo je verejné).
+- **Rozdiel oproti originálu:** súbor je `.xlsx` (originál `.xls`, Excel 97-2003). Obsah a formátovanie sú zhodné.
+- „Přehled výdejek (Excel)“ hore = pracovný prehľad viacerých výdajok (3 hárky), nie MAXIM formát.
+
 ## Automatické testy
 
 ```
@@ -44,6 +68,8 @@ COMPAT_BUILD=true npm run e2e:pda   # to isté nad záložným buildom pre star�
 | `src/lib/pdaScan.test.js` | párovanie SSCC + produkt v ľubovoľnom poradí, ochrany, chybové hlášky |
 | `src/pda/pdaMigration.test.js` | SQL migrácia v Postgrese: RLS podľa rolí, anon bez prístupu, triggre, duplicity, zamknutie dokončenej, serverové hodnoty, idempotencia, rollback |
 | `src/pda/pdaFlow.test.js` | celý postup 2× (simulácia aj Postgres): výpadok siete, stratená odpoveď, opakované skenovanie, neúplné palety, dokončenie, Excel |
+| `src/lib/pdaExport.nveList.test.js` | NVE list: dáta, SSCC ako text, vzorec SUM, formátovanie každej bunky podľa špecifikácie z originálu (aj skryté bunky zlúčenej hlavičky) |
+| `src/lib/pdaExport.maxim.test.js` | NVE list vs. **originálny MAXIM súbor** bunka po bunke (hodnota, typ, formát, vzorec, zlúčenia, šírky) – len lokálne, ak je `pda-podklady/2026-2212015.xls` |
 | `scripts/e2e-pda.mjs` | skutočný Chrome: obrazovky, klávesnica, sieť, dokončenie, kancelária, stiahnutie a obsah Excelu, žiadny request na Supabase, hláška pre starý Chrome |
 
 ## Bezpečnosť (vynútené v DB, nie len v UI)
@@ -131,5 +157,6 @@ Profil priradený aplikácii **Chrome** (`com.android.chrome`, všetky aktivity)
 
 ## Otvorené body
 
-- **Excel MAXIM** – zatiaľ pracovná verzia (`src/lib/pdaExport.js`); po dodaní vzoru upraviť len túto funkciu.
+- **NVE list** – overiť s kolegami v Nemecku, či im stačí `.xlsx` (alebo treba `.xls`), a v produktoch
+  Stenger ONE doplniť „EAN karton“ = GTIN z paletovej etikety (AI 02).
 - **Prepojenie s objednávkou** – stĺpec `pda_vydajky.order_id` pripravený, bez UI.

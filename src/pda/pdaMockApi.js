@@ -14,6 +14,12 @@
 const NET_ERROR = { message: "TypeError: Failed to fetch" };
 const STORAGE_KEY = "stenger_pda_demo_db";
 
+// Testovacie produkty k testovacim GTIN (pdaTestCodes.js) - pre NVE list.
+const DEMO_PRODUCTS = [
+  { id: "demo-1", znacka: "TEST POPCORN", gramaz: "200", cisloArtikluSW: "62 99901", eanKarton: "14001234000012" },
+  { id: "demo-2", znacka: "TEST OPLATKY", gramaz: "100", cisloArtikluSW: "62 99902", eanKarton: "4001234000015" },
+];
+
 const DEMO_WORKERS = [
   { meno: "Martin Dostál", typ: "sklad" },
   { meno: "Test Skladník", typ: "sklad" },
@@ -98,6 +104,8 @@ export function createMockPdaApi(store, { role = "sklad", latencyMs = 250 } = {}
     store,
 
     listWorkers: () => call(() => ({ data: DEMO_WORKERS.map((w) => ({ data: w })), error: null })),
+
+    listProducts: () => call(() => ({ data: clone(DEMO_PRODUCTS), error: null })),
 
     listOpenVydajky: () =>
       call(() => ({

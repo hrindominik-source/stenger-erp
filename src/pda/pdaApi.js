@@ -13,6 +13,12 @@ export function createSupabasePdaApi(supabase) {
       return supabase.from("workers").select("*");
     },
 
+    // Produkty Stenger ONE (cislo artikla SW, nazov, EAN) pre NVE list.
+    async listProducts() {
+      const { data, error } = await supabase.from("products").select("*");
+      return { data: error ? null : (data || []).map((r) => r.data), error };
+    },
+
     listOpenVydajky() {
       return supabase
         .from("pda_vydajky")

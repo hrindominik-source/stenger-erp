@@ -7,12 +7,12 @@
 // MAXIM sa doplni, ked bude k dispozicii vzorovy subor.
 
 import React, { useState, useEffect, useCallback, useMemo, useRef } from "react";
-import { Loader2, AlertCircle, Search, Download, ChevronDown, ChevronRight, RotateCcw, Trash2, PackageCheck, Clock, Smartphone } from "lucide-react";
+import { Loader2, AlertCircle, Search, Download, ChevronDown, ChevronRight, RotateCcw, Trash2, PackageCheck, Clock, Smartphone, FileSpreadsheet } from "lucide-react";
 import { supabase } from "../supabaseClient.js";
 import { formatDateTime } from "../lib/utils.js";
 import { exportSheetsToExcel } from "../lib/exportExcel.js";
 import { pdaErrorMessage, summarizePallets } from "../lib/pdaScan.js";
-import { buildPdaExportSheets, formatIsoDate as formatDate } from "../lib/pdaExport.js";
+import { buildPdaExportSheets, formatIsoDate as formatDate, buildNveListData, downloadNveList } from "../lib/pdaExport.js";
 import { createSupabasePdaApi } from "./pdaApi.js";
 
 function localIso(d) {
@@ -47,7 +47,16 @@ export default function PdaOfficeView({ api: apiProp }) {
   const [openId, setOpenId] = useState(null);
   const [busyId, setBusyId] = useState(null);
   const [confirmDeleteId, setConfirmDeleteId] = useState(null);
+  const [products, setProducts] = useState([]);
+  const [nveInfo, setNveInfo] = useState(null); // { vydajkaId, text, tone }
   const reloadTimer = useRef(null);
+
+  // Produkty (cislo artikla SW, nazov, EAN karton) pre NVE list.
+  useEffect(() => {
+    let cancelled = false;
+    api.listProducts().then(({ data }) => { if (!cancelled && data) setProducts(data); });
+    return () => { cancelled = true; };
+  }, [api]);
 
   const load = useCallback(async () => {
     const odTs = od ? new Date(od + "T00:00:00").toISOString() : null;
@@ -113,7 +122,19 @@ export default function PdaOfficeView({ api: apiProp }) {
   }
 
   async function exportExcel() {
-    await exportSheetsToExcel(buildPdaExportSheets(filtered, palety), api.isDemo ? "PDA_TEST_vydejky_pracovni" : "PDA_vydejky_pracovni");
+    await exportSheetsToExcel(buildPdaExportSheets(filtered, palety), api.isDemo ? "PDA_TEST_vydejky_prehled" : "PDA_vydejky_prehled");
+  }
+
+  // NVE LIST vo formate MAXIM pre jednu vydajku (subor <LS>.xlsx).
+  async function nveList(v) {
+    const nve = buildNveListData(v, palety, { products });
+    const { bezProduktu, bezMnozstva } = nve.upozornenia;
+    const varovania = [];
+    if (bezProduktu.length) varovania.push(`GTIN bez produktu v Stenger ONE (chybí číslo artiklu a název): ${bezProduktu.join(", ")} – doplňte „EAN karton“ u produktu.`);
+    if (bezMnozstva) varovania.push(`${bezMnozstva} palet bez množství (AI 37).`);
+    if (v.stav !== "dokoncena") varovania.push("Výdejka ještě není dokončená.");
+    await downloadNveList(nve);
+    setNveInfo({ vydajkaId: v.id, tone: varovania.length ? "warn" : "ok", text: varovania.length ? varovania.join(" ") : `NVE list ${nve.cislo} stažen (${nve.palet} palet).` });
   }
 
   const pdaUrl = `${window.location.origin}${import.meta.env.BASE_URL}?pda=1`;
@@ -123,7 +144,7 @@ export default function PdaOfficeView({ api: apiProp }) {
       <div className="flex items-center justify-between flex-wrap gap-2 mb-4">
         <h1 className="text-xl font-semibold">PDA / Expedice</h1>
         <button onClick={exportExcel} disabled={!vydajky} className="flex items-center gap-1.5 bg-teal-700 hover:bg-teal-800 disabled:opacity-60 text-white text-sm font-medium px-3 py-2 rounded-md">
-          <Download size={16} /> Export Excel (pracovní verze)
+          <Download size={16} /> Přehled výdejek (Excel)
         </button>
       </div>
 
@@ -205,6 +226,8 @@ export default function PdaOfficeView({ api: apiProp }) {
                             onAskDelete={() => setConfirmDeleteId(v.id)}
                             onCancelDelete={() => setConfirmDeleteId(null)}
                             onDelete={() => smazat(v)}
+                            onNveList={() => nveList(v)}
+                            nveInfo={nveInfo && nveInfo.vydajkaId === v.id ? nveInfo : null}
                           />
                         </td>
                       </tr>
@@ -224,12 +247,15 @@ export default function PdaOfficeView({ api: apiProp }) {
   );
 }
 
-function VydajkaDetail({ vydajka, palety, hladat, busy, confirmDelete, onReopen, onAskDelete, onCancelDelete, onDelete }) {
+function VydajkaDetail({ vydajka, palety, hladat, busy, confirmDelete, onReopen, onAskDelete, onCancelDelete, onDelete, onNveList, nveInfo }) {
   const souhrn = summarizePallets(palety);
   return (
     <div className="space-y-3">
       <div className="flex flex-wrap gap-2 items-center justify-end">
         {busy && <Loader2 size={16} className="animate-spin text-slate-400" />}
+        <button onClick={onNveList} disabled={!palety.length} className="flex items-center gap-1.5 text-xs font-medium px-3 py-1.5 rounded-md bg-teal-700 text-white hover:bg-teal-800 disabled:opacity-50">
+          <FileSpreadsheet size={14} /> NVE list (MAXIM)
+        </button>
         {vydajka.stav === "dokoncena" && (
           <button onClick={onReopen} disabled={busy} className="flex items-center gap-1.5 text-xs font-medium px-3 py-1.5 rounded-md border border-slate-200 bg-white hover:bg-slate-100 disabled:opacity-60">
             <RotateCcw size={14} /> Znovu otevřít
@@ -247,6 +273,11 @@ function VydajkaDetail({ vydajka, palety, hladat, busy, confirmDelete, onReopen,
           </button>
         )}
       </div>
+      {nveInfo && (
+        <div className={"text-xs px-3 py-2 rounded-md flex items-start gap-2 " + (nveInfo.tone === "warn" ? "bg-amber-50 text-amber-800" : "bg-emerald-50 text-emerald-800")}>
+          {nveInfo.tone === "warn" ? <AlertCircle size={14} className="shrink-0 mt-0.5" /> : <FileSpreadsheet size={14} className="shrink-0 mt-0.5" />} {nveInfo.text}
+        </div>
+      )}
 
       <div>
         <div className="text-xs font-semibold text-slate-500 mb-1">Souhrn</div>
