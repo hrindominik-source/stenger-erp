@@ -15,6 +15,8 @@ import { EMPLOYEE_SECTIONS, emptyEmployeeValues, normalizeLegacyDraft, valuesFro
 import EmployeeFieldsForm, { EmployeeFieldsView, applyFieldChange } from "./EmployeeFieldsForm.jsx";
 import { childTaxWarnings } from "../lib/hr/taxChildren.js";
 import { RZ_POLOZKY, RZ_SLEVY, VYUCTOVANI, VYUCTOVANI_STAV, taxYearRecord, taxYearStatus, childMonthsForYear, childrenUnder3, rzWarnings, settlementWarning } from "../lib/hr/taxYear.js";
+import { PS_TEMPLATES, PS_PODEPISUJICI, psVariant, buildPsData, psMissing, psFieldsFor, defaultPovinnosti } from "../lib/hr/pracovniSmlouva.js";
+import { nastupChecklist, nastupSummary, nastupRelevant } from "../lib/hr/nastupniBalicek.js";
 import { ABSENCE_TYPES, ABSENCE_DOC_TYPES, absenceType, absenceList, isAbsenceActive, activeAbsence, absenceStatusText, probationOverlapDays, absenceInProbation, addDaysIso } from "../lib/hr/absences.js";
 
 const HR_DOKUMENTY_BUCKET = "hr-dokumenty";
@@ -28,6 +30,7 @@ const DOC_TYPE_LABELS = {
   hi001_naplen_prace_delnice: "HI-001 – Náplň práce dělnice",
   vstupni_skoleni: "Vstupní školení",
   pracovni_smlouva: "Pracovní smlouva",
+  pracovni_smlouva_cizinec: "Pracovní smlouva – cizinec",
   mzdovy_vymer: "Mzdový výměr – THP (měsíční mzda)",
   popis_pracovniho_mista: "Popis pracovního místa (obecný)",
   dodatek: "Dodatek",
@@ -862,6 +865,7 @@ function EmployeeDetail({ id, permissions, onBack }) {
   const [positions, setPositions] = useState([]);
   const [timeline, setTimeline] = useState([]);
   const [medicalExams, setMedicalExams] = useState([]);
+  const [hrDocs, setHrDocs] = useState([]);
   const [confirmingDelete, setConfirmingDelete] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [deleteError, setDeleteError] = useState("");
@@ -913,6 +917,14 @@ function EmployeeDetail({ id, permissions, onBack }) {
 
   useEffect(() => { load(); }, [load]);
 
+  // Dokumenty pre nastupni balicek - samostatne, aby sa po ulozeni dokumentu
+  // neprekreslil cely detail.
+  const loadDocs = useCallback(async () => {
+    const { data } = await supabase.from("hr_documents").select("id, doc_type, status, employment_id").eq("employee_id", id);
+    setHrDocs(data || []);
+  }, [id]);
+  useEffect(() => { loadDocs(); }, [loadDocs]);
+
   async function confirmDelete() {
     setDeleting(true);
     setDeleteError("");
@@ -926,6 +938,21 @@ function EmployeeDetail({ id, permissions, onBack }) {
 
   const currentEmployment = employments.find((e) => ["ACTIVE", "NOTICE_PERIOD"].includes(e.status)) || employments[0];
   const positionLabel = (positionId) => { const p = positions.find((x) => x.id === positionId); return p ? (p.code ? `${p.code} – ${p.name}` : p.name) : "—"; };
+  const todayStr = new Date().toISOString().slice(0, 10);
+  const nastupItems = nastupRelevant(currentEmployment, todayStr)
+    ? nastupChecklist({
+      employment: currentEmployment, documents: hrDocs, agenda: agendaItems(employee, payroll), timeline, payroll,
+      uplatnujeSlevy: valuesFromRecords({ employee, payroll }).tax_uplatneni, canPayroll, today: todayStr,
+    })
+    : null;
+  const nastupStav = nastupItems ? nastupSummary(nastupItems) : null;
+  const onNastupAction = (action) => {
+    if (action.preset) {
+      const docType = action.preset === "platovy_vymer" && currentWage(payroll?.data)?.mzda_typ === "smluvni" ? "mzdovy_vymer" : action.preset;
+      setDocPreset({ docType, at: Date.now() });
+    }
+    setDetailTab(action.tab);
+  };
 
   return (
     <div>
@@ -939,6 +966,12 @@ function EmployeeDetail({ id, permissions, onBack }) {
           </div>
         </div>
         <div className="flex items-center gap-2 flex-wrap">
+          {nastupStav && !nastupStav.done && (
+            <button onClick={() => setDetailTab("prehled")} title="Nástupní balíček - otevřít přehled"
+              className={"px-2.5 py-1 rounded-full text-xs font-medium " + (nastupStav.overdue ? "bg-red-100 text-red-700" : "bg-teal-100 text-teal-800")}>
+              Nástup: {[nastupStav.missing && `chybí ${nastupStav.missing}`, nastupStav.toSign && `k podpisu ${nastupStav.toSign}`].filter(Boolean).join(" · ")}
+            </button>
+          )}
           <AbsenceBadge employee={employee} />
           <span className={"px-2.5 py-1 rounded-full text-xs font-medium " + (employee.active ? "bg-emerald-100 text-emerald-700" : "bg-slate-200 text-slate-500")}>
             {employee.active ? "Aktivní" : "Bývalý zaměstnanec"}
@@ -998,7 +1031,7 @@ function EmployeeDetail({ id, permissions, onBack }) {
         <PrehledDetailTab
           employee={employee} payroll={payroll} currentEmployment={currentEmployment} contractEvents={contractEvents}
           positionLabel={positionLabel} medicalExams={medicalExams} canMedical={canMedical}
-          employments={employments}
+          employments={employments} nastupItems={nastupItems} onNastupAction={onNastupAction}
         />
       )}
       {detailTab === "osobni" && (
@@ -1022,7 +1055,7 @@ function EmployeeDetail({ id, permissions, onBack }) {
           onPrintVymer={(entry) => { setDocPreset({ docType: entry.mzda_typ === "smluvni" ? "mzdovy_vymer" : "platovy_vymer", entry }); setDetailTab("dokumenty"); }}
         />
       )}
-      {detailTab === "dokumenty" && <DokumentyTab employee={employee} sensitive={sensitive} payroll={payroll} currentEmployment={currentEmployment} permissions={permissions} preset={docPreset} onPresetUsed={() => setDocPreset(null)} />}
+      {detailTab === "dokumenty" && <DokumentyTab employee={employee} sensitive={sensitive} payroll={payroll} currentEmployment={currentEmployment} permissions={permissions} preset={docPreset} onPresetUsed={() => setDocPreset(null)} onDocsChanged={loadDocs} />}
       {detailTab === "jmhz" && <ZpHistorySection employee={employee} />}
       {detailTab === "jmhz" && (
         <AgendaUraduSection employee={employee} payroll={payroll} canEdit={canEdit} onSaved={load} />
@@ -1052,7 +1085,7 @@ function EmployeeDetail({ id, permissions, onBack }) {
   );
 }
 
-function PrehledDetailTab({ employee, payroll, currentEmployment, contractEvents, positionLabel, medicalExams, canMedical, employments }) {
+function PrehledDetailTab({ employee, payroll, currentEmployment, contractEvents, positionLabel, medicalExams, canMedical, employments, nastupItems, onNastupAction }) {
   const endDays = currentEmployment ? daysUntilIso(currentEmployment.fixed_term_end_date) : null;
   const fixedTermStatus = currentEmployment && currentEmployment.employment_type === "doba_urcita"
     ? computeFixedTermStatus({ startDate: currentEmployment.start_date, currentEndDate: currentEmployment.fixed_term_end_date, events: contractEvents.filter((e) => e.employment_id === currentEmployment.id) })
@@ -1071,6 +1104,7 @@ function PrehledDetailTab({ employee, payroll, currentEmployment, contractEvents
         <div className="text-lg font-semibold">{fullName(employee).toUpperCase()}</div>
         <div className="text-sm text-slate-500">{currentEmployment ? positionLabel(currentEmployment.position_id) : "Bez aktivního pracovního poměru"} · {employee.active ? "AKTIVNÍ" : "BÝVALÝ ZAMĚSTNANEC"}</div>
       </div>
+      {nastupItems && <NastupniBalicekCard items={nastupItems} onAction={onNastupAction} />}
       {warnings.length > 0 && (
         <div className="mb-4 space-y-1.5">
           {warnings.map((w, i) => (
@@ -3249,6 +3283,147 @@ function MzdovePodminkyTab({ payroll, currentEmployment, canEdit, onEditInKarta,
   );
 }
 
+/* ---------------- Nástupní balíček + pracovní smlouva ---------------- */
+
+const NASTUP_STATE_CLS = {
+  done: "bg-emerald-100 text-emerald-700",
+  created: "bg-amber-100 text-amber-800",
+  missing: "bg-slate-100 text-slate-600",
+};
+
+function NastupniBalicekCard({ items, onAction }) {
+  const s = nastupSummary(items);
+  return (
+    <div className={"border rounded-lg p-4 mb-4 " + (s.done ? "bg-white border-slate-200" : "bg-teal-50/40 border-teal-200")}>
+      <div className="flex items-center justify-between gap-2 flex-wrap mb-2">
+        <h2 className="font-semibold text-sm flex items-center gap-1.5"><Briefcase size={15} /> Nástupní balíček</h2>
+        <span className="text-xs text-slate-500">
+          {s.done ? "vše hotovo ✓" : [s.missing && `chybí ${s.missing}`, s.toSign && `k podpisu ${s.toSign}`].filter(Boolean).join(" · ")}
+        </span>
+      </div>
+      <div className="divide-y divide-slate-100">
+        {items.map((it) => (
+          <div key={it.key} className="flex items-center justify-between gap-3 py-1.5 text-sm flex-wrap">
+            <span className="flex items-center gap-2 min-w-0">
+              {it.state === "done" ? <CheckCircle2 size={15} className="text-emerald-600 shrink-0" /> : <span className="w-[15px] h-[15px] rounded-full border-2 border-slate-300 shrink-0" />}
+              <span className={it.state === "done" ? "text-slate-500" : ""}>{it.label}</span>
+            </span>
+            <span className="flex items-center gap-2">
+              <span className={"px-2 py-0.5 rounded-full text-xs " + (it.overdue ? "bg-red-100 text-red-700 font-medium" : NASTUP_STATE_CLS[it.state])}>{it.detail}</span>
+              {it.state !== "done" && onAction && (
+                <button onClick={() => onAction(it.action)} className="text-xs text-teal-700 hover:text-teal-900 font-medium">
+                  {it.action.preset ? (it.state === "created" ? "Otevřít" : "Vytvořit") : "Přejít"} →
+                </button>
+              )}
+            </span>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function PracovniSmlouvaForm({ employee, sensitive, payroll, currentEmployment, onCancel, onSaved }) {
+  const values = valuesFromRecords({ employee, sensitive, payroll, employment: currentEmployment });
+  const me = useCurrentUserContact();
+  const [variant, setVariant] = useState(() => psVariant(values));
+  const [podepisujici, setPodepisujici] = useState("");
+  const [datumPodpisu, setDatumPodpisu] = useState(new Date().toISOString().slice(0, 10));
+  const [povinnosti, setPovinnosti] = useState(() => defaultPovinnosti(values));
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  // Prihlaseny podepisujici se predvybere.
+  useEffect(() => {
+    if (podepisujici !== "" || !me.name) return;
+    const surname = (n) => n.split(" ").pop().toLowerCase();
+    const idx = PS_PODEPISUJICI.findIndex((p) => surname(p.jmeno) === surname(me.name));
+    if (idx >= 0) setPodepisujici(String(idx));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [me.name]);
+
+  const data = buildPsData(values, { podepisujici: podepisujici === "" ? -1 : Number(podepisujici), datumPodpisu, povinnosti });
+  const missing = psMissing(data, variant);
+  const fields = psFieldsFor(variant).filter((f) => f.karta);
+  const tpl = PS_TEMPLATES[variant];
+  const fileBase = `${tpl.nazev} - ${fullName(employee)}`;
+
+  async function filled() {
+    const r = await fetch(tpl.url);
+    if (!r.ok) throw new Error("Nepodařilo se načíst vzor smlouvy.");
+    return fillDocxTemplate(await r.arrayBuffer(), data);
+  }
+  async function run(fn) {
+    setBusy(true); setError("");
+    try { await fn(); } catch (e) { console.error(e); setError(e.message || String(e)); }
+    setBusy(false);
+  }
+  const downloadDocx = () => run(async () => downloadArrayBufferAsFile(await filled(), `${fileBase}.docx`, DOCX_MIME));
+  const downloadPdf = () => run(async () => convertFilledDocxToPdf(`NAHLED - ${fileBase}.pdf`, await filled()));
+  const save = () => run(async () => {
+    if (missing.length) throw new Error("Doplňte: " + missing.join(", "));
+    const bytes = await filled();
+    const { data: userData } = await supabase.auth.getUser();
+    const docId = uid();
+    const storagePath = `zamestnanci/${employee.id}/${docId}.docx`;
+    const { error: upErr } = await supabase.storage.from(HR_DOKUMENTY_BUCKET).upload(storagePath, new Blob([bytes], { type: DOCX_MIME }), { contentType: DOCX_MIME });
+    if (upErr) throw upErr;
+    const { error: insErr } = await supabase.from("hr_documents").insert({
+      id: docId, employee_id: employee.id, employment_id: currentEmployment?.id || null, doc_type: variant,
+      origin: "GENERATED", status: "READY_FOR_SIGNATURE", generated_at: new Date().toISOString(), generated_by: userData?.user?.id || null,
+      file_path: storagePath, variables_snapshot: data,
+    });
+    if (insErr) throw insErr;
+    await supabase.from("employee_timeline_events").insert({
+      id: uid(), employee_id: employee.id, event_date: new Date().toISOString().slice(0, 10), event_type: "DOCUMENT_GENERATED",
+      title: `Vygenerována ${tpl.nazev.toLowerCase()}`, description: `Za zaměstnavatele podepisuje ${data.zastupce}.`, source: "MANUAL",
+    });
+    onSaved();
+  });
+
+  return (
+    <div className="bg-white border border-slate-200 rounded-lg p-4 mb-4">
+      <h2 className="font-semibold text-sm mb-3">Pracovní smlouva</h2>
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-x-4">
+        <SelectFieldLocal label="Vzor" value={variant} onChange={setVariant} options={Object.entries(PS_TEMPLATES).map(([k, t]) => ({ value: k, label: t.nazev }))} />
+        <SelectFieldLocal label="Za zaměstnavatele podepisuje (plná moc)" value={podepisujici} onChange={setPodepisujici}
+          options={[{ value: "", label: "— vyberte —" }, ...PS_PODEPISUJICI.map((p, i) => ({ value: String(i), label: p.jmeno }))]} />
+        <DateFieldLocal label="Datum podpisu" value={datumPodpisu} onChange={setDatumPodpisu} />
+      </div>
+      {variant !== psVariant(values) && (
+        <div className="text-xs text-amber-700 bg-amber-50 rounded-md px-3 py-2 mb-3">
+          Podle karty je zaměstnanec {psVariant(values) === "pracovni_smlouva_cizinec" ? "cizinec" : "občan ČR"} – zkontrolujte volbu vzoru.
+        </div>
+      )}
+      <TextAreaField label="Základní povinnosti (čl. 1.2 smlouvy)" value={povinnosti} onChange={setPovinnosti} />
+      <div className="bg-slate-50 rounded-md p-3 mb-3">
+        <div className="text-xs font-medium text-slate-500 mb-1.5">Z karty zaměstnance (změny dělejte v kartě):</div>
+        <dl className="text-sm grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-1">
+          {fields.map((f) => {
+            const val = f.key === "tydenni_hodiny" && data.tydenni_hodiny ? `${data.tydenni_hodiny} (${data.tydenni_hodiny_slovy || "?"})` : data[f.key];
+            return (
+              <div key={f.key} className="flex gap-2 min-w-0">
+                <dt className="text-slate-500 shrink-0">{f.label}:</dt>
+                <dd className={"truncate " + (!val && f.required ? "text-red-600 font-medium" : "")} title={val || ""}>{val || (f.required ? "chybí" : "—")}</dd>
+              </div>
+            );
+          })}
+        </dl>
+      </div>
+      {missing.length > 0 && <div className="text-xs text-amber-700 bg-amber-50 px-3 py-2 rounded-md mb-2">Chybí: {missing.join(", ")}</div>}
+      {error && <div className="bg-red-50 text-red-700 text-sm px-3 py-2 rounded-md mb-2">{error}</div>}
+      <div className="flex justify-end gap-2 flex-wrap">
+        <button onClick={onCancel} className="text-sm text-slate-500 px-3 py-2">Zrušit</button>
+        <button onClick={downloadDocx} disabled={busy} className="text-sm text-slate-600 hover:text-slate-900 px-3 py-2 border border-slate-200 rounded-md">Stáhnout .docx</button>
+        <button onClick={downloadPdf} disabled={busy} className="text-sm text-slate-600 hover:text-slate-900 px-3 py-2 border border-slate-200 rounded-md">PDF náhled</button>
+        <button onClick={save} disabled={busy || missing.length > 0} className="flex items-center gap-1.5 bg-teal-700 hover:bg-teal-800 disabled:opacity-50 disabled:cursor-not-allowed text-white text-sm font-medium px-4 py-2 rounded-md">
+          {busy ? <Loader2 size={16} className="animate-spin" /> : <CheckCircle2 size={16} />} Vygenerovat a uložit k podpisu
+        </button>
+      </div>
+      <p className="text-xs text-slate-400 mt-2">Text smlouvy je podle vašeho vzoru, doplní se jen údaje. Uložená smlouva čeká na podpis – podepsaný sken nahrajte u dokumentu níže.</p>
+    </div>
+  );
+}
+
 /* ---------------- Dokumenty (na karte zamestnanca) ---------------- */
 /* Naplnenie sablony: buildDocumentData rozdeluje udaje na AUTO (z karty
    zamestnanca - person/sensitive, uz existujuce polia) a MANUALNE (specificke
@@ -3281,7 +3456,7 @@ function downloadArrayBufferAsFile(arrayBuffer, filename, mime) {
   URL.revokeObjectURL(url);
 }
 
-function DokumentyTab({ employee, sensitive, payroll, currentEmployment, permissions, preset, onPresetUsed }) {
+function DokumentyTab({ employee, sensitive, payroll, currentEmployment, permissions, preset, onPresetUsed, onDocsChanged }) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [documents, setDocuments] = useState([]);
@@ -3292,8 +3467,10 @@ function DokumentyTab({ employee, sensitive, payroll, currentEmployment, permiss
   const [signingId, setSigningId] = useState(null);
   const canGenerate = hasPerm(permissions, "HR_DOCUMENT_GENERATE");
   const [activePreset, setActivePreset] = useState(null);
+  const [creatingPs, setCreatingPs] = useState(false);
   useEffect(() => {
-    if (preset) { setActivePreset(preset); setCreating(true); onPresetUsed?.(); }
+    if (preset?.docType === "pracovni_smlouva") { setCreatingPs(true); setCreating(false); onPresetUsed?.(); return; }
+    if (preset) { setActivePreset(preset); setCreating(true); setCreatingPs(false); onPresetUsed?.(); }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [preset]);
   const canApprove = hasPerm(permissions, "HR_DOCUMENT_APPROVE");
@@ -3321,6 +3498,8 @@ function DokumentyTab({ employee, sensitive, payroll, currentEmployment, permiss
       setSignaturesByDoc(new Map());
     }
     setLoading(false);
+    onDocsChanged?.();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [employee.id]);
 
   useEffect(() => { load(); }, [load]);
@@ -3346,16 +3525,25 @@ function DokumentyTab({ employee, sensitive, payroll, currentEmployment, permiss
 
   return (
     <div>
-      <div className="flex justify-end mb-3">
-        {canGenerate && !creating && (
+      <div className="flex justify-end gap-2 mb-3">
+        {canGenerate && !creating && !creatingPs && (
+          <button onClick={() => setCreatingPs(true)} className="flex items-center gap-1.5 border border-teal-700 text-teal-700 hover:bg-teal-50 text-sm font-medium px-3 py-2 rounded-md">
+            <FileText size={16} /> Pracovní smlouva
+          </button>
+        )}
+        {canGenerate && !creating && !creatingPs && (
           <button onClick={() => setCreating(true)} className="flex items-center gap-1.5 bg-teal-700 hover:bg-teal-800 text-white text-sm font-medium px-3 py-2 rounded-md">
             <FileText size={16} /> Vytvořit dokument
           </button>
         )}
       </div>
+      {creatingPs && (
+        <PracovniSmlouvaForm employee={employee} sensitive={sensitive} payroll={payroll} currentEmployment={currentEmployment}
+          onCancel={() => setCreatingPs(false)} onSaved={() => { setCreatingPs(false); load(); }} />
+      )}
       {creating && (
         <GenerateDocumentForm
-          key={activePreset ? `preset-${activePreset.entry?.id}` : "plain"}
+          key={activePreset ? `preset-${activePreset.entry?.id || activePreset.at}` : "plain"}
           employee={employee} sensitive={sensitive} payroll={payroll} currentEmployment={currentEmployment} templates={templates} pendingTemplates={pendingTemplates} preset={activePreset}
           onCancel={() => { setCreating(false); setActivePreset(null); }} onSaved={() => { setCreating(false); setActivePreset(null); load(); }}
         />
