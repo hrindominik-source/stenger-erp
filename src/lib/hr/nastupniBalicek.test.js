@@ -17,7 +17,7 @@ describe("nástupní balíček", () => {
     expect(items.map((i) => i.key)).toEqual(["ps", "vymer", "napln", "skoleni", "dotaznik", "prohlaseni", "cssz", "zp"]);
     expect(s.missing).toBe(8);
     expect(s.overdue).toBe(true);
-    expect(byKey(items).cssz.detail).toBe("podat do 2026-10-09");
+    expect(byKey(items).cssz.detail).toBe("podat do 09.10.2026");
   });
   it("stavy z dokumentů a agendy", () => {
     const items = nastupChecklist({

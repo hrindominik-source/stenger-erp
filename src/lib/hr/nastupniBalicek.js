@@ -15,6 +15,7 @@ export const NASTUP_DOCS = [
 ];
 
 const dayDiff = (a, b) => Math.round((new Date(a + "T00:00:00Z") - new Date(b + "T00:00:00Z")) / 86400000);
+const czDate = (iso) => (iso ? iso.slice(0, 10).split("-").reverse().join(".") : "");
 const addDays = (iso, n) => { const d = new Date(iso + "T00:00:00Z"); d.setUTCDate(d.getUTCDate() + n); return d.toISOString().slice(0, 10); };
 
 // Zobrazit balicek? Jen u aktivniho pomeru s nastupem v budoucnu nebo
@@ -70,7 +71,7 @@ export function nastupChecklist({ employment, documents = [], agenda = [], timel
     items.push({
       key: urad, label,
       state: ok ? "done" : "missing",
-      detail: ok ? `podáno ${last.datum || ""}` : `podat do ${lhuta}`,
+      detail: ok ? `podáno ${czDate(last.datum)}` : `podat do ${czDate(lhuta)}`,
       overdue: !ok && today > lhuta,
       action: { tab: "jmhz" },
     });

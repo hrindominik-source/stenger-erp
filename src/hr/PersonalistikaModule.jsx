@@ -3335,7 +3335,7 @@ function PracovniSmlouvaForm({ employee, sensitive, payroll, currentEmployment, 
   // Prihlaseny podepisujici se predvybere.
   useEffect(() => {
     if (podepisujici !== "" || !me.name) return;
-    const surname = (n) => n.split(" ").pop().toLowerCase();
+    const surname = (n) => n.trim().split(" ").pop().normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase();
     const idx = PS_PODEPISUJICI.findIndex((p) => surname(p.jmeno) === surname(me.name));
     if (idx >= 0) setPodepisujici(String(idx));
     // eslint-disable-next-line react-hooks/exhaustive-deps
