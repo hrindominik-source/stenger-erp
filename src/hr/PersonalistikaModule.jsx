@@ -15,8 +15,8 @@ import { EMPLOYEE_SECTIONS, emptyEmployeeValues, normalizeLegacyDraft, valuesFro
 import EmployeeFieldsForm, { EmployeeFieldsView, applyFieldChange } from "./EmployeeFieldsForm.jsx";
 import { childTaxWarnings } from "../lib/hr/taxChildren.js";
 import { RZ_POLOZKY, RZ_SLEVY, VYUCTOVANI, VYUCTOVANI_STAV, taxYearRecord, taxYearStatus, childMonthsForYear, childrenUnder3, rzWarnings, settlementWarning } from "../lib/hr/taxYear.js";
-import { PS_TEMPLATES, PS_PODEPISUJICI, psVariant, buildPsData, psMissing, psFieldsFor, defaultPovinnosti } from "../lib/hr/pracovniSmlouva.js";
-import { nastupChecklist, nastupSummary, nastupRelevant } from "../lib/hr/nastupniBalicek.js";
+import { PS_TEMPLATES, PS_PODEPISUJICI, psVariant, buildPsData, psMissing, psFieldsFor, defaultPovinnosti, isPovinnostiNavrh } from "../lib/hr/pracovniSmlouva.js";
+import { nastupChecklist, nastupSummary, nastupRelevant, registraceCssz } from "../lib/hr/nastupniBalicek.js";
 import { ABSENCE_TYPES, ABSENCE_DOC_TYPES, absenceType, absenceList, isAbsenceActive, activeAbsence, absenceStatusText, probationOverlapDays, absenceInProbation, addDaysIso } from "../lib/hr/absences.js";
 
 const HR_DOKUMENTY_BUCKET = "hr-dokumenty";
@@ -941,7 +941,7 @@ function EmployeeDetail({ id, permissions, onBack }) {
   const todayStr = new Date().toISOString().slice(0, 10);
   const nastupItems = nastupRelevant(currentEmployment, todayStr)
     ? nastupChecklist({
-      employment: currentEmployment, documents: hrDocs, agenda: agendaItems(employee, payroll), timeline, payroll,
+      employee, employment: currentEmployment, documents: hrDocs, agenda: agendaItems(employee, payroll), timeline, payroll,
       uplatnujeSlevy: valuesFromRecords({ employee, payroll }).tax_uplatneni, canPayroll, today: todayStr,
     })
     : null;
@@ -1143,7 +1143,7 @@ function PrehledDetailTab({ employee, payroll, currentEmployment, contractEvents
         <div className="space-y-4">
           <div className="bg-white border border-slate-200 rounded-lg p-4">
             <h2 className="font-semibold text-sm mb-2">Přihlášení na úřadech</h2>
-            <RegistrationStatusBadges items={agendaItems(employee, payroll)} employee={employee} />
+            <RegistraceCsszStatus employee={employee} payroll={payroll} employment={currentEmployment} agenda={agendaItems(employee, payroll)} />
           </div>
           <div className="bg-white border border-slate-200 rounded-lg p-4">
             <h2 className="font-semibold text-sm mb-3">Kontakt</h2>
@@ -2967,6 +2967,33 @@ function RegistrationStatusBadges({ items, employee }) {
     </div>
   );
 }
+// Prehled: registrace u CSSZ. Dokoncena = CSSZ pridelila OIC + ID PPV (karta,
+// sekce Evidence) -> zamestnanec muze do pracovniho procesu. ZP sleduje
+// nastupni balicek a zalozka Agenda.
+function RegistraceCsszStatus({ employee, payroll, employment, agenda }) {
+  const reg = registraceCssz(employee, employment);
+  const pdf = (payroll?.data?.prilohy || []).some((p) => p.kind === "evidence_pojistneho_vztahu");
+  if (reg.done) {
+    return (
+      <div className="rounded-md bg-emerald-50 border border-emerald-200 px-3 py-2">
+        <div className="text-sm font-semibold text-emerald-800">REGISTRACE dokončena</div>
+        <div className="text-xs text-emerald-700">Může nastoupit do pracovního procesu.</div>
+        <div className="text-xs text-slate-600 mt-1">OIČ {reg.oic} · ID PPV {reg.idPpv}{payroll ? (pdf ? " · Evidence pojistného vztahu (PDF) uložena" : " · chybí PDF Evidence pojistného vztahu") : ""}</div>
+      </div>
+    );
+  }
+  const st = registrationStatus(agenda, "cssz");
+  const chybi = [!reg.oic && "OIČ", !reg.idPpv && "ID PPV"].filter(Boolean).join(" a ");
+  const cls = { ok: "bg-emerald-100 text-emerald-800", off: "bg-slate-200 text-slate-600", missing: "bg-red-100 text-red-700" };
+  return (
+    <div className="space-y-2">
+      <span className={"inline-block px-2.5 py-1 rounded-full text-xs font-medium " + cls[st.level]}>ČSSZ: {st.text}</span>
+      <div className="text-xs text-amber-700 bg-amber-50 rounded-md px-3 py-2">
+        Registrace nedokončena – chybí {chybi} (doplňte v Kartě zaměstnance, sekce Evidence, po obdržení Evidence pojistného vztahu od ČSSZ).
+      </div>
+    </div>
+  );
+}
 const AGENDA_URADY = [
   { value: "cssz", label: "ČSSZ" },
   { value: "zp", label: "Zdravotní pojišťovna" },
@@ -3395,6 +3422,11 @@ function PracovniSmlouvaForm({ employee, sensitive, payroll, currentEmployment, 
         </div>
       )}
       <TextAreaField label="Základní povinnosti (čl. 1.2 smlouvy)" value={povinnosti} onChange={setPovinnosti} />
+      {isPovinnostiNavrh(values) && povinnosti === defaultPovinnosti(values) && (
+        <div className="text-xs text-amber-700 bg-amber-50 rounded-md px-3 py-2 -mt-1 mb-3">
+          Text povinností pro tuto pozici je předvyplněný návrh (ve vzoru smlouvy nebyl) – před podpisem ho zkontrolujte.
+        </div>
+      )}
       <div className="bg-slate-50 rounded-md p-3 mb-3">
         <div className="text-xs font-medium text-slate-500 mb-1.5">Z karty zaměstnance (změny dělejte v kartě):</div>
         <dl className="text-sm grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-1">

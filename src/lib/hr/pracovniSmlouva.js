@@ -21,12 +21,26 @@ export const PS_PODEPISUJICI = [
 
 export const psVariant = (v) => (isValuesForeigner(v) ? "pracovni_smlouva_cizinec" : "pracovni_smlouva");
 
-// Povinnosti z puvodniho vzoru (vyroba). Pro jine pozice text dopise HR.
-const POVINNOSTI_VYROBA = "výroba popcornu, úklid, sanitace, manipulace s paletami, kontrola a dodržování výrobních postupů, znalosti výrobků a surovin, dodržování IFS/HACCP, dodržování správné výrobní a hygienické praxe a food defense";
+// Povinnosti z puvodniho vzoru (vyroba). Sklad a THP = navrh v rovnakom
+// style (HR ho pred podpisom skontroluje / upravi v textovom poli).
+const POVINNOSTI_VYROBA = "výroba popcornu, úklid, sanitace, manipulace s paletami, kontrola a dodržování výrobních postupů, znalosti výrobků a surovin, dodržování IFS/HACCP, dodržování správné výrobní a hygienické praxe a food defense";
+const POVINNOSTI_SKLAD = "příjem, skladování a výdej surovin, obalů a hotových výrobků, manipulace s paletami a obsluha manipulační techniky v rozsahu platného oprávnění, kompletace a expedice zásilek, evidence pohybu zboží a účast na inventurách, kontrola množství, kvality, značení a šarží, pořádek a úklid ve skladu, dodržování IFS/HACCP, dodržování správné skladovací a hygienické praxe a food defense";
+const POVINNOSTI_THP = "administrativní, organizační a odborné činnosti podle pokynů nadřízeného, vedení evidence a dokumentace, zpracování podkladů a dat, komunikace se zákazníky, dodavateli a úřady, ochrana osobních údajů a důvěrných informací, dodržování vnitřních předpisů společnosti, IFS/HACCP a food defense";
+
+// Kategorie s navrhem textu, ktery ve vzoru nebyl -> UI upozorni "zkontrolujte".
+export const isPovinnostiNavrh = (v) => ["HI-002", "HI-003"].includes(v.pozice_kategorie);
+
 export function defaultPovinnosti(v) {
-  if (v.pozice_kategorie && v.pozice_kategorie !== "HI-001") return "";
-  const kdo = v.gender === "zena" ? "dělnice" : v.gender === "muz" ? "dělníka" : "dělníka / dělnice";
-  return `Mezi základní povinnosti ${kdo} patří ${POVINNOSTI_VYROBA}.`;
+  const kat = v.pozice_kategorie;
+  if (!kat || kat === "HI-001") {
+    const kdo = v.gender === "zena" ? "dělnice" : v.gender === "muz" ? "dělníka" : "dělníka / dělnice";
+    return `Mezi základní povinnosti ${kdo} patří ${POVINNOSTI_VYROBA}.`;
+  }
+  const text = kat === "HI-002" ? POVINNOSTI_SKLAD : kat === "HI-003" ? POVINNOSTI_THP : "";
+  if (!text) return "";
+  // Nazev pozice uz je v spravnem rodu (skladník / skladnice); bez sklonovani.
+  const kdo = v.nazev_pozice ? `zaměstnance na pozici ${v.nazev_pozice}` : "zaměstnance";
+  return `Mezi základní povinnosti ${kdo} patří ${text}.`;
 }
 
 // --- cisla slovy (tydenni uvazek, napr. 38,75 -> "třicet osm celých sedmdesát pět setin")

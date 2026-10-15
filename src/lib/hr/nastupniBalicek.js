@@ -25,6 +25,14 @@ export function nastupRelevant(employment, today) {
   return dayDiff(today, employment.start_date) <= NASTUP_DNY;
 }
 
+// Registrace u CSSZ je dokoncena, kdyz CSSZ pridelila OIC (karta) a ID PPV
+// (pracovni pomer) - signal, ze zamestnanec muze do pracovniho procesu.
+export function registraceCssz(employee, employment) {
+  const oic = String(employee?.data?.oic || "").trim();
+  const idPpv = String(employment?.data?.id_ppv || "").trim();
+  return { oic, idPpv, done: !!(oic && idPpv) };
+}
+
 function lastRegistration(agenda, urad) {
   return (agenda || []).filter((x) => x.urad === urad && ["Přihláška", "Odhláška", "Storno"].includes(x.typ))
     .sort((a, b) => String(b.datum || "").localeCompare(String(a.datum || "")))[0] || null;
@@ -32,7 +40,7 @@ function lastRegistration(agenda, urad) {
 
 // stav: missing | created (vytvoreno, ceka na podpis) | done
 // action: { tab, preset? } - kam prepnout v detailu zamestnance
-export function nastupChecklist({ employment, documents = [], agenda = [], timeline = [], payroll, uplatnujeSlevy, canPayroll, today }) {
+export function nastupChecklist({ employee, employment, documents = [], agenda = [], timeline = [], payroll, uplatnujeSlevy, canPayroll, today }) {
   const start = employment?.start_date || today;
   const docs = documents.filter((d) => !d.employment_id || d.employment_id === employment?.id);
   const items = [];
@@ -67,11 +75,12 @@ export function nastupChecklist({ employment, documents = [], agenda = [], timel
   const lhuta = addDays(start, PRIHLASKA_DNY);
   for (const [urad, label] of [["cssz", "Přihláška ČSSZ"], ["zp", "Přihláška zdravotní pojišťovně"]]) {
     const last = lastRegistration(agenda, urad);
-    const ok = last?.typ === "Přihláška";
+    const registrovan = urad === "cssz" && registraceCssz(employee, employment).done;
+    const ok = last?.typ === "Přihláška" || registrovan;
     items.push({
       key: urad, label,
       state: ok ? "done" : "missing",
-      detail: ok ? `podáno ${czDate(last.datum)}` : `podat do ${czDate(lhuta)}`,
+      detail: last?.typ === "Přihláška" ? `podáno ${czDate(last.datum)}` : registrovan ? "registrace dokončena (OIČ + ID PPV)" : `podat do ${czDate(lhuta)}`,
       overdue: !ok && today > lhuta,
       action: { tab: "jmhz" },
     });

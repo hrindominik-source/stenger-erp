@@ -33,7 +33,9 @@ describe("pracovní smlouva", () => {
     expect(probationText("6")).toBe("6 měsíců");
     expect(probationText("0")).toBe("");
     expect(defaultPovinnosti({ gender: "zena", pozice_kategorie: "HI-001" })).toMatch(/^Mezi základní povinnosti dělnice patří výroba popcornu/);
-    expect(defaultPovinnosti({ pozice_kategorie: "HI-003" })).toBe("");
+    expect(defaultPovinnosti({ gender: "zena", pozice_kategorie: "HI-002", nazev_pozice: "skladnice" })).toMatch(/^Mezi základní povinnosti zaměstnance na pozici skladnice patří příjem, skladování/);
+    expect(defaultPovinnosti({ pozice_kategorie: "HI-003" })).toMatch(/^Mezi základní povinnosti zaměstnance patří administrativní/);
+    expect(defaultPovinnosti({ pozice_kategorie: "XX" })).toBe("");
   });
   it("varianta podle občanství", () => {
     expect(psVariant(cz)).toBe("pracovni_smlouva");

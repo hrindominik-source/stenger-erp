@@ -333,6 +333,7 @@ export const EMPLOYEE_SECTIONS = [
       { key: "osobni_cislo", label: "Osobní číslo zaměstnance", type: "text", rowStart: true, store: { t: "emp", col: "data", path: "osobni_cislo" } },
       { key: "oic", label: "OIČ – osobní identifikační číslo (přiděluje ČSSZ)", type: "text", rowStart: true, store: { t: "emp", col: "data", path: "oic" } },
       { key: "id_ppv", label: "ID PPV – identifikátor zaměstnání (přiděluje ČSSZ)", type: "text", tier: "job", store: { t: "job", col: "data", path: "id_ppv" } },
+      { key: "evidence_pojistneho_vztahu", label: "Evidence pojistného vztahu – potvrzení ČSSZ o přidělení OIČ / ID PPV (PDF)", type: "file", kind: "evidence_pojistneho_vztahu", tier: "payroll" },
       { key: "cislo_pojistence", label: "Číslo pojištěnce (náhradní / evidenční číslo pojištěnce)", type: "text", rowStart: true, store: { t: "emp", col: "data", path: "cislo_pojistence" } },
       // Prilohy sa ukladaju k mzdovym udajom (payroll.data.prilohy) -> tier payroll.
       { key: "cislo_pojistence_oznameni", label: "Oznámení o přidělení čísla pojištěnce (PDF / sken)", type: "file", kind: "oznameni_cislo_pojistence", tier: "payroll" },

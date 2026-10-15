@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { nastupChecklist, nastupSummary, nastupRelevant } from "./nastupniBalicek.js";
+import { nastupChecklist, nastupSummary, nastupRelevant, registraceCssz } from "./nastupniBalicek.js";
 
 const emp = { id: "e1", start_date: "2026-10-01", status: "ACTIVE" };
 const byKey = (items) => Object.fromEntries(items.map((i) => [i.key, i]));
@@ -46,5 +46,15 @@ describe("nástupní balíček", () => {
     expect(nastupChecklist({ employment: emp, canPayroll: false, today: "2026-10-05" }).map((i) => i.key)).toEqual(["ps", "napln", "skoleni", "dotaznik", "cssz", "zp"]);
     const k = byKey(nastupChecklist({ employment: emp, canPayroll: true, uplatnujeSlevy: false, today: "2026-10-05" }));
     expect(k.prohlaseni.state).toBe("done");
+  });
+  it("registrace ČSSZ dokončena až s OIČ i ID PPV", () => {
+    expect(registraceCssz({ data: { oic: "123" } }, { data: {} }).done).toBe(false);
+    const employee = { data: { oic: "1234567890" } };
+    const employment = { ...emp, data: { id_ppv: "987" } };
+    expect(registraceCssz(employee, employment).done).toBe(true);
+    const k = byKey(nastupChecklist({ employee, employment, canPayroll: false, today: "2026-10-14" }));
+    expect(k.cssz.state).toBe("done");
+    expect(k.cssz.detail).toBe("registrace dokončena (OIČ + ID PPV)");
+    expect(k.zp.state).toBe("missing");
   });
 });
