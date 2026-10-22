@@ -3,7 +3,7 @@ import { Lock, ShieldAlert, Plus, Trash2, Paperclip, X, Info, Download } from "l
 import {
   EMPLOYEE_SECTIONS, fieldVisibleInMode, isFieldShown, optionLabel, derivePostaveni,
   addChild, removeChild, MAX_CHILDREN, JMHZ_PDF_CHILDREN, addMonthsIsoLib,
-  POSITION_CATEGORIES, positionNameOptions, positionNameForGender,
+  POSITION_CATEGORIES, positionNameOptions, positionNameForGender, positionRecordLabel,
 } from "../lib/hr/employeeFields.js";
 
 /* Spolocny renderer udajov zamestnanca (definicia v lib/hr/employeeFields.js).
@@ -319,8 +319,7 @@ export function formatFieldValue(field, value, positions = [], values = {}) {
     return opts ? optionLabel(opts, value) : String(value);
   }
   if (field.type === "position") {
-    const p = positions.find((x) => x.id === value);
-    return p ? (p.code ? `${p.code} – ${p.name}` : p.name) : null;
+    return positionRecordLabel(positions.find((x) => x.id === value));
   }
   return String(value);
 }

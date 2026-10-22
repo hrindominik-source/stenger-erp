@@ -11,7 +11,7 @@ import { convertFilledDocxToPdf } from "../lib/hr/docxToPdf.js";
 import { extractJmhzFields, detectJmhzVersionCandidates, knownJmhzVersions } from "../lib/hr/jmhzPdf.js";
 import { buildComparisonRows } from "../lib/hr/jmhzImport.js";
 import { sha256Hex, buildSignedScanPath } from "../lib/hr/documentHash.js";
-import { EMPLOYEE_SECTIONS, emptyEmployeeValues, normalizeLegacyDraft, valuesFromRecords, buildRecordPatches, patchHasContent, maritalStatusText, normalizeGender, HEALTH_INSURANCE_OPTIONS, optionLabel, normalizeHealthInsurance, POSITION_CATEGORIES, positionNameOptions, wageHistory, currentWage, upcomingWages, wageStepHint, valuesToWage } from "../lib/hr/employeeFields.js";
+import { EMPLOYEE_SECTIONS, emptyEmployeeValues, normalizeLegacyDraft, valuesFromRecords, buildRecordPatches, patchHasContent, maritalStatusText, normalizeGender, HEALTH_INSURANCE_OPTIONS, optionLabel, normalizeHealthInsurance, POSITION_CATEGORIES, positionNameOptions, positionRecordLabel, wageHistory, currentWage, upcomingWages, wageStepHint, valuesToWage } from "../lib/hr/employeeFields.js";
 import EmployeeFieldsForm, { EmployeeFieldsView, applyFieldChange } from "./EmployeeFieldsForm.jsx";
 import { childTaxWarnings } from "../lib/hr/taxChildren.js";
 import { RZ_POLOZKY, RZ_SLEVY, VYUCTOVANI, VYUCTOVANI_STAV, taxYearRecord, taxYearStatus, childMonthsForYear, childrenUnder3, rzWarnings, settlementWarning } from "../lib/hr/taxYear.js";
@@ -28,7 +28,7 @@ const DOCX_MIME = "application/vnd.openxmlformats-officedocument.wordprocessingm
 // nemame (napr. pracovni_smlouva - user ho dodá neskôr, viz schema.sql 45.10).
 const DOC_TYPE_LABELS = {
   platovy_vymer: "Mzdový výměr",
-  hi001_naplen_prace_delnice: "HI-001 – Náplň práce dělnice",
+  hi001_naplen_prace_delnice: "HI-001 – Náplň práce (výroba)",
   vstupni_skoleni: "Vstupní školení",
   pracovni_smlouva: "Pracovní smlouva",
   pracovni_smlouva_cizinec: "Pracovní smlouva – cizinec",
@@ -272,7 +272,7 @@ function DashboardTab({ permissions, onOpenEmployee }) {
     ...employees.flatMap((e) => taxWarningsFor(e, payrolls.find((p) => p.employee_id === e.id)).map((w) => ({ ...w, employeeId: e.id, employeeName: fullName(e) }))),
   ];
 
-  const positionLabel = (positionId) => { const p = positions.find((x) => x.id === positionId); return p ? (p.code ? `${p.code} – ${p.name}` : p.name) : "—"; };
+  const positionLabel = (em) => employmentPositionText(em, positions);
   const extensionsCountFor = (employmentId) => contractEvents.filter((e) => e.employment_id === employmentId && e.event_type === "EXTENDED").length;
 
   return (
@@ -330,7 +330,7 @@ function DashboardTab({ permissions, onOpenEmployee }) {
               return (
                 <tr key={e.id} className="border-t border-slate-100 hover:bg-slate-50 cursor-pointer" onClick={() => onOpenEmployee(e.id)}>
                   <td className="px-4 py-2 font-medium whitespace-nowrap">{fullName(e)}</td>
-                  <td className="px-4 py-2 text-slate-500 whitespace-nowrap">{em ? positionLabel(em.position_id) : "—"}</td>
+                  <td className="px-4 py-2 text-slate-500 whitespace-nowrap">{em ? positionLabel(em) : "—"}</td>
                   <td className="px-4 py-2 text-slate-500 whitespace-nowrap">{em ? fmtDate(em.start_date) : "—"}</td>
                   <td className="px-4 py-2 text-slate-500 whitespace-nowrap">{em?.employment_type === "doba_urcita" ? "Doba určitá" : em?.employment_type === "doba_neurcita" ? "Doba neurčitá" : "—"}</td>
                   <td className="px-4 py-2 text-slate-500 whitespace-nowrap">{em?.fixed_term_end_date ? fmtDate(em.fixed_term_end_date) : "—"}</td>
@@ -943,7 +943,7 @@ function EmployeeDetail({ id, permissions, onBack }) {
   if (error || !employee) return <div className="bg-red-50 text-red-700 text-sm px-3 py-2 rounded-md">{error || "Zaměstnanec nenalezen."}</div>;
 
   const currentEmployment = employments.find((e) => ["ACTIVE", "NOTICE_PERIOD"].includes(e.status)) || employments[0];
-  const positionLabel = (positionId) => { const p = positions.find((x) => x.id === positionId); return p ? (p.code ? `${p.code} – ${p.name}` : p.name) : "—"; };
+  const positionLabel = (em) => employmentPositionText(em, positions);
   const todayStr = new Date().toISOString().slice(0, 10);
   const nastupItems = nastupRelevant(currentEmployment, todayStr)
     ? nastupChecklist({
@@ -968,7 +968,7 @@ function EmployeeDetail({ id, permissions, onBack }) {
           <h1 className="text-xl font-semibold">{fullName(employee)}</h1>
           <div className="text-sm text-slate-500">
             {employee.data?.osobni_cislo ? `Os. č. ${employee.data.osobni_cislo} · ` : ""}
-            {currentEmployment ? positionLabel(currentEmployment.position_id) : "Bez aktivního pracovního poměru"}
+            {currentEmployment ? positionLabel(currentEmployment) : "Bez aktivního pracovního poměru"}
           </div>
         </div>
         <div className="flex items-center gap-2 flex-wrap">
@@ -1108,7 +1108,7 @@ function PrehledDetailTab({ employee, payroll, currentEmployment, contractEvents
     <div>
       <div className="mb-4">
         <div className="text-lg font-semibold">{fullName(employee).toUpperCase()}</div>
-        <div className="text-sm text-slate-500">{currentEmployment ? positionLabel(currentEmployment.position_id) : "Bez aktivního pracovního poměru"} · {employee.active ? "AKTIVNÍ" : "BÝVALÝ ZAMĚSTNANEC"}</div>
+        <div className="text-sm text-slate-500">{currentEmployment ? positionLabel(currentEmployment) : "Bez aktivního pracovního poměru"} · {employee.active ? "AKTIVNÍ" : "BÝVALÝ ZAMĚSTNANEC"}</div>
       </div>
       {nastupItems && <NastupniBalicekCard items={nastupItems} onAction={onNastupAction} />}
       {warnings.length > 0 && (
@@ -1125,7 +1125,7 @@ function PrehledDetailTab({ employee, payroll, currentEmployment, contractEvents
           <h2 className="font-semibold text-sm mb-3">Pracovní poměr</h2>
           {currentEmployment ? (
             <dl className="text-sm space-y-1.5">
-              <Row label="Pozice" value={positionLabel(currentEmployment.position_id)} />
+              <Row label="Pozice" value={positionLabel(currentEmployment)} />
               <Row label="Nástup" value={fmtDate(currentEmployment.start_date)} />
               <Row label="Typ" value={currentEmployment.employment_type === "doba_urcita" ? "Doba určitá" : "Doba neurčitá"} />
               {currentEmployment.fixed_term_end_date && <Row label="Konec smlouvy" value={fmtDate(currentEmployment.fixed_term_end_date)} />}
@@ -1468,7 +1468,7 @@ function PracovniPomerTab({ employeeId, employee, employments, contractEvents, p
             <div key={em.id} className="bg-white border border-slate-200 rounded-lg p-4">
               <div className="flex justify-between items-start flex-wrap gap-2">
                 <div>
-                  <div className="font-medium">{positionLabel(em.position_id)}</div>
+                  <div className="font-medium">{positionLabel(em)}</div>
                   <div className="text-sm text-slate-500">{fmtDate(em.start_date)} – {em.termination_date ? fmtDate(em.termination_date) : (em.fixed_term_end_date ? fmtDate(em.fixed_term_end_date) : "trvá")}</div>
                 </div>
                 <span className="px-2 py-0.5 rounded-full text-xs font-medium bg-slate-100 text-slate-600 h-fit">{EMPLOYMENT_STATUS_LABEL[em.status]}</span>
@@ -1561,6 +1561,19 @@ function ContractEventsList({ events }) {
    employment.position_id (tabulka positions - hlavicka karty, historia) sa
    s nou vzdy synchronizuje. Chybajuca pozicia v tabulke sa zalozi sama. */
 const normPosCode = (c) => String(c || "").toUpperCase().replace(/L/g, "I").replace(/\s/g, "");
+
+// Zaznam v positions je spolocny pre muzov aj zeny (napr. HI-001 "Dělnice"),
+// preto sa zobrazuje nazov pozicie z karty v spravnom rode (dělník / dělnice),
+// inak nazov kategorie.
+function employmentPositionText(em, positions) {
+  if (!em) return "—";
+  const p = positions.find((x) => x.id === em.position_id);
+  const cat = POSITION_CATEGORIES.find((c) => c.code === normPosCode(p?.code)) || POSITION_CATEGORIES.find((c) => c.code === em.data?.pozice_kategorie);
+  const code = cat?.code || p?.code || "";
+  const name = em.data?.nazev_pozice || (cat ? cat.label.split(" – ")[1] : p?.name);
+  if (!name) return "—";
+  return code ? `${code} – ${name}` : name;
+}
 
 function categoryOfPosition(positionId, positions) {
   const code = normPosCode(positions.find((p) => p.id === positionId)?.code);
@@ -1866,7 +1879,7 @@ function NewEmploymentForm({ employeeId, positions, onCancel, onSaved }) {
     <div className="bg-white border border-slate-200 rounded-lg p-4 mb-3">
       <h2 className="font-semibold text-sm mb-3">Nový pracovní poměr</h2>
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-x-4">
-        <SelectFieldLocal label="Pozice" value={f.position_id} onChange={(v) => setF({ ...f, position_id: v })} options={[{ value: "", label: "— nevybráno —" }, ...positions.map((p) => ({ value: p.id, label: p.code ? `${p.code} – ${p.name}` : p.name }))]} />
+        <SelectFieldLocal label="Pozice" value={f.position_id} onChange={(v) => setF({ ...f, position_id: v })} options={[{ value: "", label: "— nevybráno —" }, ...positions.map((p) => ({ value: p.id, label: positionRecordLabel(p) }))]} />
         <DateFieldLocal label="Datum nástupu" value={f.start_date} onChange={(v) => setF({ ...f, start_date: v, probation_end_date: addMonthsIso(v, PROBATION_MONTHS) })} />
         <SelectFieldLocal label="Typ smlouvy" value={f.employment_type} onChange={(v) => setF({ ...f, employment_type: v })} options={[{ value: "doba_neurcita", label: "Doba neurčitá" }, { value: "doba_urcita", label: "Doba určitá" }]} />
         {f.employment_type === "doba_urcita" && <DateFieldLocal label="Konec smlouvy" value={f.fixed_term_end_date} onChange={(v) => setF({ ...f, fixed_term_end_date: v })} />}
@@ -3714,7 +3727,7 @@ function GenerateDocumentForm({ employee, sensitive, payroll, currentEmployment,
   const person = {
     maiden_name: employee.maiden_name, date_of_birth: employee.date_of_birth, place_of_birth: employee.place_of_birth,
     permanent_address: employee.permanent_address, correspondence_address: employee.correspondence_address,
-    phone: employee.phone, private_email: employee.private_email,
+    phone: employee.phone, private_email: employee.private_email, gender: normalizeGender(employee.gender),
   };
   const mergedData = buildDocumentData({ person, sensitive, documentFields: manualFields });
   const { missing } = validateRequiredKeys(mergedData, requiredKeys);
@@ -3805,7 +3818,7 @@ function GenerateDocumentForm({ employee, sensitive, payroll, currentEmployment,
     <div className="bg-white border border-slate-200 rounded-lg p-4 mb-4">
       {pendingHint}
       <h2 className="font-semibold text-sm mb-3">Vytvořit dokument</h2>
-      <SelectFieldLocal label="Šablona" value={templateId} onChange={setTemplateId} options={templates.map((t) => ({ value: t.id, label: `${DOC_TYPE_LABELS[t.doc_type] || t.doc_type} – ${t.name}` }))} />
+      <SelectFieldLocal label="Šablona" value={templateId} onChange={setTemplateId} options={templates.map((t) => { const typ = DOC_TYPE_LABELS[t.doc_type] || t.doc_type; return { value: t.id, label: t.name && t.name !== typ ? `${typ} – ${t.name}` : typ }; })} />
 
       {loadingVersion ? (
         <div className="text-sm text-slate-400 py-2"><Loader2 className="inline animate-spin mr-1.5" size={14} /> Načítám šablonu...</div>
@@ -4439,8 +4452,7 @@ function AuditTab({ employee, employments, contractEvents, medicalExams, positio
   // informaciu skryt ani zahodit.
   function positionName(id) {
     if (!id) return null;
-    const p = positions.find((x) => x.id === id);
-    return p ? (p.code ? `${p.code} – ${p.name}` : p.name) : null;
+    return positionRecordLabel(positions.find((x) => x.id === id));
   }
   function diffKeyLabel(key) {
     return key === "position_id" ? "Pozice" : key;
@@ -4636,6 +4648,16 @@ function TemplatesTab({ permissions }) {
     load();
   }
 
+  const [renaming, setRenaming] = useState(null); // { id, name }
+  async function saveRename() {
+    const name = renaming?.name.trim();
+    if (!name) return;
+    const { error: err } = await supabase.from("hr_document_templates").update({ name }).eq("id", renaming.id);
+    if (err) { setError(err.message); return; }
+    setRenaming(null);
+    load();
+  }
+
   async function retireTemplate(template) {
     if (!window.confirm(`Vyřadit šablonu "${template.name}"? Dosud vygenerované dokumenty zůstanou beze změny, jen se přestane nabízet pro nové generování.`)) return;
     await supabase.from("hr_document_templates").update({ status: "VYRAZENA", active: false }).eq("id", template.id);
@@ -4669,7 +4691,19 @@ function TemplatesTab({ permissions }) {
               <div key={t.id} className="bg-white border border-slate-200 rounded-lg p-4">
                 <div className="flex justify-between items-start flex-wrap gap-2">
                   <div>
-                    <div className="font-medium">{t.name}</div>
+                    {renaming?.id === t.id ? (
+                      <div className="flex items-center gap-2">
+                        <input value={renaming.name} onChange={(e) => setRenaming({ ...renaming, name: e.target.value })} onKeyDown={(e) => { if (e.key === "Enter") saveRename(); if (e.key === "Escape") setRenaming(null); }}
+                          className="border border-slate-300 rounded-md px-2 py-1 text-sm" autoFocus />
+                        <button onClick={saveRename} className="text-xs bg-teal-700 hover:bg-teal-800 text-white px-2 py-1 rounded-md">Uložit</button>
+                        <button onClick={() => setRenaming(null)} className="text-xs text-slate-500 hover:underline">Zrušit</button>
+                      </div>
+                    ) : (
+                      <div className="font-medium flex items-center gap-2">
+                        {t.name}
+                        {canApprove && <button onClick={() => setRenaming({ id: t.id, name: t.name })} className="text-slate-400 hover:text-teal-700" title="Přejmenovat"><Pencil size={13} /></button>}
+                      </div>
+                    )}
                     <div className="text-xs text-slate-500">{DOC_TYPE_LABELS[t.doc_type] || t.doc_type}</div>
                   </div>
                   <div className="flex items-center gap-2">

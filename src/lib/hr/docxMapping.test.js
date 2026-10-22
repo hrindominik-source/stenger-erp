@@ -90,4 +90,11 @@ describe("formatAddress – číslo popisné zvlášť", () => {
     expect(formatAddress({ ulice: "Lnáře", cislo_popisne: "214", psc: "38742", mesto: "Lnáře" })).toBe("Lnáře 214, 38742 Lnáře");
     expect(formatAddress({ ulice: "Hlavní", cislo_popisne: "1200", cislo_orientacni: "12a", psc: "60200", mesto: "Brno" })).toBe("Hlavní 1200/12a, 60200 Brno");
   });
+  it("rodové tvary podle pohlaví (dělník / dělnice)", () => {
+    const muz = buildDocumentData({ person: { gender: "muz" }, sensitive: {}, documentFields: {} });
+    expect([muz.pracovnik, muz.pracovnika, muz.delnik, muz.zamestnanec]).toEqual(["pracovník", "pracovníka", "dělník", "zaměstnanec"]);
+    const zena = buildDocumentData({ person: { gender: "zena" }, sensitive: {}, documentFields: {} });
+    expect([zena.pracovnik, zena.pracovnika, zena.delnik, zena.zamestnanec]).toEqual(["pracovnice", "pracovnice", "dělnice", "zaměstnankyně"]);
+    expect(buildDocumentData({ person: {}, sensitive: {}, documentFields: {} }).pracovnika).toBe("pracovníka / pracovnice");
+  });
 });

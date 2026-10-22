@@ -179,6 +179,15 @@ export const POSITION_CATEGORIES = [
   },
 ];
 
+// Popis zaznamu z tabulky positions: pri kategorii jej nazov (zaznam je
+// spolocny pre muzov aj zeny - napr. HI-001 bol "Dělnice"), inak kod – nazov.
+export function positionRecordLabel(p) {
+  if (!p) return null;
+  const code = String(p.code || "").toUpperCase().replace(/L/g, "I").replace(/\s/g, "");
+  const cat = POSITION_CATEGORIES.find((c) => c.code === code);
+  return cat ? cat.label : p.code ? `${p.code} – ${p.name}` : p.name;
+}
+
 // Nazvy pre danu kategoriu, filtrovane podla pohlavia (bez pohlavia vsetky).
 export function positionNameOptions(categoryCode, gender) {
   const cat = POSITION_CATEGORIES.find((c) => c.code === categoryCode);
