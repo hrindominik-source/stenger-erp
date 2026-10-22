@@ -10,3 +10,4 @@ vite-dev.log
 hr-podklady/
 .env.development
 .env.production
+supabase/prod_schema_dump.sql
