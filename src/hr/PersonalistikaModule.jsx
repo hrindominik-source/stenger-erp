@@ -20,6 +20,7 @@ import { hrFileName, fileExt } from "../lib/hr/fileNames.js";
 import { nastupChecklist, nastupSummary, nastupRelevant, registraceCssz } from "../lib/hr/nastupniBalicek.js";
 import { verifyFinalPdf, buildFinalPdfUploadPath, TEXT_CHECK_REASON_LABELS } from "../lib/hr/finalPdf.js";
 import { KIOSK_DRAFT_KEYS, KIOSK_DOCS } from "../lib/hr/kioskDocuments.js";
+import { documentRequiredSigners, signingState, SIGNER_LABELS } from "../lib/hr/signingRules.js";
 import { ABSENCE_TYPES, ABSENCE_DOC_TYPES, absenceType, absenceList, isAbsenceActive, activeAbsence, absenceStatusText, probationOverlapDays, absenceInProbation, addDaysIso } from "../lib/hr/absences.js";
 
 const HR_DOKUMENTY_BUCKET = "hr-dokumenty";
@@ -3698,7 +3699,13 @@ function DokumentyTab({ employee, sensitive, payroll, currentEmployment, permiss
                       {d.origin === "GENERATED" ? "Vygenerováno" : "Nahráno ručně"} · {fmtDate(d.created_at?.slice(0, 10))}
                     </div>
                   </div>
-                  <span className="px-2 py-0.5 rounded-full text-xs font-medium bg-slate-100 text-slate-600">{HR_DOCUMENT_STATUS_LABEL[d.status] || d.status}</span>
+                  {(() => {
+                    // Zamknuty prvym podpisom != podpisany (vsetky pozadovane podpisy).
+                    const sig = signingState(d, signatures);
+                    return sig.state === "partial" && !["VOIDED", "SUPERSEDED"].includes(d.status)
+                      ? <span className="px-2 py-0.5 rounded-full text-xs font-medium bg-amber-100 text-amber-800">Čeká na podpis: {sig.missing.map((m) => SIGNER_LABELS[m]).join(", ")}</span>
+                      : <span className="px-2 py-0.5 rounded-full text-xs font-medium bg-slate-100 text-slate-600">{HR_DOCUMENT_STATUS_LABEL[d.status] || d.status}</span>;
+                  })()}
                 </div>
                 <div className="flex flex-wrap items-center gap-3 mt-3 pt-3 border-t border-slate-100">
                   {/* GENERATED ORIGINAL - hr_documents.file_path sa po podpise nikdy neprepisuje, zostava trvalo dostupny */}
@@ -3761,7 +3768,7 @@ function DokumentyTab({ employee, sensitive, payroll, currentEmployment, permiss
                     {" "}SHA-256: <code className="font-mono">{latestSignature.document_hash ? latestSignature.document_hash.slice(0, 16) + "…" : "—"}</code>
                   </div>
                 )}
-                {signingId === d.id && <SignDocumentForm doc={d} onCancel={() => setSigningId(null)} onSaved={() => { setSigningId(null); load(); }} />}
+                {signingId === d.id && <SignDocumentForm doc={d} signatures={signatures} onCancel={() => setSigningId(null)} onSaved={() => { setSigningId(null); load(); }} />}
               </div>
             );
           })}
@@ -4070,17 +4077,25 @@ function FinalPdfForm({ doc, employee, docLabel, onCancel, onSaved }) {
   );
 }
 
-function SignDocumentForm({ doc, onCancel, onSaved }) {
-  const [signerType, setSignerType] = useState("EMPLOYEE");
-  const [signedByName, setSignedByName] = useState("");
+function SignDocumentForm({ doc, signatures = [], onCancel, onSaved }) {
+  // Papierovy sken: HR oznaci, kto na nom podpisal. Pri zmluve su potrebne
+  // obe strany - stav "Podepsáno" sa nastavi az ked nechyba ziadny podpis
+  // (DB to vynucuje: hr_documents_signed_complete).
+  const required = documentRequiredSigners(doc);
+  const already = new Set(signatures.map((s) => s.signer_type));
+  const [signers, setSigners] = useState(() => Object.fromEntries(required.filter((r) => !already.has(r)).map((r) => [r, { checked: true, name: "" }])));
+  const [extraEmployer, setExtraEmployer] = useState(false);
   const [signedAt, setSignedAt] = useState(new Date().toISOString().slice(0, 10));
   const [file, setFile] = useState(null);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
 
+  const rows = Object.entries(signers);
   async function submit() {
     if (!file) { setError("Vyberte naskenovaný podepsaný soubor."); return; }
-    if (!signedByName.trim()) { setError("Vyplňte jméno podepsaného."); return; }
+    const chosen = rows.filter(([, v]) => v.checked);
+    if (!chosen.length) { setError("Označte, kdo na skenu podepsal."); return; }
+    if (chosen.some(([, v]) => !v.name.trim())) { setError("Vyplňte jméno u každého, kdo podepsal."); return; }
     setSaving(true);
     setError("");
     try {
@@ -4090,22 +4105,24 @@ function SignDocumentForm({ doc, onCancel, onSaved }) {
       if (upErr) throw upErr;
       const ab = await file.arrayBuffer();
       const hash = await sha256Hex(ab);
-      const { error: sigErr } = await supabase.from("hr_document_signatures").insert({
+      // Jeden sken, jeden zaznam za kazdeho podpisujuceho (rovnaky subor a hash).
+      const { error: sigErr } = await supabase.from("hr_document_signatures").insert(chosen.map(([signerType, v]) => ({
         id: uid(), hr_document_id: doc.id, method: "PAPER", signer_type: signerType,
-        signed_at: signedAt ? new Date(signedAt).toISOString() : null, signed_by_name: signedByName.trim(),
+        signed_at: signedAt ? new Date(signedAt).toISOString() : null, signed_by_name: v.name.trim(),
         document_hash: hash, uploaded_by: userData?.user?.id || null, file_path: storagePath,
-      });
+      })));
       if (sigErr) throw sigErr;
       // hr_documents.file_path sa ZAMERNE NEPREPISUJE - zostava navzdy
-      // ukazovat na PUVODNI vygenerovany original (bod "GENERATED ORIGINAL"
-      // z kontroly lifecycle). Podpisany sken ("SIGNED ORIGINAL") je
-      // dohladatelny samostatne cez hr_document_signatures.file_path (uz
-      // ulozene vyssie) - DokumentyTab nizsie ponuka OBE cesty ako dve
-      // oddelene tlacidla, aby ziadna z nich nebola tichou zamenou tej druhej.
-      const { error: docErr } = await supabase.from("hr_documents").update({
-        status: "SIGNED", updated_at: new Date().toISOString(),
-      }).eq("id", doc.id);
-      if (docErr) throw docErr;
+      // ukazovat na PUVODNI vygenerovany original. Podpisany sken je
+      // dohladatelny samostatne cez hr_document_signatures.file_path.
+      const { data: missing, error: mErr } = await supabase.rpc("hr_document_missing_signers", { p_document_id: doc.id });
+      if (mErr) throw mErr;
+      if (!missing?.length) {
+        const { error: docErr } = await supabase.from("hr_documents").update({
+          status: "SIGNED", updated_at: new Date().toISOString(),
+        }).eq("id", doc.id);
+        if (docErr) throw docErr;
+      }
       onSaved();
     } catch (e) {
       console.error(e);
@@ -4116,9 +4133,24 @@ function SignDocumentForm({ doc, onCancel, onSaved }) {
 
   return (
     <div className="mt-3 pt-3 border-t border-slate-100">
+      <div className="text-xs text-slate-500 mb-2">
+        Kdo na skenu podepsal{required.length > 1 ? " – dokument je podepsaný, až když podepíší všechny strany" : ""}:
+        {already.size > 0 && <span> (již podepsáno: {[...already].map((t) => SIGNER_LABELS[t]).join(", ")})</span>}
+      </div>
+      {rows.map(([signerType, v]) => (
+        <div key={signerType} className="grid grid-cols-1 sm:grid-cols-3 gap-x-4 items-end">
+          <label className="flex items-center gap-2 text-sm mb-3">
+            <input type="checkbox" checked={v.checked} onChange={(e) => setSigners((p) => ({ ...p, [signerType]: { ...v, checked: e.target.checked } }))} />
+            {signerType === "EMPLOYEE" ? "Zaměstnanec" : "Zaměstnavatel"}
+          </label>
+          <TextField label="Jméno podepsaného" value={v.name} onChange={(name) => setSigners((p) => ({ ...p, [signerType]: { ...v, name } }))} />
+        </div>
+      ))}
+      {!rows.some(([t]) => t === "EMPLOYER") && !already.has("EMPLOYER") && !extraEmployer && (
+        <button type="button" onClick={() => { setExtraEmployer(true); setSigners((p) => ({ ...p, EMPLOYER: { checked: true, name: "" } })); }}
+          className="text-xs text-slate-500 underline mb-2">Na skenu podepsal i zaměstnavatel</button>
+      )}
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-x-4">
-        <SelectFieldLocal label="Kdo podepsal" value={signerType} onChange={setSignerType} options={[{ value: "EMPLOYEE", label: "Zaměstnanec" }, { value: "EMPLOYER", label: "Zaměstnavatel" }]} />
-        <TextField label="Jméno podepsaného" value={signedByName} onChange={setSignedByName} />
         <DateFieldLocal label="Datum podpisu" value={signedAt} onChange={setSignedAt} />
       </div>
       <label className="block mb-3">

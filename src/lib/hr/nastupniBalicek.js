@@ -51,7 +51,7 @@ export function nastupChecklist({ employee, employment, documents = [], agenda =
     items.push({
       key: def.key, label: def.label,
       state: signed ? "done" : mine.length ? "created" : "missing",
-      detail: signed ? "podepsáno" : mine.length ? "vytvořeno – nahrajte podepsaný sken" : "chybí",
+      detail: signed ? "podepsáno" : mine.some((d) => d.locked_at) ? "čeká na další podpis" : mine.length ? "vytvořeno – nahrajte podepsaný sken" : "chybí",
       action: { tab: "dokumenty", preset: def.preset },
     });
   }

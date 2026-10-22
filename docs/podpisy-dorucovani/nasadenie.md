@@ -60,3 +60,13 @@ npx supabase status -o env | grep -E '^(API_URL|ANON_KEY)=' | sed -e 's/^API_URL
 - Rollback: `supabase/rollback/20261022150000_kiosk_podpisy_rollback.sql` (pred 49 a 48). Lokálne otestovaný celý reťazec 50 → 49 → 48.
 - Poradie nasadenia: najprv Edge Functions (`hr-kiosk`, `hr-finalize-pdf`, `hr-signed-original`), potom migrácie 48, 49, 50, nakoniec frontend.
 - Známe obmedzenie testu: v skrytom okne prehliadača (automatizácia) pdf.js ani sledovanie zobrazených strán nebežia, na viditeľnom tablete áno. Treba ešte ručný test na reálnom tablete.
+
+## Oprava: podpísaný ≠ zamknutý (migrácia 51)
+
+- `20261022160000_uplny_podpis.sql`:
+  - zamknutie nastane prvým podpisom, ale stav SIGNED DB povolí, až keď nechýba žiadny podpis podľa `legal_act_type` (zmluva: zamestnanec aj zamestnávateľ);
+  - elektronický podpis sa počíta len pre aktuálnu finálnu verziu (hash), papierový sken za každú stranu, ktorú HR označí;
+  - odovzdanie alebo odoslanie vyhotovenia je možné len pre úplne podpísaný dokument;
+  - typ úkonu sa doplní podľa druhu dokumentu (UI ho doteraz nevypĺňalo); zamknuté historické dokumenty sa nemenia.
+- Rollback: `supabase/rollback/20261022160000_uplny_podpis_rollback.sql` (pred 50). Reťazec 51 → 48 je otestovaný lokálne.
+- Ručný test kiosku: `rucny-test-kiosku.md`.

@@ -97,6 +97,27 @@ describe.skipIf(!enabled)("faza C - overenie na serveri (lokalny Supabase)", { t
     expect((await row(id)).final_pdf_sha256).toBeNull();
   });
 
+  it("zmluva len s podpisom zamestnanca: server original nevytvori a nie je podpisana", async () => {
+    const id = await newDoc("partial");
+    expect((await finalize(id, "zmluva.pdf")).ok).toBe(true);
+    const d = await row(id);
+    const { data: lt } = await service.from("hr_legal_text_versions").select("id, body_sha256").eq("id", "lt-intent-bilateral-contract-v1").single();
+    const imgId = `img-it-${run}-p`;
+    await service.from("hr_signature_images").insert({ id: imgId, png: `\\x${Buffer.from(signaturePng(3)).toString("hex")}`, png_sha256: "x" });
+    const { error: sErr } = await service.from("hr_document_signatures").insert({
+      id: `sig-it-${run}-p`, hr_document_id: id, method: "ELECTRONIC_TABLET", signer_type: "EMPLOYEE", signed_by_name: "Jana Nováková-Testová",
+      signed_content_sha256: d.final_pdf_sha256, signature_image_id: imgId, intent_text_version_id: lt.id, intent_text_sha256: lt.body_sha256,
+    });
+    expect(sErr).toBeNull();
+    const { error } = await user.functions.invoke("hr-signed-original", { body: { document_id: id } });
+    expect(error.context.status).toBe(409);
+    expect((await error.context.json()).error).toMatch(/EMPLOYER/);
+    const { error: stErr } = await user.from("hr_documents").update({ status: "SIGNED" }).eq("id", id);
+    expect(stErr?.message).toMatch(/chybi: EMPLOYER/);
+    const after = await row(id);
+    expect([after.status, after.signed_pdf_path, !!after.locked_at]).toEqual(["READY_FOR_SIGNATURE", null, true]);
+  });
+
   it("podpisany original: server ho postavi, overi a spocita hash; klient ho zapisat nemoze", async () => {
     const id = await newDoc("sign");
     expect((await finalize(id, "zmluva.pdf")).ok).toBe(true);

@@ -34,8 +34,10 @@ insert into public.hr_documents (id, employee_id, doc_type, origin, status, lega
   ('doc-noPdf', 'emp-1', 'pracovni_smlouva', 'GENERATED', 'READY_FOR_SIGNATURE', 'BILATERAL_CONTRACT', null,
     null, null, null, null),
   ('doc-mv', 'emp-1', 'platovy_vymer', 'GENERATED', 'READY_FOR_SIGNATURE', 'EMPLOYER_UNILATERAL', null,
-    null, null, null, null),
-  ('doc-2', 'emp-2', 'pracovni_smlouva', 'GENERATED', 'SIGNED', 'BILATERAL_CONTRACT', null, null, null, null, null);
+    null, null, null, null);
+-- historicky papierovy dokument (rucny zaznam) - jedina vynimka pre vlozenie rovno ako SIGNED
+insert into public.hr_documents (id, employee_id, doc_type, origin, status, legal_act_type, is_manual_history_entry)
+  values ('doc-2', 'emp-2', 'pracovni_smlouva', 'GENERATED', 'SIGNED', 'BILATERAL_CONTRACT', true);
 insert into public.hr_signature_images (id, png, png_sha256) values ('img-1', decode(repeat('ab', 200), 'hex'), 'x');
 
 -- ---------- 1. obrazok podpisu / pravne texty ----------
@@ -68,13 +70,30 @@ select throws_ok($$delete from public.hr_document_signatures where id = 's-1'$$,
 select throws_ok($$update public.hr_documents set final_pdf_sha256 = repeat('d',64) where id = 'doc-ps'$$, 'P0001', null, 'zamknuty dokument: hash nejde zmenit');
 select throws_ok($$update public.hr_documents set variables_snapshot = '{"mzda": 1}' where id = 'doc-ps'$$, 'P0001', null, 'zamknuty dokument: snapshot nejde zmenit');
 select throws_ok($$update public.hr_documents set locked_at = null where id = 'doc-ps'$$, 'P0001', null, 'zamknutie nejde zrusit');
-select lives_ok($$update public.hr_documents set status = 'SIGNED' where id = 'doc-ps'$$, 'stav SIGNED po podpisoch');
+-- Podpisany != zamknuty: zmluva len s podpisom zamestnanca nie je podpisana.
+select is(public.hr_document_missing_signers('doc-ps'), array['EMPLOYER'], 'zmluve chyba podpis zamestnavatela');
+select throws_ok($$update public.hr_documents set status = 'SIGNED' where id = 'doc-ps'$$, 'P0001', null,
+  'zmluva len s podpisom zamestnanca sa neda oznacit ako podpisana');
+select is((select status from public.hr_documents where id = 'doc-ps'), 'READY_FOR_SIGNATURE', 'zamknuta zmluva ostava "k podpisu"');
+select throws_ok($$insert into public.hr_document_deliveries (id, hr_document_id, channel, recipient_snapshot)
+  values ('dl-u', 'doc-ps', 'IN_PERSON_PAPER', null)$$, 'P0001', null, 'zmluvu len s podpisom zamestnanca nejde odovzdat ani odoslat');
+insert into public.hr_signature_images (id, png, png_sha256) values ('img-2', decode(repeat('cd', 200), 'hex'), 'x');
+insert into public.hr_document_signatures (id, hr_document_id, method, signer_type, signed_by_name, signed_content_sha256, signature_image_id, intent_text_version_id, intent_text_sha256)
+  values ('s-2b', 'doc-ps', 'ELECTRONIC_TABLET', 'EMPLOYER', 'JUDr. Zastupce', repeat('a',64), 'img-2', 'lt-intent', 'h');
+select is(public.hr_document_missing_signers('doc-ps'), '{}'::text[], 'po podpise zamestnavatela nechyba nikto');
+select lives_ok($$update public.hr_documents set status = 'SIGNED' where id = 'doc-ps'$$, 'stav SIGNED po vsetkych podpisoch');
 select throws_ok($$update public.hr_documents set status = 'DRAFT' where id = 'doc-ps'$$, 'P0001', null, 'podpisany dokument sa nevrati do DRAFT');
 select throws_ok($$delete from public.hr_documents where id = 'doc-ps'$$, 'P0001', null, 'dokument nejde zmazat');
 select throws_ok($$update public.hr_documents set status = 'VOIDED' where id = 'doc-ps'$$, '23514', null, 'zneplatnenie vyzaduje dovod');
 select lives_ok($$update public.hr_documents set status = 'VOIDED', void_reason = 'chyba v mzde - nova verze' where id = 'doc-ps'$$, 'zneplatnenie s dovodom');
 select throws_ok($$update public.hr_documents set status = 'SIGNED' where id = 'doc-ps'$$, 'P0001', null, 'zneplatneny dokument nejde obnovit');
-select is((select locked_at is not null from public.hr_documents where id = 'doc-2'), true, 'dokument vlozeny rovno ako SIGNED je zamknuty');
+select is((select locked_at is not null from public.hr_documents where id = 'doc-2'), true, 'rucny historicky zaznam vlozeny ako SIGNED je zamknuty');
+select throws_ok($$insert into public.hr_documents (id, employee_id, doc_type, origin, status) values ('doc-s', 'emp-1', 'pracovni_smlouva', 'GENERATED', 'SIGNED')$$,
+  'P0001', null, 'novy dokument nejde vlozit rovno ako podpisany');
+insert into public.hr_documents (id, employee_id, doc_type, origin, status) values
+  ('doc-t1', 'emp-1', 'pracovni_smlouva', 'GENERATED', 'DRAFT'), ('doc-t2', 'emp-1', 'mzdovy_vymer', 'GENERATED', 'DRAFT'), ('doc-t3', 'emp-1', 'other', 'UPLOADED', 'DRAFT');
+select is((select array_agg(coalesce(legal_act_type, '-') order by id) from public.hr_documents where id in ('doc-t1', 'doc-t2', 'doc-t3')),
+  array['BILATERAL_CONTRACT', 'EMPLOYER_UNILATERAL', '-'], 'typ pravneho ukonu sa doplni podla druhu dokumentu');
 
 -- ---------- 3. vyhlasenia a dorucovanie ----------
 insert into public.employee_contact_declarations (id, kind, employee_id, email_snapshot, declared_at, channel)
@@ -86,6 +105,12 @@ select throws_ok($$update public.employee_contact_declarations set email_snapsho
 
 insert into public.hr_documents (id, employee_id, doc_type, origin, status, legal_act_type, final_pdf_path, final_pdf_sha256, final_pdf_text_check, finalized_at)
   values ('doc-ps2', 'emp-1', 'pracovni_smlouva', 'GENERATED', 'READY_FOR_SIGNATURE', 'BILATERAL_CONTRACT', 'zamestnanci/emp-1/ps2.final.pdf', repeat('e',64), '{"ok":true,"server_verified":true}', now());
+-- papierovy postup: sken len so zamestnancom nestaci, so zamestnavatelom ano
+insert into public.hr_document_signatures (id, hr_document_id, method, signer_type, signed_by_name, file_path)
+  values ('p-ps2-e', 'doc-ps2', 'PAPER', 'EMPLOYEE', 'Jan Testovaci', 'zamestnanci/emp-1/ps2.scan.pdf');
+select throws_ok($$update public.hr_documents set status = 'SIGNED' where id = 'doc-ps2'$$, 'P0001', null, 'papierovy sken len so zamestnancom: zmluva nie je podpisana');
+insert into public.hr_document_signatures (id, hr_document_id, method, signer_type, signed_by_name, file_path)
+  values ('p-ps2-r', 'doc-ps2', 'PAPER', 'EMPLOYER', 'JUDr. Zastupce', 'zamestnanci/emp-1/ps2.scan.pdf');
 update public.hr_documents set status = 'SIGNED' where id = 'doc-ps2';
 select throws_ok($$insert into public.hr_document_deliveries (id, hr_document_id, channel, recipient_snapshot, declaration_id)
   values ('dl-x', 'doc-ps2', 'EMAIL_S21', 'iny@example.com', 'd-21')$$, 'P0001', null, '§ 21 zaslanie na inu adresu nez z vyhlasenia odmietnute');
@@ -93,6 +118,11 @@ select lives_ok($$insert into public.hr_document_deliveries (id, hr_document_id,
   values ('dl-21', 'doc-ps2', 'EMAIL_S21', 'jan.testovaci@example.com', 'd-21', now(), 'QUEUED')$$, '§ 21 zaslanie na oznamenu adresu');
 select throws_ok($$insert into public.hr_document_deliveries (id, hr_document_id, channel, recipient_snapshot)
   values ('dl-x', 'doc-ps2', 'EMAIL_S335_WAGE_OTHER_ADDRESS', 'x@example.com')$$, 'P0001', null, '§ 335 odst. 3 (ina adresa) len pre mzdovy vymer');
+select throws_ok($$insert into public.hr_document_deliveries (id, hr_document_id, channel, recipient_snapshot, queued_at)
+  values ('dl-mv0', 'doc-mv', 'EMAIL_S335_WAGE_OTHER_ADDRESS', 'jina.adresa@example.com', now())$$, 'P0001', null, 'nepodpisany mzdovy vymer nejde odoslat');
+insert into public.hr_document_signatures (id, hr_document_id, method, signer_type, signed_by_name, file_path)
+  values ('p-mv', 'doc-mv', 'PAPER', 'EMPLOYER', 'JUDr. Zastupce', 'zamestnanci/emp-1/mv.scan.pdf');
+update public.hr_documents set status = 'SIGNED' where id = 'doc-mv';
 select lives_ok($$insert into public.hr_document_deliveries (id, hr_document_id, channel, recipient_snapshot, queued_at)
   values ('dl-mv', 'doc-mv', 'EMAIL_S335_WAGE_OTHER_ADDRESS', 'jina.adresa@example.com', now())$$, 'mzdovy vymer na inu adresu povoleny');
 select throws_ok($$update public.hr_document_deliveries set delivered_at = now(), delivery_basis = 'FICTION_15_DAYS' where id = 'dl-mv'$$, 'P0001', null, 'mzdovy vymer na inu adresu: ziadna fikcia dorucenia');

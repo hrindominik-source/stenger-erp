@@ -7,13 +7,6 @@ import { buildSignedOriginal, verifySignedOriginal } from "./signedOriginal.js";
 import { normalizeForMatch, documentFolder } from "./pdfTextCheck.js";
 import { download, extractPdfPages, HttpError, BUCKET } from "./hrServer.ts";
 
-export const REQUIRED_SIGNERS: Record<string, string[]> = {
-  BILATERAL_CONTRACT: ["EMPLOYEE", "EMPLOYER"],
-  EMPLOYER_UNILATERAL: ["EMPLOYER"],
-  EMPLOYEE_DECLARATION: ["EMPLOYEE"],
-  RECEIPT_ACKNOWLEDGEMENT: ["EMPLOYEE"],
-  TRAINING_RECORD: ["EMPLOYEE"],
-};
 export const DOC_TITLES: Record<string, string> = {
   pracovni_smlouva: "Pracovní smlouva", pracovni_smlouva_cizinec: "Pracovní smlouva",
   platovy_vymer: "Mzdový výměr", mzdovy_vymer: "Mzdový výměr", popis_pracovniho_mista: "Náplň práce",
@@ -28,13 +21,12 @@ function byteaToBytes(v: string): Uint8Array {
 }
 const fontUrl = (f: string) => new URL(`./fonts/${f}`, import.meta.url);
 
-// Vrati chybajucich podpisujucich (prazdne = vsetky podpisy su).
-export async function missingSigners(service: SupabaseClient, doc: Record<string, any>) {
-  const { data: sigs, error } = await service.from("hr_document_signatures").select("signer_type, method, signed_content_sha256")
-    .eq("hr_document_id", doc.id);
+// Chybajuci podpisujuci - rozhoduje DB (hr_document_missing_signers,
+// migracia 51), aby bolo pravidlo na jednom mieste.
+export async function missingSigners(service: SupabaseClient, doc: Record<string, any>): Promise<string[]> {
+  const { data, error } = await service.rpc("hr_document_missing_signers", { p_document_id: doc.id });
   if (error) throw new HttpError(500, error.message);
-  const ok = (sigs || []).filter((s) => ELECTRONIC.includes(s.method) && s.signed_content_sha256 === doc.final_pdf_sha256);
-  return (REQUIRED_SIGNERS[doc.legal_act_type] || ["EMPLOYEE"]).filter((r) => !ok.some((s) => s.signer_type === r));
+  return data || [];
 }
 
 export async function createSignedOriginal(service: SupabaseClient, doc: Record<string, any>, opts: { employeeName?: string } = {}) {
