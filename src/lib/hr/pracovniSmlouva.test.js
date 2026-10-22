@@ -2,7 +2,7 @@ import { describe, it, expect } from "vitest";
 import { readFileSync } from "node:fs";
 import PizZip from "pizzip";
 import { fillDocxTemplate, extractTemplateKeys } from "./docxTemplate.js";
-import { buildPsData, psMissing, psVariant, hoursInWords, probationText, defaultPovinnosti } from "./pracovniSmlouva.js";
+import { buildPsData, psMissing, psVariant, hoursInWords, probationText, defaultPovinnosti, podepisujiciIndex } from "./pracovniSmlouva.js";
 
 const tpl = (name) => {
   const b = readFileSync(new URL(`../../../public/hr/sablony/${name}.docx`, import.meta.url));
@@ -78,5 +78,11 @@ describe("pracovní smlouva", () => {
     expect(t).toContain("na dobu neurčitou.");
     expect(t).toContain("třicet osm celých sedmdesát pět setin");
     expect(t).toContain("platné vízum");
+  });
+  it("podepisující podle přihlášeného uživatele (bez diakritiky)", () => {
+    expect(podepisujiciIndex("Dominik Hrin")).toBe(1);
+    expect(podepisujiciIndex("Radka Buchová")).toBe(0);
+    expect(podepisujiciIndex("Ralf Stenger")).toBe(-1);
+    expect(podepisujiciIndex("")).toBe(-1);
   });
 });

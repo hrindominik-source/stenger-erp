@@ -15,7 +15,7 @@ import { EMPLOYEE_SECTIONS, emptyEmployeeValues, normalizeLegacyDraft, valuesFro
 import EmployeeFieldsForm, { EmployeeFieldsView, applyFieldChange } from "./EmployeeFieldsForm.jsx";
 import { childTaxWarnings } from "../lib/hr/taxChildren.js";
 import { RZ_POLOZKY, RZ_SLEVY, VYUCTOVANI, VYUCTOVANI_STAV, taxYearRecord, taxYearStatus, childMonthsForYear, childrenUnder3, rzWarnings, settlementWarning } from "../lib/hr/taxYear.js";
-import { PS_TEMPLATES, PS_PODEPISUJICI, psVariant, buildPsData, psMissing, psFieldsFor, defaultPovinnosti, isPovinnostiNavrh } from "../lib/hr/pracovniSmlouva.js";
+import { PS_TEMPLATES, PS_PODEPISUJICI, psVariant, buildPsData, psMissing, psFieldsFor, defaultPovinnosti, isPovinnostiNavrh, podepisujiciIndex } from "../lib/hr/pracovniSmlouva.js";
 import { hrFileName, fileExt } from "../lib/hr/fileNames.js";
 import { nastupChecklist, nastupSummary, nastupRelevant, registraceCssz } from "../lib/hr/nastupniBalicek.js";
 import { ABSENCE_TYPES, ABSENCE_DOC_TYPES, absenceType, absenceList, isAbsenceActive, activeAbsence, absenceStatusText, probationOverlapDays, absenceInProbation, addDaysIso } from "../lib/hr/absences.js";
@@ -3389,8 +3389,7 @@ function PracovniSmlouvaForm({ employee, sensitive, payroll, currentEmployment, 
   // Prihlaseny podepisujici se predvybere.
   useEffect(() => {
     if (podepisujici !== "" || !me.name) return;
-    const surname = (n) => n.trim().split(" ").pop().normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase();
-    const idx = PS_PODEPISUJICI.findIndex((p) => surname(p.jmeno) === surname(me.name));
+    const idx = podepisujiciIndex(me.name);
     if (idx >= 0) setPodepisujici(String(idx));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [me.name]);
@@ -3504,6 +3503,7 @@ const MANUAL_DOC_FIELD_LABELS = {
   zastupce: "Zástupce zaměstnavatele (jméno)", zastupce_pad7: "Zástupce zaměstnavatele (7. pád, \"kým\")",
   predavajici: "Předávající", skolitel: "Školitel",
 };
+const SIGNATORY_KEYS = ["zastupce", "zastupce_pad7", "predavajici"];
 const MANUAL_DOC_FIELD_DATE_KEYS = new Set(["datum", "datum_dokumentu", "datum_skoleni"]);
 
 function downloadArrayBufferAsFile(arrayBuffer, filename, mime) {
@@ -3719,7 +3719,22 @@ function GenerateDocumentForm({ employee, sensitive, payroll, currentEmployment,
 
   const usedKeys = version?.variables_schema?.keys || TEMPLATE_REQUIRED_KEYS[template?.doc_type] || [];
   const requiredKeys = TEMPLATE_REQUIRED_KEYS[template?.doc_type] || usedKeys;
-  const manualKeysToShow = usedKeys.filter((k) => MANUAL_DOC_FIELD_KEYS.includes(k));
+  // Za zamestnavatele podepisuje jen osoba s plnou moci (PS_PODEPISUJICI) -
+  // jmeno s titulem a 7. pad se doplni z vyberu, nepise se rucne.
+  const usesSignatory = usedKeys.some((k) => SIGNATORY_KEYS.includes(k));
+  const me = useCurrentUserContact();
+  const [podepisujici, setPodepisujici] = useState("");
+  useEffect(() => {
+    if (podepisujici !== "" || !me.name) return;
+    const idx = podepisujiciIndex(me.name);
+    if (idx >= 0) setPodepisujici(String(idx));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [me.name]);
+  useEffect(() => {
+    const p = PS_PODEPISUJICI[Number(podepisujici)];
+    setManualFields((prev) => ({ ...prev, zastupce: p?.jmeno || "", zastupce_pad7: p?.pad7 || "", predavajici: p?.jmeno || "" }));
+  }, [podepisujici]);
+  const manualKeysToShow = usedKeys.filter((k) => MANUAL_DOC_FIELD_KEYS.includes(k) && !SIGNATORY_KEYS.includes(k));
   const autoKeysToShow = usedKeys.filter((k) => !MANUAL_DOC_FIELD_KEYS.includes(k));
 
   function setManual(key, v) { setManualFields((prev) => ({ ...prev, [key]: v })); }
@@ -3830,6 +3845,12 @@ function GenerateDocumentForm({ employee, sensitive, payroll, currentEmployment,
               <dl className="text-sm space-y-1">
                 {autoKeysToShow.map((k) => <Row key={k} label={k} value={mergedData[k] || "— (chybí, doplňte v Osobních údajích)"} />)}
               </dl>
+            </div>
+          )}
+          {usesSignatory && (
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-4">
+              <SelectFieldLocal label="Za zaměstnavatele podepisuje (plná moc)" value={podepisujici} onChange={setPodepisujici}
+                options={[{ value: "", label: "— vyberte —" }, ...PS_PODEPISUJICI.map((p, i) => ({ value: String(i), label: p.jmeno }))]} />
             </div>
           )}
           {manualKeysToShow.length > 0 && (
