@@ -18,7 +18,7 @@ npx supabase status -o env | grep -E '^(API_URL|ANON_KEY)=' | sed -e 's/^API_URL
 
 ## Baseline
 
-`20261022120000_baseline.sql` je zatiaľ **dočasná** kópia `supabase/schema.sql`. Po porovnaní s katalógom produkcie (`scripts/schema-catalog.sql`) sa opraví podľa skutočného stavu. V produkcii sa baseline **nespúšťa** – produkcia ju už má; pri prípadnom zavedení migrácií do produkcie by sa označila ako aplikovaná (`supabase migration repair --status applied 20261022120000`) – to je zápis do produkcie a vyžaduje samostatný súhlas.
+`20261022120000_baseline.sql` = stav produkcie overený 22. 10. 2026 (viď `03-porovnanie-produkcie.md`). `20261022120500_dochadzka_nastavenia.sql` je tabuľka, ktorá v produkcii chýba (oprava čaká na schválenie). V produkcii sa baseline **nespúšťa** – produkcia ju už má; pri prípadnom zavedení migrácií do produkcie by sa označila ako aplikovaná (`supabase migration repair --status applied 20261022120000`) – to je zápis do produkcie a vyžaduje samostatný súhlas.
 
 ## Produkčné nasadenie migrácie 48 (po schválení)
 

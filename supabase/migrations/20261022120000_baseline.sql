@@ -1,6 +1,8 @@
--- BASELINE (DOCASNA): kopia supabase/schema.sql k 22.10.2026 (commit 5435378).
--- Este NEOVERENA voci produkcnej scheme - po porovnani s katalogom produkcie
--- (scripts/schema-catalog.sql) sa doplnia/opravia rozdiely. Iba lokalne.
+-- BASELINE: stav produkcnej schemy (public + storage politiky) k 22.10.2026.
+-- Overene porovnanim katalogu produkcie (scripts/schema-catalog.sql) so
+-- supabase/schema.sql @ 5435378: zhoda okrem sekcie 36 (dochadzka_nastavenia),
+-- ktora v produkcii chyba - preto tu nie je. Rozdiely len v komentaroch
+-- funkcii audit_trigger/get_orders_for_sklad. V produkcii sa NESPUSTA.
 
 -- Stenger Mini ERP - Supabase schema
 -- Spustit jednorazovo v Supabase Dashboard -> SQL Editor -> New query -> Run.
@@ -1071,27 +1073,8 @@ create policy "pauzy_all" on public.pauzy
   using (public.current_role() in ('office', 'vyroba', 'sklad'))
   with check (public.current_role() in ('office', 'vyroba', 'sklad'));
 
--- ============================================================
--- 36. dochadzka_nastavenia - jeden riadok nastaveni pre vypocet mzdovych
---     hodin v Docházce (zaciatok zmeny pre Vyrobu a Sklad, pouziva sa na
---     orezanie prilis skoreho prichodu). Edituje iba office.
--- ============================================================
-create table if not exists public.dochadzka_nastavenia (
-  id int primary key default 1,
-  data jsonb not null default '{"zaciatokVyroba":"06:00","zaciatokSklad":"06:00"}'::jsonb
-);
-
-insert into public.dochadzka_nastavenia (id, data)
-values (1, '{"zaciatokVyroba":"06:00","zaciatokSklad":"06:00"}'::jsonb)
-on conflict (id) do nothing;
-
-alter table public.dochadzka_nastavenia enable row level security;
-
-drop policy if exists "dochadzka_nastavenia_office" on public.dochadzka_nastavenia;
-create policy "dochadzka_nastavenia_office" on public.dochadzka_nastavenia
-  for all
-  using (public.current_role() = 'office')
-  with check (public.current_role() = 'office');
+-- (36. dochadzka_nastavenia - v produkcii neexistuje, presunute do
+--  migracie 20261022120500_dochadzka_nastavenia.sql)
 
 -- ============================================================
 -- 37. dochadzka_pins - PIN ochrana proti tuknutiu cudzieho mena na tablete
