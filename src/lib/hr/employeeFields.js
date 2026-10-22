@@ -695,6 +695,15 @@ function readStore(store, { employee, sensitive, payroll, employment }) {
 const OMEZENI_LEGACY = { iii: "omezeni_typ_iii_stupen", iii_mimoradne: "omezeni_typ_iii_stupen_mimoradne", ii: "omezeni_typ_ii_stupen", i: "omezeni_typ_i_stupen", ozz: "omezeni_ozz" };
 const DUCHOD_LEGACY = { starobni: "duchod_starobni", invalidni_3: "duchod_invalidni_3_stupne", invalidni_12: "duchod_invalidni_1_2_stupne", cizi_starobni: "duchod_cizi_charakteru_starobni", cizi_invalidni_3: "duchod_cizi_charakteru_invalidni_3", cizi_invalidni_12: "duchod_cizi_charakteru_invalidni_1_2" };
 
+// Priznak "dorucovaci = trvala" pre starsie zaznamy: dorucovacia adresa nie je
+// vyplnena, alebo je zhodna s trvalou (ulica, c.p., c.o., obec, PSC).
+const ADDR_PARTS = ["ulice", "cp", "co", "obec", "psc"];
+const normAddr = (x) => String(x || "").trim().toLowerCase().replace(/\s+/g, " ");
+function dorucovaciJakoTrvala(v) {
+  if (!ADDR_PARTS.some((k) => normAddr(v[`kontakt_${k}`]))) return true;
+  return ADDR_PARTS.every((k) => normAddr(v[`kontakt_${k}`]) === normAddr(v[`perm_${k}`]));
+}
+
 export function valuesFromRecords(records) {
   const v = emptyEmployeeValues();
   for (const f of ALL_FIELDS) {
@@ -718,7 +727,7 @@ export function valuesFromRecords(records) {
   if (!records.employment?.data?.postaveni && records.employment) v.postaveni = derivePostaveni(v.employment_type);
   // Starsie zaznamy bez priznaku: "stejna" len ak dorucovacia adresa nie je vyplnena.
   if (records.employee && records.employee.data?.dorucovaci_stejna === undefined) {
-    v.dorucovaci_stejna = !(v.kontakt_ulice || v.kontakt_obec || v.kontakt_psc || v.kontakt_cp);
+    v.dorucovaci_stejna = dorucovaciJakoTrvala(v);
   }
   v.deti_pocet = countChildren(v);
   v.prilohy = Array.isArray(records.payroll?.data?.prilohy) ? records.payroll.data.prilohy : [];
@@ -737,7 +746,7 @@ export function normalizeLegacyDraft(d) {
   if (d.permanent_city && !d.perm_obec) out.perm_obec = d.permanent_city;
   if (d.permanent_zip && !d.perm_psc) out.perm_psc = d.permanent_zip;
   if (d.permanent_country && !d.perm_stat) out.perm_stat = d.permanent_country;
-  if (d.dorucovaci_stejna === undefined) out.dorucovaci_stejna = !(d.kontakt_ulice || d.kontakt_obec || d.kontakt_psc || d.kontakt_cp);
+  if (d.dorucovaci_stejna === undefined) out.dorucovaci_stejna = dorucovaciJakoTrvala(out);
   out.gender = normalizeGender(out.gender);
   out.highest_education = normalizeEducation(out.highest_education);
   out.health_insurance_company = normalizeHealthInsurance(out.health_insurance_company);

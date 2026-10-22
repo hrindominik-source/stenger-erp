@@ -13,6 +13,9 @@ describe("doručovací adresa", () => {
     expect(v.dorucovaci_stejna).toBe(false);
     expect(v.kontakt_obec).toBe("Praha");
   });
+  it("starší záznam se stejnou adresou vyplněnou dvakrát → zaškrtnuto", () => {
+    expect(valuesFromRecords({ employee: { data: {}, permanent_address: perm, correspondence_address: { ...perm } } }).dorucovaci_stejna).toBe(true);
+  });
   it("zaškrtnuto → doručovací adresa se neukládá zvlášť", () => {
     const existing = { employee: { data: {}, permanent_address: perm, correspondence_address: { ulice: "Jiná", mesto: "Praha" } } };
     const v = { ...valuesFromRecords(existing), dorucovaci_stejna: true };
