@@ -37,3 +37,12 @@ npx supabase status -o env | grep -E '^(API_URL|ANON_KEY)=' | sed -e 's/^API_URL
 ## Pravidelné upratovanie kiosku
 
 `hr_onboarding_cleanup()` sa volá pri každom štarte relácie. Voliteľne v produkcii pg_cron (vyžaduje súhlas – zmena nastavenia produkcie).
+
+## Fáza C – finálne PDF a podpísaný originál (overenie na serveri)
+
+- Migrácia `20261022140000_finalne_pdf.sql`: `final_pdf_*` a `signed_pdf_*` zapisuje len server (service role); hash ani výsledok kontroly z prehliadača DB neprijme.
+- Edge Functions `hr-finalize-pdf` a `hr-signed-original` (deploy až po schválení; potrebujú len štandardné `SUPABASE_URL`, `SUPABASE_ANON_KEY`, `SUPABASE_SERVICE_ROLE_KEY`, žiadne nové secrets).
+- Poradie nasadenia: najprv Edge Functions, potom migrácia 49 (inak by HR nemohlo finalizovať PDF).
+- Rollback: najprv `supabase/rollback/20261022140000_finalne_pdf_rollback.sql`, potom rollback 48. Lokálne otestované.
+- Lokálne testy: `npx supabase test db` (pgTAP), `bash scripts/test-local-it.sh` (Edge Functions proti lokálnemu Supabase; skript odmietne nelokálnu URL).
+- Lokálne je v `supabase/config.toml` vypnuté `[analytics]` (vector/analytics na tomto PC padali a blokovali `supabase start`); na produkciu to nemá vplyv.
