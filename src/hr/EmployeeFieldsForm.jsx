@@ -1,5 +1,5 @@
 import React, { useState } from "react";
-import { Lock, ShieldAlert, Plus, Trash2, Paperclip, X, Info } from "lucide-react";
+import { Lock, ShieldAlert, Plus, Trash2, Paperclip, X, Info, Download } from "lucide-react";
 import {
   EMPLOYEE_SECTIONS, fieldVisibleInMode, isFieldShown, optionLabel, derivePostaveni,
   addChild, removeChild, MAX_CHILDREN, JMHZ_PDF_CHILDREN, addMonthsIsoLib,
@@ -69,7 +69,7 @@ function sectionTierAllowed(section, { canSensitive, canPayroll }) {
   return true;
 }
 
-export default function EmployeeFieldsForm({ values, onChange, mode, canSensitive, canPayroll, positions = [], variant = "office", sectionIds, hints = {}, onOpenFile, renderCustom }) {
+export default function EmployeeFieldsForm({ values, onChange, mode, canSensitive, canPayroll, positions = [], variant = "office", sectionIds, hints = {}, onOpenFile, fileName, renderCustom }) {
   const big = variant === "kiosk";
   const sections = visibleSections({ mode, canSensitive, canPayroll, values, sectionIds });
   // Kategoria HI-00x -> zodpovedajuca pozicia zo zoznamu pozicii (podla kodu).
@@ -115,7 +115,7 @@ export default function EmployeeFieldsForm({ values, onChange, mode, canSensitiv
                   f.type === "custom" ? (
                     <div key={f.key} className="sm:col-span-2 lg:col-span-3">{renderCustom ? renderCustom(f, values, handleChange) : null}</div>
                   ) : f.type === "file" ? (
-                    <FileField key={f.key} field={f} prilohy={values.prilohy || []} onChange={(list) => handleChange("prilohy", list)} onOpenFile={onOpenFile} />
+                    <FileField key={f.key} field={f} prilohy={values.prilohy || []} onChange={(list) => handleChange("prilohy", list)} onOpenFile={onOpenFile} fileName={fileName} />
                   ) : (
                     <FieldInput key={f.key} field={f} value={values[f.key]} values={values} big={big} positions={positions} hint={hints[f.key]} onChange={(v) => handleChange(f.key, v)} />
                   )
@@ -148,7 +148,7 @@ function ChildrenControl({ count, big, onAdd }) {
 
 // Prilohy (PDF/sken) - drzane vo values.prilohy ako [{id, kind, name, path?,
 // file?}]. Bez `path` = este nenahrate (nahra ich rodic pri ulozeni).
-function FileField({ field, prilohy, onChange, onOpenFile }) {
+function FileField({ field, prilohy, onChange, onOpenFile, fileName }) {
   const mine = prilohy.filter((p) => p.kind === field.kind);
   function addFiles(e) {
     const files = Array.from(e.target.files || []);
@@ -165,7 +165,10 @@ function FileField({ field, prilohy, onChange, onOpenFile }) {
           <span key={p.id} className="flex items-center gap-1.5 text-xs bg-slate-100 border border-slate-200 rounded-md pl-2 pr-1 py-1">
             <Paperclip size={12} className="text-slate-400" />
             {p.path && onOpenFile ? (
-              <button type="button" onClick={() => onOpenFile(p.path)} className="text-teal-700 hover:underline max-w-[220px] truncate">{p.name}</button>
+              <>
+                <button type="button" onClick={() => onOpenFile(p.path)} className="text-teal-700 hover:underline max-w-[320px] truncate" title={`Původní soubor: ${p.name}`}>{fileName ? fileName(p, field) : p.name}</button>
+                {fileName && <button type="button" onClick={() => onOpenFile(p.path, fileName(p, field))} className="text-teal-700 hover:text-teal-900 p-0.5" title="Stáhnout"><Download size={12} /></button>}
+              </>
             ) : (
               <span className="max-w-[220px] truncate">{p.name}</span>
             )}

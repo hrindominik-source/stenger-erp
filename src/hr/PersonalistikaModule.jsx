@@ -16,6 +16,7 @@ import EmployeeFieldsForm, { EmployeeFieldsView, applyFieldChange } from "./Empl
 import { childTaxWarnings } from "../lib/hr/taxChildren.js";
 import { RZ_POLOZKY, RZ_SLEVY, VYUCTOVANI, VYUCTOVANI_STAV, taxYearRecord, taxYearStatus, childMonthsForYear, childrenUnder3, rzWarnings, settlementWarning } from "../lib/hr/taxYear.js";
 import { PS_TEMPLATES, PS_PODEPISUJICI, psVariant, buildPsData, psMissing, psFieldsFor, defaultPovinnosti, isPovinnostiNavrh } from "../lib/hr/pracovniSmlouva.js";
+import { hrFileName, fileExt } from "../lib/hr/fileNames.js";
 import { nastupChecklist, nastupSummary, nastupRelevant, registraceCssz } from "../lib/hr/nastupniBalicek.js";
 import { ABSENCE_TYPES, ABSENCE_DOC_TYPES, absenceType, absenceList, isAbsenceActive, activeAbsence, absenceStatusText, probationOverlapDays, absenceInProbation, addDaysIso } from "../lib/hr/absences.js";
 
@@ -605,6 +606,11 @@ async function openHrFile(path, downloadName) {
   window.open(data.signedUrl, "_blank");
 }
 
+// Citatelny nazov ulozeneho suboru (Název – Příjmení Jméno – datum.ext);
+// d = metadata prilohy ({ path, name, uploaded_at }).
+const todayIso = () => new Date().toISOString().slice(0, 10);
+const hrDocName = (label, employee, d, date) => hrFileName(label, employee, date || d.uploaded_at || d.created_at, fileExt(d.path || d.name));
+
 /* ---------------- Exekuce - doklady (len HR_EXEKUCE) ----------------
    Subory pod exekuce/<employee_id>/ + tabulka employee_garnishment_documents
    (SQL sekcia 47 / supabase/2026-10-08_exekuce_doklady.sql). Kym SQL nie je
@@ -627,7 +633,7 @@ async function uploadGarnishmentFiles(employeeId, files) {
 
 // employeeId = null pri zakladani noveho zamestnanca -> subory sa len
 // pripravia (values.exekuce_pending) a nahraju sa po ulozeni.
-function GarnishmentDocs({ employeeId, canFull, canUpload, pending = [], onPendingChange, legacyPrilohy = [] }) {
+function GarnishmentDocs({ employee, employeeId, canFull, canUpload, pending = [], onPendingChange, legacyPrilohy = [] }) {
   const [dbReady, setDbReady] = useState(null);
   const [count, setCount] = useState(0);
   const [docs, setDocs] = useState([]);
@@ -669,11 +675,11 @@ function GarnishmentDocs({ employeeId, canFull, canUpload, pending = [], onPendi
           {docs.length === 0 && legacyPrilohy.length === 0 && <div className="text-xs text-slate-400">Zatím žádné doklady.</div>}
           {[...docs.map((d) => ({ id: d.id, name: d.file_name, path: d.file_path, date: d.created_at })), ...legacyPrilohy.map((p) => ({ id: p.id, name: p.name, path: p.path, date: p.uploaded_at }))].map((d) => (
             <div key={d.id} className="flex items-center justify-between gap-2 text-sm py-0.5">
-              <span className="truncate" title={d.name}>{d.name}</span>
+              <span className="truncate" title={`Původní soubor: ${d.name}`}>{hrDocName("Doklad k exekuci", employee, d, d.date)}</span>
               <span className="flex items-center gap-2 whitespace-nowrap">
                 <span className="text-xs text-slate-400">{fmtDate(String(d.date || "").slice(0, 10))}</span>
                 <button type="button" onClick={() => openHrFile(d.path)} className="text-xs text-teal-700 hover:underline">Otevřít</button>
-                <button type="button" onClick={() => openHrFile(d.path, d.name)} className="text-xs text-teal-700 hover:underline flex items-center gap-0.5"><Download size={12} /> Stáhnout</button>
+                <button type="button" onClick={() => openHrFile(d.path, hrDocName("Doklad k exekuci", employee, d, d.date))} className="text-xs text-teal-700 hover:underline flex items-center gap-0.5"><Download size={12} /> Stáhnout</button>
               </span>
             </div>
           ))}
@@ -1356,7 +1362,7 @@ function OsobniUdajeTab({ employee, sensitive, payroll, currentEmployment, posit
         <EmployeeFieldsView values={loadValues()} mode="edit" canSensitive={canSensitive} canPayroll={canPayroll} positions={positions} />
         {loadValues().exekuce === true && (
           <div className="mt-3">
-            <GarnishmentDocs employeeId={employee.id} canFull={canGarnishment} canUpload={canEdit}
+            <GarnishmentDocs employee={employee} employeeId={employee.id} canFull={canGarnishment} canUpload={canEdit}
               legacyPrilohy={canGarnishment ? (payroll?.data?.prilohy || []).filter((p) => p.kind === "exekuce") : []} />
           </div>
         )}
@@ -1370,8 +1376,9 @@ function OsobniUdajeTab({ employee, sensitive, payroll, currentEmployment, posit
       <EmployeeFieldsForm
         values={f} onChange={(k, v) => setF((prev) => applyFieldChange(prev, k, v))} mode="edit"
         canSensitive={canSensitive} canPayroll={canPayroll} positions={positions} sectionIds={sectionIds} onOpenFile={openHrFile}
+        fileName={(p, field) => hrDocName(field.label, employee, p)}
         renderCustom={(field) => field.custom === "garnishment" && (
-          <GarnishmentDocs employeeId={employee.id} canFull={canGarnishment} canUpload={canEdit}
+          <GarnishmentDocs employee={employee} employeeId={employee.id} canFull={canGarnishment} canUpload={canEdit}
             legacyPrilohy={canGarnishment ? (payroll?.data?.prilohy || []).filter((p) => p.kind === "exekuce") : []} />
         )}
       />
@@ -1510,7 +1517,7 @@ function PracovniPomerTab({ employeeId, employee, employments, contractEvents, p
                 </div>
               )}
               {endingId === em.id && <EndEmploymentForm employment={em} onCancel={() => setEndingId(null)} onSaved={() => { setEndingId(null); onChanged(); }} />}
-              {["NOTICE_PERIOD", "ENDED"].includes(em.status) && <EndDocuments employment={em} canEdit={canEdit} onChanged={onChanged} />}
+              {["NOTICE_PERIOD", "ENDED"].includes(em.status) && <EndDocuments employee={employee} employment={em} canEdit={canEdit} onChanged={onChanged} />}
               {["NOTICE_PERIOD", "ENDED"].includes(em.status) && <OffboardingChecklist employment={em} canEdit={canEdit} onChanged={onChanged} />}
             </div>
           );
@@ -2014,7 +2021,7 @@ function EndEmploymentForm({ employment, onCancel, onSaved }) {
 
 // Po ukonceni: zapoctovy list + potvrzeni pro UP - nahrat / stiahnut, archivne
 // (bez mazania). Kym chyba, svieti upozornenie.
-function EndDocuments({ employment, canEdit, onChanged }) {
+function EndDocuments({ employee, employment, canEdit, onChanged }) {
   const [busyKind, setBusyKind] = useState(null);
   const [error, setError] = useState("");
   const docs = employment.data?.prilohy_ukonceni || [];
@@ -2066,11 +2073,11 @@ function EndDocuments({ employment, canEdit, onChanged }) {
               {mine.length === 0 && <div className="text-xs text-slate-400 mb-1">Zatím nenahráno.</div>}
               {mine.map((d) => (
                 <div key={d.id} className="flex items-center justify-between gap-2 text-sm py-0.5">
-                  <span className="truncate text-slate-700" title={d.name}>{d.name}</span>
+                  <span className="truncate text-slate-700" title={`Původní soubor: ${d.name}`}>{hrDocName(label, employee, d)}</span>
                   <span className="flex items-center gap-2 whitespace-nowrap">
                     <span className="text-xs text-slate-400">{fmtDate(d.uploaded_at?.slice(0, 10))}</span>
                     <button onClick={() => openHrFile(d.path)} className="text-xs text-teal-700 hover:underline">Otevřít</button>
-                    <button onClick={() => openHrFile(d.path, d.name)} className="text-xs text-teal-700 hover:underline flex items-center gap-0.5"><Download size={12} /> Stáhnout</button>
+                    <button onClick={() => openHrFile(d.path, hrDocName(label, employee, d))} className="text-xs text-teal-700 hover:underline flex items-center gap-0.5"><Download size={12} /> Stáhnout</button>
                   </span>
                 </div>
               ))}
@@ -2306,9 +2313,9 @@ function NepritomnostiSection({ employee, payroll, currentEmployment, canEdit, c
                     {myDocs.map((d) => (
                       <div key={d.id} className="flex items-center gap-2 text-xs py-0.5 flex-wrap">
                         <span className="text-slate-500">{d.typ}:</span>
-                        <span className="truncate max-w-[220px]" title={d.name}>{d.name}</span>
+                        <span className="truncate max-w-[260px]" title={`Původní soubor: ${d.name}`}>{hrDocName(d.typ || "Doklad k nepřítomnosti", employee, d)}</span>
                         <button onClick={() => openHrFile(d.path)} className="text-teal-700 hover:underline">Otevřít</button>
-                        <button onClick={() => openHrFile(d.path, d.name)} className="text-teal-700 hover:underline flex items-center gap-0.5"><Download size={11} /> Stáhnout</button>
+                        <button onClick={() => openHrFile(d.path, hrDocName(d.typ || "Doklad k nepřítomnosti", employee, d))} className="text-teal-700 hover:underline flex items-center gap-0.5"><Download size={11} /> Stáhnout</button>
                         {canEdit && <button onClick={() => unlinkDoc(d)} disabled={busy} className="text-red-600 hover:underline">Odebrat</button>}
                       </div>
                     ))}
@@ -2429,9 +2436,15 @@ function DaneTab({ employee, sensitive, payroll, currentEmployment, canEdit, onS
 }
 
 // Zoznam dokladov k polozke + nahranie (nahrava sa hned, subor je archivny).
+// Nazvy dokladu k danum (ostatni polozky RZ maji popisek v RZ_POLOZKY).
+const TAX_DOC_LABELS = {
+  potvrzeni_prijmy: "Potvrzení o příjmech", exekuce: "Doklad – exekuce", manzel: "Doklad – manžel/ka",
+  predchozi: "Potvrzení od předchozího zaměstnavatele", zadost_rz: "Žádost o roční zúčtování", potvrzeni_5558: "Potvrzení zaměstnavatele 5558",
+};
 function TaxDocs({ employee, year, rec, polozka, canEdit, onSaved, label = "Nahrát doklad", setError }) {
   const [busy, setBusy] = useState(false);
   const docs = (rec.doklady || []).filter((d) => d.polozka === polozka);
+  const docLabel = `${TAX_DOC_LABELS[polozka] || RZ_POLOZKY.find((p) => p.key === polozka)?.label || "Doklad"} ${year}`;
   async function upload(fileList) {
     const files = Array.from(fileList || []);
     if (!files.length) return;
@@ -2457,7 +2470,8 @@ function TaxDocs({ employee, year, rec, polozka, canEdit, onSaved, label = "Nahr
       {docs.map((d) => (
         <span key={d.id} className="inline-flex items-center gap-1 text-xs bg-slate-100 rounded px-1.5 py-0.5">
           <Paperclip size={11} />
-          <button onClick={() => openHrFile(d.path)} className="text-teal-700 hover:underline max-w-[180px] truncate" title={d.name}>{d.name}</button>
+          <button onClick={() => openHrFile(d.path)} className="text-teal-700 hover:underline max-w-[240px] truncate" title={`Původní soubor: ${d.name}`}>{hrDocName(docLabel, employee, d)}</button>
+          <button onClick={() => openHrFile(d.path, hrDocName(docLabel, employee, d))} className="text-teal-700 hover:text-teal-900" title="Stáhnout"><Download size={11} /></button>
           {canEdit && <button onClick={() => unlink(d)} disabled={busy} className="text-red-600 hover:text-red-800" title="Odebrat">×</button>}
         </span>
       ))}
@@ -2517,7 +2531,7 @@ function VyuctovaniSection({ employee, values, payroll, year, canEdit, onSaved }
       const [tpl, font] = await fetchTaxPdf([TAX_FORM_TEMPLATES.f5457b.url, JMHZ_FONT_URL]);
       const prilohy = (rec.doklady || []).filter((d) => !["zadost_rz", "potvrzeni_prijmy"].includes(d.polozka));
       const res = await fill5457bPdf(tpl, font, values, year, rz, prilohy);
-      downloadArrayBufferAsFile(res.bytes, `Žádost o roční zúčtování ${year} - ${employee.last_name} ${employee.first_name}.pdf`, "application/pdf");
+      downloadArrayBufferAsFile(res.bytes, hrFileName(`Žádost o roční zúčtování ${year}`, employee, todayIso(), "pdf"), "application/pdf");
     } catch (e) {
       console.error(e);
       setError("Vytvoření žádosti se nezdařilo: " + (e.message || e));
@@ -2704,7 +2718,7 @@ function Potvrzeni5558Section({ employee, values, payroll, employment, year, can
       const [tpl, font] = await fetchTaxPdf([TAX_FORM_TEMPLATES.f5558.url, JMHZ_FONT_URL]);
       const dne = new Date().toISOString().slice(0, 10);
       const res = await fill5558Pdf(tpl, font, values, year, employment, { deti, vyhotovil, kontakt, dne, nahrazujeDne: nahrazuje || null });
-      downloadArrayBufferAsFile(res.bytes, `Potvrzení zaměstnavatele 5558 ${year} - ${employee.last_name} ${employee.first_name}.pdf`, "application/pdf");
+      downloadArrayBufferAsFile(res.bytes, hrFileName(`Potvrzení zaměstnavatele 5558 ${year}`, employee, todayIso(), "pdf"), "application/pdf");
       try { if (me.userId) window.localStorage.setItem(`stenger.hr.kontakt.${me.userId}`, kontakt); } catch { /* bez ulozenia */ }
       if (canEdit) {
         const entry = { dne, vyhotovil, uplatnil: res.data.uplatnil, deti: res.data.deti.map((c) => ({ jmeno: c.jmeno, prijmeni: c.prijmeni, poradi: c.poradi, mesice: c.mesice })), nahrazuje: nahrazuje || null, at: new Date().toISOString() };
@@ -2802,7 +2816,7 @@ function ProhlaseniPoplatnikaSection({ employee, sensitive, payroll, canEdit, on
         return r.arrayBuffer();
       }));
       const res = await fillDeclarationPdf(tpl, font, values, year);
-      downloadArrayBufferAsFile(res.bytes, `Prohlášení poplatníka ${year} - ${employee.last_name} ${employee.first_name}.pdf`, "application/pdf");
+      downloadArrayBufferAsFile(res.bytes, hrFileName(`Prohlášení poplatníka ${year}`, employee, todayIso(), "pdf"), "application/pdf");
       if (res.extraChildren > 0) setInfo(`Tiskopis má místo jen pro 5 dětí – dalších ${res.extraChildren} uveďte na samostatném listu.`);
     } catch (e) {
       console.error(e);
@@ -2885,9 +2899,9 @@ function ProhlaseniPoplatnikaSection({ employee, sensitive, payroll, canEdit, on
           {signed.map((d) => (
             <div key={d.id} className="flex items-center gap-3 text-sm flex-wrap">
               <span className="font-medium w-12">{d.rok}</span>
-              <span className="truncate max-w-[260px]" title={d.name}>{d.name}</span>
+              <span className="truncate max-w-[320px]" title={`Původní soubor: ${d.name}`}>{hrDocName(`Prohlášení poplatníka ${d.rok}`, employee, d)}</span>
               <button onClick={() => openHrFile(d.path)} className="text-xs text-teal-700 hover:underline">Otevřít</button>
-              <button onClick={() => openHrFile(d.path, d.name)} className="text-xs text-teal-700 hover:underline flex items-center gap-0.5"><Download size={12} /> Stáhnout</button>
+              <button onClick={() => openHrFile(d.path, hrDocName(`Prohlášení poplatníka ${d.rok}`, employee, d))} className="text-xs text-teal-700 hover:underline flex items-center gap-0.5"><Download size={12} /> Stáhnout</button>
               {canEdit && <button onClick={() => unlink(d)} disabled={busy} className="text-xs text-red-600 hover:underline">Odebrat</button>}
             </div>
           ))}
@@ -3171,9 +3185,9 @@ function AgendaUraduSection({ employee, payroll, canEdit, onSaved }) {
                   <td className="px-3 py-2">
                     {(x.soubory || []).map((d) => (
                       <div key={d.id} className="flex items-center gap-2 whitespace-nowrap">
-                        <span className="truncate max-w-[180px]" title={d.name}>{d.name}</span>
+                        <span className="truncate max-w-[260px]" title={`Původní soubor: ${d.name}`}>{hrDocName(`${x.typ} ${x.urad_nazev || uradLabel(x.urad)}`, employee, d, x.datum)}</span>
                         <button onClick={() => openHrFile(d.path)} className="text-xs text-teal-700 hover:underline">Otevřít</button>
-                        <button onClick={() => openHrFile(d.path, d.name)} className="text-xs text-teal-700 hover:underline flex items-center gap-0.5"><Download size={12} /> Stáhnout</button>
+                        <button onClick={() => openHrFile(d.path, hrDocName(`${x.typ} ${x.urad_nazev || uradLabel(x.urad)}`, employee, d, x.datum))} className="text-xs text-teal-700 hover:underline flex items-center gap-0.5"><Download size={12} /> Stáhnout</button>
                       </div>
                     ))}
                   </td>
@@ -3372,7 +3386,7 @@ function PracovniSmlouvaForm({ employee, sensitive, payroll, currentEmployment, 
   const missing = psMissing(data, variant);
   const fields = psFieldsFor(variant).filter((f) => f.karta);
   const tpl = PS_TEMPLATES[variant];
-  const fileBase = `${tpl.nazev} - ${fullName(employee)}`;
+  const fileBase = hrFileName(tpl.nazev, employee, datumPodpisu);
 
   async function filled() {
     const r = await fetch(tpl.url);
@@ -3549,8 +3563,8 @@ function DokumentyTab({ employee, sensitive, payroll, currentEmployment, permiss
   // ORIGINAL (hr_documents.file_path, nikdy sa neprepisuje) a SIGNED
   // ORIGINAL (hr_document_signatures.file_path, WORM chranene) su takto
   // vzdy dve nezavisle dohladatelne cesty, nikdy tichá zámena jedné za druhou.
-  async function openFile(path) {
-    const { data, error: err } = await supabase.storage.from(HR_DOKUMENTY_BUCKET).createSignedUrl(path, 3600);
+  async function openFile(path, downloadName) {
+    const { data, error: err } = await supabase.storage.from(HR_DOKUMENTY_BUCKET).createSignedUrl(path, 3600, downloadName ? { download: downloadName } : undefined);
     if (err) { window.alert(err.message); return; }
     window.open(data.signedUrl, "_blank");
   }
@@ -3593,11 +3607,15 @@ function DokumentyTab({ employee, sensitive, payroll, currentEmployment, permiss
             const canAdvance = nextStatus && nextStatus !== "SIGNED" && (canGenerate || canApprove);
             const signatures = signaturesByDoc.get(d.id) || [];
             const latestSignature = signatures[0] || null;
+            const docLabel = DOC_TYPE_LABELS[d.doc_type] || d.doc_type;
+            const genName = hrFileName(docLabel, employee, d.created_at, fileExt(d.file_path) || "docx");
+            const signedName = latestSignature?.file_path ? hrFileName(`${docLabel} – podepsáno`, employee, latestSignature.created_at, fileExt(latestSignature.file_path)) : "";
             return (
               <div key={d.id} className="bg-white border border-slate-200 rounded-lg p-4">
                 <div className="flex justify-between items-start flex-wrap gap-2">
                   <div>
-                    <div className="font-medium">{DOC_TYPE_LABELS[d.doc_type] || d.doc_type}</div>
+                    <div className="font-medium">{docLabel}</div>
+                    <div className="text-xs text-slate-400 break-all">{signedName || genName}</div>
                     <div className="text-xs text-slate-500">
                       {d.origin === "GENERATED" ? "Vygenerováno" : "Nahráno ručně"} · {fmtDate(d.created_at?.slice(0, 10))}
                     </div>
@@ -3607,7 +3625,7 @@ function DokumentyTab({ employee, sensitive, payroll, currentEmployment, permiss
                 <div className="flex flex-wrap items-center gap-3 mt-3 pt-3 border-t border-slate-100">
                   {/* GENERATED ORIGINAL - hr_documents.file_path sa po podpise nikdy neprepisuje, zostava trvalo dostupny */}
                   {d.file_path && (
-                    <button onClick={() => openFile(d.file_path)} className="text-sm text-teal-700 hover:text-teal-900 flex items-center gap-1">
+                    <button onClick={() => openFile(d.file_path, genName)} className="text-sm text-teal-700 hover:text-teal-900 flex items-center gap-1">
                       <Download size={14} /> {latestSignature ? "Otevřít původní vygenerovaný soubor" : "Otevřít soubor"}
                     </button>
                   )}
@@ -3615,6 +3633,11 @@ function DokumentyTab({ employee, sensitive, payroll, currentEmployment, permiss
                   {latestSignature?.file_path && (
                     <button onClick={() => openFile(latestSignature.file_path)} className="text-sm text-emerald-700 hover:text-emerald-900 flex items-center gap-1">
                       <Stamp size={14} /> Otevřít podepsaný sken
+                    </button>
+                  )}
+                  {latestSignature?.file_path && (
+                    <button onClick={() => openFile(latestSignature.file_path, signedName)} className="text-sm text-emerald-700 hover:text-emerald-900 flex items-center gap-1">
+                      <Download size={14} /> Stáhnout podepsaný
                     </button>
                   )}
                   {canAdvance && (
@@ -3713,7 +3736,7 @@ function GenerateDocumentForm({ employee, sensitive, payroll, currentEmployment,
       // Nikdy sa neuklada ako hr_documents.file_path a nikdy sa nesklada za
       // archivovany/podpisany vystup - len na rychlu vizualnu kontrolu pred
       // tlacou/podpisom.
-      const filename = `NAHLED - ${DOC_TYPE_LABELS[template.doc_type] || template.doc_type} - ${fullName(employee)}.pdf`;
+      const filename = `NAHLED - ${hrFileName(DOC_TYPE_LABELS[template.doc_type] || template.doc_type, employee, todayIso(), "pdf")}`;
       await convertFilledDocxToPdf(filename, filled);
     } catch (e) {
       console.error(e);
@@ -3725,7 +3748,7 @@ function GenerateDocumentForm({ employee, sensitive, payroll, currentEmployment,
     setError("");
     try {
       const filled = await loadFilledArrayBuffer();
-      downloadArrayBufferAsFile(filled, `${DOC_TYPE_LABELS[template.doc_type] || template.doc_type} - ${fullName(employee)}.docx`, DOCX_MIME);
+      downloadArrayBufferAsFile(filled, hrFileName(DOC_TYPE_LABELS[template.doc_type] || template.doc_type, employee, todayIso(), "docx"), DOCX_MIME);
     } catch (e) {
       console.error(e);
       setError(e.message || "Soubor se nepodařilo vytvořit.");
