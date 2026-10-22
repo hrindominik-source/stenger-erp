@@ -3833,7 +3833,7 @@ function GenerateDocumentForm({ employee, sensitive, payroll, currentEmployment,
     <div className="bg-white border border-slate-200 rounded-lg p-4 mb-4">
       {pendingHint}
       <h2 className="font-semibold text-sm mb-3">Vytvořit dokument</h2>
-      <SelectFieldLocal label="Šablona" value={templateId} onChange={setTemplateId} options={templates.map((t) => { const typ = DOC_TYPE_LABELS[t.doc_type] || t.doc_type; return { value: t.id, label: t.name && t.name !== typ ? `${typ} – ${t.name}` : typ }; })} />
+      <SelectFieldLocal label="Šablona" value={templateId} onChange={setTemplateId} options={templates.map((t) => { const typ = DOC_TYPE_LABELS[t.doc_type] || t.doc_type; return { value: t.id, label: t.name && !typ.includes(t.name) ? `${typ} – ${t.name}` : typ }; })} />
 
       {loadingVersion ? (
         <div className="text-sm text-slate-400 py-2"><Loader2 className="inline animate-spin mr-1.5" size={14} /> Načítám šablonu...</div>
