@@ -1074,7 +1074,7 @@ create policy "pauzy_all" on public.pauzy
   with check (public.current_role() in ('office', 'vyroba', 'sklad'));
 
 -- (36. dochadzka_nastavenia - v produkcii neexistuje, presunute do
---  migracie 20261022120500_dochadzka_nastavenia.sql)
+--  vetvy fix/dochadzka-nastavenia)
 
 -- ============================================================
 -- 37. dochadzka_pins - PIN ochrana proti tuknutiu cudzieho mena na tablete

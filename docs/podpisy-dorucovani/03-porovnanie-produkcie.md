@@ -6,7 +6,7 @@ Metóda: `scripts/schema-catalog.sql` (jeden SELECT nad katalógom – stĺpce, 
 
 | Oblasť | Rozdiel | Dôsledok |
 |---|---|---|
-| Tabuľky | `dochadzka_nastavenia` (sekcia 36) je v `schema.sql`, **v produkcii chýba** (tabuľka, PK, RLS, politika) | aplikácia ju používa (`src/App.jsx`, nastavenia Dochádzky) → v produkcii zlyháva; presunuté do samostatnej migrácie `20261022120500`, nasadenie po schválení |
+| Tabuľky | `dochadzka_nastavenia` (sekcia 36) je v `schema.sql`, **v produkcii chýba** (tabuľka, PK, RLS, politika) | aplikácia ju používa (`src/App.jsx`, nastavenia Dochádzky) → v produkcii zlyháva; rieši sa oddelene na vetve `fix/dochadzka-nastavenia` (nesúvisí s podpismi), nasadenie po schválení |
 | Funkcie | `audit_trigger()`, `get_orders_for_sklad()` – líšia sa len komentármi | žiadny |
 | Storage | trigger `storage.buckets.enforce_versioning_status_transition` len lokálne | interná súčasť novšej verzie Storage API, nie naša schéma |
 | Server | produkcia Postgres 17.6, lokálne 17.11 | žiadny |
