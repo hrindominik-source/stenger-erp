@@ -56,7 +56,7 @@ Vetva: `feature/podpisy-dorucovani` (z `hr-merge-tmp` @ 5435378). Stav k 22. 10.
 - `documentHash.js` (`sha256Hex`, `buildSignedScanPath`), `fileNames.js` (čitateľné názvy), `openHrFile` (sťahovanie blobom).
 - `SignDocumentForm` – papierový postup, doplniť väzbu na verziu + hash originálu.
 - `GenerateDocumentForm` – výber „Za zaměstnavatele podepisuje (plná moc)“ (`PS_PODEPISUJICI`).
-- `pdf-lib` je už v závislostiach → vloženie obrázka podpisu a dôkaznej strany do PDF bez novej knižnice. `pdfjs` sa používa pre JMHZ (worker) → zobrazenie PDF na tablete.
+- `pdf-lib` je už v závislostiach → vloženie obrázka podpisu a dôkaznej strany do PDF bez novej knižnice. Na zobrazenie PDF na tablete (všetky strany, kontrola doscrollovania) treba pridať `pdfjs-dist` – v repozitári zatiaľ nie je.
 - `nastupniBalicek.js` – rozšíriť stavy o `podepsáno – nepředáno` / `hotovo`.
 - Edge Function vzor `supabase/functions/cnb-rate` → odosielanie e-mailov.
 
