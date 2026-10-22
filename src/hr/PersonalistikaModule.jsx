@@ -600,10 +600,27 @@ async function uploadPendingAttachments(values, employeeId) {
   return { ...values, prilohy: list };
 }
 
+// downloadName = stiahnut pod citatelnym nazvom. Subor sa stiahne do pamate
+// a ulozi cez <a download> - parameter "download" v podpisanom URL Supabase
+// nechaval v nazve zakodovanu diakritiku ("Pracovn%C3%AD smlouva...").
 async function openHrFile(path, downloadName) {
-  const { data, error } = await supabase.storage.from(HR_DOKUMENTY_BUCKET).createSignedUrl(path, 3600, downloadName ? { download: downloadName } : undefined);
+  if (downloadName) {
+    const { data: blob, error } = await supabase.storage.from(HR_DOKUMENTY_BUCKET).download(path);
+    if (error) { window.alert(error.message); return; }
+    saveBlobAs(blob, downloadName);
+    return;
+  }
+  const { data, error } = await supabase.storage.from(HR_DOKUMENTY_BUCKET).createSignedUrl(path, 3600);
   if (error) { window.alert(error.message); return; }
   window.open(data.signedUrl, "_blank");
+}
+
+function saveBlobAs(blob, filename) {
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url; a.download = filename;
+  document.body.appendChild(a); a.click(); document.body.removeChild(a);
+  setTimeout(() => URL.revokeObjectURL(url), 10000);
 }
 
 // Citatelny nazov ulozeneho suboru (Název – Příjmení Jméno – datum.ext);
@@ -3507,12 +3524,7 @@ const SIGNATORY_KEYS = ["zastupce", "zastupce_pad7", "predavajici"];
 const MANUAL_DOC_FIELD_DATE_KEYS = new Set(["datum", "datum_dokumentu", "datum_skoleni"]);
 
 function downloadArrayBufferAsFile(arrayBuffer, filename, mime) {
-  const blob = new Blob([arrayBuffer], { type: mime });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement("a");
-  a.href = url; a.download = filename;
-  document.body.appendChild(a); a.click(); document.body.removeChild(a);
-  URL.revokeObjectURL(url);
+  saveBlobAs(new Blob([arrayBuffer], { type: mime }), filename);
 }
 
 function DokumentyTab({ employee, sensitive, payroll, currentEmployment, permissions, preset, onPresetUsed, onDocsChanged }) {
@@ -3576,11 +3588,7 @@ function DokumentyTab({ employee, sensitive, payroll, currentEmployment, permiss
   // ORIGINAL (hr_documents.file_path, nikdy sa neprepisuje) a SIGNED
   // ORIGINAL (hr_document_signatures.file_path, WORM chranene) su takto
   // vzdy dve nezavisle dohladatelne cesty, nikdy tichá zámena jedné za druhou.
-  async function openFile(path, downloadName) {
-    const { data, error: err } = await supabase.storage.from(HR_DOKUMENTY_BUCKET).createSignedUrl(path, 3600, downloadName ? { download: downloadName } : undefined);
-    if (err) { window.alert(err.message); return; }
-    window.open(data.signedUrl, "_blank");
-  }
+  const openFile = openHrFile;
 
   return (
     <div>

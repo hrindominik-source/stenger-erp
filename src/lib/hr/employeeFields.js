@@ -386,10 +386,13 @@ export const EMPLOYEE_SECTIONS = [
   },
   {
     id: "adresa_kontaktni",
-    title: "Kontaktní adresa (jen pokud je odlišná od trvalé)",
+    title: "Doručovací adresa",
     fields: [
-      ...addr("kontakt", "emp", "correspondence_address", ""),
-      { key: "kontakt_stat", label: "Stát", type: "select", options: STATE_OPTIONS, allowOther: true, store: { t: "emp", col: "correspondence_address", path: "stat" } },
+      // Zaskrtnute = dorucovaci adresa sa neuklada zvlast; dokumenty a JMHZ
+      // pouziju adresu trvaleho pobytu (prip. pobytu v CR u cizince).
+      { key: "dorucovaci_stejna", label: "Doručovací adresa je stejná jako adresa trvalého pobytu", type: "check", def: true, store: { t: "emp", col: "data", path: "dorucovaci_stejna" } },
+      ...addr("kontakt", "emp", "correspondence_address", "", { showIf: (v) => v.dorucovaci_stejna !== true }),
+      { key: "kontakt_stat", label: "Stát", type: "select", options: STATE_OPTIONS, allowOther: true, showIf: (v) => v.dorucovaci_stejna !== true, store: { t: "emp", col: "correspondence_address", path: "stat" } },
     ],
   },
   {
@@ -713,6 +716,10 @@ export function valuesFromRecords(records) {
     v.vedouci = records.payroll.concurrent_employment.vedouci_pracovnik === true;
   }
   if (!records.employment?.data?.postaveni && records.employment) v.postaveni = derivePostaveni(v.employment_type);
+  // Starsie zaznamy bez priznaku: "stejna" len ak dorucovacia adresa nie je vyplnena.
+  if (records.employee && records.employee.data?.dorucovaci_stejna === undefined) {
+    v.dorucovaci_stejna = !(v.kontakt_ulice || v.kontakt_obec || v.kontakt_psc || v.kontakt_cp);
+  }
   v.deti_pocet = countChildren(v);
   v.prilohy = Array.isArray(records.payroll?.data?.prilohy) ? records.payroll.data.prilohy : [];
   v.zp_historie = Array.isArray(records.employee?.data?.zp_historie) ? records.employee.data.zp_historie : [];
@@ -730,6 +737,7 @@ export function normalizeLegacyDraft(d) {
   if (d.permanent_city && !d.perm_obec) out.perm_obec = d.permanent_city;
   if (d.permanent_zip && !d.perm_psc) out.perm_psc = d.permanent_zip;
   if (d.permanent_country && !d.perm_stat) out.perm_stat = d.permanent_country;
+  if (d.dorucovaci_stejna === undefined) out.dorucovaci_stejna = !(d.kontakt_ulice || d.kontakt_obec || d.kontakt_psc || d.kontakt_cp);
   out.gender = normalizeGender(out.gender);
   out.highest_education = normalizeEducation(out.highest_education);
   out.health_insurance_company = normalizeHealthInsurance(out.health_insurance_company);
