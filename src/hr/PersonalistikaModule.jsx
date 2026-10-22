@@ -892,6 +892,8 @@ function EmployeeDetail({ id, permissions, onBack }) {
   const [confirmingDelete, setConfirmingDelete] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [deleteError, setDeleteError] = useState("");
+  const [deleteReason, setDeleteReason] = useState("");
+  const [deleteFlag, setDeleteFlag] = useState("");
 
   const canEdit = hasPerm(permissions, "HR_EDIT");
   const canSensitive = hasPerm(permissions, "HR_VIEW_SENSITIVE");
@@ -949,9 +951,16 @@ function EmployeeDetail({ id, permissions, onBack }) {
   useEffect(() => { loadDocs(); }, [loadDocs]);
 
   async function confirmDelete() {
+    if (!deleteReason.trim()) { setDeleteError("Uveďte důvod trvalého smazání."); return; }
     setDeleting(true);
     setDeleteError("");
-    const { error: err } = await supabase.rpc("hr_admin_delete_employee", { p_employee_id: id });
+    // Zaznam s podpisanymi/dorucenymi dokumentmi DB zmaze len ked je oznaceny
+    // ako testovaci/duplicitny (hr_admin_delete_employee, migracia 48.10).
+    if (deleteFlag && deleteFlag !== employee.record_flag) {
+      const { error: flagErr } = await supabase.from("employees").update({ record_flag: deleteFlag }).eq("id", id);
+      if (flagErr) { setDeleteError(flagErr.message || "Označení se nezdařilo."); setDeleting(false); return; }
+    }
+    const { error: err } = await supabase.rpc("hr_admin_delete_employee", { p_employee_id: id, p_reason: deleteReason.trim() });
     if (err) { setDeleteError(err.message || "Smazání se nezdařilo."); setDeleting(false); return; }
     onBack();
   }
@@ -1027,6 +1036,14 @@ function EmployeeDetail({ id, permissions, onBack }) {
             <p className="text-sm text-slate-600 mb-4">
               Pro ukončení skutečného pracovního poměru použijte místo toho "Ukončit pracovní poměr" v záložce Pracovní poměr - ta historii zachová.
             </p>
+            <label className="block text-xs text-slate-500 mb-1">Důvod (zapíše se do auditu)</label>
+            <input value={deleteReason} onChange={(e) => setDeleteReason(e.target.value)} className="w-full border border-slate-300 rounded-md px-2 py-1.5 text-sm mb-3" />
+            <label className="block text-xs text-slate-500 mb-1">Označení záznamu (nutné, pokud má podepsané nebo doručené dokumenty)</label>
+            <select value={deleteFlag || employee.record_flag || ""} onChange={(e) => setDeleteFlag(e.target.value)} className="w-full border border-slate-300 rounded-md px-2 py-1.5 text-sm mb-4">
+              <option value="">— bez označení —</option>
+              <option value="TEST">Testovací záznam</option>
+              <option value="DUPLICATE">Duplicitní záznam</option>
+            </select>
             {deleteError && <div className="bg-red-50 text-red-700 text-sm px-3 py-2 rounded-md mb-3">{deleteError}</div>}
             <div className="flex justify-end gap-2">
               <button onClick={() => { setConfirmingDelete(false); setDeleteError(""); }} className="text-sm text-slate-500 px-3 py-2">Zrušit</button>
