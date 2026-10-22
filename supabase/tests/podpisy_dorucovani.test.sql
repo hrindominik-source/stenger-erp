@@ -25,8 +25,8 @@ insert into public.employees (id, first_name, last_name, private_email) values
   ('emp-1', 'Jan', 'Testovaci', 'jan.testovaci@example.com'),
   ('emp-2', 'Eva', 'Duplicitni', 'eva@example.com');
 insert into public.hr_legal_text_versions (id, text_key, version_no, title, body, body_sha256) values
-  ('lt-intent', 'INTENT_BILATERAL_CONTRACT', 1, 'Prejav vule', 'KONCEPT – KE SCHVÁLENÍ PRÁVNIČKOU. Seznámil/a jsem se s celým obsahem a uzavírám tuto smlouvu.', 'x'),
-  ('lt-335', 'S335_NOTICE', 1, 'Pouceni § 335', 'KONCEPT – KE SCHVÁLENÍ PRÁVNIČKOU. Poučení…', 'x');
+  ('lt-intent', 'INTENT_BILATERAL_CONTRACT', 91, 'Prejav vule', 'KONCEPT – KE SCHVÁLENÍ PRÁVNIČKOU. Seznámil/a jsem se s celým obsahem a uzavírám tuto smlouvu.', 'x'),
+  ('lt-335', 'S335_NOTICE', 91, 'Pouceni § 335', 'KONCEPT – KE SCHVÁLENÍ PRÁVNIČKOU. Poučení…', 'x');
 insert into public.hr_documents (id, employee_id, doc_type, origin, status, legal_act_type, file_path,
     final_pdf_path, final_pdf_sha256, final_pdf_text_check, finalized_at) values
   ('doc-ps', 'emp-1', 'pracovni_smlouva', 'GENERATED', 'READY_FOR_SIGNATURE', 'BILATERAL_CONTRACT', 'zamestnanci/emp-1/doc-ps.docx',

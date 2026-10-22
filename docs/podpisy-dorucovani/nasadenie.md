@@ -46,3 +46,17 @@ npx supabase status -o env | grep -E '^(API_URL|ANON_KEY)=' | sed -e 's/^API_URL
 - Rollback: najprv `supabase/rollback/20261022140000_finalne_pdf_rollback.sql`, potom rollback 48. Lokálne otestované.
 - Lokálne testy: `npx supabase test db` (pgTAP), `bash scripts/test-local-it.sh` (Edge Functions proti lokálnemu Supabase; skript odmietne nelokálnu URL).
 - Lokálne je v `supabase/config.toml` vypnuté `[analytics]` (vector/analytics na tomto PC padali a blokovali `supabase start`); na produkciu to nemá vplyv.
+
+## Fáza D – vstupný dotazník (kiosk)
+
+- Migrácia `20261022150000_kiosk_podpisy.sql`:
+  - koncepty textov § 21, § 335 (poučenie aj súhlas) a prejavov vôle, všetky so stavom KONCEPT a s označením „KONCEPT – KE SCHVÁLENÍ PRÁVNIČKOU“ v texte;
+  - `onboarding_sessions.signing_mode`;
+  - po prvom podpise sa dotazník už nedá upraviť;
+  - `hr_onboarding_submit(token, 'ELECTRONIC'|'PAPER')`;
+  - pri zamietnutí dotazníka sa nepodpísané dokumenty iba zneplatnia.
+- Edge Function `hr-kiosk`: PDF na podpis generuje a ukladá iba server z údajov relácie. Kiosk (anon) ich dostane len so svojím tokenom, podpis sa ukladá cez server.
+- Spoločné moduly `employeeFields`, `jmhzPdf` a `jmhzFill` sú teraz v `supabase/functions/_shared/hr`; v `src/lib/hr` ostali re-exporty. Vzor dotazníka, písmo a logo sú na serveri skopírované, zhodu s `public/` stráži unit test.
+- Rollback: `supabase/rollback/20261022150000_kiosk_podpisy_rollback.sql` (pred 49 a 48). Lokálne otestovaný celý reťazec 50 → 49 → 48.
+- Poradie nasadenia: najprv Edge Functions (`hr-kiosk`, `hr-finalize-pdf`, `hr-signed-original`), potom migrácie 48, 49, 50, nakoniec frontend.
+- Známe obmedzenie testu: v skrytom okne prehliadača (automatizácia) pdf.js ani sledovanie zobrazených strán nebežia, na viditeľnom tablete áno. Treba ešte ručný test na reálnom tablete.

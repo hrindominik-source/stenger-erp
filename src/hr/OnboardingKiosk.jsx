@@ -3,6 +3,8 @@ import { Loader2, CheckCircle2, ArrowLeft, ArrowRight, AlertCircle, ShieldCheck 
 import { supabase } from "../supabaseClient.js";
 import { emptyEmployeeValues, MAX_CHILDREN } from "../lib/hr/employeeFields.js";
 import EmployeeFieldsForm, { EmployeeFieldsView, applyFieldChange, visibleSections } from "./EmployeeFieldsForm.jsx";
+import { validateKioskEmail, validateKioskCommunication } from "../lib/hr/kioskDocuments.js";
+import { KioskEmailChoice, KioskCommunicationStep, KioskSigningStep } from "./KioskSteps.jsx";
 
 /* =========================================================================
    Tabletovy onboarding dotaznik (kiosk) pre noveho zamestnanca.
@@ -11,7 +13,9 @@ import EmployeeFieldsForm, { EmployeeFieldsView, applyFieldChange, visibleSectio
    API volania - v celom subore nie je ANI JEDNO `supabase.from(...)`. Jediny
    sposob komunikacie s DB su 3 security-definer RPC funkcie viazane na
    nahodny session_token (supabase/schema.sql 45.8): hr_onboarding_start_session,
-   hr_onboarding_save_draft, hr_onboarding_submit - vsetky su explicitne
+   hr_onboarding_save_draft, hr_onboarding_submit, hr_onboarding_config a
+   Edge Function hr-kiosk (faza D - PDF na podpis a podpis, tiez len s
+   tokenom; KioskSteps.jsx) - RPC su explicitne
    grantnute aj rolu "anon", takze tento kiosk NEPOTREBUJE a NEPOUZIVA
    Supabase Auth prihlasenie vobec.
    Navyse - pre pripad, ze by rovnake zariadenie predtym niekedy pouzil
@@ -35,7 +39,9 @@ const STEPS = [
   { id: "cizinec", label: "Údaje cizince", sections: ["cizinec"] },
   { id: "pozice", label: "Nástup", sections: ["pozice"] },
   { id: "dane", label: "Daně a děti", sections: ["dane_nadpis", "dane", "deti", ...Array.from({ length: MAX_CHILDREN }, (_, i) => `dep_dite${i + 1}`), "dep_jina_osoba", "soubeh"] },
-  { id: "shrnuti", label: "Shrnutí", sections: [] },
+  { id: "komunikace", label: "Elektronická komunikace", sections: [], custom: true },
+  { id: "shrnuti", label: "Shrnutí", sections: [], custom: true },
+  { id: "podpis", label: "Dokumenty a podpis", sections: [], custom: true },
 ];
 const KIOSK_CTX = { mode: "kiosk", canSensitive: true, canPayroll: true };
 
@@ -45,6 +51,11 @@ export default function OnboardingKiosk() {
   const [draft, setDraft] = useState(emptyEmployeeValues());
   const [stepIndex, setStepIndex] = useState(0);
   const [error, setError] = useState("");
+  const [config, setConfig] = useState(null);
+  const [emailConfirm, setEmailConfirm] = useState("");
+  const [showErrors, setShowErrors] = useState(false);
+  const [anySigned, setAnySigned] = useState(false);
+  const [submittedMode, setSubmittedMode] = useState(null);
   const saveTimer = useRef(null);
 
   useEffect(() => {
@@ -58,14 +69,21 @@ export default function OnboardingKiosk() {
   async function startSession() {
     setPhase("starting");
     setError("");
-    const { data, error: err } = await supabase.rpc("hr_onboarding_start_session");
-    if (err || !data || !data[0]) {
+    const [{ data, error: err }, { data: cfg, error: cfgErr }] = await Promise.all([
+      supabase.rpc("hr_onboarding_start_session"),
+      supabase.rpc("hr_onboarding_config"),
+    ]);
+    if (err || cfgErr || !data || !data[0]) {
       setError("Nepodařilo se zahájit dotazník. Zkontrolujte připojení a zkuste to znovu.");
       setPhase("error");
       return;
     }
     setSession(data[0]);
+    setConfig(cfg);
     setDraft(emptyEmployeeValues());
+    setEmailConfirm("");
+    setShowErrors(false);
+    setAnySigned(false);
     setStepIndex(0);
     setPhase("form");
   }
@@ -77,14 +95,29 @@ export default function OnboardingKiosk() {
 
   function setField(key, value) {
     setDraft((prev) => {
-      const next = applyFieldChange(prev, key, value);
+      let next = applyFieldChange(prev, key, value);
+      // Volby k e-mailu sa vztahuju len k jednej adrese - pri zmene adresy
+      // (alebo "Nemám e-mail") sa musia zvolit znova.
+      if ((key === "private_email" && String(value).trim() !== String(prev.private_email || "").trim()) || key === "no_private_email") {
+        next = { ...next, kiosk_s21: "", kiosk_s335: "", kiosk_s335_notice_id: "" };
+        if (key === "no_private_email" && value) next.private_email = "";
+      }
       if (saveTimer.current) clearTimeout(saveTimer.current);
       saveTimer.current = setTimeout(() => saveDraftNow(next, session), 600);
       return next;
     });
   }
 
+  function stepErrors(id) {
+    if (id === "adresa") return validateKioskEmail(draft, emailConfirm);
+    if (id === "komunikace") return validateKioskCommunication(draft, config);
+    if (id === "shrnuti" && (!draft.first_name.trim() || !draft.last_name.trim())) return ["Vyplňte jméno a příjmení."];
+    return [];
+  }
+
   async function goNext() {
+    if (stepErrors(STEPS[stepIndex].id).length) { setShowErrors(true); return; }
+    setShowErrors(false);
     if (saveTimer.current) clearTimeout(saveTimer.current);
     await saveDraftNow(draft, session);
     setStepIndex((i) => nextNonEmptyStep(i, 1));
@@ -96,21 +129,22 @@ export default function OnboardingKiosk() {
   // ČR) sa preskoci.
   function nextNonEmptyStep(i, dir) {
     let j = i + dir;
-    while (j > 0 && j < STEPS.length - 1 && visibleSections({ ...KIOSK_CTX, values: draft, sectionIds: STEPS[j].sections }).length === 0) j += dir;
+    while (j > 0 && j < STEPS.length - 1 && !STEPS[j].custom && visibleSections({ ...KIOSK_CTX, values: draft, sectionIds: STEPS[j].sections }).length === 0) j += dir;
     return Math.min(Math.max(j, 0), STEPS.length - 1);
   }
 
-  async function submit() {
+  // Koncept sa uz neuklada - udaje su ulozene pred pripravou dokumentov a po
+  // prvom podpise ich DB nedovoli zmenit.
+  async function submit(signingMode) {
     setPhase("submitting");
     setError("");
-    if (saveTimer.current) clearTimeout(saveTimer.current);
-    await saveDraftNow(draft, session);
-    const { data: ok, error: err } = await supabase.rpc("hr_onboarding_submit", { p_session_token: session.session_token });
+    const { data: ok, error: err } = await supabase.rpc("hr_onboarding_submit", { p_session_token: session.session_token, p_signing_mode: signingMode });
     if (err || ok !== true) {
       setError("Odeslání se nezdařilo. Zkuste to prosím znovu.");
       setPhase("form");
       return;
     }
+    setSubmittedMode(signingMode);
     setPhase("done");
   }
 
@@ -140,7 +174,7 @@ export default function OnboardingKiosk() {
         <div className="text-center py-16">
           <CheckCircle2 className="mx-auto mb-4 text-emerald-500" size={48} />
           <div className="text-xl font-semibold text-slate-800 mb-2">Děkujeme!</div>
-          <div className="text-slate-500 mb-8">Váš dotazník byl odeslán. Osobní referent jej zkontroluje a založí váš personální spis.</div>
+          <div className="text-slate-500 mb-8">Váš dotazník byl odeslán. Osobní referent jej zkontroluje a založí váš personální spis.{submittedMode === "PAPER" && " Dotazník vám vytiskne k vlastnoručnímu podpisu."}</div>
           <button onClick={startSession} className="bg-slate-100 hover:bg-slate-200 text-slate-600 text-sm font-medium px-5 py-2.5 rounded-lg">Začít nový dotazník (další osoba)</button>
         </div>
       </KioskShell>
@@ -166,29 +200,35 @@ export default function OnboardingKiosk() {
         </div>
       )}
 
-      {step.id !== "shrnuti" && (
+      {!step.custom && (
         <EmployeeFieldsForm values={draft} onChange={setField} {...KIOSK_CTX} variant="kiosk" sectionIds={step.sections} />
+      )}
+      {step.id === "adresa" && (
+        <KioskEmailChoice draft={draft} onChange={setField} confirm={emailConfirm} onConfirm={setEmailConfirm} showErrors={showErrors} />
+      )}
+      {step.id === "komunikace" && (
+        <KioskCommunicationStep draft={draft} config={config} onChange={setField} errors={showErrors ? stepErrors("komunikace") : []} />
       )}
 
       {step.id === "shrnuti" && (
         <div>
-          <p className="text-slate-500 mb-4">Zkontrolujte prosím vyplněné údaje. Po odeslání je zkontroluje osobní oddělení.</p>
+          <p className="text-slate-500 mb-4">Zkontrolujte prosím vyplněné údaje. V dalším kroku z nich připravíme dokumenty k podpisu – po prvním podpisu už údaje nepůjde měnit.</p>
           <div className="mb-4"><EmployeeFieldsView values={draft} {...KIOSK_CTX} /></div>
-          {error && <div className="bg-red-50 text-red-700 text-sm px-3 py-2 rounded-md mb-3">{error}</div>}
+          {showErrors && stepErrors("shrnuti").map((e) => <div key={e} className="bg-red-50 text-red-700 text-sm px-3 py-2 rounded-md mb-3">{e}</div>)}
         </div>
       )}
 
+      {step.id === "podpis" && (
+        <KioskSigningStep session={session} onSubmit={submit} onSignedChange={setAnySigned} submitting={phase === "submitting"} submitError={error} />
+      )}
+
       <div className="flex justify-between mt-8">
-        <button onClick={goBack} disabled={stepIndex === 0} className="flex items-center gap-1.5 text-slate-500 disabled:opacity-0 text-base px-4 py-3">
+        <button onClick={goBack} disabled={stepIndex === 0 || anySigned} className="flex items-center gap-1.5 text-slate-500 disabled:opacity-0 text-base px-4 py-3">
           <ArrowLeft size={18} /> Zpět
         </button>
-        {step.id === "shrnuti" ? (
-          <button onClick={submit} disabled={phase === "submitting" || !draft.first_name.trim() || !draft.last_name.trim()} className="flex items-center gap-2 bg-teal-700 hover:bg-teal-800 disabled:opacity-50 text-white text-base font-medium px-7 py-3 rounded-lg">
-            {phase === "submitting" ? <Loader2 size={20} className="animate-spin" /> : <CheckCircle2 size={20} />} Odeslat dotazník
-          </button>
-        ) : (
+        {step.id !== "podpis" && (
           <button onClick={goNext} className="flex items-center gap-1.5 bg-teal-700 hover:bg-teal-800 text-white text-base font-medium px-7 py-3 rounded-lg">
-            Další <ArrowRight size={18} />
+            {step.id === "shrnuti" ? "Pokračovat k dokumentům" : "Další"} <ArrowRight size={18} />
           </button>
         )}
       </div>

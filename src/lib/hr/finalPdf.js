@@ -13,7 +13,7 @@ export { checkPdfAgainstSnapshot, normalizeForMatch, isPdfBytes, TEXT_CHECK_METH
 // pred uploadom (rovnake pravidlo zo supabase/functions/_shared).
 
 let pdfjsPromise = null;
-function loadPdfjs() {
+export function loadPdfjs() {
   if (!pdfjsPromise) {
     pdfjsPromise = (async () => {
       const pdfjs = await import("pdfjs-dist/legacy/build/pdf.mjs");

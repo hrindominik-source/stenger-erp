@@ -19,6 +19,7 @@ import { PS_TEMPLATES, PS_PODEPISUJICI, psVariant, buildPsData, psMissing, psFie
 import { hrFileName, fileExt } from "../lib/hr/fileNames.js";
 import { nastupChecklist, nastupSummary, nastupRelevant, registraceCssz } from "../lib/hr/nastupniBalicek.js";
 import { verifyFinalPdf, buildFinalPdfUploadPath, TEXT_CHECK_REASON_LABELS } from "../lib/hr/finalPdf.js";
+import { KIOSK_DRAFT_KEYS, KIOSK_DOCS } from "../lib/hr/kioskDocuments.js";
 import { ABSENCE_TYPES, ABSENCE_DOC_TYPES, absenceType, absenceList, isAbsenceActive, activeAbsence, absenceStatusText, probationOverlapDays, absenceInProbation, addDaysIso } from "../lib/hr/absences.js";
 
 const HR_DOKUMENTY_BUCKET = "hr-dokumenty";
@@ -505,6 +506,7 @@ function OnboardingReviewTab({ permissions, onOpenEmployee }) {
   const [error, setError] = useState("");
   const [sessions, setSessions] = useState([]);
   const [reviewing, setReviewing] = useState(null);
+  const [docsBySession, setDocsBySession] = useState({});
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -512,6 +514,16 @@ function OnboardingReviewTab({ permissions, onOpenEmployee }) {
     const { data, error: err } = await supabase.from("onboarding_sessions").select("*").eq("status", "SUBMITTED").order("submitted_at", { ascending: true });
     if (err) { setError("Nepodařilo se načíst čekající nástupy."); setLoading(false); return; }
     setSessions(data || []);
+    // Dokumenty podpisane v dotazniku (faza D) - po schvaleni sa prenesu na
+    // zamestnanca bez zmeny obsahu a hashov (hr_onboarding_review).
+    const ids = (data || []).map((s) => s.id);
+    if (ids.length) {
+      const { data: docs } = await supabase.from("hr_documents").select("id, onboarding_session_id, doc_type, status, final_pdf_sha256")
+        .in("onboarding_session_id", ids).neq("status", "VOIDED");
+      const by = {};
+      for (const d of docs || []) (by[d.onboarding_session_id] ||= []).push(d);
+      setDocsBySession(by);
+    }
     setLoading(false);
   }, []);
 
@@ -526,7 +538,9 @@ function OnboardingReviewTab({ permissions, onOpenEmployee }) {
 
   if (reviewing) {
     const d = reviewing.draft_data || {};
-    const initialData = { ...d, notes: "" };
+    // Volby kiosku (e-mail neuveden, § 21 / § 335) nie su polia karty - plati
+    // len podpisane vyhlasenia, ktore sa prenesu samostatne.
+    const initialData = { ...Object.fromEntries(Object.entries(d).filter(([k]) => !KIOSK_DRAFT_KEYS.includes(k))), notes: "" };
     return (
       <EmployeeCreateForm
         permissions={permissions}
@@ -562,6 +576,7 @@ function OnboardingReviewTab({ permissions, onOpenEmployee }) {
                 <div>
                   <div className="font-medium">{name}</div>
                   <div className="text-xs text-slate-500">Odesláno: {s.submitted_at ? new Date(s.submitted_at).toLocaleString("cs-CZ") : "—"} {d.position_label ? `· ${d.position_label}` : ""}</div>
+                  <OnboardingSigningInfo session={s} docs={docsBySession[s.id] || []} />
                 </div>
                 <div className="flex items-center gap-2">
                   <button onClick={() => discard(s)} className="text-xs text-red-500 hover:text-red-700 underline underline-offset-2">Zamítnout</button>
@@ -574,6 +589,25 @@ function OnboardingReviewTab({ permissions, onOpenEmployee }) {
           })}
         </div>
       )}
+    </div>
+  );
+}
+
+const KIOSK_DOC_TITLE = Object.fromEntries(Object.values(KIOSK_DOCS).map((k) => [k.doc_type, k.title]));
+
+function OnboardingSigningInfo({ session, docs }) {
+  if (session.signing_mode === "PAPER" || (!session.signing_mode && docs.length === 0)) {
+    return (
+      <div className="text-xs text-amber-700 mt-1">
+        Podpis na papíře – po založení vytiskněte osobní dotazník k podpisu a nahrajte sken („Načíst vyplněný osobní dotazník“).
+        {session.draft_data?.kiosk_s21 === "ANO" && " Zaměstnanec chce oznámit e-mail (§ 21) – prohlášení zajistěte také papírově."}
+      </div>
+    );
+  }
+  return (
+    <div className="text-xs text-emerald-700 mt-1">
+      Podepsáno na tabletu: {docs.map((d) => `${KIOSK_DOC_TITLE[d.doc_type] || d.doc_type}${d.status === "SIGNED" ? "" : " (nepodepsáno)"}`).join(", ")}.
+      <span className="text-slate-500"> Totožnost podepisujícího ověřte při kontrole podle dokladu.</span>
     </div>
   );
 }
