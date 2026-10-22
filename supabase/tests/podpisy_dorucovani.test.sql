@@ -30,11 +30,9 @@ insert into public.hr_legal_text_versions (id, text_key, version_no, title, body
 insert into public.hr_documents (id, employee_id, doc_type, origin, status, legal_act_type, file_path,
     final_pdf_path, final_pdf_sha256, final_pdf_text_check, finalized_at) values
   ('doc-ps', 'emp-1', 'pracovni_smlouva', 'GENERATED', 'READY_FOR_SIGNATURE', 'BILATERAL_CONTRACT', 'zamestnanci/emp-1/doc-ps.docx',
-    'zamestnanci/emp-1/doc-ps.final.pdf', repeat('a', 64), '{"ok": true}', now()),
+    'zamestnanci/emp-1/doc-ps.final.pdf', repeat('a', 64), '{"ok": true, "server_verified": true}', now()),
   ('doc-noPdf', 'emp-1', 'pracovni_smlouva', 'GENERATED', 'READY_FOR_SIGNATURE', 'BILATERAL_CONTRACT', null,
     null, null, null, null),
-  ('doc-badText', 'emp-1', 'pracovni_smlouva', 'GENERATED', 'READY_FOR_SIGNATURE', 'BILATERAL_CONTRACT', null,
-    'zamestnanci/emp-1/bad.final.pdf', repeat('b', 64), '{"ok": false, "missing": ["mzda"]}', now()),
   ('doc-mv', 'emp-1', 'platovy_vymer', 'GENERATED', 'READY_FOR_SIGNATURE', 'EMPLOYER_UNILATERAL', null,
     null, null, null, null),
   ('doc-2', 'emp-2', 'pracovni_smlouva', 'GENERATED', 'SIGNED', 'BILATERAL_CONTRACT', null, null, null, null, null);
@@ -50,8 +48,9 @@ select is((select body_sha256 from public.hr_legal_text_versions where id = 'lt-
 -- ---------- 2. elektronicky podpis a zamknutie ----------
 select throws_ok($$insert into public.hr_document_signatures (id, hr_document_id, method, signer_type, signed_content_sha256, signature_image_id, intent_text_version_id, intent_text_sha256)
   values ('s-x', 'doc-noPdf', 'ELECTRONIC_TABLET', 'EMPLOYEE', repeat('a',64), 'img-1', 'lt-intent', 'h')$$, 'P0001', null, 'bez finalneho PDF nejde elektronicky podpisat');
-select throws_ok($$insert into public.hr_document_signatures (id, hr_document_id, method, signer_type, signed_content_sha256, signature_image_id, intent_text_version_id, intent_text_sha256)
-  values ('s-x', 'doc-badText', 'ELECTRONIC_TABLET', 'EMPLOYEE', repeat('b',64), 'img-1', 'lt-intent', 'h')$$, 'P0001', null, 'nezhoda textu PDF s variables_snapshot blokuje podpis');
+select throws_ok($$insert into public.hr_documents (id, employee_id, doc_type, origin, status, final_pdf_path, final_pdf_sha256, final_pdf_text_check, finalized_at)
+  values ('doc-badText', 'emp-1', 'pracovni_smlouva', 'GENERATED', 'READY_FOR_SIGNATURE', 'zamestnanci/emp-1/bad.final.pdf', repeat('b', 64),
+  '{"ok": false, "server_verified": true, "missing_keys": ["mzda"]}', now())$$, 'P0001', null, 'PDF s neuspesnou kontrolou textu sa nefinalizuje (podpis nemozny)');
 select throws_ok($$insert into public.hr_document_signatures (id, hr_document_id, method, signer_type, signed_content_sha256, signature_image_id, intent_text_version_id, intent_text_sha256)
   values ('s-x', 'doc-ps', 'ELECTRONIC_TABLET', 'EMPLOYEE', repeat('c',64), 'img-1', 'lt-intent', 'h')$$, 'P0001', null, 'hash podpisaneho obsahu musi sediet s finalnym PDF');
 select throws_ok($$insert into public.hr_document_signatures (id, hr_document_id, method, signer_type, signed_content_sha256)
@@ -86,7 +85,8 @@ select throws_ok($$insert into public.employee_contact_declarations (id, kind, e
 select throws_ok($$update public.employee_contact_declarations set email_snapshot = 'iny@example.com' where id = 'd-21'$$, 'P0001', null, 'vyhlasenie je nemenne');
 
 insert into public.hr_documents (id, employee_id, doc_type, origin, status, legal_act_type, final_pdf_path, final_pdf_sha256, final_pdf_text_check, finalized_at)
-  values ('doc-ps2', 'emp-1', 'pracovni_smlouva', 'GENERATED', 'SIGNED', 'BILATERAL_CONTRACT', 'zamestnanci/emp-1/ps2.final.pdf', repeat('e',64), '{"ok":true}', now());
+  values ('doc-ps2', 'emp-1', 'pracovni_smlouva', 'GENERATED', 'READY_FOR_SIGNATURE', 'BILATERAL_CONTRACT', 'zamestnanci/emp-1/ps2.final.pdf', repeat('e',64), '{"ok":true,"server_verified":true}', now());
+update public.hr_documents set status = 'SIGNED' where id = 'doc-ps2';
 select throws_ok($$insert into public.hr_document_deliveries (id, hr_document_id, channel, recipient_snapshot, declaration_id)
   values ('dl-x', 'doc-ps2', 'EMAIL_S21', 'iny@example.com', 'd-21')$$, 'P0001', null, '§ 21 zaslanie na inu adresu nez z vyhlasenia odmietnute');
 select lives_ok($$insert into public.hr_document_deliveries (id, hr_document_id, channel, recipient_snapshot, declaration_id, queued_at, send_status)

@@ -18,6 +18,7 @@ import { RZ_POLOZKY, RZ_SLEVY, VYUCTOVANI, VYUCTOVANI_STAV, taxYearRecord, taxYe
 import { PS_TEMPLATES, PS_PODEPISUJICI, psVariant, buildPsData, psMissing, psFieldsFor, defaultPovinnosti, isPovinnostiNavrh, podepisujiciIndex } from "../lib/hr/pracovniSmlouva.js";
 import { hrFileName, fileExt } from "../lib/hr/fileNames.js";
 import { nastupChecklist, nastupSummary, nastupRelevant, registraceCssz } from "../lib/hr/nastupniBalicek.js";
+import { verifyFinalPdf, buildFinalPdfUploadPath, TEXT_CHECK_REASON_LABELS } from "../lib/hr/finalPdf.js";
 import { ABSENCE_TYPES, ABSENCE_DOC_TYPES, absenceType, absenceList, isAbsenceActive, activeAbsence, absenceStatusText, probationOverlapDays, absenceInProbation, addDaysIso } from "../lib/hr/absences.js";
 
 const HR_DOKUMENTY_BUCKET = "hr-dokumenty";
@@ -46,8 +47,11 @@ const DOC_TYPE_OPTIONS = Object.keys(DOC_TYPE_LABELS).map((v) => ({ value: v, la
 const HR_DOCUMENT_STATUS_LABEL = {
   DRAFT: "Koncept", READY_FOR_REVIEW: "Ke kontrole", APPROVED: "Schváleno",
   READY_FOR_SIGNATURE: "K podpisu", SIGNED: "Podepsáno", ARCHIVED: "Archivováno",
+  VOIDED: "Zneplatněno", SUPERSEDED: "Nahrazeno novou verzí",
 };
 const HR_DOCUMENT_STATUS_ORDER = ["DRAFT", "READY_FOR_REVIEW", "APPROVED", "READY_FOR_SIGNATURE", "SIGNED", "ARCHIVED"];
+// Finalne PDF sa da nahrat (aj znovu) len pred prvym podpisom - DB to strazi tiez (hr_documents_guard).
+const FINALIZABLE_STATUSES = ["DRAFT", "READY_FOR_REVIEW", "APPROVED", "READY_FOR_SIGNATURE"];
 
 
 /* =========================================================================
@@ -3553,6 +3557,7 @@ function DokumentyTab({ employee, sensitive, payroll, currentEmployment, permiss
   const [pendingTemplates, setPendingTemplates] = useState([]);
   const [creating, setCreating] = useState(false);
   const [signingId, setSigningId] = useState(null);
+  const [finalizingId, setFinalizingId] = useState(null);
   const canGenerate = hasPerm(permissions, "HR_DOCUMENT_GENERATE");
   const [activePreset, setActivePreset] = useState(null);
   const [creatingPs, setCreatingPs] = useState(false);
@@ -3594,7 +3599,7 @@ function DokumentyTab({ employee, sensitive, payroll, currentEmployment, permiss
 
   async function advanceStatus(doc) {
     const idx = HR_DOCUMENT_STATUS_ORDER.indexOf(doc.status);
-    const next = HR_DOCUMENT_STATUS_ORDER[idx + 1];
+    const next = idx >= 0 ? HR_DOCUMENT_STATUS_ORDER[idx + 1] : null;
     if (!next || next === "SIGNED") return; // SIGNED sa nastavi az cez "Nahrát podepsaný sken"
     const { error: err } = await supabase.from("hr_documents").update({ status: next, updated_at: new Date().toISOString() }).eq("id", doc.id);
     if (err) { window.alert(err.message); return; }
@@ -3641,7 +3646,8 @@ function DokumentyTab({ employee, sensitive, payroll, currentEmployment, permiss
       ) : (
         <div className="space-y-3">
           {documents.map((d) => {
-            const nextStatus = HR_DOCUMENT_STATUS_ORDER[HR_DOCUMENT_STATUS_ORDER.indexOf(d.status) + 1];
+            const statusIdx = HR_DOCUMENT_STATUS_ORDER.indexOf(d.status);
+            const nextStatus = statusIdx >= 0 ? HR_DOCUMENT_STATUS_ORDER[statusIdx + 1] : null;
             const canAdvance = nextStatus && nextStatus !== "SIGNED" && (canGenerate || canApprove);
             const signatures = signaturesByDoc.get(d.id) || [];
             const latestSignature = signatures[0] || null;
@@ -3684,7 +3690,36 @@ function DokumentyTab({ employee, sensitive, payroll, currentEmployment, permiss
                   {canSign && d.status === "READY_FOR_SIGNATURE" && signingId !== d.id && (
                     <button onClick={() => setSigningId(d.id)} className="text-sm text-teal-700 hover:text-teal-900 flex items-center gap-1"><Stamp size={14} /> Nahrát podepsaný sken</button>
                   )}
+                  {d.final_pdf_path && (
+                    <button onClick={() => openFile(d.final_pdf_path, hrFileName(`${docLabel} – finální PDF`, employee, d.finalized_at, "pdf"))} className="text-sm text-teal-700 hover:text-teal-900 flex items-center gap-1">
+                      <Download size={14} /> Finální PDF
+                    </button>
+                  )}
+                  {d.signed_pdf_path && (
+                    <button onClick={() => openFile(d.signed_pdf_path, hrFileName(`${docLabel} – podepsaný originál`, employee, d.locked_at, "pdf"))} className="text-sm text-emerald-700 hover:text-emerald-900 flex items-center gap-1">
+                      <Stamp size={14} /> Podepsaný originál
+                    </button>
+                  )}
+                  {canGenerate && FINALIZABLE_STATUSES.includes(d.status) && !d.locked_at && d.origin === "GENERATED" && finalizingId !== d.id && (
+                    <button onClick={() => setFinalizingId(d.id)} className="text-sm text-teal-700 hover:text-teal-900 flex items-center gap-1">
+                      <Upload size={14} /> {d.final_pdf_path ? "Nahrát novou verzi finálního PDF" : "Nahrát finální PDF (uložené z Wordu)"}
+                    </button>
+                  )}
                 </div>
+                {d.final_pdf_sha256 && (
+                  <div className="mt-2 text-xs text-slate-500">
+                    Finální PDF: {d.finalized_at ? new Date(d.finalized_at).toLocaleString("cs-CZ") : "—"} ·
+                    {" "}SHA-256: <code className="font-mono">{d.final_pdf_sha256.slice(0, 16)}…</code> ·
+                    {" "}{d.final_pdf_text_check?.ok
+                      ? <span className="text-emerald-700">ověřeno serverem ({d.final_pdf_text_check.checked_keys?.length || 0} polí)</span>
+                      : <span className="text-red-700">kontrola textu neprošla – elektronický podpis zablokován</span>}
+                    {d.locked_at && <> · <span className="text-slate-700">zamčeno {new Date(d.locked_at).toLocaleString("cs-CZ")}</span></>}
+                  </div>
+                )}
+                {finalizingId === d.id && (
+                  <FinalPdfForm doc={d} employee={employee} docLabel={docLabel}
+                    onCancel={() => setFinalizingId(null)} onSaved={() => { setFinalizingId(null); load(); }} />
+                )}
                 {latestSignature && (
                   <div className="mt-2 text-xs text-slate-400">
                     Podepsal: {latestSignature.signed_by_name || "—"} ({latestSignature.signer_type === "EMPLOYEE" ? "zaměstnanec" : "zaměstnavatel"}) ·
@@ -3907,6 +3942,96 @@ function GenerateDocumentForm({ employee, sensitive, payroll, currentEmployment,
       ) : (
         <div className="text-sm text-slate-400">Šablona nemá žádnou aktivní verzi.</div>
       )}
+    </div>
+  );
+}
+
+// Faza C: HR ulozi vygenerovany .docx vo Worde ako PDF a nahra ho - to je
+// finalna NEMENNA verzia na podpis. Pred ulozenim kontrola textu PDF voci
+// variables_snapshot (finalPdf.js); PDF, ktore neprejde, sa vobec neulozi.
+function FinalPdfForm({ doc, employee, docLabel, onCancel, onSaved }) {
+  const [result, setResult] = useState(null); // { file, bytes, sha256, check }
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+
+  async function onFile(file) {
+    setResult(null); setError("");
+    if (!file) return;
+    setBusy(true);
+    try {
+      const pdfBytes = new Uint8Array(await file.arrayBuffer());
+      let docxBytes = null;
+      if (doc.file_path && /\.docx$/i.test(doc.file_path)) {
+        const { data, error: dlErr } = await supabase.storage.from(HR_DOKUMENTY_BUCKET).download(doc.file_path);
+        if (dlErr) throw dlErr;
+        docxBytes = new Uint8Array(await data.arrayBuffer());
+      }
+      const { sha256, check } = await verifyFinalPdf({ pdfBytes, docxBytes, snapshot: doc.variables_snapshot || {} });
+      setResult({ file, bytes: pdfBytes, sha256, check });
+    } catch (e) {
+      console.error(e);
+      setError(e.message || "Kontrola PDF se nezdařila.");
+    }
+    setBusy(false);
+  }
+
+  // Ulozenie: upload + overenie NA SERVERI (Edge Function hr-finalize-pdf).
+  // Server sam spocita hash a zopakuje kontrolu; DB prijme len jeho vysledok.
+  async function save() {
+    if (!result?.check?.ok) return;
+    setBusy(true); setError("");
+    try {
+      const path = buildFinalPdfUploadPath(doc, uid());
+      const { error: upErr } = await supabase.storage.from(HR_DOKUMENTY_BUCKET)
+        .upload(path, new Blob([result.bytes], { type: "application/pdf" }), { contentType: "application/pdf", upsert: false });
+      if (upErr) throw upErr;
+      const { data, error: fnErr } = await supabase.functions.invoke("hr-finalize-pdf", { body: { document_id: doc.id, pdf_path: path } });
+      const server = data || (fnErr?.context ? await fnErr.context.json().catch(() => null) : null);
+      if (!server?.check) throw new Error(server?.error || fnErr?.message || "Server PDF neověřil.");
+      if (!server.ok) {
+        setResult((r) => ({ ...r, check: server.check, serverRejected: true }));
+        setBusy(false);
+        return;
+      }
+      onSaved();
+    } catch (e) {
+      console.error(e);
+      setError(e.message || "Uložení se nezdařilo.");
+    }
+    setBusy(false);
+  }
+
+  const c = result?.check;
+  return (
+    <div className="mt-3 border border-slate-200 rounded-md p-3 bg-slate-50 text-sm">
+      <div className="font-medium mb-1">Finální PDF k podpisu</div>
+      <p className="text-xs text-slate-500 mb-2">
+        Otevřete vygenerovaný .docx ve Wordu, zkontrolujte ho a uložte jako PDF (Soubor → Uložit jako → PDF). Nahrané PDF se stane
+        neměnnou verzí, kterou zaměstnanec uvidí a podepíše. Systém ověří, že obsahuje hodnoty z vygenerovaného dokumentu.
+      </p>
+      <input type="file" accept="application/pdf,.pdf" disabled={busy} onChange={(e) => onFile(e.target.files?.[0])} className="text-sm mb-2" />
+      {busy && <div className="text-slate-500 flex items-center gap-1"><Loader2 size={14} className="animate-spin" /> Kontroluji…</div>}
+      {c && (c.ok ? (
+        <div className="bg-emerald-50 text-emerald-800 px-3 py-2 rounded-md mb-2">
+          Předběžná kontrola v pořádku – PDF obsahuje všech {c.checked_keys.length} polí z vygenerovaného dokumentu ({c.pages} str.).
+          Po uložení PDF znovu ověří server.
+          <div className="text-xs mt-1">SHA-256: <code className="font-mono break-all">{result.sha256}</code></div>
+        </div>
+      ) : (
+        <div className="bg-red-50 text-red-700 px-3 py-2 rounded-md mb-2">
+          {TEXT_CHECK_REASON_LABELS[c.reason] || "PDF neprošlo kontrolou."}
+          {c.missing_keys?.length > 0 && <span> {c.missing_keys.join(", ")}</span>}
+          {result.serverRejected && <div className="text-xs mt-1 font-medium">Výsledek ověření serverem.</div>}
+          <div className="text-xs mt-1">PDF se neuloží. Opravte dokument (nebo vygenerujte nový) a nahrajte znovu, případně použijte papírový postup.</div>
+        </div>
+      ))}
+      {error && <div className="bg-red-50 text-red-700 px-3 py-2 rounded-md mb-2">{error}</div>}
+      <div className="flex justify-end gap-2">
+        <button onClick={onCancel} className="text-slate-500 px-3 py-1.5">Zrušit</button>
+        <button onClick={save} disabled={busy || !c?.ok} className="bg-teal-700 hover:bg-teal-800 disabled:opacity-50 text-white font-medium px-3 py-1.5 rounded-md">
+          Uložit jako finální verzi
+        </button>
+      </div>
     </div>
   );
 }

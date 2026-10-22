@@ -413,3 +413,12 @@ enabled = true
 # formatted with uppercase keywords, indent 2, max width 180, trailing commas,
 # and column/key alignment. Set to "null" to emit raw, unformatted SQL.
 # format_options = "{\"keywordCase\":\"upper\",\"indent\":2,\"maxWidth\":180,\"commaStyle\":\"trailing\"}"
+
+# HR Edge Functions (faza C podpisy) - overuju JWT pouzivatela samy
+# (hr_get_permissions + RLS), fonty pre dokaznu stranu ako static files.
+[functions.hr-finalize-pdf]
+verify_jwt = true
+
+[functions.hr-signed-original]
+verify_jwt = true
+static_files = ["./functions/_shared/fonts/*.ttf"]
