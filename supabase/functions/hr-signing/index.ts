@@ -28,6 +28,7 @@ import {
   validDeviceId, validPairingCode, trainingIntentDetail, allPagesViewed, validSignatureImage, employerSignatory, inspectPades,
   CERTIFICATE_STATUS_LABELS,
 } from "../_shared/hr/tabletSigning.js";
+import { queueAndSend, validDeclaration } from "../_shared/hrMail.ts";
 
 const hex = (b: Uint8Array) => Array.from(b, (x) => x.toString(16).padStart(2, "0")).join("");
 function b64(bytes: Uint8Array) {
@@ -79,12 +80,46 @@ async function signable(service: SupabaseClient, doc: Record<string, any>, signe
   if (!missing.includes(signer)) throw new HttpError(409, signer === "EMPLOYEE" ? "Zaměstnanec už podepsal nebo podpis nepotřebuje." : "Zaměstnavatel už podepsal nebo podpis nepotřebuje.");
 }
 
-async function finish(service: SupabaseClient, docId: string) {
+async function finish(service: SupabaseClient, docId: string, actorId: string) {
   const { data: doc } = await service.from("hr_documents").select("*").eq("id", docId).single();
   const missing = await missingSigners(service, doc);
   if (missing.length) return { complete: false, missing };
   const r = await createSignedOriginal(service, doc);
-  return { complete: true, signed_pdf_sha256: r.sha256 };
+  return { complete: true, signed_pdf_sha256: r.sha256, s21: await sendS21AfterSigning(service, docId, actorId) };
+}
+
+// Faza G: zmluva podpisana elektronicky (zamestnanec na tablete) -> hned
+// zaslat podpisany original na § 21 adresu (konzervativne aj pri osobnom
+// stretnuti - hr_settings.s21_tablet_in_person_conservative). Zlyhanie
+// odoslania nerusi podpis; zostava viditelne v detaile dokumentu.
+async function sendS21AfterSigning(service: SupabaseClient, docId: string, actorId: string) {
+  const { data: doc } = await service.from("hr_documents").select("*").eq("id", docId).single();
+  if (legalAct(doc) !== "BILATERAL_CONTRACT") return null;
+  const { data: sigs } = await service.from("hr_document_signatures").select("method, signer_type").eq("hr_document_id", docId);
+  if (!(sigs || []).some((x) => x.signer_type === "EMPLOYEE" && x.method.startsWith("ELECTRONIC"))) return null;
+  const decl = await validDeclaration(service, doc.employee_id, "S21_ADDRESS_NOTICE");
+  if (!decl) return { sent: false, reason: "Chybí platné § 21 oznámení – předejte vyhotovení osobně." };
+  try {
+    const dl = await queueAndSend(service, doc, { channel: "EMAIL_S21", recipient: decl.email_snapshot, declarationId: decl.id, actorId });
+    return { sent: dl?.send_status === "SENT", delivery_id: dl?.id, send_status: dl?.send_status, send_error: dl?.send_error || null };
+  } catch (e) {
+    return { sent: false, reason: e instanceof Error ? e.message : String(e) };
+  }
+}
+
+// § 21: elektronicke uzavretie zmluvy len ked je zapnute a zamestnanec ma
+// platne oznamenie adresy pre aktualny e-mail; inak papier + osobne predanie.
+async function electronicContractGate(service: SupabaseClient, doc: Record<string, any>) {
+  if (legalAct(doc) !== "BILATERAL_CONTRACT") return;
+  const { data: rows } = await service.from("hr_settings").select("key, value").in("key", ["electronic_contract_enabled", "s21_tablet_in_person_conservative"]);
+  const set = Object.fromEntries((rows || []).map((r) => [r.key, r.value]));
+  if (set.s21_tablet_in_person_conservative === false) return;
+  if (set.electronic_contract_enabled !== true) {
+    throw new HttpError(409, "Elektronické uzavírání smluv (§ 21) je vypnuté – smlouvu podepište na papíře a vyhotovení předejte osobně.");
+  }
+  if (!(await validDeclaration(service, doc.employee_id, "S21_ADDRESS_NOTICE"))) {
+    throw new HttpError(409, "Zaměstnanec nemá platné oznámení e-mailové adresy podle § 21 pro aktuální e-mail – elektronické uzavření smlouvy není aktivní, použijte papír.");
+  }
 }
 
 function checkSignaturePayload(body: any, doc: Record<string, any>, pages: number, intent: Record<string, any>) {
@@ -135,6 +170,7 @@ async function issue(req: Request, body: any) {
   await signable(service, doc, "EMPLOYEE");
   if (!EMPLOYEE_INTENT_KEY[legalAct(doc) as keyof typeof EMPLOYEE_INTENT_KEY]) throw new HttpError(409, "Tento dokument zaměstnanec nepodepisuje.");
   await training(service, doc);
+  await electronicContractGate(service, doc);
   const idDoc = String(body.identity?.document_type || "");
   if (!(idDoc in IDENTITY_DOCUMENTS) || body.identity?.confirmed !== true) {
     throw new HttpError(422, "Potvrďte ověření totožnosti podle dokladu.");
@@ -225,6 +261,7 @@ async function load(service: SupabaseClient, body: any) {
 async function sign(service: SupabaseClient, req: Request, body: any) {
   const { t: t0, doc } = await tokenRow(service, body.token);
   if (!t0.code_verified_at) throw new HttpError(428, "Zadejte kód zobrazený na obrazovce personálního oddělení.");
+  await electronicContractGate(service, doc);
   const t = await pairDevice(service, t0, body);
   if (body.name_confirmed !== true) throw new HttpError(422, "Potvrďte své jméno.");
   const { pages } = await pdfForSigning(service, doc);
@@ -245,7 +282,7 @@ async function sign(service: SupabaseClient, req: Request, body: any) {
       intent_detail: detail || null, training_record_id: tr?.id || null, stroke_count: strokes.length,
     },
   });
-  return json({ ok: true, ...(await finish(service, doc.id)) });
+  return json({ ok: true, ...(await finish(service, doc.id, t.created_by)) });
 }
 
 // ---------- HR: podpis za zamestnavatela ----------
@@ -294,7 +331,7 @@ async function employerSign(req: Request, body: any) {
       viewed_at: body.evidence?.viewed_at || null, confirmed: true, stroke_count: strokes.length,
     },
   });
-  return json({ ok: true, ...(await finish(service, doc.id)) });
+  return json({ ok: true, ...(await finish(service, doc.id, user.id)) });
 }
 
 // ---------- HR: uznavany el. podpis (PAdES) ----------
@@ -332,7 +369,7 @@ async function qualifiedUpload(req: Request, body: any) {
     if (error) throw new HttpError(409, error.message);
     return json({ ok: true, complete: true, signed_pdf_sha256: sha, qualified_original: true, certificate: "NOT_VERIFIED" });
   }
-  return json({ ok: true, certificate: "NOT_VERIFIED", ...(await finish(service, doc.id)) });
+  return json({ ok: true, certificate: "NOT_VERIFIED", ...(await finish(service, doc.id, user.id)) });
 }
 
 // Rucne overenie certifikatu cez verejnu overovaciu sluzbu: protokol o

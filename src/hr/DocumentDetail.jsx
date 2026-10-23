@@ -10,7 +10,7 @@ import {
 import TabletSigning, { invokeSigning } from "./signing/TabletSigning.jsx";
 import { IDENTITY_DOCUMENTS, CERTIFICATE_STATUS_LABELS } from "../../supabase/functions/_shared/hr/tabletSigning.js";
 import QRCode from "qrcode";
-import { deliveryState, deliveryDeadlines, documentDeliveryState, czDate, DELIVERY_CHANNEL_LABELS } from "../lib/hr/deliveryStatus.js";
+import { deliveryState, deliveryDeadlines, documentDeliveryState, czDate, DELIVERY_CHANNEL_LABELS, MAX_SEND_ATTEMPTS } from "../lib/hr/deliveryStatus.js";
 
 /* =========================================================================
    Detail dokumentu (faza E) - rozbalovaci panel pod polozkou v zalozke
@@ -69,6 +69,8 @@ export default function DocumentDetail({ doc, signatures = [], previousSignature
   const [form, setForm] = useState(null); // "handover" | "void" | "version" | "amendment" | "tablet" | ...
   const [verifications, setVerifications] = useState([]); // overenie certifikatu uznavaneho podpisu
   const [verifyId, setVerifyId] = useState(null);
+  const [dlForm, setDlForm] = useState(null); // { id, kind: "confirm" | "withdrawal" }
+  const [dlBusy, setDlBusy] = useState(false);
 
   // Kluc (string), nie pole - rodic posiela pri kazdom vykresleni nove pole.
   const signatureUsers = signatures.flatMap((s) => [s.uploaded_by, s.scan_matches_original_confirmed_by]).filter(Boolean).join(",");
@@ -76,6 +78,8 @@ export default function DocumentDetail({ doc, signatures = [], previousSignature
   const load = useCallback(async () => {
     setLoading(true);
     setError("");
+    // Faza G: vyhodnotit lehoty (neucinnost § 335 odst. 3, fikcia § 335) pred zobrazenim.
+    await supabase.rpc("hr_document_deliveries_sweep").then(() => null, () => null);
     const [dlRes, evRes, tplRes, verRes] = await Promise.all([
       supabase.from("hr_document_deliveries").select("*").eq("hr_document_id", doc.id).order("created_at", { ascending: true }),
       supabase.from("hr_document_events").select("*").eq("hr_document_id", doc.id).order("created_at", { ascending: true }),
@@ -133,7 +137,22 @@ export default function DocumentDetail({ doc, signatures = [], previousSignature
   const employerReason = signBase || (!missing.includes("EMPLOYER") ? "Zaměstnavatel už podepsal nebo podpis nepotřebuje."
     : s334 ? "Písemnost § 334 podepisuje zaměstnavatel uznávaným el. podpisem – nahrajte podepsané PDF." : "");
   const qualifiedReason = signBase || (!missing.length ? "Nikdo další už podepsat nemusí." : "");
-  const emailReason = !fullySigned ? "Dokument není podepsán všemi stranami." : "Odesílání e-mailem se připravuje (fáze G) – zatím předejte osobně.";
+  const emailChannels = [
+    legalAct === "BILATERAL_CONTRACT" && "EMAIL_S21",
+    s334 && "EMAIL_S335_CONSENT",
+    s334 && doc.doc_type === "mzdovy_vymer" && "EMAIL_S335_WAGE_OTHER_ADDRESS",
+  ].filter(Boolean);
+  const emailReason = !can.send ? "Chybí oprávnění k předávání dokumentů." : closed ? "Dokument je zneplatněn / nahrazen."
+    : !fullySigned ? "Dokument není podepsán všemi stranami." : overall.key === "DELIVERED" ? "Dokument už byl doručen."
+    : !emailChannels.length ? "Tento dokument se e-mailem nedoručuje – předejte osobně." : "";
+
+  async function retryDelivery(dl) {
+    setDlBusy(true);
+    setError("");
+    try { await invokeFunction("hr-delivery", { action: "retry", delivery_id: dl.id }); } catch (e) { setError(e.message); }
+    setDlBusy(false);
+    load();
+  }
 
   return (
     <div className="mt-3 border-t border-slate-100 pt-3">
@@ -230,6 +249,27 @@ export default function DocumentDetail({ doc, signatures = [], previousSignature
                     {!dl.delivered_at && dl.sent_at && <>odesláno {fmtTs(dl.sent_at)}</>}
                     {dl.confirmation_evidence?.note && <> · {dl.confirmation_evidence.note}</>}
                   </div>
+                  {dl.channel.startsWith("EMAIL") && can.send && !closed && (
+                    <div className="flex flex-wrap gap-x-3 text-xs">
+                      {dl.send_status === "FAILED" && (dl.attempts || 0) < MAX_SEND_ATTEMPTS && !dl.ineffective_at && (
+                        <button type="button" disabled={dlBusy} onClick={() => retryDelivery(dl)} className="text-teal-700 hover:text-teal-900 disabled:opacity-50">Opakovat odeslání</button>
+                      )}
+                      {dl.send_status === "SENT" && !dl.delivered_at && !dl.ineffective_at && (
+                        <button type="button" onClick={() => setDlForm({ id: dl.id, kind: "confirm", sentAt: dl.sent_at })} className="text-teal-700 hover:text-teal-900">Zaznamenat písemné potvrzení převzetí</button>
+                      )}
+                      {dl.channel === "EMAIL_S21" && dl.delivered_at && !dl.withdrawal_received_at && (
+                        <button type="button" onClick={() => setDlForm({ id: dl.id, kind: "withdrawal" })} className="text-red-700 hover:text-red-900">Zaznamenat odstoupení od smlouvy</button>
+                      )}
+                    </div>
+                  )}
+                  {dlForm?.id === dl.id && (
+                    <DeliveryRecordForm form={dlForm} onCancel={() => setDlForm(null)} onSaved={() => { setDlForm(null); load(); onChanged?.(); }} />
+                  )}
+                  {dl.withdrawal_scan_path && (
+                    <button type="button" onClick={() => openFile(dl.withdrawal_scan_path)} className="text-xs text-red-700 hover:text-red-900 flex items-center gap-1">
+                      <Stamp size={12} /> Písemné odstoupení (sken) · otisk <code className="font-mono">{short(dl.withdrawal_scan_sha256)}</code>
+                    </button>
+                  )}
                   {dl.receipt_scan_path && (
                     <button type="button" onClick={() => openFile(dl.receipt_scan_path)} className="text-xs text-emerald-700 hover:text-emerald-900 flex items-center gap-1">
                       <Stamp size={12} /> Potvrzení o převzetí (sken) · otisk <code className="font-mono">{short(dl.receipt_scan_sha256)}</code>
@@ -255,7 +295,7 @@ export default function DocumentDetail({ doc, signatures = [], previousSignature
               <ActionButton icon={FileSignature} onClick={() => setForm("employer")} disabled={!!employerReason} reason={employerReason}>Podepsat za zaměstnavatele</ActionButton>
               <ActionButton icon={Stamp} onClick={() => setForm("qualified")} disabled={!!qualifiedReason} reason={qualifiedReason}>Nahrát PDF s uznávaným podpisem</ActionButton>
               <ActionButton icon={Handshake} onClick={() => setForm("handover")} disabled={!!handoverReason} reason={handoverReason}>Zaznamenat předání</ActionButton>
-              <ActionButton icon={Mail} disabled reason={emailReason}>Odeslat e-mailem</ActionButton>
+              <ActionButton icon={Mail} onClick={() => setForm("email")} disabled={!!emailReason} reason={emailReason}>Odeslat e-mailem</ActionButton>
               {(can.generate || can.approve) && !closed && (
                 <ActionButton icon={Ban} tone="red" onClick={() => setForm("void")}>Zneplatnit</ActionButton>
               )}
@@ -278,6 +318,9 @@ export default function DocumentDetail({ doc, signatures = [], previousSignature
             )}
             {form === "qualified" && (
               <QualifiedUploadForm doc={doc} missing={missing} onCancel={() => setForm(null)} onSaved={() => { setForm(null); load(); onChanged?.(); }} />
+            )}
+            {form === "email" && (
+              <EmailForm doc={doc} channels={emailChannels} onCancel={() => setForm(null)} onSaved={() => { setForm(null); load(); onChanged?.(); }} />
             )}
             {form === "handover" && (
               <HandoverForm doc={doc} s334={s334} onCancel={() => setForm(null)} onSaved={() => { setForm(null); load(); onChanged?.(); }} />
@@ -695,6 +738,132 @@ function HandoverForm({ doc, s334, onCancel, onSaved }) {
       <div className="flex gap-2">
         <button type="button" onClick={submit} disabled={busy} className="bg-teal-700 hover:bg-teal-800 text-white text-sm px-3 py-1.5 rounded-md disabled:opacity-50">
           {busy ? "Ukládám…" : "Zaznamenat předání"}
+        </button>
+        <button type="button" onClick={onCancel} className="text-sm px-3 py-1.5 text-slate-600">Zrušit</button>
+      </div>
+    </div>
+  );
+}
+
+// Faza G: odoslanie podpisaneho originalu e-mailom. Adresu pri § 21 / § 335
+// suhlase urcuje platne vyhlasenie pre aktualny e-mail (overuje aj server);
+// pri mzdovom vymere na inu adresu ju zada HR. Odoslane != dorucene.
+const EMAIL_HINTS = {
+  EMAIL_S21: "Vyhotovení smlouvy uzavřené elektronicky na adresu oznámenou podle § 21. Lhůta 7 dnů k odstoupení běží až od dodání do schránky.",
+  EMAIL_S335_CONSENT: "Jen se platným, neodvolaným souhlasem a uznávaným podpisem s ověřeným certifikátem. Doručeno potvrzením zaměstnance, jinak fikce 15. den od dodání.",
+  EMAIL_S335_WAGE_OTHER_ADDRESS: "Mzdový výměr na jinou adresu: doručen jen písemným potvrzením převzetí. Bez potvrzení do 15 dnů od odeslání je doručení neúčinné.",
+};
+const DECLARATION_KIND = { EMAIL_S21: "S21_ADDRESS_NOTICE", EMAIL_S335_CONSENT: "S335_CONSENT" };
+
+function EmailForm({ doc, channels, onCancel, onSaved }) {
+  const [channel, setChannel] = useState(channels[0]);
+  const [recipient, setRecipient] = useState("");
+  const [declared, setDeclared] = useState({}); // channel -> e-mail z platneho vyhlasenia | null
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  const [result, setResult] = useState(null);
+  const channelKey = channels.join(","); // rodic posiela pri kazdom vykresleni nove pole
+  useEffect(() => {
+    let alive = true;
+    (async () => {
+      const out = {};
+      for (const ch of channels.filter((c) => DECLARATION_KIND[c])) {
+        const { data: id } = await supabase.rpc("hr_valid_contact_declaration", { p_employee_id: doc.employee_id, p_kind: DECLARATION_KIND[ch] });
+        const { data } = id ? await supabase.from("employee_contact_declarations").select("email_snapshot").eq("id", id).maybeSingle() : { data: null };
+        out[ch] = data?.email_snapshot || null;
+      }
+      if (alive) setDeclared(out);
+    })();
+    return () => { alive = false; };
+  }, [doc.employee_id, channelKey]); // eslint-disable-line react-hooks/exhaustive-deps
+  const needsDeclaration = !!DECLARATION_KIND[channel];
+  const address = needsDeclaration ? declared[channel] : recipient.trim();
+  async function submit() {
+    setBusy(true);
+    setError("");
+    try {
+      const r = await invokeFunction("hr-delivery", { action: "send_email", document_id: doc.id, channel, recipient: needsDeclaration ? null : recipient.trim() });
+      setResult(r.delivery);
+    } catch (e) { setError(e.message); }
+    setBusy(false);
+  }
+  if (result) {
+    const st = deliveryState(result);
+    return (
+      <div className="mt-3 border border-slate-200 rounded-md p-3 bg-slate-50 text-sm">
+        <div className={result.send_status === "SENT" ? "text-emerald-700" : "text-red-700"}>{st.label}{result.send_error ? ` – ${result.send_error}` : ""}</div>
+        <div className="text-xs text-slate-500 mt-1">Odesláno neznamená doručeno – stav a lhůty sledujte v části „Předání / doručení“.</div>
+        <button type="button" onClick={onSaved} className="mt-2 bg-teal-700 hover:bg-teal-800 text-white text-sm px-3 py-1.5 rounded-md">Zavřít</button>
+      </div>
+    );
+  }
+  return (
+    <div className="mt-3 border border-slate-200 rounded-md p-3 bg-slate-50">
+      <div className="font-medium text-sm mb-1">Odeslat podepsaný originál e-mailem</div>
+      <div className="text-xs text-amber-700 mb-2">Testovací režim: zprávy jdou jen do lokální testovací schránky, skutečné e-maily se neodesílají.</div>
+      <div className="space-y-1 mb-2">
+        {channels.map((ch) => (
+          <label key={ch} className="flex items-start gap-2 text-sm">
+            <input type="radio" name="email-channel" checked={channel === ch} onChange={() => setChannel(ch)} className="mt-1" />
+            <span>{DELIVERY_CHANNEL_LABELS[ch]}<span className="block text-xs text-slate-500">{EMAIL_HINTS[ch]}</span></span>
+          </label>
+        ))}
+      </div>
+      {needsDeclaration ? (
+        declared[channel] === undefined ? <div className="text-xs text-slate-500 mb-2">Ověřuji vyhlášení…</div>
+          : declared[channel] ? <div className="text-sm mb-2">Adresa z platného vyhlášení: <b>{declared[channel]}</b></div>
+          : <div className="text-xs text-red-700 mb-2">Pro aktuální e-mail zaměstnance chybí platné {channel === "EMAIL_S21" ? "oznámení adresy (§ 21)" : "a neodvolaný souhlas (§ 335)"} – po změně e-mailu je třeba nové vyhlášení. Zatím předejte osobně.</div>
+      ) : (
+        <input type="email" value={recipient} onChange={(e) => setRecipient(e.target.value)} placeholder="E-mailová adresa zaměstnance"
+          className="w-full border border-slate-300 rounded-md px-3 py-2 text-sm mb-2" />
+      )}
+      {error && <div className="text-xs text-red-700 mb-2">{error}</div>}
+      <div className="flex gap-2">
+        <button type="button" onClick={submit} disabled={busy || !address} className="bg-teal-700 hover:bg-teal-800 text-white text-sm px-3 py-1.5 rounded-md disabled:opacity-50">
+          {busy ? "Odesílám…" : "Odeslat"}
+        </button>
+        <button type="button" onClick={onCancel} className="text-sm px-3 py-1.5 text-slate-600">Zrušit</button>
+      </div>
+    </div>
+  );
+}
+
+// Pisomne potvrdenie prevzatia e-mailu / pisomne odstupenie od zmluvy (§ 21).
+// Sken nahra a zahashuje server.
+function DeliveryRecordForm({ form, onCancel, onSaved }) {
+  const confirm = form.kind === "confirm";
+  const [date, setDate] = useState(todayIso());
+  const [scan, setScan] = useState(null);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  async function submit() {
+    if (!scan) { setError(confirm ? "Nahrajte písemné potvrzení převzetí (sken nebo PDF odpovědi)." : "Nahrajte sken písemného odstoupení."); return; }
+    setBusy(true);
+    setError("");
+    try {
+      const scan_base64 = await fileToBase64(scan);
+      await invokeFunction("hr-delivery", confirm
+        ? { action: "confirm_receipt", delivery_id: form.id, confirmed_date: date, scan_base64 }
+        : { action: "record_withdrawal", delivery_id: form.id, received_date: date, scan_base64 });
+      onSaved();
+    } catch (e) { setError(e.message); }
+    setBusy(false);
+  }
+  return (
+    <div className="mt-2 border border-slate-200 rounded-md p-3 bg-white">
+      <div className="font-medium text-sm mb-1">{confirm ? "Písemné potvrzení převzetí" : "Písemné odstoupení od smlouvy (§ 21)"}</div>
+      <label className="block text-xs text-slate-600 mb-1">{confirm ? "Datum potvrzení" : "Datum, kdy odstoupení došlo"}</label>
+      <input type="date" value={date} max={todayIso()} min={confirm && form.sentAt ? String(form.sentAt).slice(0, 10) : undefined} onChange={(e) => setDate(e.target.value)}
+        className="border border-slate-300 rounded-md px-3 py-1.5 text-sm mb-2" />
+      <label className="block text-xs text-slate-600 mb-2">
+        {confirm ? "Potvrzení (sken / PDF odpovědi zaměstnance)" : "Sken písemného odstoupení"}
+        <input type="file" accept="application/pdf,image/*" className="block text-sm mt-1" onChange={(e) => setScan(e.target.files?.[0] || null)} />
+        <span className="block mt-1">Otisk spočítá server při uložení; potom se soubor nedá změnit.</span>
+      </label>
+      {error && <div className="text-xs text-red-700 mb-2">{error}</div>}
+      <div className="flex gap-2">
+        <button type="button" onClick={submit} disabled={busy} className={(confirm ? "bg-teal-700 hover:bg-teal-800" : "bg-red-700 hover:bg-red-800") + " text-white text-sm px-3 py-1.5 rounded-md disabled:opacity-50"}>
+          {busy ? "Ukládám…" : "Uložit"}
         </button>
         <button type="button" onClick={onCancel} className="text-sm px-3 py-1.5 text-slate-600">Zrušit</button>
       </div>

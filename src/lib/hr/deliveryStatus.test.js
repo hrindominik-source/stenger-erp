@@ -7,7 +7,7 @@ describe("stav odovzdania", () => {
     expect(documentDeliveryState([]).key).toBe("NOT_HANDED");
   });
   it("odoslany e-mail nie je doruceny", () => {
-    expect(deliveryState({ channel: "EMAIL_S335_CONSENT", sent_at: "2026-10-01T10:00:00Z", send_status: "SENT" }).label).toBe("odesláno – nepotvrzeno");
+    expect(deliveryState({ channel: "EMAIL_S335_CONSENT", sent_at: "2026-10-01T10:00:00Z", send_status: "SENT" }).label).toBe("odesláno – dodání neověřeno");
   });
   it("dorucene s dovodom", () => {
     expect(deliveryState({ channel: "IN_PERSON_PAPER", delivered_at: "2026-10-01", delivery_basis: "HANDED_OVER" }).label).toBe("doručeno (předáno osobně)");
@@ -38,7 +38,7 @@ describe("lehoty", () => {
     expect(deliveryDeadlines({ channel: "EMAIL_S21", sent_at: "2026-10-01" })[0].label).toContain("neběží");
   });
   it("§ 335 suhlas: fikcia 15. den od dodania, nie od odoslania", () => {
-    const [d] = deliveryDeadlines({ channel: "EMAIL_S335_CONSENT", sent_at: "2026-10-01", confirmation_evidence: { provider_delivered_at: "2026-10-02" } }, { today: "2026-10-20" });
+    const [d] = deliveryDeadlines({ channel: "EMAIL_S335_CONSENT", sent_at: "2026-10-01", provider_delivered_at: "2026-10-02" }, { today: "2026-10-20" });
     expect(d).toMatchObject({ date: "2026-10-17", state: "over" });
     expect(deliveryDeadlines({ channel: "EMAIL_S335_CONSENT", sent_at: "2026-10-01" })[0].label).toContain("chybí doklad");
   });
@@ -51,5 +51,21 @@ describe("lehoty", () => {
   });
   it("osobne odovzdanie nema lehoty", () => {
     expect(deliveryDeadlines({ channel: "IN_PERSON_PAPER", delivered_at: "2026-10-01", delivery_basis: "HANDED_OVER" })).toEqual([]);
+  });
+});
+
+describe("faza G - e-mail", () => {
+  it("odoslane != dorucene; dodanie do schranky nie je dorucenie pri § 335", () => {
+    expect(deliveryState({ channel: "EMAIL_S335_CONSENT", send_status: "QUEUED", queued_at: "2026-10-01" }).label).toBe("čeká na odeslání");
+    expect(deliveryState({ channel: "EMAIL_S21", send_status: "SENT", sent_at: "2026-10-01" })).toMatchObject({ key: "SENT_UNCONFIRMED", label: "odesláno – dodání neověřeno" });
+    expect(deliveryState({ channel: "EMAIL_S335_CONSENT", send_status: "SENT", sent_at: "2026-10-01", provider_delivered_at: "2026-10-01" }).label).toMatch(/dodáno do schránky, doručení nepotvrzeno/);
+  });
+  it("zlyhanie ukazuje zostavajuce pokusy, po vycerpani osobne predanie", () => {
+    expect(deliveryState({ channel: "EMAIL_S21", send_status: "FAILED", attempts: 1, send_error: "x" }).label).toMatch(/zbývá pokusů: 2/);
+    expect(deliveryState({ channel: "EMAIL_S21", send_status: "FAILED", attempts: 3, send_error: "x" }).label).toMatch(/předejte osobně/);
+  });
+  it("§ 21 lehota bezi od dodania podla stlpca provider_delivered_at", () => {
+    const [d] = deliveryDeadlines({ channel: "EMAIL_S21", sent_at: "2026-10-01", provider_delivered_at: "2026-10-02", delivered_at: "2026-10-02", withdrawal_deadline: "2026-10-09" }, { today: "2026-10-05" });
+    expect(d).toMatchObject({ date: "2026-10-09", state: "running" });
   });
 });

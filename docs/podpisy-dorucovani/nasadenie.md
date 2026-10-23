@@ -119,3 +119,13 @@ npx supabase status -o env | grep -E '^(API_URL|ANON_KEY)=' | sed -e 's/^API_URL
 | Mínusy | Ručný krok; mzdové PDF sa nahráva do služby tretej strany (vyžaduje posúdenie GDPR/DPA). | Treba hostovať a udržiavať Java službu mimo Supabase; vlastná prevádzka. |
 
 Odporúčanie: zatiaľ ručne (počet elektronicky doručovaných písomností § 334 je malý), pred ostrým použitím nechať právničku/DPO odsúhlasiť zvolenú verejnú službu. Automatiku doplniť neskôr do tej istej tabuľky `hr_signature_verifications` (bez zmeny schémy). Komerčné validačné API bez zmluvy o spracovaní neodporúčam.
+
+## Fáza G – doručovanie e-mailom (migrácia 56)
+
+- Migrácia `20261023130000_dorucovani_email.sql`, rollback `supabase/rollback/20261023130000_dorucovani_email_rollback.sql` (zastaví sa, ak existujú e-mailové zásielky).
+- E-mail posiela **len server** (Edge Function `hr-delivery`: `send_email`, `retry`, `confirm_receipt`, `record_withdrawal`, `provider_event`, `sweep`). HR v DB nezaloží e-mailovú zásielku ani nezapíše stav odoslania, doklad o dodaní či odstúpenie.
+- Režim odosielania: `hr_settings.email_mode = "mock"` + lokálny stack (`SUPABASE_URL=http://kong:8000`) → len lokálny Mailpit (`http://127.0.0.1:54324`). Inde funkcia odmietne odoslať (503 „není nakonfigurováno“) – **na staging/prod sa nič neodošle**, kým sa po schválení nedoplní skutočný poskytovateľ (secrets + webhook pre `provider_event` DELIVERED/BOUNCED). Testovacia adresa `*@fail.invalid` simuluje chybu poskytovateľa.
+- Pravidlá: odoslané ≠ doručené; § 21 dodané len dokladom poskytovateľa alebo potvrdením, potom 7 dní na odstúpenie (zaznamená sa so skenom, po lehote odmietnuté); § 335 súhlas → fikcia 15. deň od dodania; § 335 ods. 3 → bez písomného potvrdenia do 15 dní od odoslania neúčinné; vrátená správa = neúčinné; max. 3 pokusy; po zmene e-mailu sa zlyhaná zásielka na starú adresu neopakuje.
+- `electronic_contract_enabled` (default false) + platné § 21 oznámenie sú podmienkou podpisu zmluvy zamestnancom na tablete; po podpise server hneď zašle podpísaný originál na § 21 adresu.
+- Lehoty vyhodnocuje `hr_document_deliveries_sweep()` (spúšťa detail dokumentu); **cron sa nenastavuje** – na prod až po schválení.
+- Texty e-mailov: KONCEPT – KE SCHVÁLENÍ PRÁVNIČKOU (`supabase/functions/_shared/hrMail.ts`).

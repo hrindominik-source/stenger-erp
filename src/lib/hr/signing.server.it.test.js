@@ -22,6 +22,8 @@ const STROKES = [Array.from({ length: 15 }, (_, i) => [i * 3, i * 2])];
 const TABLET = "tablet-it-0123456789abcdef";
 const OTHER_TABLET = "tablet-it-ffffffffffffffff";
 const SIGNATORY = "JUDr. Test Zmocněnec";
+const EMP_EMAIL = `tereza.${Date.now().toString(36)}@example.test`;
+const MAILPIT = "http://127.0.0.1:54324";
 
 function fakePades(finalBytes) {
   const pad = (n) => String(n).padStart(10, " ");
@@ -82,7 +84,11 @@ describe.skipIf(!enabled)("faza F - podpis na tablete pri osobnej pritomnosti (l
     signerHr = createClient(URL_, ANON, { auth: { persistSession: false } });
     if ((await signerHr.auth.signInWithPassword({ email: sEmail, password: sPass })).error) throw new Error("login signer");
     tablet = createClient(URL_, ANON, { auth: { persistSession: false } }); // tablet bez prihlasenia
-    await service.from("employees").insert({ id: empId, first_name: "Tereza", last_name: "Tabletová", record_flag: "TEST" });
+    await service.from("employees").insert({ id: empId, first_name: "Tereza", last_name: "Tabletová", record_flag: "TEST", private_email: EMP_EMAIL });
+    // § 21: elektronicke uzavretie zapnute (lokalne) + oznamenie adresy
+    await service.from("hr_settings").update({ value: true }).eq("key", "electronic_contract_enabled");
+    await service.from("employee_contact_declarations").insert({ id: `decl-${run}`, kind: "S21_ADDRESS_NOTICE", employee_id: empId,
+      email_snapshot: EMP_EMAIL, declared_at: new Date().toISOString(), channel: "TABLET_HR" });
     const pdf = await PDFDocument.create();
     const font = await pdf.embedFont(StandardFonts.Helvetica);
     for (let i = 1; i <= 3; i++) pdf.addPage().drawText(`Pracovni smlouva - strana ${i}`, { x: 50, y: 700, font, size: 14 });
@@ -131,11 +137,33 @@ describe.skipIf(!enabled)("faza F - podpis na tablete pri osobnej pritomnosti (l
     const empBody = { action: "employer_sign", document_id: id, displayed_sha256: el.sha256, intent_text_version_id: el.intent.id,
       signature_png_base64: b64(signaturePng(8)), strokes: STROKES, evidence: { pages_viewed: [1, 2, 3] } };
     expect((await invoke(signerHr, empBody)).status).toBe(422); // bez potvrdenia
-    expect(await invoke(signerHr, { ...empBody, confirmed: true })).toMatchObject({ ok: true, complete: true });
+    const fin = await invoke(signerHr, { ...empBody, confirmed: true });
+    expect(fin).toMatchObject({ ok: true, complete: true, s21: { sent: true, send_status: "SENT" } });
     const done = await row(id);
     expect(done.status).toBe("SIGNED");
+    // faza G: podpisany original hned zaslany na § 21 adresu (lokalny Mailpit)
+    const { data: dl } = await service.from("hr_document_deliveries").select("*").eq("id", fin.s21.delivery_id).single();
+    expect(dl).toMatchObject({ channel: "EMAIL_S21", recipient_snapshot: EMP_EMAIL, send_status: "SENT", delivered_at: null, delivered_document_sha256: done.signed_pdf_sha256 });
+    const found = await (await fetch(`${MAILPIT}/api/v1/search?query=${encodeURIComponent(`to:${EMP_EMAIL}`)}`)).json();
+    expect(found.messages?.length).toBeGreaterThan(0);
+    expect(found.messages[0].Attachments).toBe(1);
     const { data: emp } = await service.from("hr_document_signatures").select("evidence").eq("hr_document_id", id).eq("signer_type", "EMPLOYER").single();
     expect(emp.evidence.signatory_id).toBe(`sig-${run}`);
+  });
+
+  it("§ 21: bez platneho oznamenia adresy alebo pri vypnutom nastaveni zmluvu elektronicky nepodpise", async () => {
+    const id = await newDoc("s21", "pracovni_smlouva");
+    await service.from("hr_settings").update({ value: false }).eq("key", "electronic_contract_enabled");
+    let r = await issue(hr, id);
+    expect(r.status).toBe(409);
+    expect(r.error).toMatch(/vypnuté/);
+    await service.from("hr_settings").update({ value: true }).eq("key", "electronic_contract_enabled");
+    await service.from("employees").update({ private_email: "novy.email@example.test" }).eq("id", empId);
+    r = await issue(hr, id);
+    expect(r.status).toBe(409);
+    expect(r.error).toMatch(/§ 21/);
+    await service.from("employees").update({ private_email: EMP_EMAIL }).eq("id", empId);
+    expect((await issue(hr, id)).ok).toBe(true);
   });
 
   it("tri zle kody zrusia odkaz; novy token zrusi stary", async () => {

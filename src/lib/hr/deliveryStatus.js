@@ -5,6 +5,7 @@
 export const S21_WITHDRAWAL_DAYS = 7; // § 21 odst. 2 ZP - odstoupeni od smlouvy uzavrene elektronicky
 export const S335_FICTION_DAYS = 15; // § 335 - fikce doruceni / lhuta pro potvrzeni
 export const S335_WARN_DAY = 10; // upozorneni HR pred koncem lhuty
+export const MAX_SEND_ATTEMPTS = 3; // DB: hr_document_deliveries_attempts_check
 
 export const DELIVERY_CHANNEL_LABELS = {
   IN_PERSON_PAPER: "osobně – papír",
@@ -28,8 +29,8 @@ export const DELIVERY_BASIS_LABELS = {
 const day = (iso) => (iso ? String(iso).slice(0, 10) : null);
 export const addDays = (iso, n) => { const d = new Date(day(iso) + "T00:00:00Z"); d.setUTCDate(d.getUTCDate() + n); return d.toISOString().slice(0, 10); };
 export const czDate = (iso) => (iso ? day(iso).split("-").reverse().join(".") : "");
-// Datum dodani do schranky (doklad od poskytovatele) - zapisuje faza G.
-const providerDeliveredAt = (dl) => dl?.confirmation_evidence?.provider_delivered_at || null;
+// Datum dodani do schranky (doklad od poskytovatele, zapisuje server - faza G).
+const providerDeliveredAt = (dl) => dl?.provider_delivered_at || null;
 
 // key: NOT_HANDED | SENT_UNCONFIRMED | DELIVERED | INEFFECTIVE | FAILED
 export function deliveryState(dl) {
@@ -40,7 +41,13 @@ export function deliveryState(dl) {
   if (dl.delivered_at) {
     return { key: "DELIVERED", label: `doručeno (${DELIVERY_BASIS_LABELS[dl.delivery_basis] || dl.delivery_basis})`, at: dl.delivered_at };
   }
-  if (dl.send_status === "FAILED") return { key: "FAILED", label: "odeslání selhalo – nedoručeno", reason: dl.send_error || null };
+  if (dl.send_status === "FAILED") {
+    const left = Math.max(0, MAX_SEND_ATTEMPTS - (dl.attempts || 0));
+    return { key: "FAILED", label: `odeslání selhalo – nedoručeno${left ? ` (zbývá pokusů: ${left})` : " – pokusy vyčerpány, předejte osobně"}`, reason: dl.send_error || null };
+  }
+  if (dl.send_status === "QUEUED") return { key: "SENT_UNCONFIRMED", label: "čeká na odeslání" };
+  if (dl.channel?.startsWith("EMAIL") && providerDeliveredAt(dl)) return { key: "SENT_UNCONFIRMED", label: "odesláno – dodáno do schránky, doručení nepotvrzeno" };
+  if (dl.channel?.startsWith("EMAIL") && dl.sent_at) return { key: "SENT_UNCONFIRMED", label: "odesláno – dodání neověřeno" };
   if (dl.sent_at || dl.queued_at || dl.send_status) return { key: "SENT_UNCONFIRMED", label: "odesláno – nepotvrzeno" };
   return { key: "NOT_HANDED", label: "nepředáno" };
 }
