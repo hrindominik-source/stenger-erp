@@ -3,6 +3,12 @@
 -- pripadne exportujte: select * from public.hr_document_events;
 -- Nove verzie dokumentov a zaznamy o odovzdani ostavaju (su to platne data).
 begin;
+do $$
+begin
+  if exists (select 1 from public.hr_document_events) then
+    raise exception 'Rollback zastaven: existuji udalosti dokumentu (stazeni k tisku) - nejdrive je exportujte a rozhodnete.';
+  end if;
+end $$;
 drop function if exists public.hr_document_new_version(text, text);
 drop trigger if exists hr_document_deliveries_in_person on public.hr_document_deliveries;
 drop function if exists public.hr_document_deliveries_in_person();

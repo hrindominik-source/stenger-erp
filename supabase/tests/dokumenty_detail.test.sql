@@ -40,24 +40,24 @@ set local role authenticated;
 set local request.jwt.claims = '{"sub": "00000000-0000-0000-0000-0000000000e1", "email": "hr.e@test.local", "role": "authenticated"}';
 
 -- ---------- 2. sken patri k verzii + potvrdenie HR ----------
-select throws_ok($$insert into public.hr_document_signatures (id, hr_document_id, method, signer_type, signed_by_name, document_hash, file_path)
-  values ('es-1', 'e-ps', 'PAPER', 'EMPLOYEE', 'Petr Pokusny', repeat('9', 64), 'zamestnanci-podpisy/e-ps/sken.pdf')$$,
-  'P0001', null, 'sken bez potvrdenia HR, ze zodpoveda originalu, odmietnuty');
+-- od migracie 60 sken zapisuje len server (hr-signing paper_upload)
+select throws_like($$insert into public.hr_document_signatures (id, hr_document_id, method, signer_type, signed_by_name, document_hash, file_path, scan_matches_original_confirmed_by)
+  values ('es-1', 'e-ps', 'PAPER', 'EMPLOYEE', 'Petr Pokusny', repeat('9', 64), 'zamestnanci-podpisy/e-ps/sken.pdf', '00000000-0000-0000-0000-0000000000e1')$$,
+  '%jen server%', 'prehliadac sken podpisu nezapise (len server)');
+reset role;
 select throws_ok($$insert into public.hr_document_signatures (id, hr_document_id, method, signer_type, signed_by_name, document_hash, file_path, signed_content_sha256, scan_matches_original_confirmed_by)
   values ('es-1', 'e-ps', 'PAPER', 'EMPLOYEE', 'Petr Pokusny', repeat('9', 64), 'zamestnanci-podpisy/e-ps/sken.pdf', repeat('2', 64), '00000000-0000-0000-0000-0000000000e1')$$,
   'P0001', null, 'sken k inej verzii (iny otisk) odmietnuty');
-select throws_ok($$insert into public.hr_document_signatures (id, hr_document_id, method, signer_type, signed_by_name, document_hash, file_path, scan_matches_original_confirmed_by)
-  values ('es-1', 'e-ps', 'PAPER', 'EMPLOYEE', 'Petr Pokusny', repeat('9', 64), 'zamestnanci-podpisy/e-ps/sken.pdf', '00000000-0000-0000-0000-0000000000e2')$$,
-  'P0001', null, 'potvrdenie za ineho pouzivatela odmietnute');
 select lives_ok($$insert into public.hr_document_signatures (id, hr_document_id, method, signer_type, signed_by_name, document_hash, file_path, scan_matches_original_confirmed_by)
   values ('es-1', 'e-ps', 'PAPER', 'EMPLOYEE', 'Petr Pokusny', repeat('9', 64), 'zamestnanci-podpisy/e-ps/sken.pdf', '00000000-0000-0000-0000-0000000000e1')$$,
-  'sken s potvrdenim HR');
-reset role;
+  'server zapise sken s potvrdenim HR');
 select is((select signed_content_sha256 from public.hr_document_signatures where id = 'es-1'), repeat('1', 64), 'sken je naviazany na otisk finalneho PDF');
 set local role authenticated;
 set local request.jwt.claims = '{"sub": "00000000-0000-0000-0000-0000000000e1", "email": "hr.e@test.local", "role": "authenticated"}';
 
 -- ---------- 3. osobne odovzdanie ----------
+-- zaznamy podpisu a dorucenia zapisuje len server (migracia 60); pravidla plati aj pre neho
+set local role service_role;
 select throws_ok($$insert into public.hr_document_deliveries (id, hr_document_id, channel, delivered_at, delivery_basis)
   values ('ed-0', 'e-ps', 'IN_PERSON_PAPER', now(), 'HANDED_OVER')$$, 'P0001', null, 'zmluvu len so zamestnancom nejde odovzdat');
 insert into public.hr_document_signatures (id, hr_document_id, method, signer_type, signed_by_name, document_hash, file_path, scan_matches_original_confirmed_by)
@@ -80,6 +80,7 @@ select throws_ok($$insert into public.hr_document_deliveries (id, hr_document_id
   values ('ed-2', 'e-mv', 'IN_PERSON_PAPER', now(), 'SIGNED_RECEIPT')$$, 'P0001', null, 'potvrdenie prevzatia bez zaznamu odmietnute');
 select throws_ok($$insert into public.hr_document_deliveries (id, hr_document_id, channel, delivered_at, delivery_basis, confirmation_evidence)
   values ('ed-2', 'e-mv', 'IN_PERSON_PAPER', now(), 'SIGNED_RECEIPT', '{"receipt": "PAPER_SIGNATURE"}')$$, 'P0001', null, 'potvrdenie prevzatia bez skenu odmietnute (migracia 53)');
+set local role authenticated;
 select throws_ok($$insert into public.hr_document_deliveries (id, hr_document_id, channel, delivered_at, delivery_basis, receipt_scan_path, receipt_scan_sha256)
   values ('ed-2', 'e-mv', 'IN_PERSON_PAPER', now(), 'SIGNED_RECEIPT', 'prevzeti/e-mv/ed-2-' || repeat('7', 16) || '.pdf', repeat('7', 64))$$,
   'P0001', null, 'HR sken potvrdenia s vlastnym otiskom nezapise (migracia 55 - otisk pocita server)');

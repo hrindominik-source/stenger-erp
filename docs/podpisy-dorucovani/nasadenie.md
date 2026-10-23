@@ -143,3 +143,12 @@ Odporúčanie: zatiaľ ručne (počet elektronicky doručovaných písomností �
 ## Kompletný plán nasadenia
 
 `06-plan-nasadenia.md` – poradie migrácií a funkcií, generálka na stagingu, overenie zálohy, produkcia, rollback, nastavenia HR po nasadení.
+
+## Vzor pracovnej zmluvy ako šablóna (migrácia 59)
+
+`20261023160000_sablona_pracovnej_zmluvy.sql` + rollback. Popis a testy: `04-sablony-texty.md`.
+
+## Opravy z nezávislej kontroly (migrácia 60)
+
+`20261023170000_bezpecnostne_opravy.sql` + rollback, zmeny v `hr-signing` (`paper_upload`, atomický kód, uznávaný podpis zamestnanca) a `hr-kiosk` (väzba podpisu na koncept, limity). Nálezy a stav: `07-nezavisla-kontrola.md`. Frontend, funkcie a migrácia idú spolu: starý frontend by papierový sken zapisoval priamo, čo DB po migrácii 60 odmietne.
+

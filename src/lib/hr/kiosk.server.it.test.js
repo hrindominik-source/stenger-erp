@@ -55,6 +55,19 @@ describe.skipIf(!enabled)("faza D - kiosk dotaznik (lokalny Supabase)", { timeou
     await service.from("hr_settings").update({ value: false }).eq("key", "s335_consent_enabled");
   });
 
+  it("podpis len k udajom, z ktorych PDF vzniklo (migracia 60)", async () => {
+    const draft = { first_name: "Olga", last_name: "Zmenená", date_of_birth: "1990-01-01", private_email: "olga.a@example.test", kiosk_s21: "ANO" };
+    const s = await newSession(draft);
+    const p = await prepare(s);
+    const s21 = p.documents.find((d) => d.kind === "S21");
+    await kiosk.rpc("hr_onboarding_save_draft", { p_session_token: s.session_token, p_draft_data: { ...draft, private_email: "olga.b@example.test" } });
+    const r = await sign(s, s21);
+    expect(r.status).toBe(409);
+    expect(r.error).toMatch(/změnily/);
+    const { count } = await service.from("employee_contact_declarations").select("id", { count: "exact", head: true }).eq("onboarding_session_id", s.id);
+    expect(count).toBe(0);
+  });
+
   it("s e-mailom a § 21: dotaznik a oznamenie zvlast, podpis kazdeho, prenos na zamestnanca bez zmeny hashov", async () => {
     const s = await newSession({ first_name: "Jana", last_name: "Kiosková", date_of_birth: "1991-03-07", private_email: "jana.kioskova@example.test", kiosk_s21: "ANO" });
     const p = await prepare(s);

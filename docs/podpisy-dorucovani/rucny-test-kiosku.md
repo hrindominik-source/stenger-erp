@@ -109,4 +109,37 @@ Každý scenár = nový dotazník (na konci „Začít nový dotazník“ alebo 
 - [ ] Stav ukazuje „Čeká na podpis: zaměstnavatel“ (nie „Podepsáno“).
 - [ ] Znova „Nahrát podepsaný sken“ so Zaměstnavatelem → stav „Podepsáno“.
 
+**H. Príprava pre podpis na tablete a e-mail** (raz po `db reset`)
+- [ ] Studio → SQL Editor: `update public.hr_settings set value = 'true' where key = 'electronic_contract_enabled';`
+- [ ] Prihlásiť sa ako `hr.admin@test.local` (je zároveň vymyslená osoba s plnou mocou „Mgr. Jana Zkušební“).
+- [ ] Zamestnanec (napr. Eva Ukázková) → Karta: doplniť **soukromý e-mail** (napr. `eva@example.test`) a uložiť.
+
+**I. Podpis zamestnanca cez QR kód a kód (simulácia tabletu)**
+- [ ] Dokumenty → „Prohlášení (§ 21 / § 335)“ → „Oznámení elektronické adresy (§ 21)“ → otvorí sa detail dokumentu (PDF vytvoril server).
+- [ ] „Podepsat na tabletu“ → druh dokladu (OP) → zaškrtnúť „osobně přítomen…“ → „Připravit podpis“ → zobrazí sa **QR kód a 6-miestny kód**; odkaz nie je nikde ako text.
+- [ ] Na PC: F12 → Ctrl+Shift+M (iPad) → „Podepsat na tomto zařízení“. Tablet si vypýta kód:
+  - [ ] 2× zlý kód → „Zbývající pokusy“; 3. zlý kód → „podpis byl zrušen“ → v HR „Podepsat na tabletu“ znova;
+  - [ ] správny kód → prejsť všetky strany → podpis → „Podepsat“.
+- [ ] Voliteľne skutočný tablet/mobil v tej istej Wi-Fi (bod 2): HR otvoriť cez `http://<IP-PC>:5173`, QR kód potom obsahuje adresu PC a dá sa naskenovať. Na mobile zadať kód.
+- [ ] Odhlásiť HR počas otvoreného podpisu → tablet odmietne („Pracovník HR … už není přihlášen“).
+- [ ] Po podpise: Dokumenty → panel Prohlášení ukazuje platné § 21 oznámenie.
+
+**J. Pracovná zmluva – zamestnanec na tablete, zamestnávateľ, e-mail do Mailpitu**
+- [ ] Dokumenty → „Pracovní smlouva“ → podepisuje „Mgr. Jana Zkušební“ → „Vygenerovat a uložit k podpisu“ (vzor je šablóna v1 – v Šablonách je „Pracovní smlouva (vzor Stenger)“).
+- [ ] Stiahnuť .docx → otvoriť vo Worde (alebo LibreOffice) → uložiť ako PDF → „Nahrát finální PDF (uložené z Wordu)“ → kontrola servera OK.
+- [ ] „Podepsat na tabletu“ (ako v I).
+- [ ] „Podepsat za zaměstnavatele“ → prejsť strany → podpis. Stav „Podepsáno“, „Podepsaný originál“ má dôkazný list pre oba podpisy.
+- [ ] Mailpit `http://127.0.0.1:54324`: prišiel e-mail „… – vyhotovení smlouvy uzavřené elektronicky“ s PDF v prílohe a textom KONCEPT.
+- [ ] Detail dokumentu → doručenie: „Odesláno“ (nie „Doručeno“), lehota: „Lhůta k odstoupení neurčena (chybí doklad o dodání) – … nástupem do práce“.
+- [ ] Voliteľne: v Mailpite stiahnuť správu ako `.eml` → v detaile pri zásielke „Zaznamenat písemné potvrzení“ nahrať `.eml` → stav doručené potvrdením, lehota 7 dní.
+- [ ] Odhlásiť sa, prihlásiť ako `personalista@test.local` → „Podepsat za zaměstnavatele“ je neaktívne s vysvetlením (nie je osoba s plnou mocou).
+
+**K. Papierový podpis (sken nahrá server)**
+- [ ] Iný dokument → „Nahrát podepsaný sken“ → PDF/JPG → označiť strany a mená → potvrdiť zhodu s originálom → uložiť.
+- [ ] Súbor iného typu (napr. .txt premenovaný na .pdf) → chyba „Sken musí být PDF, PNG nebo JPG“.
+
+**L. Potvrdenie o prevzatí a vzor zmluvy**
+- [ ] Pri podpísanom dokumente „Vytvořit potvrzení o převzetí“ → nový dokument s otlačkom → podpis na tablete alebo papierom.
+- [ ] Šablony → „Pracovní smlouva (vzor Stenger)“ v1 je schválená; staré zmluvy (vytvorené pred presunom) sa nezmenili.
+
 Ak niečo nesedí: F12 → Console (červené chyby) a poslať snímku obrazovky + popis kroku.

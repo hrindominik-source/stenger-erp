@@ -25,6 +25,8 @@ import { createSignedOriginal } from "../_shared/signedOriginalServer.ts";
 const asset = (f: string) => Deno.readFile(new URL(`../_shared/${f}`, import.meta.url));
 const SERVER_CHECK = { ok: true, server_verified: true, method: "server-generated-v1", checked_keys: [], missing_keys: [] };
 const MAX_PNG = 300000;
+const MAX_DRAFT_CHARS = 200000;
+const MAX_SESSION_DOCUMENTS = 40; // vratane zneplatnenych po zmene udajov
 
 function b64(bytes: Uint8Array) {
   let s = "";
@@ -122,6 +124,7 @@ async function prepare(service: SupabaseClient, body: any) {
   if (draft.kiosk_s335 === "ANO" && draft.kiosk_s335_notice_id !== cfg.texts.S335_NOTICE?.id) {
     throw new HttpError(409, "Pouceni k § 335 bylo mezitim zmeneno - prectete si ho prosim znovu.");
   }
+  if (JSON.stringify(draft).length > MAX_DRAFT_CHARS) throw new HttpError(413, "Dotazník je příliš velký.");
   const plan = kioskDocumentPlan(draft, cfg);
   const fp = await draftFingerprint(draft);
 
@@ -143,6 +146,11 @@ async function prepare(service: SupabaseClient, body: any) {
       out.push(describe(cfg, kind, { id: d.id, sha256: d.final_pdf_sha256, pages: d.variables_snapshot.pages, bytes, signed: d.status === "SIGNED" }));
     }
   } else {
+    // Ochrana pred zahltenim: kazda zmena udajov = nove PDF.
+    const { count } = await service.from("hr_documents").select("id", { count: "exact", head: true }).eq("onboarding_session_id", session.id);
+    if ((count || 0) + plan.length > MAX_SESSION_DOCUMENTS) {
+      throw new HttpError(429, "Příliš mnoho změn dotazníku – požádejte personální oddělení o nový dotazník.");
+    }
     for (const d of current) {
       const { error } = await service.from("hr_documents")
         .update({ status: "VOIDED", void_reason: "Údaje dotazníku změněny před podpisem", updated_at: new Date().toISOString() }).eq("id", d.id);
@@ -170,6 +178,10 @@ async function sign(service: SupabaseClient, body: any, req: Request) {
   }
   if (doc.status !== "READY_FOR_SIGNATURE") throw new HttpError(409, "Dokument neni pripraven k podpisu.");
   if (body.displayed_sha256 !== doc.final_pdf_sha256) throw new HttpError(409, "Zobrazeny dokument neodpovida finalni verzi - nactete ho prosim znovu.");
+  // Podpis (meno, e-mail vo vyhlaseni) len k udajom, z ktorych PDF vzniklo.
+  if ((await draftFingerprint(draft)) !== doc.variables_snapshot?.draft_sha256) {
+    throw new HttpError(409, "Údaje dotazníku se od přípravy dokumentu změnily – načtěte dokumenty znovu.");
+  }
 
   const pages = Number(doc.variables_snapshot?.pages || 0);
   const viewed = new Set((body.evidence?.pages_viewed || []).map(Number));

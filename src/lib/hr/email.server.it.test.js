@@ -93,7 +93,8 @@ describe.skipIf(!enabled)("faza G - dorucovanie e-mailom (lokalny Mailpit)", { t
 
     // HR nemoze zaznamenat dodanie/odstupenie priamo
     const { error: direct } = await hr.from("hr_document_deliveries").update({ delivered_at: new Date().toISOString(), delivery_basis: "PROVIDER_DELIVERED_S21" }).eq("id", r.delivery.id);
-    expect(direct?.message || "").toMatch(/server/);
+    expect(direct).toBeNull(); // HR nema politiku na zmenu dorucenia (migracia 60) - nezmeni sa nic
+    expect((await service.from("hr_document_deliveries").select("delivered_at").eq("id", r.delivery.id).single()).data.delivered_at).toBeNull();
     expect((await call(hr, { action: "provider_event", delivery_id: r.delivery.id, event: "DELIVERED" })).status).toBe(403);
 
     const at = daysAgo(2);

@@ -56,7 +56,9 @@ describe.skipIf(!enabled)("predanie so skenom potvrdenia - otisk pocita server",
     expect((await invoke({ action: "in_person", document_id: id, delivered_date: new Date().toISOString().slice(0, 10), receipt: false })).status).toBe(409);
     expect((await invoke({ action: "in_person", document_id: id, delivered_date: "2099-01-01", receipt: true, scan_base64: b64(scan) })).status).toBe(422);
     expect((await invoke({ action: "in_person", document_id: id, delivered_date: "2026-10-01", receipt: true, scan_base64: b64(enc("<html>nie sken</html>")) })).status).toBe(422);
-    const r = await invoke({ action: "in_person", document_id: id, delivered_date: "2026-10-01", receipt: true, scan_base64: b64(scan),
+    // datum predania nie pred podpisom dokumentu (migracia 60)
+    expect((await invoke({ action: "in_person", document_id: id, delivered_date: "2026-01-01", receipt: true, scan_base64: b64(scan) })).status).toBe(409);
+    const r = await invoke({ action: "in_person", document_id: id, delivered_date: new Date().toISOString().slice(0, 10), receipt: true, scan_base64: b64(scan),
       receipt_scan_sha256: "0".repeat(64) });
     expect(r.ok).toBe(true);
     const sha = await sha256Hex(scan);

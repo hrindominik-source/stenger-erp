@@ -500,7 +500,7 @@ async function invokeFunction(name, body) {
   throw new Error(detail?.error || "Spojení se serverem se nezdařilo. Zkuste to znovu.");
 }
 
-async function fileToBase64(file) {
+export async function fileToBase64(file) {
   const bytes = new Uint8Array(await file.arrayBuffer());
   let bin = "";
   for (let i = 0; i < bytes.length; i += 0x8000) bin += String.fromCharCode.apply(null, bytes.subarray(i, i + 0x8000));

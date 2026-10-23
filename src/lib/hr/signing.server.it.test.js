@@ -279,6 +279,42 @@ describe.skipIf(!enabled)("faza F - podpis na tablete pri osobnej pritomnosti (l
     expect((await invoke(admin, { action: "signatory_scan", signatory_id: `sig-${run}`, scan_base64: b64(scan) })).status).toBe(409);
   });
 
+  it("papierovy sken: ulozi a zahashuje server, prehliadac podpis nezapise (migracia 60)", async () => {
+    const id = await newDoc("paper", "pracovni_smlouva");
+    const scan = enc("%PDF-1.4\n% podepsany sken (test)\n%%EOF\n");
+    const base = { action: "paper_upload", document_id: id, confirmed: true, signed_date: new Date().toISOString().slice(0, 10) };
+    expect((await invoke(hr, { ...base, scan_base64: b64(enc("<html>nie sken</html>")), signers: [{ signer_type: "EMPLOYEE", name: "Test" }] })).status).toBe(422);
+    expect((await invoke(hr, { ...base, confirmed: false, scan_base64: b64(scan), signers: [{ signer_type: "EMPLOYEE", name: "Test" }] })).status).toBe(422);
+    expect((await invoke(hr, { ...base, signed_date: "2099-01-01", scan_base64: b64(scan), signers: [{ signer_type: "EMPLOYEE", name: "Test" }] })).status).toBe(422);
+    const a = await invoke(hr, { ...base, scan_base64: b64(scan), signers: [{ signer_type: "EMPLOYEE", name: "Zaměstnanec Test" }] });
+    expect(a).toMatchObject({ ok: true, complete: false, missing: ["EMPLOYER"] });
+    const { data: sig } = await service.from("hr_document_signatures").select("*").eq("hr_document_id", id).single();
+    expect(sig).toMatchObject({ method: "PAPER", document_hash: await sha256Hex(scan), signed_content_sha256: await sha256Hex(finalBytes) });
+    expect(sig.file_path).toMatch(new RegExp(`^zamestnanci-podpisy/${id}-[0-9a-f]{16}\\.pdf$`));
+    const { error: direct } = await hr.from("hr_document_signatures").insert({ id: `x-${run}`, hr_document_id: id, method: "PAPER", signer_type: "EMPLOYER",
+      signed_by_name: "x", document_hash: "c".repeat(64), file_path: "zamestnanci-podpisy/x.pdf" });
+    expect(direct?.message).toMatch(/jen server/);
+    const up = await hr.storage.from(BUCKET).upload(`zamestnanci-podpisy/${id}-podvrh.pdf`, new Blob([scan], { type: "application/pdf" }));
+    expect(up.error).toBeTruthy();
+    const scan2 = enc("%PDF-1.4\n% podpis zamestnavatela (test)\n%%EOF\n");
+    const b = await invoke(hr, { ...base, scan_base64: b64(scan2), signers: [{ signer_type: "EMPLOYER", name: SIGNATORY }] });
+    expect(b).toMatchObject({ ok: true, complete: true });
+    expect((await row(id)).status).toBe("SIGNED");
+  });
+
+  it("uznavany podpis zamestnanca sa zapocita az po overeni certifikatu; meno z karty (migracia 60)", async () => {
+    const id = await newDoc("qe", "vypoved_zamestnance");
+    const q = await invoke(hr, { action: "qualified_upload", document_id: id, signer_type: "EMPLOYEE", signed_by_name: "Niekto Iny", pdf_base64: b64(fakePades(finalBytes)) });
+    expect(q).toMatchObject({ ok: true, complete: false, missing: ["EMPLOYEE"] });
+    const { data: sig } = await service.from("hr_document_signatures").select("*").eq("hr_document_id", id).single();
+    const { data: e } = await service.from("employees").select("title, first_name, last_name").eq("id", empId).single();
+    expect(sig.signed_by_name).toBe([e.title, e.first_name, e.last_name].filter(Boolean).join(" "));
+    expect((await row(id)).status).toBe("READY_FOR_SIGNATURE");
+    const v = await invoke(hr, { action: "qualified_verify", signature_id: sig.id, result: "VALID", service_name: "EU DSS", protocol_base64: b64(enc("%PDF-1.4\n% protokol\n%%EOF\n")) });
+    expect(v.completion).toMatchObject({ complete: true, qualified_original: true });
+    expect((await row(id)).status).toBe("SIGNED");
+  });
+
   it("klient sa k tokenom nedostane ani ako HR", async () => {
     const { data } = await hr.from("hr_signing_tokens").select("*");
     expect(data).toEqual([]);

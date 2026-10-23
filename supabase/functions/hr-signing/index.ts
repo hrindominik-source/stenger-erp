@@ -14,6 +14,8 @@
 // Uznavany el. podpis:
 //   { action: "qualified_upload", document_id, pdf_base64, signed_by_name, signer_type }
 //   { action: "qualified_verify", signature_id, result, service_name, protocol_base64, note }
+// Papierovy sken: { action: "paper_upload", document_id, scan_base64, signers: [{ signer_type, name }], signed_date, confirmed }
+//   sken ulozi a zahashuje server (podpisy zapisuje len server - migracia 60)
 // Plna moc (HR_ADMIN): { action: "signatory_scan", signatory_id, scan_base64 }
 import { createClient, type SupabaseClient } from "npm:@supabase/supabase-js@2.45.4";
 import {
@@ -227,17 +229,14 @@ async function pairDevice(service: SupabaseClient, t: Record<string, any>, body:
     throw new HttpError(428, "Zadejte kód zobrazený na obrazovce personálního oddělení.");
   }
   const ok = validPairingCode(String(body.code)) && (await codeHash(t.token_sha256, String(body.code))) === t.pairing_code_sha256;
-  if (!ok) {
-    const attempts = t.code_attempts + 1;
-    await service.from("hr_signing_tokens").update({ code_attempts: attempts }).eq("id", t.id).eq("code_attempts", t.code_attempts);
-    if (attempts >= MAX_CODE_ATTEMPTS) throw new HttpError(410, "Třikrát chybný kód – podpis byl zrušen. Požádejte personální oddělení o nový.");
-    throw new HttpError(403, `Chybný kód. Zbývající pokusy: ${MAX_CODE_ATTEMPTS - attempts}.`);
-  }
-  const verifiedAt = new Date().toISOString();
-  const { data: upd } = await service.from("hr_signing_tokens").update({ code_verified_at: verifiedAt, device_id: deviceId })
-    .eq("id", t.id).is("code_verified_at", null).is("revoked_at", null).select("*");
-  if (!upd?.length) throw new HttpError(409, "Podpis byl mezitím otevřen jinde.");
-  return upd[0];
+  // Vyhodnotenie pod zamkom riadku - paralelne pokusy sa nescitaju naraz.
+  const { data: r, error } = await service.rpc("hr_signing_token_check_code", { p_token_id: t.id, p_code_ok: ok, p_device_id: deviceId });
+  if (error) throw new HttpError(500, error.message);
+  if (r.status === "OTHER_DEVICE") throw new HttpError(409, "Podpis byl mezitím otevřen jinde.");
+  if (r.status === "REVOKED") throw new HttpError(410, "Třikrát chybný kód – podpis byl zrušen. Požádejte personální oddělení o nový.");
+  if (r.status === "WRONG") throw new HttpError(403, `Chybný kód. Zbývající pokusy: ${MAX_CODE_ATTEMPTS - r.attempts}.`);
+  const { data: upd } = await service.from("hr_signing_tokens").select("*").eq("id", t.id).single();
+  return upd;
 }
 
 async function employeeIntent(service: SupabaseClient, doc: Record<string, any>) {
@@ -340,7 +339,8 @@ async function qualifiedUpload(req: Request, body: any) {
   const doc = await loadVisibleDocument(userClient, service, String(body.document_id || ""));
   const signer = body.signer_type === "EMPLOYEE" ? "EMPLOYEE" : "EMPLOYER";
   await signable(service, doc, signer);
-  const name = String(body.signed_by_name || "").trim();
+  // Za zamestnanca vzdy meno z karty (nie volny text HR).
+  const name = signer === "EMPLOYEE" ? await employeeName(service, doc.employee_id) : String(body.signed_by_name || "").trim();
   if (!name) throw new HttpError(422, "Uveďte, kdo dokument podepsal.");
   const signed = fromBase64(String(body.pdf_base64 || ""));
   if (signed.length > MAX_SCAN_BYTES) throw new HttpError(413, "Soubor je příliš velký.");
@@ -358,18 +358,70 @@ async function qualifiedUpload(req: Request, body: any) {
     evidence: { pades: { sub_filter: check.subFilter, byte_range: check.byteRange }, uploaded_by: user.id, certificate_validation: "NOT_PERFORMED" },
   });
   if (sErr) throw new HttpError(409, sErr.message);
-  // Jediny podpis = uznavany: podpisanym originalom je samotne PAdES PDF
-  // (novy subor s dokaznym listom by podpis porusil).
-  const { data: sigs } = await service.from("hr_document_signatures").select("method").eq("hr_document_id", doc.id);
+  // Uznavany podpis zamestnanca sa zapocita az po overeni certifikatu (VALID).
+  return json({ ok: true, certificate: "NOT_VERIFIED", ...(await completeQualified(service, doc.id, user.id)) });
+}
+
+// Dokoncenie po uznavanom podpise. Jediny sposob podpisu = uznavany:
+// podpisanym originalom je samotne PAdES PDF (novy subor s dokaznym listom
+// by podpis porusil) - posledny nahraty.
+async function completeQualified(service: SupabaseClient, docId: string, actorId: string) {
+  const { data: doc } = await service.from("hr_documents").select("*").eq("id", docId).single();
+  if (doc.status === "SIGNED") return { complete: true };
   const missing = await missingSigners(service, doc);
-  if (!missing.length && (sigs || []).every((s) => s.method === "ELECTRONIC_QUALIFIED")) {
+  if (missing.length) return { complete: false, missing };
+  const { data: sigs } = await service.from("hr_document_signatures").select("method, file_path, document_hash, created_at")
+    .eq("hr_document_id", doc.id).order("created_at", { ascending: true });
+  if ((sigs || []).length && sigs!.every((s) => s.method === "ELECTRONIC_QUALIFIED")) {
+    const last = sigs![sigs!.length - 1];
     const { error } = await service.from("hr_documents").update({
-      signed_pdf_path: path, signed_pdf_sha256: sha, status: "SIGNED", updated_at: new Date().toISOString(),
+      signed_pdf_path: last.file_path, signed_pdf_sha256: last.document_hash, status: "SIGNED", updated_at: new Date().toISOString(),
     }).eq("id", doc.id);
     if (error) throw new HttpError(409, error.message);
-    return json({ ok: true, complete: true, signed_pdf_sha256: sha, qualified_original: true, certificate: "NOT_VERIFIED" });
+    return { complete: true, signed_pdf_sha256: last.document_hash, qualified_original: true };
   }
-  return json({ ok: true, certificate: "NOT_VERIFIED", ...(await finish(service, doc.id, user.id)) });
+  return finish(service, doc.id, actorId);
+}
+
+// Papierovy podpis: sken ulozi a zahashuje server; HR potvrdi, ze sken
+// zodpoveda tejto verzii (DB: hr_document_signatures_bind_version).
+async function paperUpload(req: Request, body: any) {
+  const { user, userClient, service } = await authorize(req, ["HR_DOCUMENT_SIGN"]);
+  const doc = await loadVisibleDocument(userClient, service, String(body.document_id || ""));
+  if (["SIGNED", "ARCHIVED", "VOIDED", "SUPERSEDED"].includes(doc.status)) throw new HttpError(409, "Dokument nelze podepsat (podepsán, zneplatněn nebo nahrazen).");
+  if (body.confirmed !== true) throw new HttpError(422, "Potvrďte, že sken odpovídá této verzi dokumentu.");
+  const signers = Array.isArray(body.signers) ? body.signers : [];
+  const types = signers.map((x: any) => x?.signer_type);
+  if (!signers.length || new Set(types).size !== types.length || types.some((t: unknown) => t !== "EMPLOYEE" && t !== "EMPLOYER")) {
+    throw new HttpError(422, "Označte, kdo na skenu podepsal.");
+  }
+  if (signers.some((x: any) => !String(x?.name || "").trim())) throw new HttpError(422, "Vyplňte jméno u každého, kdo podepsal.");
+  const date = String(body.signed_date || "");
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(date) || date > today()) throw new HttpError(422, "Zadejte datum podpisu (nejpozději dnes).");
+  const bytes = fromBase64(String(body.scan_base64 || ""));
+  if (!bytes.length) throw new HttpError(422, "Vyberte naskenovaný podepsaný soubor.");
+  if (bytes.length > MAX_SCAN_BYTES) throw new HttpError(413, "Soubor je příliš velký (max. 15 MB).");
+  const type = scanType(bytes);
+  if (!type) throw new HttpError(422, "Sken musí být PDF, PNG nebo JPG.");
+  const sha = await sha256Hex(bytes);
+  const path = `zamestnanci-podpisy/${doc.id}-${sha.slice(0, 16)}.${type.ext}`;
+  const { error: upErr } = await service.storage.from(BUCKET).upload(path, new Blob([bytes], { type: type.mime }), { contentType: type.mime, upsert: false });
+  if (upErr) throw new HttpError(409, /exists|Duplicate/i.test(upErr.message) ? "Tento sken je už nahrán." : upErr.message);
+  const { error: sErr } = await service.from("hr_document_signatures").insert(signers.map((x: any) => ({
+    id: newId("sig"), hr_document_id: doc.id, method: "PAPER", signer_type: x.signer_type, signed_by_name: String(x.name).trim(),
+    signed_at: `${date}T12:00:00Z`, document_hash: sha, file_path: path, uploaded_by: user.id, scan_matches_original_confirmed_by: user.id,
+    evidence: { scan_hashed_by: "server", scan_type: type.ext },
+  })));
+  if (sErr) {
+    await service.storage.from(BUCKET).remove([path]);
+    throw new HttpError(409, sErr.message);
+  }
+  const missing = await missingSigners(service, doc);
+  if (!missing.length) {
+    const { error } = await service.from("hr_documents").update({ status: "SIGNED", updated_at: new Date().toISOString() }).eq("id", doc.id);
+    if (error) throw new HttpError(409, error.message);
+  }
+  return json({ ok: true, complete: !missing.length, missing, sha256: sha });
 }
 
 // Rucne overenie certifikatu cez verejnu overovaciu sluzbu: protokol o
@@ -398,7 +450,8 @@ async function qualifiedVerify(req: Request, body: any) {
     verified_by: user.id, verified_by_name: await profileName(service, user), note: String(body.note || "").trim() || null,
   }).select("*").single();
   if (error) throw new HttpError(409, error.message);
-  return json({ ok: true, verification: row, label: CERTIFICATE_STATUS_LABELS[result as keyof typeof CERTIFICATE_STATUS_LABELS] });
+  const completion = result === "VALID" ? await completeQualified(service, doc.id, user.id) : null;
+  return json({ ok: true, verification: row, label: CERTIFICATE_STATUS_LABELS[result as keyof typeof CERTIFICATE_STATUS_LABELS], completion });
 }
 
 // ---------- HR_ADMIN: sken plnej moci ----------
@@ -431,6 +484,7 @@ Deno.serve(handle(async (req) => {
     case "employer_sign": return employerSign(req, body);
     case "qualified_upload": return qualifiedUpload(req, body);
     case "qualified_verify": return qualifiedVerify(req, body);
+    case "paper_upload": return paperUpload(req, body);
     case "signatory_scan": return signatoryScan(req, body);
     default: throw new HttpError(400, "Neznama akce.");
   }

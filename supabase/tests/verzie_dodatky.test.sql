@@ -31,8 +31,11 @@ set local role authenticated;
 set local request.jwt.claims = '{"sub": "00000000-0000-0000-0000-0000000000f1", "email": "hr.f@test.local", "role": "authenticated"}';
 
 -- ---------- 1. zamknuty, neuplne podpisany -> zneplatnit a nova verzia ----------
+reset role; -- sken zapisuje server (migracia 60)
 insert into public.hr_document_signatures (id, hr_document_id, method, signer_type, signed_by_name, document_hash, file_path, scan_matches_original_confirmed_by)
   values ('fs-ps-e', 'f-ps', 'PAPER', 'EMPLOYEE', 'Karel Zkusebni', repeat('5', 64), 'zamestnanci-podpisy/f-ps/s.pdf', '00000000-0000-0000-0000-0000000000f1');
+set local role authenticated;
+set local request.jwt.claims = '{"sub": "00000000-0000-0000-0000-0000000000f1", "email": "hr.f@test.local", "role": "authenticated"}';
 select isnt((select locked_at from public.hr_documents where id = 'f-ps'), null, 'zmluva je po podpise zamestnanca zamknuta');
 select throws_like($$select public.hr_document_new_version('f-ps', 'chyba v mzde')$$, '%HR_DOCUMENT_VOID%', 'zamknuty dokument bez HR_DOCUMENT_VOID nezneplatni ani cez novu verziu (faza H)');
 reset role;
@@ -47,9 +50,12 @@ select is((select array[status, version_no::text] from public.hr_documents where
 select is(public.hr_document_missing_signers((select id from public.hr_documents where supersedes_document_id = 'f-ps')), array['EMPLOYEE', 'EMPLOYER'],
   'nova verzia vyzaduje vsetky podpisy znova (stary podpis sa nepocita)');
 select throws_ok($$update public.hr_documents set status = 'SIGNED' where supersedes_document_id = 'f-ps'$$, 'P0001', null, 'nova verzia nie je podpisana starym podpisom');
+reset role;
 select throws_ok($$insert into public.hr_document_signatures (id, hr_document_id, method, signer_type, signed_by_name, document_hash, file_path, scan_matches_original_confirmed_by)
   values ('fs-ps-r', 'f-ps', 'PAPER', 'EMPLOYER', 'JUDr. Zastupce', repeat('5', 64), 'zamestnanci-podpisy/f-ps/s2.pdf', '00000000-0000-0000-0000-0000000000f1')$$,
-  'P0001', null, 'zneplatnenu verziu uz nejde dopodpisat');
+  'P0001', null, 'zneplatnenu verziu uz nejde dopodpisat (ani server)');
+set local role authenticated;
+set local request.jwt.claims = '{"sub": "00000000-0000-0000-0000-0000000000f1", "email": "hr.f@test.local", "role": "authenticated"}';
 
 -- ---------- 2. dodatok k podpisanej zmluve ----------
 select throws_ok($$select public.hr_document_new_version('f-ok', 'zmena mzdy')$$, 'P0001', null, 'podpisana zmluva sa nenahradza novou verziou');
@@ -88,9 +94,9 @@ select lives_ok($$insert into public.hr_document_deliveries (id, hr_document_id,
   values ('fd-1', 'f-mv', 'IN_PERSON_PAPER', now(), 'SIGNED_RECEIPT', 'prevzeti/f-mv/fd-1-' || repeat('a', 16) || '.pdf', repeat('a', 64))$$,
   '§ 334: odovzdanie so skenom potvrdenia');
 select throws_ok($$update public.hr_document_deliveries set receipt_scan_sha256 = repeat('b', 64) where id = 'fd-1'$$, 'P0001', null, 'sken potvrdenia je nemenny');
-set local role authenticated;
 select lives_ok($$insert into public.hr_document_deliveries (id, hr_document_id, channel, delivered_at, delivery_basis)
   values ('fd-2', 'f-ok', 'IN_PERSON_PAPER', now(), 'HANDED_OVER')$$, 'zmluva (nie § 334): odovzdanie bez potvrdenia povolene');
+set local role authenticated;
 select ok(public.hr_object_path_visible('prevzeti/f-mv/fd-1-' || repeat('a', 16) || '.pdf'), 'HR s mzdovymi pravami vidi sken potvrdenia');
 
 set local request.jwt.claims = '{"sub": "00000000-0000-0000-0000-0000000000f2", "email": "zaklad.f@test.local", "role": "authenticated"}';
@@ -115,13 +121,17 @@ set local role authenticated;
 set local request.jwt.claims = '{"sub": "00000000-0000-0000-0000-0000000000f1", "email": "hr.f@test.local", "role": "authenticated"}';
 select throws_ok($$update public.hr_documents set training_record_id = 'tr-g' where id = 'f-sk'$$, 'P0001', null, 'evidencia ineho zamestnanca odmietnuta');
 update public.hr_documents set training_record_id = 'tr-fail' where id = 'f-sk';
+set local role service_role; -- podpis zapisuje server (migracia 60)
 select throws_ok($$insert into public.hr_document_signatures (id, hr_document_id, method, signer_type, signed_by_name, document_hash, file_path, scan_matches_original_confirmed_by)
   values ('fs-sk', 'f-sk', 'PAPER', 'EMPLOYEE', 'Karel Zkusebni', repeat('6', 64), 'zamestnanci-podpisy/f-sk/s.pdf', '00000000-0000-0000-0000-0000000000f1')$$,
   'P0001', null, 'neuspesne overenie znalosti: podpis nejde');
+set local role authenticated;
 update public.hr_documents set training_record_id = 'tr-ok' where id = 'f-sk';
+set local role service_role;
 select lives_ok($$insert into public.hr_document_signatures (id, hr_document_id, method, signer_type, signed_by_name, document_hash, file_path, scan_matches_original_confirmed_by)
   values ('fs-sk', 'f-sk', 'PAPER', 'EMPLOYEE', 'Karel Zkusebni', repeat('6', 64), 'zamestnanci-podpisy/f-sk/s.pdf', '00000000-0000-0000-0000-0000000000f1')$$,
   's evidenciou a uspesnym overenim sa da podpisat');
+set local role authenticated;
 select lives_ok($$update public.hr_documents set status = 'SIGNED' where id = 'f-sk'$$, 'zaznam o skoleni je podpisany');
 select throws_ok($$update public.hr_documents set training_record_id = 'tr-fail' where id = 'f-sk'$$, 'P0001', null, 'po podpise evidenciu nejde vymenit');
 reset role;

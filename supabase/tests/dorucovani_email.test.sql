@@ -112,8 +112,11 @@ set local role authenticated;
 set local request.jwt.claims = '{"sub": "00000000-0000-0000-0000-0000000000e1", "email": "hr.e@test.local", "role": "authenticated"}';
 select throws_like($$insert into public.hr_document_deliveries (id, hr_document_id, channel, recipient_snapshot, declaration_id, send_status)
   values ('dl-hr', 'e-ps', 'EMAIL_S21', 'eva@example.test', 'd-e21', 'QUEUED')$$, '%server%', 'HR nezalozi e-mailovu zasielku');
-select throws_like($$update public.hr_document_deliveries set provider_delivered_at = now() where id = 'dl-e6'$$, '%server%', 'HR nezapise doklad o dodani');
-select throws_like($$update public.hr_document_deliveries set send_status = 'QUEUED' where id = 'dl-e3'$$, '%server%', 'HR nemeni stav odoslania');
+-- od migracie 60 HR nema politiku na zmenu dorucenia - update nezasiahne ziadny riadok
+select results_eq($$with u as (update public.hr_document_deliveries set provider_delivered_at = now() where id = 'dl-e6' returning 1) select count(*)::int from u$$,
+  $$values (0)$$, 'HR nezapise doklad o dodani');
+select results_eq($$with u as (update public.hr_document_deliveries set send_status = 'QUEUED' where id = 'dl-e3' returning 1) select count(*)::int from u$$,
+  $$values (0)$$, 'HR nemeni stav odoslania');
 select lives_ok($$select public.hr_document_deliveries_sweep()$$, 'HR moze spustit vyhodnotenie lehot');
 select throws_ok($$select public.hr_valid_contact_declaration_server('emp-e1', 'S21_ADDRESS_NOTICE')$$, '42501', null, 'serverova funkcia nie je pre klienta');
 set local request.jwt.claims = '{"sub": "00000000-0000-0000-0000-0000000000d9", "email": "nikto@test.local", "role": "authenticated"}';

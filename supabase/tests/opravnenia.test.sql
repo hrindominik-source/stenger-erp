@@ -78,9 +78,9 @@ set local request.jwt.claims = '{"sub": "00000000-0000-0000-0000-0000000000c1", 
 select is((select count(*) from public.hr_documents where id = 'h-ps2')::int, 0, 'bez HR_VIEW_SENSITIVE citlivy dokument nevidi');
 select is((select count(*) from public.hr_document_signatures where hr_document_id in ('h-ps', 'h-ps2'))::int, 0, 'ani jeho podpisy a dokazy');
 select throws_ok($$insert into public.hr_document_signatures (id, hr_document_id, method, signer_type, signed_by_name, document_hash, file_path, scan_matches_original_confirmed_by)
-  values ('h-x', 'h-ps2', 'PAPER', 'EMPLOYEE', 'x', repeat('c', 64), 'zamestnanci/emp-h1/h-ps2/x.pdf', '00000000-0000-0000-0000-0000000000c1')$$, '42501', null, 'ani nezapise sken podpisu');
+  values ('h-x', 'h-ps2', 'PAPER', 'EMPLOYEE', 'x', repeat('c', 64), 'zamestnanci/emp-h1/h-ps2/x.pdf', '00000000-0000-0000-0000-0000000000c1')$$, 'P0001', null, 'ani nezapise sken podpisu (len server)');
 select throws_ok($$insert into public.hr_document_deliveries (id, hr_document_id, channel, delivered_at, delivery_basis, handed_over_by, created_by)
-  values ('h-dl', 'h-sg', 'IN_PERSON_PAPER', now(), 'HANDED_OVER', '00000000-0000-0000-0000-0000000000c1', '00000000-0000-0000-0000-0000000000c1')$$, '42501', null, 'ani nezapise predanie');
+  values ('h-dl', 'h-sg', 'IN_PERSON_PAPER', now(), 'HANDED_OVER', '00000000-0000-0000-0000-0000000000c1', '00000000-0000-0000-0000-0000000000c1')$$, 'P0001', null, 'ani nezapise predanie (len server)');
 set local request.jwt.claims = '{"sub": "00000000-0000-0000-0000-0000000000c3", "email": "jednatel.h@test.local", "role": "authenticated"}';
 select is((select count(*) from public.hr_document_signatures where hr_document_id = 'h-ps2')::int, 1, 's HR_VIEW_SENSITIVE podpis vidi');
 reset role;

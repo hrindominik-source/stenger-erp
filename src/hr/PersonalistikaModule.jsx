@@ -10,7 +10,7 @@ import { KNOWN_TEMPLATE_KEYS, TEMPLATE_REQUIRED_KEYS, buildDocumentData, formatA
 import { convertFilledDocxToPdf } from "../lib/hr/docxToPdf.js";
 import { extractJmhzFields, detectJmhzVersionCandidates, knownJmhzVersions } from "../lib/hr/jmhzPdf.js";
 import { buildComparisonRows } from "../lib/hr/jmhzImport.js";
-import { sha256Hex, buildSignedScanPath } from "../lib/hr/documentHash.js";
+import { sha256Hex } from "../lib/hr/documentHash.js";
 import { EMPLOYEE_SECTIONS, emptyEmployeeValues, normalizeLegacyDraft, valuesFromRecords, buildRecordPatches, patchHasContent, maritalStatusText, normalizeGender, HEALTH_INSURANCE_OPTIONS, optionLabel, normalizeHealthInsurance, POSITION_CATEGORIES, positionNameOptions, positionRecordLabel, wageHistory, currentWage, upcomingWages, wageStepHint, valuesToWage } from "../lib/hr/employeeFields.js";
 import EmployeeFieldsForm, { EmployeeFieldsView, applyFieldChange } from "./EmployeeFieldsForm.jsx";
 import { childTaxWarnings } from "../lib/hr/taxChildren.js";
@@ -24,7 +24,8 @@ import { KIOSK_DRAFT_KEYS, KIOSK_DOCS } from "../lib/hr/kioskDocuments.js";
 import { documentRequiredSigners, defaultLegalActType, signingState, SIGNER_LABELS } from "../lib/hr/signingRules.js";
 import LegalTextsSection from "./LegalTexts.jsx";
 import DeclarationsPanel from "./Declarations.jsx";
-import DocumentDetail from "./DocumentDetail.jsx";
+import DocumentDetail, { fileToBase64 } from "./DocumentDetail.jsx";
+import { invokeSigning } from "./signing/TabletSigning.jsx";
 import { ABSENCE_TYPES, ABSENCE_DOC_TYPES, absenceType, absenceList, isAbsenceActive, activeAbsence, absenceStatusText, probationOverlapDays, absenceInProbation, addDaysIso } from "../lib/hr/absences.js";
 
 const HR_DOKUMENTY_BUCKET = "hr-dokumenty";
@@ -4174,31 +4175,13 @@ function SignDocumentForm({ doc, signatures = [], onCancel, onSaved }) {
     setSaving(true);
     setError("");
     try {
-      const { data: userData } = await supabase.auth.getUser();
-      const storagePath = buildSignedScanPath(doc.id, uid(), file.name.split(".").pop());
-      const { error: upErr } = await supabase.storage.from(HR_DOKUMENTY_BUCKET).upload(storagePath, file, { contentType: file.type });
-      if (upErr) throw upErr;
-      const ab = await file.arrayBuffer();
-      const hash = await sha256Hex(ab);
-      // Jeden sken, jeden zaznam za kazdeho podpisujuceho (rovnaky subor a hash).
-      const { error: sigErr } = await supabase.from("hr_document_signatures").insert(chosen.map(([signerType, v]) => ({
-        id: uid(), hr_document_id: doc.id, method: "PAPER", signer_type: signerType,
-        signed_at: signedAt ? new Date(signedAt).toISOString() : null, signed_by_name: v.name.trim(),
-        document_hash: hash, uploaded_by: userData?.user?.id || null, file_path: storagePath,
-        scan_matches_original_confirmed_by: userData?.user?.id || null,
-      })));
-      if (sigErr) throw sigErr;
-      // hr_documents.file_path sa ZAMERNE NEPREPISUJE - zostava navzdy
-      // ukazovat na PUVODNI vygenerovany original. Podpisany sken je
-      // dohladatelny samostatne cez hr_document_signatures.file_path.
-      const { data: missing, error: mErr } = await supabase.rpc("hr_document_missing_signers", { p_document_id: doc.id });
-      if (mErr) throw mErr;
-      if (!missing?.length) {
-        const { error: docErr } = await supabase.from("hr_documents").update({
-          status: "SIGNED", updated_at: new Date().toISOString(),
-        }).eq("id", doc.id);
-        if (docErr) throw docErr;
-      }
+      // Sken ulozi a zahashuje server (jeden subor, zaznam za kazdeho
+      // podpisujuceho); po uplnom podpise server nastavi stav Podepsáno.
+      // hr_documents.file_path ostava navzdy povodny vygenerovany original.
+      await invokeSigning({
+        action: "paper_upload", document_id: doc.id, scan_base64: await fileToBase64(file), confirmed: true, signed_date: signedAt,
+        signers: chosen.map(([signerType, v]) => ({ signer_type: signerType, name: v.name.trim() })),
+      });
       onSaved();
     } catch (e) {
       console.error(e);

@@ -8,8 +8,13 @@ begin
   if exists (select 1 from public.hr_document_signatures where method in ('ELECTRONIC_TABLET', 'ELECTRONIC_QUALIFIED'))
      or exists (select 1 from public.employee_contact_declarations)
      or exists (select 1 from public.hr_document_deliveries)
-     or exists (select 1 from public.hr_documents where employee_id is null) then
-    raise exception 'Rollback zastaven: existuji elektronicke podpisy/vyhlaseni/doruceni nebo dokumenty z dotazniku.';
+     or exists (select 1 from public.hr_documents where employee_id is null)
+     -- dokazy, ktore by rollback zahodil alebo prepisal (kontrola z 23. 10. 2026)
+     or exists (select 1 from public.hr_documents where status in ('VOIDED', 'SUPERSEDED') or void_reason is not null
+                or final_pdf_sha256 is not null or signed_pdf_sha256 is not null)
+     or exists (select 1 from public.hr_document_signatures where signed_content_sha256 is not null or scan_matches_original_confirmed_by is not null)
+     or exists (select 1 from public.hr_legal_text_versions where version_no > 1 or status <> 'KONCEPT') then
+    raise exception 'Rollback zastaven: existuji elektronicke podpisy/vyhlaseni/doruceni, dokumenty z dotazniku, zneplatnene/finalizovane dokumenty nebo upravene texty.';
   end if;
 end $$;
 
@@ -60,7 +65,7 @@ alter table public.hr_documents drop constraint if exists hr_documents_final_pdf
 alter table public.hr_documents drop constraint if exists hr_documents_void_check;
 drop index if exists public.hr_documents_final_pdf_path_uq;
 drop index if exists public.hr_documents_onboarding_session_idx;
-update public.hr_documents set status = 'ARCHIVED' where status in ('VOIDED', 'SUPERSEDED');
+-- VOIDED/SUPERSEDED tu nie su (zastavovacia podmienka vyssie) - zneplatnene dokumenty sa neprepisuju na ARCHIVED.
 alter table public.hr_documents drop constraint if exists hr_documents_status_check;
 alter table public.hr_documents add constraint hr_documents_status_check
   check (status in ('DRAFT', 'READY_FOR_REVIEW', 'APPROVED', 'READY_FOR_SIGNATURE', 'SIGNED', 'ARCHIVED'));
