@@ -12,20 +12,9 @@ export const PS_TEMPLATES = {
   pracovni_smlouva_cizinec: { url: `${BASE}hr/sablony/pracovni_smlouva_cizinec.docx`, nazev: "Pracovní smlouva – cizinec" },
 };
 
-// Za zamestnavatele podepisuji na zaklade plne moci jen tyto osoby
-// (Ralf Stenger zatim nema pristup). pad7 = "zastoupená kým".
-export const PS_PODEPISUJICI = [
-  { jmeno: "Bc. Radka Buchová", pad7: "Bc. Radkou Buchovou" },
-  { jmeno: "JUDr. Dominik Hríň", pad7: "JUDr. Dominikem Hríněm" },
-];
-
-// Index podepisujiciho podle prijmeni prihlaseneho uzivatele (bez ohledu na
-// diakritiku - profil muze byt "Dominik Hrin"); -1 = neni mezi nimi.
-export function podepisujiciIndex(userName) {
-  const surname = (n) => String(n || "").trim().split(" ").pop().normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase();
-  if (!surname(userName)) return -1;
-  return PS_PODEPISUJICI.findIndex((p) => surname(p.jmeno) === surname(userName));
-}
+// Podepisujici za zamestnavatele (plna moc) - zdielane so serverom.
+export { PS_PODEPISUJICI, podepisujiciIndex } from "../../../supabase/functions/_shared/hr/podepisujici.js";
+import { PS_PODEPISUJICI } from "../../../supabase/functions/_shared/hr/podepisujici.js";
 
 export const psVariant = (v) => (isValuesForeigner(v) ? "pracovni_smlouva_cizinec" : "pracovni_smlouva");
 

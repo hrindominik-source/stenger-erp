@@ -5,9 +5,11 @@ import { uid } from "../lib/utils.js";
 import { sha256Hex } from "../lib/hr/documentHash.js";
 import { hrFileName } from "../lib/hr/fileNames.js";
 import {
-  documentRequiredSigners, defaultLegalActType, signatureCounts, isS334Document,
+  documentRequiredSigners, defaultLegalActType, signatureCounts, isS334Document, missingSigners,
   SIGNER_LABELS, LEGAL_ACT_LABELS, SIGNATURE_METHOD_LABELS,
 } from "../lib/hr/signingRules.js";
+import TabletSigning, { invokeSigning } from "./signing/TabletSigning.jsx";
+import { IDENTITY_DOCUMENTS } from "../../supabase/functions/_shared/hr/tabletSigning.js";
 import { deliveryState, deliveryDeadlines, documentDeliveryState, czDate, DELIVERY_CHANNEL_LABELS } from "../lib/hr/deliveryStatus.js";
 
 /* =========================================================================
@@ -117,6 +119,15 @@ export default function DocumentDetail({ doc, signatures = [], previousSignature
   const printReason = !doc.final_pdf_path ? "Nejdřív nahrajte finální PDF." : fullySigned ? "Dokument je podepsán – použijte podepsaný originál." : closed ? "Dokument je zneplatněn / nahrazen." : "";
   const handoverReason = !can.send ? "Chybí oprávnění k předávání dokumentů." : closed ? "Dokument je zneplatněn / nahrazen."
     : !fullySigned ? "Předat lze až dokument podepsaný všemi stranami." : overall.key === "DELIVERED" ? "Dokument už byl předán." : "";
+  const missing = missingSigners(doc, signatures);
+  const serverPdf = !!doc.final_pdf_path && !!doc.final_pdf_text_check?.ok && !!doc.final_pdf_text_check?.server_verified;
+  const signBase = !can.sign ? "Chybí oprávnění k podpisu dokumentů." : closed ? "Dokument je zneplatněn / nahrazen."
+    : fullySigned ? "Dokument je už podepsán všemi stranami." : !serverPdf ? "Nejdřív nahrajte finální PDF (ověřené serverem)." : "";
+  const tabletReason = signBase || (!missing.includes("EMPLOYEE") ? "Zaměstnanec už podepsal nebo podpis nepotřebuje."
+    : isTraining && !doc.training_record_id ? "Nejdřív doplňte evidenci školení a ověření znalostí." : "");
+  const employerReason = signBase || (!missing.includes("EMPLOYER") ? "Zaměstnavatel už podepsal nebo podpis nepotřebuje."
+    : s334 ? "Písemnost § 334 podepisuje zaměstnavatel uznávaným el. podpisem – nahrajte podepsané PDF." : "");
+  const qualifiedReason = signBase || (!missing.length ? "Nikdo další už podepsat nemusí." : "");
   const emailReason = !fullySigned ? "Dokument není podepsán všemi stranami." : "Odesílání e-mailem se připravuje (fáze G) – zatím předejte osobně.";
 
   return (
@@ -228,7 +239,9 @@ export default function DocumentDetail({ doc, signatures = [], previousSignature
           <Section title="Akce">
             <div className="flex flex-wrap gap-x-5 gap-y-2 items-start">
               <ActionButton icon={Printer} onClick={printDownload} disabled={!!printReason} reason={printReason}>Stáhnout k tisku</ActionButton>
-              <ActionButton icon={Tablet} disabled reason="Připravuje se (fáze F).">Podepsat na tabletu</ActionButton>
+              <ActionButton icon={Tablet} onClick={() => setForm("tablet")} disabled={!!tabletReason} reason={tabletReason}>Podepsat na tabletu</ActionButton>
+              <ActionButton icon={FileSignature} onClick={() => setForm("employer")} disabled={!!employerReason} reason={employerReason}>Podepsat za zaměstnavatele</ActionButton>
+              <ActionButton icon={Stamp} onClick={() => setForm("qualified")} disabled={!!qualifiedReason} reason={qualifiedReason}>Nahrát PDF s uznávaným podpisem</ActionButton>
               <ActionButton icon={Handshake} onClick={() => setForm("handover")} disabled={!!handoverReason} reason={handoverReason}>Zaznamenat předání</ActionButton>
               <ActionButton icon={Mail} disabled reason={emailReason}>Odeslat e-mailem</ActionButton>
               {(can.generate || can.approve) && !closed && (
@@ -243,6 +256,17 @@ export default function DocumentDetail({ doc, signatures = [], previousSignature
                 <ActionButton icon={FileSignature} onClick={() => setForm("amendment")}>Vytvořit dodatek</ActionButton>
               )}
             </div>
+            {form === "tablet" && (
+              <TabletIssueForm doc={doc} onCancel={() => setForm(null)} onDone={() => { setForm(null); load(); onChanged?.(); }} />
+            )}
+            {form === "employer" && (
+              <FullScreen>
+                <TabletSigning mode="employer" documentId={doc.id} onCancel={() => setForm(null)} onDone={() => { setForm(null); load(); onChanged?.(); }} />
+              </FullScreen>
+            )}
+            {form === "qualified" && (
+              <QualifiedUploadForm doc={doc} missing={missing} onCancel={() => setForm(null)} onSaved={() => { setForm(null); load(); onChanged?.(); }} />
+            )}
             {form === "handover" && (
               <HandoverForm doc={doc} s334={s334} onCancel={() => setForm(null)} onSaved={() => { setForm(null); load(); onChanged?.(); }} />
             )}
@@ -389,6 +413,117 @@ function TrainingForm({ employee, onCancel, onSaved }) {
       <div className="flex gap-2 sm:col-span-2">
         <button type="button" onClick={submit} disabled={busy} className="bg-teal-700 hover:bg-teal-800 text-white text-sm px-3 py-1.5 rounded-md disabled:opacity-50">{busy ? "Ukládám…" : "Uložit a navázat"}</button>
         <button type="button" onClick={onCancel} className="text-sm px-3 py-1.5 text-slate-600">Zrušit</button>
+      </div>
+    </div>
+  );
+}
+
+function FullScreen({ children }) {
+  return <div className="fixed inset-0 z-50 overflow-auto bg-slate-50">{children}</div>;
+}
+
+// Faza F: HR overi totoznost podla dokladu a vyda jednorazovy podpisovy
+// odkaz - podpis hned na tomto zariadeni alebo odkazom na inom tablete.
+function TabletIssueForm({ doc, onCancel, onDone }) {
+  const [idDoc, setIdDoc] = useState("OP");
+  const [confirmed, setConfirmed] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  const [issued, setIssued] = useState(null);
+  const [signingHere, setSigningHere] = useState(false);
+  const [copied, setCopied] = useState(false);
+
+  async function issue() {
+    setBusy(true); setError("");
+    try {
+      setIssued(await invokeSigning({ action: "issue", document_id: doc.id, identity: { document_type: idDoc, confirmed: true } }));
+    } catch (e) { setError(e.message); }
+    setBusy(false);
+  }
+  const link = issued ? `${window.location.origin}${window.location.pathname}?podpis=${encodeURIComponent(issued.token)}` : "";
+
+  if (signingHere) {
+    return (
+      <FullScreen>
+        <TabletSigning mode="employee" token={issued.token} onCancel={() => setSigningHere(false)} onDone={onDone} />
+      </FullScreen>
+    );
+  }
+  return (
+    <div className="mt-3 bg-slate-50 border border-slate-200 rounded-lg p-3 text-sm space-y-2 max-w-xl">
+      <div className="font-medium text-slate-700">Podpis zaměstnance na tabletu</div>
+      {!issued ? (
+        <>
+          <div className="text-slate-500">Ověřte totožnost zaměstnance podle dokladu. Číslo dokladu se neukládá – zaznamená se jen druh dokladu a kdo totožnost ověřil.</div>
+          <label className="block">
+            <span className="text-slate-600">Doklad totožnosti</span>
+            <select value={idDoc} onChange={(e) => setIdDoc(e.target.value)} className="mt-1 block w-full border border-slate-300 rounded-md px-2 py-1.5 bg-white">
+              {Object.entries(IDENTITY_DOCUMENTS).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
+            </select>
+          </label>
+          <label className="flex items-start gap-2">
+            <input type="checkbox" checked={confirmed} onChange={(e) => setConfirmed(e.target.checked)} className="mt-0.5" />
+            <span>Ověřil(a) jsem totožnost podepisujícího podle tohoto dokladu.</span>
+          </label>
+          {error && <div className="bg-red-50 text-red-700 px-3 py-2 rounded-md">{error}</div>}
+          <div className="flex gap-2">
+            <button onClick={issue} disabled={!confirmed || busy} className="bg-teal-700 hover:bg-teal-800 disabled:opacity-50 text-white px-3 py-1.5 rounded-md flex items-center gap-1">
+              {busy && <Loader2 size={14} className="animate-spin" />} Připravit podpis
+            </button>
+            <button onClick={onCancel} className="text-slate-500 px-3 py-1.5">Zrušit</button>
+          </div>
+        </>
+      ) : (
+        <>
+          <div className="text-slate-600">Podpisový odkaz pro <b>{issued.signer_name}</b> je jednorázový a platí do {new Date(issued.expires_at).toLocaleTimeString("cs-CZ", { hour: "2-digit", minute: "2-digit" })}. Nové vydání předchozí odkaz zruší.</div>
+          <div className="flex flex-wrap gap-2">
+            <button onClick={() => setSigningHere(true)} className="bg-teal-700 hover:bg-teal-800 text-white px-3 py-1.5 rounded-md">Spustit podpis na tomto zařízení</button>
+            <button onClick={async () => { try { await navigator.clipboard.writeText(link); setCopied(true); } catch { setCopied(false); } }}
+              className="border border-slate-300 bg-white px-3 py-1.5 rounded-md">{copied ? "Odkaz zkopírován" : "Kopírovat odkaz pro jiný tablet"}</button>
+            <button onClick={onDone} className="text-slate-500 px-3 py-1.5">Zavřít</button>
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
+// Uznavany el. podpis (PAdES): PDF podpisane mimo systemu (napr. Adobe s
+// kvalifikovanym certifikatom) - server overi vazbu na finalne PDF.
+function QualifiedUploadForm({ doc, missing, onCancel, onSaved }) {
+  const [signer, setSigner] = useState(missing.includes("EMPLOYER") ? "EMPLOYER" : "EMPLOYEE");
+  const [name, setName] = useState("");
+  const [file, setFile] = useState(null);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  async function submit() {
+    setBusy(true); setError("");
+    try {
+      const bytes = new Uint8Array(await file.arrayBuffer());
+      let bin = "";
+      for (let i = 0; i < bytes.length; i += 0x8000) bin += String.fromCharCode.apply(null, bytes.subarray(i, i + 0x8000));
+      await invokeSigning({ action: "qualified_upload", document_id: doc.id, signer_type: signer, signed_by_name: name.trim(), pdf_base64: btoa(bin) });
+      onSaved();
+    } catch (e) { setError(e.message); }
+    setBusy(false);
+  }
+  return (
+    <div className="mt-3 bg-slate-50 border border-slate-200 rounded-lg p-3 text-sm space-y-2 max-w-xl">
+      <div className="font-medium text-slate-700">PDF s uznávaným elektronickým podpisem</div>
+      <div className="text-slate-500">Nahrajte finální PDF této verze podepsané uznávaným (kvalifikovaným) podpisem, např. v Adobe Acrobat. Server ověří, že jde přesně o tuto verzi. Platnost certifikátu se zatím neověřuje.</div>
+      {missing.length > 1 && (
+        <select value={signer} onChange={(e) => setSigner(e.target.value)} className="block w-full border border-slate-300 rounded-md px-2 py-1.5 bg-white">
+          {missing.map((m) => <option key={m} value={m}>{SIGNER_LABELS[m]}</option>)}
+        </select>
+      )}
+      <input value={name} onChange={(e) => setName(e.target.value)} placeholder="Kdo podepsal (jméno)" className="block w-full border border-slate-300 rounded-md px-2 py-1.5" />
+      <input type="file" accept="application/pdf,.pdf" onChange={(e) => setFile(e.target.files?.[0] || null)} />
+      {error && <div className="bg-red-50 text-red-700 px-3 py-2 rounded-md">{error}</div>}
+      <div className="flex gap-2">
+        <button onClick={submit} disabled={!file || !name.trim() || busy} className="bg-teal-700 hover:bg-teal-800 disabled:opacity-50 text-white px-3 py-1.5 rounded-md flex items-center gap-1">
+          {busy && <Loader2 size={14} className="animate-spin" />} Nahrát
+        </button>
+        <button onClick={onCancel} className="text-slate-500 px-3 py-1.5">Zrušit</button>
       </div>
     </div>
   );

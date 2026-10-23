@@ -91,3 +91,11 @@ npx supabase status -o env | grep -E '^(API_URL|ANON_KEY)=' | sed -e 's/^API_URL
   - evidencia školení `hr_training_records` (školiteľ, rozsah, overenie znalostí – spôsob, výsledok, kto, kedy), len pridávanie; záznam o školení sa dá podpísať a je SIGNED len s evidenciou s výsledkom PASSED.
 - Rollback: `supabase/rollback/20261023100000_verzie_dodatky_prevzatie_rollback.sql` (pred 52; zastaví sa, ak existujú dodatky, skeny potvrdenia alebo evidencia školení). Reťazec 53 → 48 otestovaný.
 - Otvorené úlohy: šablóna dodatku (Word) chýba – dodatok sa zatiaľ pripraví mimo systému a nahrá sa podpísaný sken; hash skenu počíta prehliadač (rovnako ako pri doterajšom skene podpisu).
+
+## Fáza F – podpisový režim na tablete pre HR (migrácia 54)
+
+- Migrácia `20261023110000_tablet_podpis_hr.sql`: tabuľka `hr_signing_tokens` (len hash tokenu, max. 2 h, jednorazové použitie, bez RLS politík – iba server), text `INTENT_EMPLOYER_SIGNATURE` (KONCEPT – KE SCHVÁLENÍ PRÁVNIČKOU), trigger: písomnosť § 334 zamestnávateľ nepodpisuje obrázkom podpisu.
+- Nová Edge Function `hr-signing` (sekcia v `config.toml`, `deno.json`): `issue` (HR overí totožnosť podľa dokladu – ukladá sa len druh dokladu a kto overil), `load`/`sign` (tablet s tokenom), `employer_load`/`employer_sign` (osoba s plnou mocou podľa `PS_PODEPISUJICI`), `qualified_upload` (PDF s uznávaným podpisom PAdES – overí sa väzba na finálne PDF a štruktúra podpisu).
+- UI: v detaile dokumentu „Podepsat na tabletu“, „Podepsat za zaměstnavatele“, „Nahrát PDF s uznávaným podpisem“; samostatná stránka `?podpis=<token>` pre iný tablet.
+- Poradie nasadenia: migrácia 54 → deploy `hr-signing` → frontend. Rollback: `supabase/rollback/20261023110000_tablet_podpis_hr_rollback.sql` (pred rollbackom 53; zastaví sa, ak už existujú podpisy z tabletu HR alebo za zamestnávateľa; funkciu `hr-signing` najprv vypnúť).
+- Otvorené: overenie platnosti kvalifikovaného certifikátu (`certificate_validation: NOT_PERFORMED`); osoby s plnou mocou sú zatiaľ v kóde (`_shared/hr/podepisujici.js`).

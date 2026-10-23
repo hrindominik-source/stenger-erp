@@ -17,6 +17,7 @@ const PlanSmienView = lazy(() => import("./PlanSmienView.jsx"));
 const KvalitaView = lazy(() => import("./KvalitaView.jsx"));
 const UctovnictviView = lazy(() => import("./UctovnictviView.jsx"));
 const OnboardingKiosk = lazy(() => import("./hr/OnboardingKiosk.jsx"));
+const TabletSigningPage = lazy(() => import("./hr/signing/TabletSigning.jsx").then((m) => ({ default: m.TabletSigningPage })));
 import { extractCityFromAddress, todayStr, uid, parseSkDate, isoFromSkDateStr, skDateStrFromIso, durationMinutes, formatMinutes } from "./lib/utils.js";
 import { parsePricelistFile, computeTransportPrice, computeTransportPriceForCity, formatEur, formatPriceNumber } from "./lib/pricelist.js";
 import { buildLieferscheinXlsx } from "./lib/lieferscheinXlsx.js";
@@ -707,7 +708,21 @@ export function isOnboardingKioskUrl() {
   return new URLSearchParams(window.location.search).get("kiosk") === "nastup";
 }
 
+// Podpis dokumentu na tablete jednorazovym odkazom (?podpis=<token>, faza F)
+// - rovnako ako kiosk mimo prihlasenej vetvy appky; identita = token.
+export function isTabletSigningUrl() {
+  if (typeof window === "undefined") return false;
+  return !!new URLSearchParams(window.location.search).get("podpis");
+}
+
 export default function MiniERPRoot() {
+  if (isTabletSigningUrl()) {
+    return (
+      <Suspense fallback={<div className="min-h-screen flex items-center justify-center text-slate-500"><Loader2 className="animate-spin mr-2" size={20} /> Načítám...</div>}>
+        <TabletSigningPage />
+      </Suspense>
+    );
+  }
   if (isOnboardingKioskUrl()) {
     return (
       <Suspense fallback={<div className="min-h-screen flex items-center justify-center text-slate-500"><Loader2 className="animate-spin mr-2" size={20} /> Načítám...</div>}>
