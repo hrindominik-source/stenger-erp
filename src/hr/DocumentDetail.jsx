@@ -8,6 +8,7 @@ import {
   SIGNER_LABELS, LEGAL_ACT_LABELS, SIGNATURE_METHOD_LABELS,
 } from "../lib/hr/signingRules.js";
 import TabletSigning, { invokeSigning } from "./signing/TabletSigning.jsx";
+import { invokeDeclarations } from "./Declarations.jsx";
 import { IDENTITY_DOCUMENTS, CERTIFICATE_STATUS_LABELS } from "../../supabase/functions/_shared/hr/tabletSigning.js";
 import QRCode from "qrcode";
 import { deliveryState, deliveryDeadlines, documentDeliveryState, czDate, DELIVERY_CHANNEL_LABELS, MAX_SEND_ATTEMPTS } from "../lib/hr/deliveryStatus.js";
@@ -146,6 +147,20 @@ export default function DocumentDetail({ doc, signatures = [], previousSignature
   const emailReason = !can.send ? "Chybí oprávnění k předávání dokumentů." : closed ? "Dokument je zneplatněn / nahrazen."
     : !fullySigned ? "Dokument není podepsán všemi stranami." : overall.key === "DELIVERED" ? "Dokument už byl doručen."
     : !emailChannels.length ? "Tento dokument se e-mailem nedoručuje – předejte osobně." : "";
+
+  // Faza I: potvrzeni o prevzeti k podpisu (papir / tablet) - server ho
+  // vytvori z aktualni verze textu a otisku podepsaneho originalu.
+  async function createReceipt() {
+    setDlBusy(true);
+    setError("");
+    try {
+      await invokeDeclarations({ action: "create", employee_id: doc.employee_id, kind: "RECEIPT", target_document_id: doc.id });
+      onChanged?.();
+    } catch (e) { setError(e.message); }
+    setDlBusy(false);
+  }
+  const receiptReason = !can.generate ? "Chybí oprávnění generovat dokumenty." : !fullySigned || !(doc.signed_pdf_sha256 || doc.final_pdf_sha256) ? "Jen k podepsanému dokumentu."
+    : !doc.employee_id ? "Dokument není přiřazen zaměstnanci." : "";
 
   async function retryDelivery(dl) {
     setDlBusy(true);
@@ -296,6 +311,9 @@ export default function DocumentDetail({ doc, signatures = [], previousSignature
               <ActionButton icon={FileSignature} onClick={() => setForm("employer")} disabled={!!employerReason} reason={employerReason}>Podepsat za zaměstnavatele</ActionButton>
               <ActionButton icon={Stamp} onClick={() => setForm("qualified")} disabled={!!qualifiedReason} reason={qualifiedReason}>Nahrát PDF s uznávaným podpisem</ActionButton>
               <ActionButton icon={Handshake} onClick={() => setForm("handover")} disabled={!!handoverReason} reason={handoverReason}>Zaznamenat předání</ActionButton>
+              {doc.doc_type !== "potvrzeni_prevzeti" && (
+                <ActionButton icon={Stamp} onClick={createReceipt} disabled={!!receiptReason || dlBusy} reason={receiptReason}>Vytvořit potvrzení o převzetí</ActionButton>
+              )}
               <ActionButton icon={Mail} onClick={() => setForm("email")} disabled={!!emailReason} reason={emailReason}>Odeslat e-mailem</ActionButton>
               {!closed && (
                 <ActionButton icon={Ban} tone="red" onClick={() => setForm("void")} disabled={!can.void} reason={can.void ? "" : "Zneplatnit smí jen uživatel s oprávněním HR_DOCUMENT_VOID."}>Zneplatnit</ActionButton>

@@ -21,6 +21,8 @@ import { nastupChecklist, nastupSummary, nastupRelevant, registraceCssz } from "
 import { verifyFinalPdf, buildFinalPdfUploadPath, TEXT_CHECK_REASON_LABELS } from "../lib/hr/finalPdf.js";
 import { KIOSK_DRAFT_KEYS, KIOSK_DOCS } from "../lib/hr/kioskDocuments.js";
 import { documentRequiredSigners, defaultLegalActType, signingState, SIGNER_LABELS } from "../lib/hr/signingRules.js";
+import LegalTextsSection from "./LegalTexts.jsx";
+import DeclarationsPanel from "./Declarations.jsx";
 import DocumentDetail from "./DocumentDetail.jsx";
 import { ABSENCE_TYPES, ABSENCE_DOC_TYPES, absenceType, absenceList, isAbsenceActive, activeAbsence, absenceStatusText, probationOverlapDays, absenceInProbation, addDaysIso } from "../lib/hr/absences.js";
 
@@ -43,9 +45,18 @@ const DOC_TYPE_LABELS = {
   vypoved_zamestnance: "Výpověď zaměstnance",
   vypoved_zamestnavatele: "Výpověď zaměstnavatele",
   zruseni_ve_zkusebni_dobe: "Zrušení ve zkušební době",
+  osobni_dotaznik: "Osobní dotazník",
+  s21_oznameni_adresy: "Oznámení elektronické adresy (§ 21 ZP)",
+  s335_pouceni: "Poučení o elektronickém doručování (§ 335 ZP)",
+  s335_souhlas: "Souhlas s elektronickým doručováním (§ 335 ZP)",
+  s335_odvolani: "Odvolání souhlasu s elektronickým doručováním (§ 335 ZP)",
+  potvrzeni_prevzeti: "Potvrzení o převzetí písemnosti",
   other: "Jiné",
 };
-const DOC_TYPE_OPTIONS = Object.keys(DOC_TYPE_LABELS).map((v) => ({ value: v, label: DOC_TYPE_LABELS[v] }));
+// Vyhlasenia a poucenia generuje server z verzovanych textov (hr-declarations),
+// nie z Word sablon - preto nie su v ponuke typov sablony.
+const TEXT_DOC_TYPES = ["osobni_dotaznik", "s21_oznameni_adresy", "s335_pouceni", "s335_souhlas", "s335_odvolani", "potvrzeni_prevzeti"];
+const DOC_TYPE_OPTIONS = Object.keys(DOC_TYPE_LABELS).filter((v) => !TEXT_DOC_TYPES.includes(v)).map((v) => ({ value: v, label: DOC_TYPE_LABELS[v] }));
 
 const HR_DOCUMENT_STATUS_LABEL = {
   DRAFT: "Koncept", READY_FOR_REVIEW: "Ke kontrole", APPROVED: "Schváleno",
@@ -3632,6 +3643,7 @@ function DokumentyTab({ employee, sensitive, payroll, currentEmployment, permiss
   const canGenerate = hasPerm(permissions, "HR_DOCUMENT_GENERATE");
   const [activePreset, setActivePreset] = useState(null);
   const [creatingPs, setCreatingPs] = useState(false);
+  const [declarations, setDeclarations] = useState(false);
   useEffect(() => {
     if (preset?.docType === "pracovni_smlouva") { setCreatingPs(true); setCreating(false); onPresetUsed?.(); return; }
     if (preset) { setActivePreset(preset); setCreating(true); setCreatingPs(false); onPresetUsed?.(); }
@@ -3686,6 +3698,11 @@ function DokumentyTab({ employee, sensitive, payroll, currentEmployment, permiss
   return (
     <div>
       <div className="flex justify-end gap-2 mb-3">
+        {canGenerate && !creating && !creatingPs && !declarations && (
+          <button onClick={() => setDeclarations(true)} className="flex items-center gap-1.5 border border-teal-700 text-teal-700 hover:bg-teal-50 text-sm font-medium px-3 py-2 rounded-md">
+            <FileText size={16} /> Prohlášení (§ 21 / § 335)
+          </button>
+        )}
         {canGenerate && !creating && !creatingPs && (
           <button onClick={() => setCreatingPs(true)} className="flex items-center gap-1.5 border border-teal-700 text-teal-700 hover:bg-teal-50 text-sm font-medium px-3 py-2 rounded-md">
             <FileText size={16} /> Pracovní smlouva
@@ -3697,6 +3714,10 @@ function DokumentyTab({ employee, sensitive, payroll, currentEmployment, permiss
           </button>
         )}
       </div>
+      {declarations && (
+        <DeclarationsPanel employee={employee} onCancel={() => setDeclarations(false)}
+          onCreated={(id) => { setDeclarations(false); load(); setDetailId(id); }} />
+      )}
       {creatingPs && (
         <PracovniSmlouvaForm employee={employee} sensitive={sensitive} payroll={payroll} currentEmployment={currentEmployment}
           onCancel={() => setCreatingPs(false)} onSaved={() => { setCreatingPs(false); load(); }} />
@@ -5055,6 +5076,7 @@ function TemplatesTab({ permissions }) {
           })}
         </div>
       )}
+      <LegalTextsSection canEdit={hasPerm(permissions, "HR_LEGAL_TEXTS_ADMIN")} />
     </div>
   );
 }

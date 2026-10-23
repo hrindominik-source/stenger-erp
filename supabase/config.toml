@@ -433,6 +433,12 @@ verify_jwt = true
 verify_jwt = true
 static_files = ["./functions/_shared/fonts/*.ttf"]
 
+# Vyhlasenia a poucenia (§ 21, § 335, potvrzeni o prevzeti) z verzovanych
+# textov pre existujuceho zamestnanca (faza I).
+[functions.hr-declarations]
+verify_jwt = true
+static_files = ["./functions/_shared/fonts/*.ttf"]
+
 # Kiosk vstupneho dotaznika (anon kluc + session_token relacie).
 [functions.hr-kiosk]
 verify_jwt = true

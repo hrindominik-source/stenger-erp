@@ -6,8 +6,8 @@
 export function defaultLegalActType(docType) {
   if (["pracovni_smlouva", "pracovni_smlouva_cizinec", "dodatek", "dohoda_o_skonceni", "dpp", "dpc"].includes(docType)) return "BILATERAL_CONTRACT";
   if (["platovy_vymer", "mzdovy_vymer", "vypoved_zamestnavatele"].includes(docType)) return "EMPLOYER_UNILATERAL";
-  if (["vypoved_zamestnance", "osobni_dotaznik", "s21_oznameni_adresy", "s335_souhlas"].includes(docType)) return "EMPLOYEE_DECLARATION";
-  if (["hi001_naplen_prace_delnice", "popis_pracovniho_mista"].includes(docType)) return "RECEIPT_ACKNOWLEDGEMENT";
+  if (["vypoved_zamestnance", "osobni_dotaznik", "s21_oznameni_adresy", "s335_souhlas", "s335_odvolani"].includes(docType)) return "EMPLOYEE_DECLARATION";
+  if (["hi001_naplen_prace_delnice", "popis_pracovniho_mista", "s335_pouceni", "potvrzeni_prevzeti"].includes(docType)) return "RECEIPT_ACKNOWLEDGEMENT";
   if (docType === "vstupni_skoleni") return "TRAINING_RECORD";
   return null;
 }

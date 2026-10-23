@@ -12,6 +12,8 @@ export const DOC_TITLES: Record<string, string> = {
   platovy_vymer: "Mzdový výměr", mzdovy_vymer: "Mzdový výměr", popis_pracovniho_mista: "Náplň práce",
   vstupni_skoleni: "Záznam o vstupním školení", osobni_dotaznik: "Osobní dotazník zaměstnance",
   s21_oznameni_adresy: "Oznámení elektronické adresy (§ 21 ZP)", s335_souhlas: "Souhlas s elektronickým doručováním (§ 335 ZP)",
+  s335_pouceni: "Poučení o elektronickém doručování (§ 335 ZP)", s335_odvolani: "Odvolání souhlasu s elektronickým doručováním (§ 335 ZP)",
+  potvrzeni_prevzeti: "Potvrzení o převzetí písemnosti",
 };
 const ELECTRONIC = ["ELECTRONIC_TABLET", "ELECTRONIC_QUALIFIED"];
 
