@@ -15,7 +15,8 @@ import { EMPLOYEE_SECTIONS, emptyEmployeeValues, normalizeLegacyDraft, valuesFro
 import EmployeeFieldsForm, { EmployeeFieldsView, applyFieldChange } from "./EmployeeFieldsForm.jsx";
 import { childTaxWarnings } from "../lib/hr/taxChildren.js";
 import { RZ_POLOZKY, RZ_SLEVY, VYUCTOVANI, VYUCTOVANI_STAV, taxYearRecord, taxYearStatus, childMonthsForYear, childrenUnder3, rzWarnings, settlementWarning } from "../lib/hr/taxYear.js";
-import { PS_TEMPLATES, psVariant, buildPsData, psMissing, psFieldsFor, defaultPovinnosti, isPovinnostiNavrh } from "../lib/hr/pracovniSmlouva.js";
+import { PS_TEMPLATES, PS_TEMPLATE_KEYS, psVariant, buildPsData, psMissing, psFieldsFor, defaultPovinnosti, isPovinnostiNavrh } from "../lib/hr/pracovniSmlouva.js";
+import { loadPsTemplate, savePsDocument, isPsDocType } from "../lib/hr/psTemplates.js";
 import { hrFileName, fileExt } from "../lib/hr/fileNames.js";
 import { nastupChecklist, nastupSummary, nastupRelevant, registraceCssz } from "../lib/hr/nastupniBalicek.js";
 import { verifyFinalPdf, buildFinalPdfUploadPath, TEXT_CHECK_REASON_LABELS } from "../lib/hr/finalPdf.js";
@@ -3519,32 +3520,26 @@ function PracovniSmlouvaForm({ employee, sensitive, payroll, currentEmployment, 
   const tpl = PS_TEMPLATES[variant];
   const fileBase = hrFileName(tpl.nazev, employee, datumPodpisu);
 
+  // Vzor = aktualna schvalena verzia sablony (overeny otlacok), verzia sa uklada k dokumentu.
   async function filled() {
-    const r = await fetch(tpl.url);
-    if (!r.ok) throw new Error("Nepodařilo se načíst vzor smlouvy.");
-    return fillDocxTemplate(await r.arrayBuffer(), data);
+    const t = await loadPsTemplate(supabase, variant);
+    return { ...t, filledBytes: fillDocxTemplate(t.bytes, data) };
   }
   async function run(fn) {
     setBusy(true); setError("");
     try { await fn(); } catch (e) { console.error(e); setError(e.message || String(e)); }
     setBusy(false);
   }
-  const downloadDocx = () => run(async () => downloadArrayBufferAsFile(await filled(), `${fileBase}.docx`, DOCX_MIME));
-  const downloadPdf = () => run(async () => convertFilledDocxToPdf(`NAHLED - ${fileBase}.pdf`, await filled()));
+  const downloadDocx = () => run(async () => downloadArrayBufferAsFile((await filled()).filledBytes, `${fileBase}.docx`, DOCX_MIME));
+  const downloadPdf = () => run(async () => convertFilledDocxToPdf(`NAHLED - ${fileBase}.pdf`, (await filled()).filledBytes));
   const save = () => run(async () => {
     if (missing.length) throw new Error("Doplňte: " + missing.join(", "));
-    const bytes = await filled();
+    const { filledBytes, template, version } = await filled();
     const { data: userData } = await supabase.auth.getUser();
-    const docId = uid();
-    const storagePath = `zamestnanci/${employee.id}/${docId}.docx`;
-    const { error: upErr } = await supabase.storage.from(HR_DOKUMENTY_BUCKET).upload(storagePath, new Blob([bytes], { type: DOCX_MIME }), { contentType: DOCX_MIME });
-    if (upErr) throw upErr;
-    const { error: insErr } = await supabase.from("hr_documents").insert({
-      id: docId, employee_id: employee.id, employment_id: currentEmployment?.id || null, doc_type: variant,
-      origin: "GENERATED", status: "READY_FOR_SIGNATURE", generated_at: new Date().toISOString(), generated_by: userData?.user?.id || null,
-      file_path: storagePath, variables_snapshot: data,
+    await savePsDocument(supabase, {
+      docId: uid(), employeeId: employee.id, employmentId: currentEmployment?.id, variant, data, bytes: filledBytes,
+      template, version, userId: userData?.user?.id,
     });
-    if (insErr) throw insErr;
     await supabase.from("employee_timeline_events").insert({
       id: uid(), employee_id: employee.id, event_date: new Date().toISOString().slice(0, 10), event_type: "DOCUMENT_GENERATED",
       title: `Vygenerována ${tpl.nazev.toLowerCase()}`, description: `Za zaměstnavatele podepisuje ${data.zastupce}.`, source: "MANUAL",
@@ -3663,8 +3658,8 @@ function DokumentyTab({ employee, sensitive, payroll, currentEmployment, permiss
     if (docsRes.error) { setError("Nepodařilo se načíst dokumenty."); setLoading(false); return; }
     const docs = docsRes.data || [];
     setDocuments(docs);
-    setTemplates(tplsRes.data || []);
-    setPendingTemplates(pendingRes.data || []);
+    setTemplates((tplsRes.data || []).filter((t) => !isPsDocType(t.doc_type)));
+    setPendingTemplates((pendingRes.data || []).filter((t) => !isPsDocType(t.doc_type)));
     if (docs.length > 0) {
       const { data: sigs } = await supabase.from("hr_document_signatures").select("*").in("hr_document_id", docs.map((d) => d.id)).order("created_at", { ascending: false });
       const map = new Map();
@@ -5120,7 +5115,7 @@ function UploadTemplateForm({ uploading, setUploading, onUploaded, templates }) 
     if (!f) return;
     try {
       const ab = await f.arrayBuffer();
-      const { used, unknown, ok } = validateTemplateKeysAgainstAllowlist(ab, KNOWN_TEMPLATE_KEYS);
+      const { used, unknown, ok } = validateTemplateKeysAgainstAllowlist(ab, isPsDocType(docType) ? PS_TEMPLATE_KEYS : KNOWN_TEMPLATE_KEYS);
       setCheckResult({ used, unknown, ok });
     } catch (err) {
       setError("Soubor se nepodařilo přečíst jako .docx šablonu s {{tagy}}: " + (err.message || err));
@@ -5203,7 +5198,7 @@ function UploadTemplateForm({ uploading, setUploading, onUploaded, templates }) 
           {checkResult.ok ? (
             <>Rozpoznáno {checkResult.used.length} tagů, všechny podporované: {checkResult.used.join(", ") || "—"}</>
           ) : (
-            <>Nepodporované tagy: <strong>{checkResult.unknown.join(", ")}</strong>. Podporované: {KNOWN_TEMPLATE_KEYS.join(", ")}</>
+            <>Nepodporované tagy: <strong>{checkResult.unknown.join(", ")}</strong>. Podporované: {(isPsDocType(docType) ? PS_TEMPLATE_KEYS : KNOWN_TEMPLATE_KEYS).join(", ")}</>
           )}
         </div>
       )}

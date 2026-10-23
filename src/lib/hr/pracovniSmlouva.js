@@ -156,3 +156,6 @@ export function psMissing(data, variant) {
   if (data.tydenni_hodiny && !data.tydenni_hodiny_slovy) out.push("Týdenní pracovní doba (neplatné číslo)");
   return out;
 }
+
+// Znacky, ktore generator zmluvy vyplni (kontrola novej verzie vzoru pri nahrati).
+export const PS_TEMPLATE_KEYS = Object.keys(buildPsData({}, {}));

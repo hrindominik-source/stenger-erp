@@ -32,6 +32,7 @@ Stav k 23. 10. 2026. **Nič z tohto sa nespúšťa bez výslovného súhlasu pri
 | 56 | `20261023130000_dorucovani_email.sql` | e-mailové doručovanie, lehoty | – |
 | 57 | `20261023140000_opravnenia.sql` | `HR_DOCUMENT_VOID`, `HR_SIGN_FOR_EMPLOYER`, citlivosť pri podpisoch | – (pozor: zneplatnenie od teraz len s novým oprávnením) |
 | 58 | `20261023150000_sablony_texty.sql` | vyhlásenia z textov, potvrdenie o prevzatí | nové texty |
+| 59 | `20261023160000_sablona_pracovnej_zmluvy.sql` | vzor pracovnej zmluvy ako šablóna v1, nemenné verzie šablón | nové riadky šablón (dokumenty bez zmeny) |
 
 Baseline `20261022120000_baseline.sql` sa v produkcii **nespúšťa** (produkcia ju má). Pri CLI by sa označila ako aplikovaná (`migration repair`), čo je zápis do produkcie a vyžaduje súhlas.
 
@@ -58,7 +59,7 @@ Zlúčenie do `main` → CI nasadí. Nová závislosť je `qrcode@1.5.4`. Fronte
 2. Porovnať schému stagingu s baseline (`scripts/schema-catalog.sql`, len čítanie). Ak sa líši, najprv zosúladiť.
 3. Záloha stagingu (Dashboard → Backups) a zapísať čas.
 4. Nasadiť Edge Functions (všetkých 6).
-5. Migrácie 48 → 58 v poradí, každú zvlášť. Po každej skontrolovať chyby.
+5. Migrácie 48 → 59 v poradí, každú zvlášť. Po každej skontrolovať chyby.
 6. Frontend na staging (preview build so staging URL).
 7. Testovacie dáta: vymyslený zamestnanec a testovacie účty. Oprávnenia a osobu s plnou mocou zadá HR_ADMIN v UI.
 8. **Kontrolný zoznam (smoke test):**
@@ -70,7 +71,7 @@ Zlúčenie do `main` → CI nasadí. Nová závislosť je `qrcode@1.5.4`. Fronte
    - [ ] Prohlášení § 21 → podpis → platné oznámenie. Potvrdenie o prevzatí k podpísanému dokumentu.
    - [ ] Oprávnenia: používateľ bez `HR_DOCUMENT_VOID` nezneplatní, bez `HR_VIEW_SENSITIVE` nevidí citlivé dokumenty ani ich podpisy.
    - [ ] Reálny tablet: QR, kód, prechod všetkými stranami, podpis.
-9. **Skúška rollbacku:** 58 → 48 v opačnom poradí (pozri kap. 5) na stagingu, potom znova 48 → 58. Rollbacky so zastavovacou podmienkou spustiť na stagingu **pred** vytvorením testovacích podpisov, alebo po vrátení zálohy.
+9. **Skúška rollbacku:** 59 → 48 v opačnom poradí (pozri kap. 5) na stagingu, potom znova 48 → 59. Rollbacky so zastavovacou podmienkou spustiť na stagingu **pred** vytvorením testovacích podpisov, alebo po vrátení zálohy.
 10. Výsledky zapísať (čo prešlo, čo nie) a rozhodnúť o produkcii.
 
 ## 3. Overenie zálohy produkcie (pred nasadením)
@@ -86,18 +87,20 @@ Zlúčenie do `main` → CI nasadí. Nová závislosť je `qrcode@1.5.4`. Fronte
 1. **Súhlas**, termín mimo pracovnej doby HR a oznámenie HR (krátka odstávka personalistiky).
 2. Čerstvá záloha (kap. 3, body 2 a 4).
 3. Edge Functions (6).
-4. Migrácie 48 → 58 v SQL Editore, každá v transakcii, v poradí. Pri chybe stop: zvyšok nespúšťať a rozhodnúť (rollback alebo oprava).
+4. Migrácie 48 → 59 v SQL Editore, každá v transakcii, v poradí. Pri chybe stop: zvyšok nespúšťať a rozhodnúť (rollback alebo oprava).
 5. Frontend: merge `feature/podpisy-dorucovani` → `main` (CI nasadí).
-6. Smoke test (skrátený zoznam z kap. 2), len na vymyslenom testovacom zázname. Ten sa potom označí ako TEST a zmaže.
-7. Porovnať schému s lokálnou (`scripts/schema-catalog.sql`).
-8. `supabase logout`.
+6. Prvé vygenerovanie (alebo náhľad) pracovnej zmluvy uloží overený vzor v1 do úložiska – skontrolovať, že sa zmluva vygeneruje.
+7. Smoke test (skrátený zoznam z kap. 2), len na vymyslenom testovacom zázname. Ten sa potom označí ako TEST a zmaže.
+8. Porovnať schému s lokálnou (`scripts/schema-catalog.sql`).
+9. `supabase logout`.
 
 ## 5. Rollback
 
-Poradie je vždy opačné: **frontend → Edge Functions (vypnúť) → rollbacky 58 → 48**. Rollback skripty sa samy zastavia, ak by zahodili dôkazy:
+Poradie je vždy opačné: **frontend → Edge Functions (vypnúť) → rollbacky 59 → 48**. Rollback skripty sa samy zastavia, ak by zahodili dôkazy:
 
 | Rollback | Zastaví sa, ak existujú |
 |---|---|
+| 59 `…sablona_pracovnej_zmluvy_rollback.sql` | zmluvy vygenerované zo šablóny `tpl-ps*` |
 | 58 `…sablony_texty_rollback.sql` | – (texty sa len vyradia, vzniknuté vyhlásenia ostávajú) |
 | 57 `…opravnenia_rollback.sql` | – (oprávnenia ostanú uložené bez účinku) |
 | 56 `…dorucovani_email_rollback.sql` | e-mailové zásielky |

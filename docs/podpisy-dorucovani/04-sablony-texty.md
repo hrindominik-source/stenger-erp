@@ -36,21 +36,13 @@
 - Vygenerovaná zmluva nemá `template_version_id`. Neukladá sa, z ktorej verzie vzoru vznikla, a pri zmene súboru v repozitári to nejde spätne zistiť.
 - Citlivosť sa preto berie z predvoleného `HR_VIEW_SENSITIVE`.
 
-**Odporúčanie:** presunúť do `hr_document_templates` kvôli verzovaniu, schvaľovaniu a klasifikácii citlivosti. Návrh, bez zmeny existujúcich dokumentov:
+**Implementované (migrácia 59 `20261023160000_sablona_pracovnej_zmluvy.sql`):**
 
-1. Migrácia (len nové riadky):
-   ```sql
-   insert into hr_document_templates (id, name, doc_type, current_version_id) values
-     ('tpl-ps', 'Pracovní smlouva (vzor Stenger)', 'pracovni_smlouva', null),
-     ('tpl-ps-cizinec', 'Pracovní smlouva – cizinec (vzor Stenger)', 'pracovni_smlouva_cizinec', null);
-   insert into hr_document_template_versions (id, template_id, version_number, file_path, mapping_status, required_permissions) values
-     ('tpl-ps-v1', 'tpl-ps', 1, 'sablony/tpl-ps/v1.docx', 'SCHVALENA', array['HR_VIEW_SENSITIVE']),
-     ('tpl-ps-cizinec-v1', 'tpl-ps-cizinec', 1, 'sablony/tpl-ps-cizinec/v1.docx', 'SCHVALENA', array['HR_VIEW_SENSITIVE']);
-   update hr_document_templates set current_version_id = ... ;
-   ```
-2. Krok nasadenia (nie SQL): nahrať súčasné `.docx` do úložiska na `sablony/tpl-ps/v1.docx` a `sablony/tpl-ps-cizinec/v1.docx`, s rovnakými bajtmi a overením SHA-256.
-3. Formulár „Pracovní smlouva“ načíta aktuálnu verziu šablóny z úložiska namiesto `public/` a nové dokumenty dostanú `template_id` a `template_version_id`.
-4. Existujúce dokumenty sa nemenia. Zostávajú bez `template_version_id` a ich obsah je zachytený vo `variables_snapshot`, v súbore a vo finálnom PDF s hashom.
-5. `public/hr/sablony/*.docx` ostanú ako záloha, kým nie je verzia v DB overená.
-
-Neimplementované – čaká na rozhodnutie. Ide o zmenu postupu generovania zmluvy a o krok nasadenia s nahratím súborov.
+- Šablóny `tpl-ps` a `tpl-ps-cizinec` (schválené), verzia 1 = dnešný vzor. `content_hash` je SHA-256 súborov `public/hr/sablony/*.docx`, citlivosť `HR_VIEW_SENSITIVE` (ako doteraz).
+- Formulár „Pracovní smlouva“ načíta aktuálnu verziu šablóny (`src/lib/hr/psTemplates.js`). Súbor použije len pri zhodnom otlačku: z úložiska (`sablony/tpl-ps*/v1.docx`), pri prvom použití z dodaného vzoru, ktorý potom uloží do úložiska (bez prepisu). Nový dokument má `template_id` a `template_version_id`.
+- Verzia šablóny je nemenná (súbor, otlačok, číslo); použitá verzia sa nedá zmazať. Zmena vzoru = nová verzia: Šablony → nahrať s typom „Pracovní smlouva“ a **rovnakým názvom** „Pracovní smlouva (vzor Stenger)“. Značky sa kontrolujú podľa generátora zmluvy. Po schválení sa verzia stane aktuálnou.
+- Šablóny zmluvy sa neponúkajú v generickom „Vytvořit dokument“ (plní ich len formulár zmluvy).
+- Existujúce dokumenty sa nemenia: migrácia nemení `hr_documents` (overené otlačkom celej tabuľky pred a po), staré zmluvy ostávajú bez `template_version_id`.
+- Testy: zmluva z pôvodného vzoru a zo šablóny z tých istých vymyslených údajov je obsahovo zhodná (obidva varianty), dokument má verziu (`psTemplate.server.it.test.js`). Odmietnutie súboru s iným otlačkom a nemennosť sú pokryté (`psTemplates.test.js`, `sablona_ps.test.sql`).
+- Rollback `supabase/rollback/20261023160000_sablona_pracovnej_zmluvy_rollback.sql` sa zastaví, ak už existujú zmluvy zo šablóny.
+- Zostatkové riziko: kto má `HR_EDIT`, môže pred prvým použitím nahrať na `sablony/tpl-ps/v1.docx` iný súbor. Ten sa pre nezhodný otlačok nepoužije, ale generovanie zmluvy sa zablokuje. Preto pri nasadení súbor nahrá HR hneď prvým vygenerovaním (alebo náhľadom) zmluvy a skontroluje, že funguje.
