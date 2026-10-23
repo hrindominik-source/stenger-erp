@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef } from "react";
 import { Loader2, AlertCircle, CheckCircle2, FileSignature, X } from "lucide-react";
 import { supabase } from "../../supabaseClient.js";
 import PdfPagesViewer from "./PdfPagesViewer.jsx";
-import SignaturePad from "./SignaturePad.jsx";
+import SignaturePad, { signBlockedReason } from "./SignaturePad.jsx";
 
 /* =========================================================================
    Podpisovy rezim na tablete (faza F). Dve pouzitia:
@@ -46,7 +46,7 @@ export default function TabletSigning({ mode = "employee", token, documentId, on
   const [error, setError] = useState("");
   const [view, setView] = useState({ allViewed: false, pagesViewed: [] });
   const [confirmed, setConfirmed] = useState(false);
-  const [padEmpty, setPadEmpty] = useState(true);
+  const [padPoints, setPadPoints] = useState(0);
   const [busy, setBusy] = useState(false);
   const [result, setResult] = useState(null);
   const [needCode, setNeedCode] = useState(false);
@@ -146,6 +146,7 @@ export default function TabletSigning({ mode = "employee", token, documentId, on
   }
   if (!doc) return shell(<div className="text-center text-slate-400 py-16"><Loader2 className="animate-spin mx-auto mb-3" size={28} /> Načítám dokument…</div>);
 
+  const blocked = signBlockedReason({ view, nameConfirmed: confirmed, points: padPoints });
   return shell(
     <div>
       <h1 className="text-xl font-semibold text-slate-800">{doc.document.title}</h1>
@@ -165,17 +166,16 @@ export default function TabletSigning({ mode = "employee", token, documentId, on
           {doc.intent.detail && <div className="mt-1">{doc.intent.detail}</div>}
           <div className="text-xs text-slate-400 mt-1">Verze textu {doc.intent.version_no}</div>
         </div>
-        <SignaturePad ref={pad} onChange={({ empty }) => setPadEmpty(empty)} />
+        <SignaturePad ref={pad} onChange={({ points }) => setPadPoints(points)} />
         {error && <div className="bg-red-50 text-red-700 text-sm px-3 py-2 rounded-md mt-3">{error}</div>}
         <div className="flex justify-end mt-4">
-          <button onClick={sign} disabled={!view.allViewed || !confirmed || padEmpty || busy}
+          <button onClick={sign} disabled={!!blocked || busy}
             className="flex items-center gap-2 bg-teal-700 hover:bg-teal-800 disabled:opacity-50 text-white text-base font-medium px-7 py-3 rounded-lg">
             {busy ? <Loader2 size={20} className="animate-spin" /> : <FileSignature size={20} />} Podepsat
           </button>
         </div>
       </div>
-      {!view.allViewed && <div className="text-sm text-slate-500 mt-2">Podpis bude možný po zobrazení všech stran dokumentu{confirmed ? "" : " a potvrzení jména"}.</div>}
-      {view.allViewed && !confirmed && <div className="text-sm text-slate-500 mt-2">Potvrďte prosím jméno nahoře.</div>}
+      {blocked && <div className="text-sm text-amber-800 text-right mt-2" data-testid="sign-blocked">{blocked}</div>}
     </div>,
   );
 }

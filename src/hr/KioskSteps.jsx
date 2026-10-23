@@ -3,7 +3,7 @@ import { Loader2, CheckCircle2, FileSignature, Printer, AlertCircle, Mail } from
 import { supabase } from "../supabaseClient.js";
 import { draftEmail, validateKioskEmail, KIOSK_DOCS } from "../lib/hr/kioskDocuments.js";
 import PdfPagesViewer from "./signing/PdfPagesViewer.jsx";
-import SignaturePad from "./signing/SignaturePad.jsx";
+import SignaturePad, { signBlockedReason } from "./signing/SignaturePad.jsx";
 
 /* Kroky kiosku pre fazu D. Rovnako ako OnboardingKiosk: ZIADNE
    supabase.from(...) - len RPC s tokenom a Edge Function hr-kiosk, ktora
@@ -129,7 +129,7 @@ export function KioskSigningStep({ session, onSubmit, onSignedChange, submitting
   const [error, setError] = useState("");
   const [mode, setMode] = useState(null); // null | ELECTRONIC | PAPER
   const [view, setView] = useState({ allViewed: false, pagesViewed: [] });
-  const [padEmpty, setPadEmpty] = useState(true);
+  const [padPoints, setPadPoints] = useState(0);
   const [busy, setBusy] = useState(false);
   const pad = useRef(null);
 
@@ -169,7 +169,7 @@ export function KioskSigningStep({ session, onSubmit, onSignedChange, submitting
       });
       setDocs((list) => list.map((d) => (d.id === current.id ? { ...d, signed: true, bytes: null } : d)));
       setView({ allViewed: false, pagesViewed: [] });
-      setPadEmpty(true);
+      setPadPoints(0);
     } catch (e) { setError(e.message); }
     setBusy(false);
   }
@@ -233,6 +233,7 @@ export function KioskSigningStep({ session, onSubmit, onSignedChange, submitting
     );
   }
 
+  const blocked = signBlockedReason({ view, points: padPoints });
   return (
     <div>
       {list}
@@ -243,16 +244,16 @@ export function KioskSigningStep({ session, onSubmit, onSignedChange, submitting
           {current.intent?.body}
           <div className="text-xs text-slate-400 mt-1">Verze textu {current.intent?.version_no}</div>
         </div>
-        <SignaturePad key={current.id} ref={pad} onChange={({ empty }) => setPadEmpty(empty)} />
+        <SignaturePad key={current.id} ref={pad} onChange={({ points }) => setPadPoints(points)} />
         <div className="flex justify-between items-center mt-4">
           {!anySigned ? <button onClick={() => setMode(null)} className="text-slate-500 px-2 py-3 text-sm">Raději podepíšu na papíře</button> : <span />}
-          <button onClick={signCurrent} disabled={!view.allViewed || padEmpty || busy}
+          <button onClick={signCurrent} disabled={!!blocked || busy}
             className="flex items-center gap-2 bg-teal-700 hover:bg-teal-800 disabled:opacity-50 text-white text-base font-medium px-7 py-3 rounded-lg">
             {busy ? <Loader2 size={20} className="animate-spin" /> : <FileSignature size={20} />} Podepsat
           </button>
         </div>
       </div>
-      {!view.allViewed && <div className="text-sm text-slate-500 mt-2">Podpis bude možný po zobrazení všech stran dokumentu.</div>}
+      {blocked && <div className="text-sm text-amber-800 text-right mt-2" data-testid="sign-blocked">{blocked}</div>}
     </div>
   );
 }

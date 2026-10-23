@@ -82,10 +82,11 @@ test.describe("podpis na tablete – vykreslenie a prezretie stran", () => {
       expect(overflow.doc).toBeLessThanOrEqual(0);
       expect(overflow.box).toBeLessThanOrEqual(0);
 
-      // pred posunutim nie je podpis mozny
+      // pred posunutim nie je podpis mozny - a je napisane preco
       const signBtn = page.getByRole("button", { name: "Podepsat" });
-      await page.getByRole("checkbox").check();
+      const blocked = page.getByTestId("sign-blocked");
       await expect(signBtn).toBeDisabled();
+      await expect(blocked).toHaveText(/Projděte prosím celý dokument až na konec \(zobrazeno 0 z \d+ stran\)/);
 
       // posuvanie koleckom v prehliadaci PDF az na koniec, potom stranka
       const box = page.locator("[data-pdf-scroll]");
@@ -98,15 +99,26 @@ test.describe("podpis na tablete – vykreslenie a prezretie stran", () => {
       }
       await expect(counter).toHaveText(/Zobrazeno (\d+) z \1 stran/);
 
-      // podpis prstom (mys) a tlacidlo je aktivne
-      const pad = page.locator("canvas").last();
+      await expect(blocked).toHaveText("Potvrďte prosím jméno zaškrtnutím nahoře.");
+      await page.getByRole("checkbox").check();
+      await expect(blocked).toHaveText("Podepište se prosím do podpisového pole.");
+
+      // prilis kratky podpis (ciarka), potom cely podpis prstom (mys)
+      const pad = page.getByLabel("Podpisové pole");
       await pad.scrollIntoViewIfNeeded();
       const pb = await pad.boundingBox();
+      await page.mouse.move(pb.x + 30, pb.y + 30);
+      await page.mouse.down();
+      await page.mouse.move(pb.x + 34, pb.y + 32);
+      await page.mouse.up();
+      await expect(blocked).toHaveText("Podpis je příliš krátký – podepište se prosím celým podpisem.");
+      await expect(signBtn).toBeDisabled();
       await page.mouse.move(pb.x + 20, pb.y + 20);
       await page.mouse.down();
       for (let i = 1; i <= 15; i++) await page.mouse.move(pb.x + 20 + i * 12, pb.y + 20 + (i % 5) * 8);
       await page.mouse.up();
       await expect(signBtn).toBeEnabled();
+      await expect(blocked).toHaveCount(0);
     });
   }
 });

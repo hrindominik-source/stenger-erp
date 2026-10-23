@@ -4,6 +4,21 @@ import { Eraser } from "lucide-react";
 /* Podpisove pole (prst / stylus / mys). Kazdy dokument dostava NOVY podpis -
    komponent sa po podpise vymaze a obrazok sa nikdy neprenasa medzi
    dokumentmi (DB to navyse vynucuje unikatnostou obrazka). */
+// Minimum bodov podpisu - rovnake pravidlo ako na serveri (validSignatureImage).
+export const MIN_SIGNATURE_POINTS = 10;
+
+// Preco je „Podepsat“ neaktivne (null = moze sa podpisat). nameConfirmed
+// undefined = formular potvrdenie mena nema (kiosk).
+export function signBlockedReason({ view, nameConfirmed, points }) {
+  if (!view?.allViewed) {
+    return view?.total ? `Projděte prosím celý dokument až na konec (zobrazeno ${view.pagesViewed?.length || 0} z ${view.total} stran).` : "Projděte prosím celý dokument až na konec.";
+  }
+  if (nameConfirmed === false) return "Potvrďte prosím jméno zaškrtnutím nahoře.";
+  if (!points) return "Podepište se prosím do podpisového pole.";
+  if (points < MIN_SIGNATURE_POINTS) return "Podpis je příliš krátký – podepište se prosím celým podpisem.";
+  return null;
+}
+
 const SignaturePad = forwardRef(function SignaturePad({ onChange, height = 180 }, ref) {
   const canvas = useRef(null);
   const strokes = useRef([]);
@@ -52,7 +67,7 @@ const SignaturePad = forwardRef(function SignaturePad({ onChange, height = 180 }
   function changed() {
     const n = strokes.current.reduce((a, s) => a + s.length, 0);
     setPoints(n);
-    onChange?.({ empty: n < 10, points: n });
+    onChange?.({ empty: n < MIN_SIGNATURE_POINTS, points: n });
   }
   function down(e) {
     e.preventDefault();
@@ -84,7 +99,7 @@ const SignaturePad = forwardRef(function SignaturePad({ onChange, height = 180 }
 
   useImperativeHandle(ref, () => ({
     clear,
-    isEmpty: () => strokes.current.reduce((a, s) => a + s.length, 0) < 10,
+    isEmpty: () => strokes.current.reduce((a, s) => a + s.length, 0) < MIN_SIGNATURE_POINTS,
     getStrokes: () => strokes.current.map((s) => s.map((p) => [...p])),
     toPngBase64: () => canvas.current.toDataURL("image/png").split(",")[1],
   }));

@@ -3747,7 +3747,9 @@ function DokumentyTab({ employee, sensitive, payroll, currentEmployment, permiss
                 <div className="flex justify-between items-start flex-wrap gap-2">
                   <div>
                     <div className="font-medium">{docLabel}</div>
-                    <div className="text-xs text-slate-400 break-all">{signedName || (d.file_path ? genName : "bez vygenerovaného souboru")}</div>
+                    {(signedName || d.file_path || !(d.final_pdf_path || d.signed_pdf_path)) && (
+                      <div className="text-xs text-slate-400 break-all">{signedName || (d.file_path ? genName : "bez vygenerovaného souboru")}</div>
+                    )}
                     <div className="text-xs text-slate-500">
                       {d.origin === "GENERATED" ? "Vygenerováno" : "Nahráno ručně"} · {fmtDate(d.created_at?.slice(0, 10))}
                     </div>
@@ -3830,7 +3832,7 @@ function DokumentyTab({ employee, sensitive, payroll, currentEmployment, permiss
                     previousSignatures={signaturesByDoc.get(d.supersedes_document_id) || []}
                     docLabel={docLabel} openFile={openFile}
                     can={{ generate: canGenerate, approve: canApprove, sign: canSign, send: hasPerm(permissions, "HR_DOCUMENT_SEND"), edit: hasPerm(permissions, "HR_EDIT"),
-                      void: hasPerm(permissions, "HR_DOCUMENT_VOID"), signEmployer: hasPerm(permissions, "HR_SIGN_FOR_EMPLOYER") }}
+                      void: hasPerm(permissions, "HR_DOCUMENT_VOID"), signEmployer: hasPerm(permissions, "HR_SIGN_FOR_EMPLOYER"), admin: hasPerm(permissions, "HR_ADMIN") }}
                     onChanged={load} />
                 )}
               </div>

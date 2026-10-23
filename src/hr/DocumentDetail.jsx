@@ -21,6 +21,7 @@ import { deliveryState, deliveryDeadlines, documentDeliveryState, czDate, DELIVE
 
 const CLOSED = ["VOIDED", "SUPERSEDED"];
 const SIGNED = ["SIGNED", "ARCHIVED"];
+const SIGNED_DECLARATION_TYPES = ["s21_oznameni_adresy", "s335_souhlas", "s335_odvolani"]; // = hr_is_employee_declaration (migracia 61)
 const fmtTs = (iso) => (iso ? new Date(iso).toLocaleString("cs-CZ") : "—");
 const short = (h) => (h ? `${h.slice(0, 16)}…` : "—");
 const todayIso = () => new Date().toISOString().slice(0, 10);
@@ -135,6 +136,11 @@ export default function DocumentDetail({ doc, signatures = [], previousSignature
   const handoverReason = !can.send ? "Chybí oprávnění k předávání dokumentů." : closed ? "Dokument je zneplatněn / nahrazen."
     : !fullySigned ? "Předat lze až dokument podepsaný všemi stranami." : overall.key === "DELIVERED" ? "Dokument už byl předán." : "";
   const missing = missingSigners(doc, signatures);
+  // podpisane vyhlasenie zamestnanca (§ 21 / § 335) - len HR_ADMIN (migracia 61)
+  const signedDeclaration = SIGNED_DECLARATION_TYPES.includes(doc.doc_type) && ["SIGNED", "ARCHIVED"].includes(doc.status);
+  const voidReason = signedDeclaration
+    ? (can.admin ? "" : "Podepsané prohlášení zaměstnance smí zneplatnit jen administrátor HR (HR_ADMIN). Změna adresy se řeší novým oznámením, souhlas podle § 335 odvoláním.")
+    : (can.void ? "" : "Zneplatnit smí jen uživatel s oprávněním HR_DOCUMENT_VOID.");
   const serverPdf = !!doc.final_pdf_path && !!doc.final_pdf_text_check?.ok && !!doc.final_pdf_text_check?.server_verified;
   const signState = closed ? "Dokument je zneplatněn / nahrazen."
     : fullySigned ? "Dokument je už podepsán všemi stranami." : !serverPdf ? "Nejdřív nahrajte finální PDF (ověřené serverem)." : "";
@@ -322,7 +328,7 @@ export default function DocumentDetail({ doc, signatures = [], previousSignature
               )}
               <ActionButton icon={Mail} onClick={() => setForm("email")} disabled={!!emailReason} reason={emailReason}>Odeslat e-mailem</ActionButton>
               {!closed && (
-                <ActionButton icon={Ban} tone="red" onClick={() => setForm("void")} disabled={!can.void} reason={can.void ? "" : "Zneplatnit smí jen uživatel s oprávněním HR_DOCUMENT_VOID."}>Zneplatnit</ActionButton>
+                <ActionButton icon={Ban} tone="red" onClick={() => setForm("void")} disabled={!!voidReason} reason={voidReason}>Zneplatnit</ActionButton>
               )}
               {can.generate && !closed && !fullySigned && (
                 <ActionButton icon={FilePlus2} onClick={() => setForm("version")} disabled={lockedPartial && !can.void}
@@ -352,7 +358,12 @@ export default function DocumentDetail({ doc, signatures = [], previousSignature
               <HandoverForm doc={doc} s334={s334} onCancel={() => setForm(null)} onSaved={() => { setForm(null); load(); onChanged?.(); }} />
             )}
             {form === "void" && (
-              <ReasonForm title="Zneplatnit dokument" confirm="Zneplatnit" danger
+              <ReasonForm title={signedDeclaration ? "Zneplatnit podepsané prohlášení zaměstnance" : "Zneplatnit dokument"} confirm="Zneplatnit" danger
+                minLength={signedDeclaration ? 10 : 1}
+                warning={signedDeclaration ? (doc.doc_type === "s21_oznameni_adresy"
+                  ? "Pozor: jde o prohlášení zaměstnance. Změna e-mailové adresy se neřeší zneplatněním, ale novým oznámením (§ 21), které zaměstnanec podepíše. Zneplatněte jen chybně pořízený záznam."
+                  : "Pozor: jde o prohlášení zaměstnance. Souhlas s elektronickým doručováním (§ 335) se neruší zneplatněním, ale odvoláním, které podepíše zaměstnanec. Zneplatněte jen chybně pořízený záznam.") : ""}
+                placeholder={signedDeclaration ? "Důvod (povinný, alespoň 10 znaků)" : "Důvod"}
                 hint={fullySigned ? "Podepsaný dokument zůstane v archivu jako zneplatněný – nic se nemaže." : "Dokument zůstane v archivu jako zneplatněný – nic se nemaže."}
                 onCancel={() => setForm(null)}
                 onSubmit={async (reason) => {
@@ -733,12 +744,13 @@ function QualifiedUploadForm({ doc, missing, onCancel, onSaved }) {
   );
 }
 
-function ReasonForm({ title, hint, confirm, danger, optional, placeholder = "Důvod", onCancel, onSubmit }) {
+function ReasonForm({ title, hint, warning, confirm, danger, optional, minLength = 1, placeholder = "Důvod", onCancel, onSubmit }) {
   const [reason, setReason] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   async function submit() {
     if (!optional && !reason.trim()) { setError("Uveďte důvod."); return; }
+    if (!optional && reason.trim().length < minLength) { setError(`Uveďte důvod (alespoň ${minLength} znaků).`); return; }
     setBusy(true);
     setError((await onSubmit(reason.trim())) || "");
     setBusy(false);
@@ -746,6 +758,7 @@ function ReasonForm({ title, hint, confirm, danger, optional, placeholder = "Dů
   return (
     <div className="mt-3 border border-slate-200 rounded-md p-3 bg-slate-50">
       <div className="font-medium text-sm mb-1">{title}</div>
+      {warning && <div className="text-xs bg-amber-50 border border-amber-200 text-amber-900 rounded-md px-2.5 py-2 mb-2" data-testid="void-warning">{warning}</div>}
       {hint && <div className="text-xs text-slate-500 mb-2">{hint}</div>}
       <input value={reason} onChange={(e) => setReason(e.target.value)} placeholder={placeholder}
         className="w-full border border-slate-300 rounded-md px-3 py-2 text-sm mb-2" />
