@@ -13,3 +13,8 @@ Stav: KONCEPT. Do odpovedí sa správanie systému drží konzervatívne (v zát
 9. **Kiosk** – je potrebné, aby zariadenie odomykal HR (prevencia vyplnenia dotazníka cudzou osobou)? (Predvolene vypnuté, pripravené za feature flagom.)
 10. **Lhůta k odstoupení (§ 21) bez dokladu o dodání.** Když poskytovatel e-mailů nepotvrdí dodání, systém lhůtu nepočítá a ukazuje „lhůta neurčena – právo na odstoupení zaniká nástupem do práce“. Je to správný výklad?
 11. **Vnitřní pokyn pro HR k podpisu na tabletu** (`pokyn-hr-podpis-na-tabletu.md`) – schválit text.
+12. **Odvolanie súhlasu § 335 – účinnosť** (text `S335_REVOCATION`: „účinné dnem, kdy je zaměstnavatel obdrží“). (Predvolene: nové § 335 zásielky sa blokujú od zaznamenania odvolania.)
+13. **Potvrdenie o prevzatí pri papierovom podpise** – otlačok odkazuje na vytlačené finálne PDF (pri elektronickom podpise na podpísaný originál). Stačí ako identifikácia písomnosti?
+14. **Verejná overovacia služba pre certifikát** – smie sa do nej nahrať mzdové PDF (GDPR/DPA)? Ktorú odporúčate?
+
+Súhrn pre právničku (texty s verziami a otázky v češtine): `05-pro-pravnicku.md`.

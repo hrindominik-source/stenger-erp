@@ -129,3 +129,17 @@ Odporúčanie: zatiaľ ručne (počet elektronicky doručovaných písomností �
 - `electronic_contract_enabled` (default false) + platné § 21 oznámenie sú podmienkou podpisu zmluvy zamestnancom na tablete; po podpise server hneď zašle podpísaný originál na § 21 adresu.
 - Lehoty vyhodnocuje `hr_document_deliveries_sweep()` (spúšťa detail dokumentu); **cron sa nenastavuje** – na prod až po schválení.
 - Texty e-mailov: KONCEPT – KE SCHVÁLENÍ PRÁVNIČKOU (`supabase/functions/_shared/hrMail.ts`).
+
+## Fáza H – oprávnenia (migrácia 57)
+
+- `20261023140000_opravnenia.sql`, rollback `…_opravnenia_rollback.sql`. Matica oprávnení a rozhodnutia: `01-datovy-model.md`.
+- Nové `HR_DOCUMENT_VOID` a `HR_SIGN_FOR_EMPLOYER`. Podpis za zamestnávateľa DB overí aj pre server (plná moc, meno, používateľ, oprávnenie). Podpisy, dôkazy a doručenia rešpektujú citlivosť dokumentu.
+- **Po nasadení musí HR_ADMIN priradiť nové oprávnenia** – zneplatnenie predtým stačilo s GENERATE/APPROVE.
+
+## Fáza I – šablóny a texty (migrácia 58)
+
+- `20261023150000_sablony_texty.sql`, rollback `…_sablony_texty_rollback.sql`. Nová Edge Function `hr-declarations`. Popis: `04-sablony-texty.md`.
+
+## Kompletný plán nasadenia
+
+`06-plan-nasadenia.md` – poradie migrácií a funkcií, generálka na stagingu, overenie zálohy, produkcia, rollback, nastavenia HR po nasadení.
