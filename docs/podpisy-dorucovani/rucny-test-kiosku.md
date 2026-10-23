@@ -10,11 +10,13 @@ V PowerShelli v priečinku `stenger-erp-hr`:
 # Docker Desktop musí bežať
 npx.cmd supabase start          # lokálny Supabase + Edge Functions (hr-kiosk, ...)
 npx.cmd supabase db reset       # čistá DB + testovacie účty zo supabase/seed.sql
-npm run dev                     # aplikácia (vite) – adresa sa vypíše, zvyčajne http://localhost:5173
+npm run dev -- --port 5180 --strictPort   # aplikácia (vite) – VŽDY http://localhost:5180
 ```
 
-- Kiosk: `http://localhost:5173/?kiosk=nastup`
-- HR (Personalistika): `http://localhost:5173/`
+- Kiosk: `http://localhost:5180/?kiosk=nastup`
+- HR (Personalistika): `http://localhost:5180/`
+
+**Pozor:** na `localhost:5173` a `5174` na tomto PC beží iná aplikácia („Dochádzka – administrácia“). Stenger spúšťajte vždy s `--port 5180 --strictPort` – ak je port obsadený, Vite skončí chybou namiesto tichého prechodu na iný port. Správna stránka má v karte prehliadača titulok **„Stenger ONE“**.
 - Lokálne Supabase Studio (DB, nastavenia): `http://127.0.0.1:54323`
 
 `npm run dev` číta `.env.development.local`, ktorý ukazuje na lokálny Supabase (`http://127.0.0.1:54321`).
@@ -34,10 +36,10 @@ Na prvý pohľad to overíte tak, že sa v HR dá prihlásiť testovacím účto
 2. Spustite aplikáciu tak, aby počúvala v sieti a volala Supabase na adrese PC (nič sa neukladá do súborov):
    ```powershell
    $env:VITE_SUPABASE_URL = "http://192.168.1.50:54321"
-   npm run dev -- --host
+   npm run dev -- --host --port 5180 --strictPort
    ```
-   Vite vypíše aj „Network: http://192.168.1.50:5173“.
-3. Na mobile otvorte `http://192.168.1.50:5173/?kiosk=nastup`.
+   Vite vypíše aj „Network: http://192.168.1.50:5180“.
+3. Na mobile otvorte `http://192.168.1.50:5180/?kiosk=nastup`.
 4. Windows sa môže opýtať na povolenie vo firewalle (Node.js / Docker) – povoľte **len pre súkromnú sieť**.
 5. Bezpečnosť:
    - lokálny Supabase je počas behu dostupný z celej lokálnej siete (port 54321) a používa verejne známe testové kľúče – len doma/v kancelárii na súkromnej Wi-Fi, nie na verejnej;
@@ -46,7 +48,7 @@ Na prvý pohľad to overíte tak, že sa v HR dá prihlásiť testovacím účto
    - premennú `$env:VITE_SUPABASE_URL` zrušíte zatvorením okna PowerShellu.
 6. Obmedzenie: cez `http://` (nie https) prehliadač v mobile nepovolí niektoré funkcie (napr. `crypto.randomUUID`) –
    **prílohy (súbory) v dotazníku na mobile nemusia fungovať**. Podpis a dokumenty fungujú. Ak treba,
-   v Chrome na Androide: `chrome://flags/#unsafely-treat-insecure-origin-as-secure` → pridať `http://192.168.1.50:5173`.
+   v Chrome na Androide: `chrome://flags/#unsafely-treat-insecure-origin-as-secure` → pridať `http://192.168.1.50:5180`.
 
 ## 3. Prihlásenie pre HR (lokálne, testovacie)
 
@@ -120,7 +122,7 @@ Každý scenár = nový dotazník (na konci „Začít nový dotazník“ alebo 
 - [ ] Na PC: F12 → Ctrl+Shift+M (iPad) → „Podepsat na tomto zařízení“. Tablet si vypýta kód:
   - [ ] 2× zlý kód → „Zbývající pokusy“; 3. zlý kód → „podpis byl zrušen“ → v HR „Podepsat na tabletu“ znova;
   - [ ] správny kód → prejsť všetky strany → podpis → „Podepsat“.
-- [ ] Voliteľne skutočný tablet/mobil v tej istej Wi-Fi (bod 2): HR otvoriť cez `http://<IP-PC>:5173`, QR kód potom obsahuje adresu PC a dá sa naskenovať. Na mobile zadať kód.
+- [ ] Voliteľne skutočný tablet/mobil v tej istej Wi-Fi (bod 2): HR otvoriť cez `http://<IP-PC>:5180`, QR kód potom obsahuje adresu PC a dá sa naskenovať. Na mobile zadať kód.
 - [ ] Odhlásiť HR počas otvoreného podpisu → tablet odmietne („Pracovník HR … už není přihlášen“).
 - [ ] Po podpise: Dokumenty → panel Prohlášení ukazuje platné § 21 oznámenie.
 
