@@ -78,8 +78,10 @@ select throws_ok($$insert into public.hr_document_deliveries (id, hr_document_id
   values ('ed-2', 'e-mv', 'IN_PERSON_PAPER', now(), 'HANDED_OVER')$$, 'P0001', null, 'mzdovy vymer (§ 334): odovzdanie bez potvrdenia prevzatia odmietnute');
 select throws_ok($$insert into public.hr_document_deliveries (id, hr_document_id, channel, delivered_at, delivery_basis)
   values ('ed-2', 'e-mv', 'IN_PERSON_PAPER', now(), 'SIGNED_RECEIPT')$$, 'P0001', null, 'potvrdenie prevzatia bez zaznamu odmietnute');
-select lives_ok($$insert into public.hr_document_deliveries (id, hr_document_id, channel, delivered_at, delivery_basis, confirmation_evidence)
-  values ('ed-2', 'e-mv', 'IN_PERSON_PAPER', now(), 'SIGNED_RECEIPT', '{"receipt": "PAPER_SIGNATURE"}')$$, 'mzdovy vymer odovzdany proti podpisu potvrdenia');
+select throws_ok($$insert into public.hr_document_deliveries (id, hr_document_id, channel, delivered_at, delivery_basis, confirmation_evidence)
+  values ('ed-2', 'e-mv', 'IN_PERSON_PAPER', now(), 'SIGNED_RECEIPT', '{"receipt": "PAPER_SIGNATURE"}')$$, 'P0001', null, 'potvrdenie prevzatia bez skenu odmietnute (migracia 53)');
+select lives_ok($$insert into public.hr_document_deliveries (id, hr_document_id, channel, delivered_at, delivery_basis, receipt_scan_path, receipt_scan_sha256)
+  values ('ed-2', 'e-mv', 'IN_PERSON_PAPER', now(), 'SIGNED_RECEIPT', 'prevzeti/e-mv/ed-2-' || repeat('7', 16) || '.pdf', repeat('7', 64))$$, 'mzdovy vymer odovzdany proti skenu potvrdenia');
 
 -- ---------- 4. nova verzia ----------
 select throws_ok($$select public.hr_document_new_version('e-napln', ' ')$$, 'P0001', null, 'nova verzia vyzaduje dovod');

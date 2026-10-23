@@ -20,7 +20,7 @@ import { hrFileName, fileExt } from "../lib/hr/fileNames.js";
 import { nastupChecklist, nastupSummary, nastupRelevant, registraceCssz } from "../lib/hr/nastupniBalicek.js";
 import { verifyFinalPdf, buildFinalPdfUploadPath, TEXT_CHECK_REASON_LABELS } from "../lib/hr/finalPdf.js";
 import { KIOSK_DRAFT_KEYS, KIOSK_DOCS } from "../lib/hr/kioskDocuments.js";
-import { documentRequiredSigners, signingState, SIGNER_LABELS } from "../lib/hr/signingRules.js";
+import { documentRequiredSigners, defaultLegalActType, signingState, SIGNER_LABELS } from "../lib/hr/signingRules.js";
 import DocumentDetail from "./DocumentDetail.jsx";
 import { ABSENCE_TYPES, ABSENCE_DOC_TYPES, absenceType, absenceList, isAbsenceActive, activeAbsence, absenceStatusText, probationOverlapDays, absenceInProbation, addDaysIso } from "../lib/hr/absences.js";
 
@@ -930,6 +930,7 @@ function EmployeeDetail({ id, permissions, onBack }) {
   const [medicalExams, setMedicalExams] = useState([]);
   const [hrDocs, setHrDocs] = useState([]);
   const [hrDeliveries, setHrDeliveries] = useState([]);
+  const [hrTrainings, setHrTrainings] = useState([]);
   const [confirmingDelete, setConfirmingDelete] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [deleteError, setDeleteError] = useState("");
@@ -986,13 +987,18 @@ function EmployeeDetail({ id, permissions, onBack }) {
   // Dokumenty pre nastupni balicek - samostatne, aby sa po ulozeni dokumentu
   // neprekreslil cely detail.
   const loadDocs = useCallback(async () => {
-    const { data } = await supabase.from("hr_documents").select("id, doc_type, status, employment_id, locked_at, is_manual_history_entry").eq("employee_id", id);
+    const { data } = await supabase.from("hr_documents").select("id, doc_type, status, employment_id, locked_at, is_manual_history_entry, training_record_id").eq("employee_id", id);
     const docs = data || [];
     const { data: dls } = docs.length
       ? await supabase.from("hr_document_deliveries").select("hr_document_id, delivered_at, sent_at").in("hr_document_id", docs.map((d) => d.id))
       : { data: [] };
+    const trIds = docs.map((d) => d.training_record_id).filter(Boolean);
+    const { data: trs } = trIds.length
+      ? await supabase.from("hr_training_records").select("id, knowledge_check_result").in("id", trIds)
+      : { data: [] };
     setHrDocs(docs);
     setHrDeliveries(dls || []);
+    setHrTrainings(trs || []);
   }, [id]);
   useEffect(() => { loadDocs(); }, [loadDocs]);
 
@@ -1019,7 +1025,7 @@ function EmployeeDetail({ id, permissions, onBack }) {
   const todayStr = new Date().toISOString().slice(0, 10);
   const nastupItems = nastupRelevant(currentEmployment, todayStr)
     ? nastupChecklist({
-      employee, employment: currentEmployment, documents: hrDocs, deliveries: hrDeliveries, agenda: agendaItems(employee, payroll), timeline, payroll,
+      employee, employment: currentEmployment, documents: hrDocs, deliveries: hrDeliveries, trainings: hrTrainings, agenda: agendaItems(employee, payroll), timeline, payroll,
       uplatnujeSlevy: valuesFromRecords({ employee, payroll }).tax_uplatneni, canPayroll, today: todayStr,
     })
     : null;
@@ -3703,7 +3709,7 @@ function DokumentyTab({ employee, sensitive, payroll, currentEmployment, permiss
                 <div className="flex justify-between items-start flex-wrap gap-2">
                   <div>
                     <div className="font-medium">{docLabel}</div>
-                    <div className="text-xs text-slate-400 break-all">{signedName || genName}</div>
+                    <div className="text-xs text-slate-400 break-all">{signedName || (d.file_path ? genName : "bez vygenerovaného souboru")}</div>
                     <div className="text-xs text-slate-500">
                       {d.origin === "GENERATED" ? "Vygenerováno" : "Nahráno ručně"} · {fmtDate(d.created_at?.slice(0, 10))}
                     </div>
@@ -3750,7 +3756,7 @@ function DokumentyTab({ employee, sensitive, payroll, currentEmployment, permiss
                       <Stamp size={14} /> Podepsaný originál
                     </button>
                   )}
-                  {canGenerate && FINALIZABLE_STATUSES.includes(d.status) && !d.locked_at && d.origin === "GENERATED" && finalizingId !== d.id && (
+                  {canGenerate && FINALIZABLE_STATUSES.includes(d.status) && !d.locked_at && d.origin === "GENERATED" && d.file_path && finalizingId !== d.id && (
                     <button onClick={() => setFinalizingId(d.id)} className="text-sm text-teal-700 hover:text-teal-900 flex items-center gap-1">
                       <Upload size={14} /> {d.final_pdf_path ? "Nahrát novou verzi finálního PDF" : "Nahrát finální PDF (uložené z Wordu)"}
                     </button>
@@ -3783,8 +3789,9 @@ function DokumentyTab({ employee, sensitive, payroll, currentEmployment, permiss
                 </button>
                 {detailId === d.id && (
                   <DocumentDetail doc={d} signatures={signatures} documents={documents} employee={employee} employment={currentEmployment}
+                    previousSignatures={signaturesByDoc.get(d.supersedes_document_id) || []}
                     docLabel={docLabel} openFile={openFile}
-                    can={{ generate: canGenerate, approve: canApprove, sign: canSign, send: hasPerm(permissions, "HR_DOCUMENT_SEND") }}
+                    can={{ generate: canGenerate, approve: canApprove, sign: canSign, send: hasPerm(permissions, "HR_DOCUMENT_SEND"), edit: hasPerm(permissions, "HR_EDIT") }}
                     onChanged={load} />
                 )}
               </div>
@@ -4118,6 +4125,7 @@ function SignDocumentForm({ doc, signatures = [], onCancel, onSaved }) {
   }
 
   const rows = Object.entries(signers);
+  const trainingMissing = (doc.legal_act_type || defaultLegalActType(doc.doc_type)) === "TRAINING_RECORD" && !doc.training_record_id;
   async function submit() {
     if (!file) { setError("Vyberte naskenovaný podepsaný soubor."); return; }
     const chosen = rows.filter(([, v]) => v.checked);
@@ -4160,6 +4168,16 @@ function SignDocumentForm({ doc, signatures = [], onCancel, onSaved }) {
     setSaving(false);
   }
 
+  if (trainingMissing) {
+    return (
+      <div className="mt-3 pt-3 border-t border-slate-100 text-sm">
+        <div className="bg-amber-50 text-amber-800 px-3 py-2 rounded-md mb-2">
+          Záznam o školení lze podepsat až s evidencí školení a úspěšným ověřením znalostí – doplňte ji v Detailu dokumentu.
+        </div>
+        <button onClick={onCancel} className="text-sm text-slate-500 px-3 py-1">Zavřít</button>
+      </div>
+    );
+  }
   return (
     <div className="mt-3 pt-3 border-t border-slate-100">
       <div className="text-xs text-slate-500 mb-2">

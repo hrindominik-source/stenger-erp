@@ -11,8 +11,9 @@ export const NASTUP_DOCS = [
   { key: "ps", label: "Pracovní smlouva", types: ["pracovni_smlouva", "pracovni_smlouva_cizinec"], preset: "pracovni_smlouva" },
   { key: "vymer", label: "Mzdový výměr", types: ["platovy_vymer", "mzdovy_vymer"], preset: "platovy_vymer", payroll: true },
   { key: "napln", label: "Náplň práce", types: ["hi001_naplen_prace_delnice", "popis_pracovniho_mista"], preset: "hi001_naplen_prace_delnice" },
-  // zaznam o skoleni zostava u zamestnavatela - nic sa neodovzdava
-  { key: "skoleni", label: "Vstupní školení BOZP", types: ["vstupni_skoleni"], preset: "vstupni_skoleni", noHandover: true },
+  // zaznam o skoleni zostava u zamestnavatela - nic sa neodovzdava; hotovo
+  // len s evidenciou skolenia a uspesnym overenim znalosti (migracia 53)
+  { key: "skoleni", label: "Vstupní školení BOZP", types: ["vstupni_skoleni"], preset: "vstupni_skoleni", noHandover: true, training: true },
 ];
 
 const dayDiff = (a, b) => Math.round((new Date(a + "T00:00:00Z") - new Date(b + "T00:00:00Z")) / 86400000);
@@ -45,22 +46,26 @@ const handedOver = (d, deliveries) => d.is_manual_history_entry || deliveries.so
 
 // stav: missing (chybi) | created (k podpisu) | signed (podepsano - nepredano) | done
 // action: { tab, preset? } - kam prepnout v detailu zamestnance
-export function nastupChecklist({ employee, employment, documents = [], deliveries = [], agenda = [], timeline = [], payroll, uplatnujeSlevy, canPayroll, today }) {
+export function nastupChecklist({ employee, employment, documents = [], deliveries = [], trainings = [], agenda = [], timeline = [], payroll, uplatnujeSlevy, canPayroll, today }) {
   const start = employment?.start_date || today;
   const docs = documents.filter((d) => !d.employment_id || d.employment_id === employment?.id);
   const items = [];
   for (const def of NASTUP_DOCS) {
     if (def.payroll && !canPayroll) continue;
     const mine = docs.filter((d) => def.types.includes(d.doc_type) && !["ARCHIVED", "VOIDED", "SUPERSEDED"].includes(d.status));
-    const signed = mine.filter((d) => d.status === "SIGNED");
+    const trainingOk = (d) => trainings.some((t) => t.id === d.training_record_id && t.knowledge_check_result === "PASSED");
+    const signed = mine.filter((d) => d.status === "SIGNED" && (!def.training || d.is_manual_history_entry || trainingOk(d)));
+    const signedNoEvidence = def.training && mine.some((d) => d.status === "SIGNED" && !signed.includes(d));
     const done = signed.find((d) => def.noHandover || handedOver(d, deliveries));
     const state = done ? "done" : signed.length ? "signed" : mine.length ? "created" : "missing";
     items.push({
       key: def.key, label: def.label, state,
       detail: {
-        done: def.noHandover ? "podepsáno" : "podepsáno a předáno",
+        done: def.training ? "podepsáno, znalosti ověřeny" : def.noHandover ? "podepsáno" : "podepsáno a předáno",
         signed: "podepsáno – nepředáno",
-        created: mine.some((d) => d.locked_at) ? "k podpisu – čeká na další podpis" : "k podpisu",
+        created: signedNoEvidence ? "podepsáno bez evidence školení a ověření znalostí"
+          : def.training && !mine.some(trainingOk) ? "k podpisu – nejdřív doplňte evidenci školení"
+          : mine.some((d) => d.locked_at) ? "k podpisu – čeká na další podpis" : "k podpisu",
         missing: "chybí",
       }[state],
       action: { tab: "dokumenty", preset: def.preset },

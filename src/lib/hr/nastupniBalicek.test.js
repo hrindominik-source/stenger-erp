@@ -59,7 +59,7 @@ describe("nástupní balíček", () => {
     expect([k.ps.state, k.ps.detail]).toEqual(["done", "podepsáno a předáno"]);
     expect([k.vymer.state, k.vymer.detail]).toEqual(["created", "k podpisu – čeká na další podpis"]);
     expect([k.napln.state, k.napln.detail]).toEqual(["signed", "podepsáno – nepředáno"]); // odoslane, nedorucene
-    expect(k.skoleni.state).toBe("done"); // skoleni sa neodovzdava
+    expect(k.skoleni.state).toBe("created"); // podpisane, ale bez evidencie skolenia
     expect([k.dotaznik.state, k.dotaznik.detail]).toEqual(["done", "podepsán (dotazník na tabletu)"]);
     const zrusena = byKey(nastupChecklist({ employment: emp, today: "2026-10-05", documents: [{ id: "x", doc_type: "pracovni_smlouva", status: "VOIDED" }] }));
     expect(zrusena.ps.state).toBe("missing");
@@ -78,5 +78,15 @@ describe("nástupní balíček", () => {
     expect(k.cssz.state).toBe("done");
     expect(k.cssz.detail).toBe("registrace dokončena (OIČ + ID PPV)");
     expect(k.zp.state).toBe("missing");
+  });
+  it("školení: hotovo jen s podpisem a evidencí školení s úspěšným ověřením znalostí", () => {
+    const run = (docs, trainings) => byKey(nastupChecklist({ employment: emp, today: "2026-10-05", documents: docs, trainings })).skoleni;
+    const sk = { id: "sk", doc_type: "vstupni_skoleni", status: "READY_FOR_SIGNATURE" };
+    expect(run([sk], []).detail).toBe("k podpisu – nejdřív doplňte evidenci školení");
+    expect(run([{ ...sk, training_record_id: "t1" }], [{ id: "t1", knowledge_check_result: "PASSED" }]).detail).toBe("k podpisu");
+    expect(run([{ ...sk, status: "SIGNED" }], []).detail).toBe("podepsáno bez evidence školení a ověření znalostí");
+    expect(run([{ ...sk, status: "SIGNED", training_record_id: "t1" }], [{ id: "t1", knowledge_check_result: "FAILED" }]).state).toBe("created");
+    expect(run([{ ...sk, status: "SIGNED", training_record_id: "t1" }], [{ id: "t1", knowledge_check_result: "PASSED" }]))
+      .toMatchObject({ state: "done", detail: "podepsáno, znalosti ověřeny" });
   });
 });

@@ -1,13 +1,14 @@
 import React, { useState, useEffect, useCallback } from "react";
-import { Loader2, Printer, Tablet, Handshake, Mail, Ban, FilePlus2, CheckCircle2, Clock, AlertCircle } from "lucide-react";
+import { Loader2, Printer, Tablet, Handshake, Mail, Ban, FilePlus2, CheckCircle2, Clock, AlertCircle, FileSignature, GraduationCap, Stamp } from "lucide-react";
 import { supabase } from "../supabaseClient.js";
 import { uid } from "../lib/utils.js";
+import { sha256Hex } from "../lib/hr/documentHash.js";
 import { hrFileName } from "../lib/hr/fileNames.js";
 import {
   documentRequiredSigners, defaultLegalActType, signatureCounts, isS334Document,
   SIGNER_LABELS, LEGAL_ACT_LABELS, SIGNATURE_METHOD_LABELS,
 } from "../lib/hr/signingRules.js";
-import { deliveryState, deliveryDeadlines, documentDeliveryState, DELIVERY_CHANNEL_LABELS } from "../lib/hr/deliveryStatus.js";
+import { deliveryState, deliveryDeadlines, documentDeliveryState, czDate, DELIVERY_CHANNEL_LABELS } from "../lib/hr/deliveryStatus.js";
 
 /* =========================================================================
    Detail dokumentu (faza E) - rozbalovaci panel pod polozkou v zalozke
@@ -56,14 +57,14 @@ function ActionButton({ icon: Icon, children, onClick, disabled, reason, tone = 
   );
 }
 
-export default function DocumentDetail({ doc, signatures = [], documents = [], employee, employment, docLabel, openFile, can, onChanged }) {
+export default function DocumentDetail({ doc, signatures = [], previousSignatures = [], documents = [], employee, employment, docLabel, openFile, can, onChanged }) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [deliveries, setDeliveries] = useState([]);
   const [events, setEvents] = useState([]);
   const [templateName, setTemplateName] = useState("");
   const [names, setNames] = useState({}); // auth uid -> full_name
-  const [form, setForm] = useState(null); // "handover" | "void" | "version"
+  const [form, setForm] = useState(null); // "handover" | "void" | "version" | "amendment"
 
   // Kluc (string), nie pole - rodic posiela pri kazdom vykresleni nove pole.
   const signatureUsers = signatures.flatMap((s) => [s.uploaded_by, s.scan_matches_original_confirmed_by]).filter(Boolean).join(",");
@@ -99,6 +100,12 @@ export default function DocumentDetail({ doc, signatures = [], documents = [], e
   const previous = documents.find((d) => d.id === doc.supersedes_document_id);
   const overall = documentDeliveryState(deliveries);
   const s334 = isS334Document(doc);
+  const amends = documents.find((d) => d.id === doc.amends_document_id);
+  const amendments = documents.filter((d) => d.amends_document_id === doc.id);
+  // Zamknuty prvym podpisom, ale nie uplne podpisany -> zneplatnit a nova verzia.
+  const lockedPartial = !!doc.locked_at && !fullySigned && !closed;
+  const canAmend = fullySigned && legalAct === "BILATERAL_CONTRACT" && doc.doc_type !== "dodatek";
+  const isTraining = legalAct === "TRAINING_RECORD";
 
   async function printDownload() {
     const { error: err } = await supabase.from("hr_document_events").insert({ hr_document_id: doc.id, event_type: "PRINT_DOWNLOADED" });
@@ -127,7 +134,13 @@ export default function DocumentDetail({ doc, signatures = [], documents = [], e
               {previous && <span className="text-slate-500"> · nahrazuje v{previous.version_no || 1}{previous.void_reason ? ` (${previous.void_reason})` : ""}</span>}
               {doc.superseded_by && <span className="text-amber-700"> · nahrazena novější verzí</span>}
             </Row>
-            <Row label="Šablona">{templateName || (doc.origin === "UPLOADED" ? "nahráno ručně" : "—")}</Row>
+            {doc.amends_document_id && (
+              <Row label="Dodatek ke smlouvě">{amends ? `${docTitle(amends)} v${amends.version_no || 1} (${STATUS_TEXT[amends.status] || amends.status})` : doc.amends_document_id}</Row>
+            )}
+            {amendments.length > 0 && (
+              <Row label="Dodatky">{amendments.map((a) => `v${a.version_no || 1} – ${STATUS_TEXT[a.status] || a.status} (${czDate(a.created_at)})`).join("; ")}</Row>
+            )}
+            <Row label="Šablona">{templateName || (doc.origin === "UPLOADED" ? "nahráno ručně" : doc.doc_type === "dodatek" ? <span className="text-amber-700">šablona dodatku zatím chybí (otevřená úloha) – dodatek připravte mimo systém a nahrajte podepsaný sken</span> : "—")}</Row>
             <Row label="Vytvořil(a)">{who(doc.generated_by)} · {fmtTs(doc.generated_at || doc.created_at)}</Row>
             <Row label="Finální PDF">
               {doc.final_pdf_sha256
@@ -149,12 +162,13 @@ export default function DocumentDetail({ doc, signatures = [], documents = [], e
                     {!ok.length && <span className="text-slate-500">– {closed ? "nepodepsáno" : "čeká na podpis"}</span>}
                   </div>
                   {mine.map((s) => (
-                    <div key={s.id} className={"ml-5 text-xs " + (signatureCounts(doc, s) ? "text-slate-600" : "text-red-700")}>
+                    <div key={s.id} className={"ml-5 text-xs " + (signatureCounts(doc, s) && !closed ? "text-slate-600" : "text-red-700")}>
                       {s.signed_by_name || "—"} · {fmtTs(s.signed_at || s.created_at)} · {SIGNATURE_METHOD_LABELS[s.method] || s.method}
                       {" · "}
                       {s.method === "PAPER"
                         ? <>sken <code className="font-mono">{short(s.document_hash)}</code>{s.signed_content_sha256 ? <> k verzi <code className="font-mono">{short(s.signed_content_sha256)}</code></> : " (bez finálního PDF)"}{s.scan_matches_original_confirmed_by ? `, shodu ověřil(a) ${who(s.scan_matches_original_confirmed_by)}` : ""}</>
                         : signatureCounts(doc, s) ? <>k aktuální verzi <code className="font-mono">{short(s.signed_content_sha256)}</code></> : "podpis jiné verze – nepočítá se"}
+                      {closed && <b> · neplatí – verze {doc.status === "VOIDED" ? "zneplatněna" : "nahrazena"} (podpis zůstává jen jako záznam)</b>}
                     </div>
                   ))}
                 </div>
@@ -163,10 +177,23 @@ export default function DocumentDetail({ doc, signatures = [], documents = [], e
             {signatures.filter((s) => !required.includes(s.signer_type)).map((s) => (
               <div key={s.id} className="text-xs text-slate-500">Navíc: {SIGNER_LABELS[s.signer_type] || s.signer_type} – {s.signed_by_name} · {fmtTs(s.signed_at || s.created_at)}</div>
             ))}
+            {previous && previousSignatures.length > 0 && (
+              <div className="text-xs bg-amber-50 text-amber-800 rounded-md px-2 py-1.5 mt-1">
+                Předchozí verze v{previous.version_no || 1} byla {previous.status === "VOIDED" ? "zneplatněna" : "nahrazena"} – její podpisy se k této verzi nepočítají
+                ({previousSignatures.map((s) => `${SIGNER_LABELS[s.signer_type] || s.signer_type} ${s.signed_by_name || ""}, ${fmtTs(s.signed_at || s.created_at)}`).join("; ")}).
+                Tuto verzi musí znovu podepsat všechny strany.
+              </div>
+            )}
             <div className="text-xs text-slate-500 pt-1">
               {fullySigned ? "Podepsáno všemi stranami." : closed ? "Dokument je zneplatněn / nahrazen – další podpisy se nesbírají." : doc.locked_at ? `Zamčeno ${fmtTs(doc.locked_at)} – obsah už nelze měnit, čeká se na zbývající podpisy.` : "Zatím bez podpisu."}
             </div>
           </Section>
+
+          {isTraining && (
+            <Section title="Evidence školení a ověření znalostí">
+              <TrainingEvidence doc={doc} employee={employee} canEdit={(can.edit || can.generate) && !doc.locked_at && !closed} onChanged={onChanged} />
+            </Section>
+          )}
 
           <Section title="Předání / doručení">
             <Row label="Stav"><span className={overall.key === "DELIVERED" ? "text-emerald-700" : overall.key === "INEFFECTIVE" ? "text-red-700" : ""}>{overall.label}</span></Row>
@@ -180,6 +207,11 @@ export default function DocumentDetail({ doc, signatures = [], documents = [], e
                     {!dl.delivered_at && dl.sent_at && <>odesláno {fmtTs(dl.sent_at)}</>}
                     {dl.confirmation_evidence?.note && <> · {dl.confirmation_evidence.note}</>}
                   </div>
+                  {dl.receipt_scan_path && (
+                    <button type="button" onClick={() => openFile(dl.receipt_scan_path)} className="text-xs text-emerald-700 hover:text-emerald-900 flex items-center gap-1">
+                      <Stamp size={12} /> Potvrzení o převzetí (sken) · otisk <code className="font-mono">{short(dl.receipt_scan_sha256)}</code>
+                    </button>
+                  )}
                   {deliveryDeadlines(dl, { today: todayIso(), startDate: employment?.start_date }).map((d) => (
                     <div key={d.key} className={"text-xs flex items-center gap-1 " + DEADLINE_CLS[d.state]}>
                       {d.state === "over" || d.state === "warn" ? <AlertCircle size={12} /> : <Clock size={12} />} {d.label}
@@ -202,9 +234,13 @@ export default function DocumentDetail({ doc, signatures = [], documents = [], e
               {(can.generate || can.approve) && !closed && (
                 <ActionButton icon={Ban} tone="red" onClick={() => setForm("void")}>Zneplatnit</ActionButton>
               )}
-              {can.generate && !closed && (
-                <ActionButton icon={FilePlus2} onClick={() => setForm("version")} disabled={fullySigned}
-                  reason={fullySigned ? "Podepsaný dokument se nenahrazuje – zneplatněte ho a vytvořte nový." : ""}>Vytvořit novou verzi</ActionButton>
+              {can.generate && !closed && !fullySigned && (
+                <ActionButton icon={FilePlus2} onClick={() => setForm("version")}>
+                  {lockedPartial ? "Zneplatnit a vytvořit novou verzi" : "Vytvořit novou verzi"}
+                </ActionButton>
+              )}
+              {can.generate && canAmend && (
+                <ActionButton icon={FileSignature} onClick={() => setForm("amendment")}>Vytvořit dodatek</ActionButton>
               )}
             </div>
             {form === "handover" && (
@@ -222,11 +258,26 @@ export default function DocumentDetail({ doc, signatures = [], documents = [], e
                 }} />
             )}
             {form === "version" && (
-              <ReasonForm title="Vytvořit novou verzi" confirm="Vytvořit verzi"
-                hint="Vznikne kopie jako koncept (verze + 1) se stejným vygenerovaným souborem; upravte ji ve Wordu a nahrajte nové finální PDF. Tato verze bude označena jako nahrazená."
+              <ReasonForm title={lockedPartial ? "Zneplatnit a vytvořit novou verzi" : "Vytvořit novou verzi"} confirm={lockedPartial ? "Zneplatnit a vytvořit verzi" : "Vytvořit verzi"}
+                danger={lockedPartial}
+                hint={lockedPartial
+                  ? "Tato verze už má podpis, proto se zneplatní (s důvodem). Její podpisy zůstanou jako záznam, ale k nové verzi se nepočítají – novou verzi musí znovu podepsat všechny strany. Vznikne koncept (verze + 1) se stejným vygenerovaným souborem; upravte ho ve Wordu a nahrajte nové finální PDF."
+                  : "Vznikne kopie jako koncept (verze + 1) se stejným vygenerovaným souborem; upravte ji ve Wordu a nahrajte nové finální PDF. Tato verze bude označena jako nahrazená."}
                 onCancel={() => setForm(null)}
                 onSubmit={async (reason) => {
                   const { error: err } = await supabase.rpc("hr_document_new_version", { p_document_id: doc.id, p_reason: reason });
+                  if (err) return err.message;
+                  setForm(null); onChanged?.();
+                  return null;
+                }} />
+            )}
+            {form === "amendment" && (
+              <ReasonForm title="Vytvořit dodatek" confirm="Vytvořit dodatek" optional
+                hint="Vznikne nový dokument „Dodatek“ navázaný na tuto smlouvu (podepisují obě strany). Podepsaná smlouva se nemění ani nezneplatňuje. Šablona dodatku zatím chybí – dodatek připravte mimo systém a nahrajte podepsaný sken."
+                placeholder="Předmět dodatku (nepovinné), např. změna mzdy od 1. 1."
+                onCancel={() => setForm(null)}
+                onSubmit={async (note) => {
+                  const { error: err } = await supabase.rpc("hr_document_create_amendment", { p_document_id: doc.id, p_note: note || null });
                   if (err) return err.message;
                   setForm(null); onChanged?.();
                   return null;
@@ -239,12 +290,116 @@ export default function DocumentDetail({ doc, signatures = [], documents = [], e
   );
 }
 
-function ReasonForm({ title, hint, confirm, danger, onCancel, onSubmit }) {
+const STATUS_TEXT = { DRAFT: "koncept", READY_FOR_REVIEW: "ke kontrole", APPROVED: "schváleno", READY_FOR_SIGNATURE: "k podpisu", SIGNED: "podepsáno", ARCHIVED: "archivováno", VOIDED: "zneplatněno", SUPERSEDED: "nahrazeno" };
+const docTitle = (d) => ({ pracovni_smlouva: "Pracovní smlouva", pracovni_smlouva_cizinec: "Pracovní smlouva – cizinec" }[d.doc_type] || d.doc_type);
+
+const CHECK_METHOD = { TEST: "test", ORAL: "ústně", PRACTICAL: "prakticky" };
+const CHECK_RESULT = { PASSED: "prospěl(a)", FAILED: "neprospěl(a)" };
+
+// Evidencia skolenia a overenia znalosti (migracia 53). Zaznam o skoleni sa
+// da podpisat a je "hotovo" len s naviazanou evidenciou s vysledkom PASSED.
+function TrainingEvidence({ doc, employee, canEdit, onChanged }) {
+  const [records, setRecords] = useState(null);
+  const [adding, setAdding] = useState(false);
+  const [error, setError] = useState("");
+  const load = useCallback(async () => {
+    const { data, error: err } = await supabase.from("hr_training_records").select("*").eq("employee_id", employee.id).order("created_at", { ascending: false });
+    if (err) setError(err.message);
+    setRecords(data || []);
+  }, [employee.id]);
+  useEffect(() => { load(); }, [load]);
+  if (!records) return <div className="text-slate-400 text-xs">Načítám…</div>;
+  const linked = records.find((r) => r.id === doc.training_record_id);
+
+  async function link(id) {
+    const { error: err } = await supabase.from("hr_documents").update({ training_record_id: id, updated_at: new Date().toISOString() }).eq("id", doc.id);
+    if (err) { setError(err.message); return; }
+    onChanged?.();
+  }
+
+  return (
+    <div>
+      {linked ? (
+        <div className={linked.knowledge_check_result === "PASSED" ? "" : "text-red-700"}>
+          <div className="flex items-center gap-1.5"><GraduationCap size={14} /> Školení {czDate(linked.trained_at)} · školitel {linked.trainer_name}</div>
+          <div className="text-xs text-slate-600 ml-5">Rozsah: {linked.scope}</div>
+          <div className="text-xs ml-5">
+            Ověření znalostí: {CHECK_METHOD[linked.knowledge_check_method]} · {CHECK_RESULT[linked.knowledge_check_result]} · {czDate(linked.knowledge_checked_at)} · ověřil(a) {linked.knowledge_checked_by_name}
+          </div>
+          {linked.knowledge_check_result !== "PASSED" && <div className="text-xs ml-5">Bez úspěšného ověření znalostí nelze záznam podepsat.</div>}
+        </div>
+      ) : (
+        <div className="text-amber-800 text-sm">Chybí evidence školení a ověření znalostí – záznam o školení nelze podepsat.</div>
+      )}
+      {canEdit && records.filter((r) => r.id !== doc.training_record_id).length > 0 && (
+        <div className="text-xs mt-1">
+          Navázat existující:{" "}
+          {records.filter((r) => r.id !== doc.training_record_id).map((r) => (
+            <button key={r.id} type="button" onClick={() => link(r.id)} className="text-teal-700 hover:text-teal-900 underline mr-2">
+              {czDate(r.trained_at)} ({CHECK_RESULT[r.knowledge_check_result]})
+            </button>
+          ))}
+        </div>
+      )}
+      {canEdit && !adding && (
+        <button type="button" onClick={() => setAdding(true)} className="text-sm text-teal-700 hover:text-teal-900 mt-1">+ Zapsat evidenci školení</button>
+      )}
+      {adding && <TrainingForm employee={employee} onCancel={() => setAdding(false)} onSaved={async (id) => { setAdding(false); await load(); await link(id); }} />}
+      {error && <div className="text-xs text-red-700 mt-1">{error}</div>}
+    </div>
+  );
+}
+
+function TrainingForm({ employee, onCancel, onSaved }) {
+  const [f, setF] = useState({ trained_at: todayIso(), trainer_name: "", scope: "Vstupní školení BOZP a PO", knowledge_check_method: "TEST", knowledge_check_result: "PASSED", knowledge_checked_at: todayIso(), knowledge_checked_by_name: "", note: "" });
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  const set = (k) => (e) => setF({ ...f, [k]: e.target.value });
+  async function submit() {
+    if (!f.trainer_name.trim() || !f.scope.trim() || !f.knowledge_checked_by_name.trim()) { setError("Vyplňte školitele, rozsah a kdo ověřil znalosti."); return; }
+    if (f.knowledge_checked_at < f.trained_at) { setError("Ověření znalostí nemůže být před školením."); return; }
+    setBusy(true);
+    const { data: u } = await supabase.auth.getUser();
+    const id = uid();
+    const { error: err } = await supabase.from("hr_training_records").insert({ id, employee_id: employee.id, created_by: u?.user?.id, ...f, note: f.note.trim() || null });
+    setBusy(false);
+    if (err) { setError(err.message); return; }
+    onSaved(id);
+  }
+  const inp = "border border-slate-300 rounded-md px-2 py-1.5 text-sm w-full";
+  return (
+    <div className="mt-2 border border-slate-200 rounded-md p-3 bg-slate-50 grid grid-cols-1 sm:grid-cols-2 gap-2">
+      <label className="text-xs text-slate-600">Datum školení<input type="date" value={f.trained_at} max={todayIso()} onChange={set("trained_at")} className={inp} /></label>
+      <label className="text-xs text-slate-600">Školitel<input value={f.trainer_name} onChange={set("trainer_name")} className={inp} /></label>
+      <label className="text-xs text-slate-600 sm:col-span-2">Rozsah / obsah<input value={f.scope} onChange={set("scope")} className={inp} /></label>
+      <label className="text-xs text-slate-600">Ověření znalostí – způsob
+        <select value={f.knowledge_check_method} onChange={set("knowledge_check_method")} className={inp}>
+          {Object.entries(CHECK_METHOD).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
+        </select>
+      </label>
+      <label className="text-xs text-slate-600">Výsledek
+        <select value={f.knowledge_check_result} onChange={set("knowledge_check_result")} className={inp}>
+          {Object.entries(CHECK_RESULT).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
+        </select>
+      </label>
+      <label className="text-xs text-slate-600">Datum ověření<input type="date" value={f.knowledge_checked_at} max={todayIso()} onChange={set("knowledge_checked_at")} className={inp} /></label>
+      <label className="text-xs text-slate-600">Ověřil(a)<input value={f.knowledge_checked_by_name} onChange={set("knowledge_checked_by_name")} className={inp} /></label>
+      <div className="text-[11px] text-slate-500 sm:col-span-2">Evidence se po uložení nemění – oprava = nový záznam (navázat lze jen před podpisem).</div>
+      {error && <div className="text-xs text-red-700 sm:col-span-2">{error}</div>}
+      <div className="flex gap-2 sm:col-span-2">
+        <button type="button" onClick={submit} disabled={busy} className="bg-teal-700 hover:bg-teal-800 text-white text-sm px-3 py-1.5 rounded-md disabled:opacity-50">{busy ? "Ukládám…" : "Uložit a navázat"}</button>
+        <button type="button" onClick={onCancel} className="text-sm px-3 py-1.5 text-slate-600">Zrušit</button>
+      </div>
+    </div>
+  );
+}
+
+function ReasonForm({ title, hint, confirm, danger, optional, placeholder = "Důvod", onCancel, onSubmit }) {
   const [reason, setReason] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   async function submit() {
-    if (!reason.trim()) { setError("Uveďte důvod."); return; }
+    if (!optional && !reason.trim()) { setError("Uveďte důvod."); return; }
     setBusy(true);
     setError((await onSubmit(reason.trim())) || "");
     setBusy(false);
@@ -253,7 +408,7 @@ function ReasonForm({ title, hint, confirm, danger, onCancel, onSubmit }) {
     <div className="mt-3 border border-slate-200 rounded-md p-3 bg-slate-50">
       <div className="font-medium text-sm mb-1">{title}</div>
       {hint && <div className="text-xs text-slate-500 mb-2">{hint}</div>}
-      <input value={reason} onChange={(e) => setReason(e.target.value)} placeholder="Důvod"
+      <input value={reason} onChange={(e) => setReason(e.target.value)} placeholder={placeholder}
         className="w-full border border-slate-300 rounded-md px-3 py-2 text-sm mb-2" />
       {error && <div className="text-xs text-red-700 mb-2">{error}</div>}
       <div className="flex gap-2">
@@ -271,20 +426,32 @@ function ReasonForm({ title, hint, confirm, danger, onCancel, onSubmit }) {
 // potvrdenia prevzatia (DB: hr_document_deliveries_in_person).
 function HandoverForm({ doc, s334, onCancel, onSaved }) {
   const [date, setDate] = useState(todayIso());
-  const [receipt, setReceipt] = useState(false);
+  const [receipt, setReceipt] = useState(s334);
+  const [scan, setScan] = useState(null);
+  const [scanHash, setScanHash] = useState("");
   const [note, setNote] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   async function submit() {
     if (!date || date > todayIso()) { setError("Zadejte datum předání (nejpozději dnes)."); return; }
     if (s334 && !receipt) { setError("Písemnost § 334 lze předat jen proti podpisu potvrzení o převzetí."); return; }
+    if (receipt && (!scan || !scanHash)) { setError("Nahrajte sken podepsaného potvrzení o převzetí."); return; }
     setBusy(true);
     setError("");
+    const id = uid();
+    let receiptPath = null;
+    if (receipt) {
+      // prevzeti/<dokument>/... - subor dedi klasifikaciu dokumentu (hr_object_path_visible)
+      receiptPath = `prevzeti/${doc.id}/${id}-${scanHash.slice(0, 16)}.${(scan.name.split(".").pop() || "pdf").toLowerCase()}`;
+      const { error: upErr } = await supabase.storage.from("hr-dokumenty").upload(receiptPath, scan, { contentType: scan.type || "application/octet-stream", upsert: false });
+      if (upErr) { setBusy(false); setError(upErr.message); return; }
+    }
     const basis = receipt ? "SIGNED_RECEIPT" : "HANDED_OVER";
     const { error: err } = await supabase.from("hr_document_deliveries").insert({
-      id: uid(), hr_document_id: doc.id, channel: "IN_PERSON_PAPER",
+      id, hr_document_id: doc.id, channel: "IN_PERSON_PAPER",
       delivered_at: date === todayIso() ? new Date().toISOString() : `${date}T12:00:00Z`, delivery_basis: basis,
-      confirmation_evidence: receipt || note.trim() ? { receipt: receipt ? "PAPER_SIGNATURE" : null, note: note.trim() || null } : null,
+      receipt_scan_path: receiptPath, receipt_scan_sha256: receipt ? scanHash : null,
+      confirmation_evidence: receipt || note.trim() ? { receipt: receipt ? "PAPER_SCAN" : null, note: note.trim() || null } : null,
     });
     setBusy(false);
     if (err) { setError(err.message); return; }
@@ -301,6 +468,14 @@ function HandoverForm({ doc, s334, onCancel, onSaved }) {
         <input type="checkbox" checked={receipt} onChange={(e) => setReceipt(e.target.checked)} className="mt-0.5" />
         <span>Zaměstnanec převzetí potvrdil podpisem (potvrzení o převzetí / podpis na kopii){s334 && <span className="text-red-700"> – povinné u písemnosti § 334</span>}</span>
       </label>
+      {receipt && (
+        <label className="block text-xs text-slate-600 mb-2">
+          Sken podepsaného potvrzení o převzetí (povinný)
+          <input type="file" accept="application/pdf,image/*" className="block text-sm mt-1"
+            onChange={async (e) => { const f = e.target.files?.[0] || null; setScan(f); setScanHash(f ? await sha256Hex(await f.arrayBuffer()) : ""); }} />
+          {scanHash && <span className="block mt-1">Otisk skenu: <code className="font-mono">{scanHash.slice(0, 16)}…</code> – po uložení se nedá změnit.</span>}
+        </label>
+      )}
       <input value={note} onChange={(e) => setNote(e.target.value)} placeholder="Poznámka (nepovinné)"
         className="w-full border border-slate-300 rounded-md px-3 py-2 text-sm mb-2" />
       {error && <div className="text-xs text-red-700 mb-2">{error}</div>}

@@ -81,3 +81,13 @@ npx supabase status -o env | grep -E '^(API_URL|ANON_KEY)=' | sed -e 's/^API_URL
 - Rollback: `supabase/rollback/20261022170000_dokumenty_detail_rollback.sql` (pred 51). Reťazec 52 → 48 otestovaný.
 - UI: súčasný zoznam a tlačidlá ostali; pod každým dokumentom rozbaľovací „Detail“ (vytvorenie, podpis, odovzdanie, lehoty, akcie). Nástupní balíček: chybí / k podpisu / podepsáno – nepředáno / hotovo.
 - Otvorené (F/G): podpis na tablete, odoslanie e-mailom; sken potvrdenia prevzatia sa zatiaľ neukladá (len záznam + poznámka).
+
+## Doplnky pred fázou F (migrácia 53)
+
+- `20261023100000_verzie_dodatky_prevzatie.sql`:
+  - zamknutý, ale neúplne podpísaný dokument: „Zneplatnit a vytvořit novou verzi“ – pôvodná verzia VOIDED s dôvodom, podpisy ostávajú ako záznam, nová verzia potrebuje všetky podpisy znova;
+  - úplne podpísaná zmluva: „Vytvořit dodatek“ (`hr_document_create_amendment`) – nový dokument `dodatek`, BILATERAL_CONTRACT, `amends_document_id`; pôvodná zmluva sa nemení;
+  - sken potvrdenia o prevzatí: `hr_document_deliveries.receipt_scan_path/_sha256`, cesta `prevzeti/<dokument>/…<hash16>…`, nemenný, viditeľnosť podľa klasifikácie dokumentu (aj pred vložením záznamu); pri § 334 osobne povinný (alebo podpis potvrdenia na tablete – `confirmation_evidence.receipt_signature_id`, fáza F);
+  - evidencia školení `hr_training_records` (školiteľ, rozsah, overenie znalostí – spôsob, výsledok, kto, kedy), len pridávanie; záznam o školení sa dá podpísať a je SIGNED len s evidenciou s výsledkom PASSED.
+- Rollback: `supabase/rollback/20261023100000_verzie_dodatky_prevzatie_rollback.sql` (pred 52; zastaví sa, ak existujú dodatky, skeny potvrdenia alebo evidencia školení). Reťazec 53 → 48 otestovaný.
+- Otvorené úlohy: šablóna dodatku (Word) chýba – dodatok sa zatiaľ pripraví mimo systému a nahrá sa podpísaný sken; hash skenu počíta prehliadač (rovnako ako pri doterajšom skene podpisu).
