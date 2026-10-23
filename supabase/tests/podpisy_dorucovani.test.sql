@@ -63,8 +63,9 @@ select isnt((select signed_at from public.hr_document_signatures where id = 's-1
 select is((select length(evidence_sha256) from public.hr_document_signatures where id = 's-1'), 64, 'hash dokazov sa ulozi');
 select isnt((select locked_at from public.hr_documents where id = 'doc-ps'), null, 'prvy podpis zamkne dokument');
 select is((select signing_channel from public.hr_documents where id = 'doc-ps'), 'ELECTRONIC', 'kanal podpisu sa zapise');
-select throws_ok($$insert into public.hr_document_signatures (id, hr_document_id, method, signer_type, signed_content_sha256, signature_image_id, intent_text_version_id, intent_text_sha256)
-  values ('s-2', 'doc-ps', 'ELECTRONIC_TABLET', 'EMPLOYER', repeat('a',64), 'img-1', 'lt-intent', 'h')$$, '23505', null, 'obrazok podpisu nejde pouzit druhykrat');
+insert into public.hr_signatories (id, full_name, full_name_instrumental, user_id, valid_from, note) values ('sig-pd', 'JUDr. Zastupce', 'JUDr. Zastupcem', '00000000-0000-0000-0000-0000000000a1', '2026-01-01', 'test');
+select throws_ok($$insert into public.hr_document_signatures (id, hr_document_id, method, signer_type, signed_by_name, signer_user_id, evidence, signed_content_sha256, signature_image_id, intent_text_version_id, intent_text_sha256)
+  values ('s-2', 'doc-ps', 'ELECTRONIC_TABLET', 'EMPLOYER', 'JUDr. Zastupce', '00000000-0000-0000-0000-0000000000a1', '{"signatory_id": "sig-pd"}', repeat('a',64), 'img-1', 'lt-intent', 'h')$$, '23505', null, 'obrazok podpisu nejde pouzit druhykrat');
 select throws_ok($$update public.hr_document_signatures set signed_by_name = 'Iny' where id = 's-1'$$, 'P0001', null, 'podpis nejde upravit (ani postgres)');
 select throws_ok($$delete from public.hr_document_signatures where id = 's-1'$$, 'P0001', null, 'podpis nejde zmazat (ani postgres)');
 select throws_ok($$update public.hr_documents set final_pdf_sha256 = repeat('d',64) where id = 'doc-ps'$$, 'P0001', null, 'zamknuty dokument: hash nejde zmenit');
@@ -78,8 +79,8 @@ select is((select status from public.hr_documents where id = 'doc-ps'), 'READY_F
 select throws_ok($$insert into public.hr_document_deliveries (id, hr_document_id, channel, recipient_snapshot)
   values ('dl-u', 'doc-ps', 'IN_PERSON_PAPER', null)$$, 'P0001', null, 'zmluvu len s podpisom zamestnanca nejde odovzdat ani odoslat');
 insert into public.hr_signature_images (id, png, png_sha256) values ('img-2', decode(repeat('cd', 200), 'hex'), 'x');
-insert into public.hr_document_signatures (id, hr_document_id, method, signer_type, signed_by_name, signed_content_sha256, signature_image_id, intent_text_version_id, intent_text_sha256)
-  values ('s-2b', 'doc-ps', 'ELECTRONIC_TABLET', 'EMPLOYER', 'JUDr. Zastupce', repeat('a',64), 'img-2', 'lt-intent', 'h');
+insert into public.hr_document_signatures (id, hr_document_id, method, signer_type, signed_by_name, signer_user_id, evidence, signed_content_sha256, signature_image_id, intent_text_version_id, intent_text_sha256)
+  values ('s-2b', 'doc-ps', 'ELECTRONIC_TABLET', 'EMPLOYER', 'JUDr. Zastupce', '00000000-0000-0000-0000-0000000000a1', '{"signatory_id": "sig-pd"}', repeat('a',64), 'img-2', 'lt-intent', 'h');
 select is(public.hr_document_missing_signers('doc-ps'), '{}'::text[], 'po podpise zamestnavatela nechyba nikto');
 select lives_ok($$update public.hr_documents set status = 'SIGNED' where id = 'doc-ps'$$, 'stav SIGNED po vsetkych podpisoch');
 select throws_ok($$update public.hr_documents set status = 'DRAFT' where id = 'doc-ps'$$, 'P0001', null, 'podpisany dokument sa nevrati do DRAFT');

@@ -57,17 +57,24 @@ Migrácia: `supabase/migrations/20261022130000_podpisy_dorucovani.sql` (sekcia 4
 
 Lehoty (vypočíta aplikácia, fáza E/G): § 21 – 7 dní od dodania, kým zamestnanec nezačal plniť (porovnať s nástupom); § 335 odst. 2 – fikcia 15. deň od dodania; § 335 odst. 3 – bez potvrdenia do 15 dní od odoslania neúčinné, upozornenie 10. deň.
 
-## Oprávnenia (fáza H – návrh, v DB už použité)
+## Oprávnenia (fáza H – rozhodnutie, migrácia 57)
 
-| Oprávnenie | Účel | Stav |
+| Oprávnenie | Čo dovoľuje | Kde sa vynucuje |
 |---|---|---|
-| `HR_DOCUMENT_SIGN` (existuje) | papierový sken, podpis na tablete (spúšťa HR) | ponechané |
-| `HR_DOCUMENT_SEND` (nové) | odovzdanie / odoslanie, záznam doručenia | použité v RLS `hr_document_deliveries` |
-| `HR_LEGAL_TEXTS_ADMIN` (nové) | správa textov vyhlásení a poučení | použité v RLS `hr_legal_text_versions` |
-| `HR_SIGN_FOR_EMPLOYER` (nové, fáza F) | podpis za zamestnávateľa (plná moc) | zatiaľ nepoužité |
-| zneplatnenie | `HR_DOCUMENT_APPROVE` (existujúce) | namapované, bez nového oprávnenia |
+| `HR_DOCUMENT_SIGN` (existuje) | papierový sken podpisu, vydanie odkazu na tablet pre zamestnanca, nahratie PDF s uznávaným podpisom, ručné overenie certifikátu | RLS `hr_document_signatures`, Edge `hr-signing` |
+| `HR_SIGN_FOR_EMPLOYER` (nové) | podpis za zamestnávateľa na tablete – **navyše** platná osoba s plnou mocou (`hr_signatories`) naviazaná na prihláseného používateľa | Edge `hr-signing` (employer_*), DB trigger `hr_document_signatures_employer_signatory` (aj pre server) |
+| `HR_DOCUMENT_SEND` (existuje od fázy B) | osobné odovzdanie, odoslanie e-mailom, opakovanie, potvrdenie prevzatia, odstúpenie | RLS `hr_document_deliveries`, Edge `hr-delivery` |
+| `HR_DOCUMENT_VOID` (nové) | zneplatnenie dokumentu; „zneplatniť a nová verzia“ pri zamknutom dokumente | DB trigger `hr_documents_void_permission` |
+| `HR_LEGAL_TEXTS_ADMIN` (existuje od fázy B) | nové verzie textov vyhlásení, poučení a prejavov vôle | RLS `hr_legal_text_versions` |
+| `HR_ADMIN` | všetko; osoby s plnou mocou, nastavenia (`hr_settings`), trvalé mazanie | RLS, Edge |
 
-`HR_ADMIN` má všetko. Do UI (`HR_PERMISSION_OPTIONS`) sa doplnia vo fáze H.
+Rozhodnutia:
+- Zneplatnenie predtým mohol ktokoľvek s GENERATE/APPROVE/SIGN → teraz samostatné `HR_DOCUMENT_VOID`. Automatické zneplatnenie nepodpísaných konceptov kiosku (server) ostáva bez neho.
+- Podpis za zamestnávateľa: oprávnenie **a** plná moc (dve nezávislé podmienky – oprávnenie spravuje HR_ADMIN v nastaveniach oprávnení, plnú moc v sekcii Osoby s plnou mocou).
+- Nahratie PDF s uznávaným podpisom zamestnávateľa ostáva pod `HR_DOCUMENT_SIGN` – identitu podpisujúceho dokazuje certifikát a jeho overenie, nie ten, kto súbor nahral.
+- Citlivosť šablóny (`hr_document_required_permissions`) platí aj pre podpisové záznamy, dôkazy, overenia, doručenia a ich zápis (predtým podpisy videl každý s `HR_VIEW_BASIC`). Edge Functions načítavajú dokument najprv pod právami používateľa (`loadVisibleDocument`).
+- Kiosk (`anon`) nemá žiadnu RLS politiku na nových tabuľkách – len RPC s tokenom (overené testom `opravnenia.test.sql`).
+- Po nasadení: existujúci používatelia nové oprávnenia nemajú → HR_ADMIN ich musí priradiť (pozri plán nasadenia).
 
 ## Archivácia a anonymizácia (návrh – namiesto trvalého mazania)
 

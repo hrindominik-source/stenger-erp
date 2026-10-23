@@ -132,9 +132,11 @@ describe.skipIf(!enabled)("faza C - overenie na serveri (lokalny Supabase)", { t
       if (iErr) throw iErr;
       const { error: sErr } = await service.from("hr_document_signatures").insert({
         id: `sig-it-${run}-${i}`, hr_document_id: id, method: "ELECTRONIC_TABLET", signer_type: signer,
-        signed_by_name: signer === "EMPLOYEE" ? "Jana Nováková-Testová" : "JUDr. Testovací Zástupce",
+        signed_by_name: signer === "EMPLOYEE" ? "Jana Nováková-Testová" : "Mgr. Jana Zkušební",
         signed_content_sha256: d.final_pdf_sha256, signature_image_id: imgId,
-        intent_text_version_id: lt.id, intent_text_sha256: lt.body_sha256, evidence: { all_pages_viewed: true },
+        intent_text_version_id: lt.id, intent_text_sha256: lt.body_sha256,
+        // zamestnavatel: vymyslena osoba s plnou mocou zo seedu (faza H - DB kontrola)
+        ...(signer === "EMPLOYER" ? { signer_user_id: "11111111-1111-1111-1111-111111111111", evidence: { all_pages_viewed: true, signatory_id: "seed-sig-1" } } : { evidence: { all_pages_viewed: true } }),
       });
       if (sErr) throw sErr;
     }

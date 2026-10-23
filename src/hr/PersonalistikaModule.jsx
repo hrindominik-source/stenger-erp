@@ -74,7 +74,11 @@ const HR_PERMISSION_OPTIONS = [
   { value: "HR_EDIT", label: "Upravovat záznamy" },
   { value: "HR_DOCUMENT_GENERATE", label: "Generovat dokumenty" },
   { value: "HR_DOCUMENT_APPROVE", label: "Schvalovat dokumenty/šablony" },
-  { value: "HR_DOCUMENT_SIGN", label: "Zaznamenávat podpisy" },
+  { value: "HR_DOCUMENT_SIGN", label: "Zaznamenávat podpisy (papír, tablet zaměstnance, uznávaný podpis)" },
+  { value: "HR_SIGN_FOR_EMPLOYER", label: "Podepisovat za zaměstnavatele (jen s platnou plnou mocí)" },
+  { value: "HR_DOCUMENT_SEND", label: "Předávat a doručovat dokumenty (osobně, e-mailem)" },
+  { value: "HR_DOCUMENT_VOID", label: "Zneplatňovat dokumenty" },
+  { value: "HR_LEGAL_TEXTS_ADMIN", label: "Spravovat texty prohlášení a poučení" },
   { value: "HR_AUDIT_VIEW", label: "Zobrazit audit log" },
   { value: "HR_EXEKUCE", label: "Exekuce – plný přístup k dokladům (manažer, účetní)" },
   { value: "HR_ADMIN", label: "Administrátor (má vše)" },
@@ -3808,7 +3812,8 @@ function DokumentyTab({ employee, sensitive, payroll, currentEmployment, permiss
                   <DocumentDetail doc={d} signatures={signatures} documents={documents} employee={employee} employment={currentEmployment}
                     previousSignatures={signaturesByDoc.get(d.supersedes_document_id) || []}
                     docLabel={docLabel} openFile={openFile}
-                    can={{ generate: canGenerate, approve: canApprove, sign: canSign, send: hasPerm(permissions, "HR_DOCUMENT_SEND"), edit: hasPerm(permissions, "HR_EDIT") }}
+                    can={{ generate: canGenerate, approve: canApprove, sign: canSign, send: hasPerm(permissions, "HR_DOCUMENT_SEND"), edit: hasPerm(permissions, "HR_EDIT"),
+                      void: hasPerm(permissions, "HR_DOCUMENT_VOID"), signEmployer: hasPerm(permissions, "HR_SIGN_FOR_EMPLOYER") }}
                     onChanged={load} />
                 )}
               </div>

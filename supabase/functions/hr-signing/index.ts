@@ -294,7 +294,7 @@ async function signatoryFor(service: SupabaseClient, userId: string) {
 }
 
 async function employerContext(req: Request, body: any) {
-  const { user, userClient, service } = await authorize(req, ["HR_DOCUMENT_SIGN"]);
+  const { user, userClient, service } = await authorize(req, ["HR_SIGN_FOR_EMPLOYER"]);
   const doc = await loadVisibleDocument(userClient, service, String(body.document_id || ""));
   await signable(service, doc, "EMPLOYER");
   if (isS334Document(doc)) {

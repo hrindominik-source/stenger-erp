@@ -34,6 +34,11 @@ set local request.jwt.claims = '{"sub": "00000000-0000-0000-0000-0000000000f1", 
 insert into public.hr_document_signatures (id, hr_document_id, method, signer_type, signed_by_name, document_hash, file_path, scan_matches_original_confirmed_by)
   values ('fs-ps-e', 'f-ps', 'PAPER', 'EMPLOYEE', 'Karel Zkusebni', repeat('5', 64), 'zamestnanci-podpisy/f-ps/s.pdf', '00000000-0000-0000-0000-0000000000f1');
 select isnt((select locked_at from public.hr_documents where id = 'f-ps'), null, 'zmluva je po podpise zamestnanca zamknuta');
+select throws_like($$select public.hr_document_new_version('f-ps', 'chyba v mzde')$$, '%HR_DOCUMENT_VOID%', 'zamknuty dokument bez HR_DOCUMENT_VOID nezneplatni ani cez novu verziu (faza H)');
+reset role;
+update public.hr_permissions set permissions = permissions || array['HR_DOCUMENT_VOID'] where id = 'p-f1';
+set local role authenticated;
+set local request.jwt.claims = '{"sub": "00000000-0000-0000-0000-0000000000f1", "email": "hr.f@test.local", "role": "authenticated"}';
 select lives_ok($$select public.hr_document_new_version('f-ps', 'chyba v mzde')$$, 'zamknutu neuplne podpisanu zmluvu ide zneplatnit a nahradit');
 select is((select array[status, void_reason] from public.hr_documents where id = 'f-ps'), array['VOIDED', 'chyba v mzde'], 'povodna verzia je ZNEPLATNENA s dovodom');
 select isnt((select voided_at from public.hr_documents where id = 'f-ps'), null, 'cas zneplatnenia zapisany');

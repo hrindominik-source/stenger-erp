@@ -130,11 +130,12 @@ export default function DocumentDetail({ doc, signatures = [], previousSignature
     : !fullySigned ? "Předat lze až dokument podepsaný všemi stranami." : overall.key === "DELIVERED" ? "Dokument už byl předán." : "";
   const missing = missingSigners(doc, signatures);
   const serverPdf = !!doc.final_pdf_path && !!doc.final_pdf_text_check?.ok && !!doc.final_pdf_text_check?.server_verified;
-  const signBase = !can.sign ? "Chybí oprávnění k podpisu dokumentů." : closed ? "Dokument je zneplatněn / nahrazen."
+  const signState = closed ? "Dokument je zneplatněn / nahrazen."
     : fullySigned ? "Dokument je už podepsán všemi stranami." : !serverPdf ? "Nejdřív nahrajte finální PDF (ověřené serverem)." : "";
+  const signBase = !can.sign ? "Chybí oprávnění k podpisu dokumentů." : signState;
   const tabletReason = signBase || (!missing.includes("EMPLOYEE") ? "Zaměstnanec už podepsal nebo podpis nepotřebuje."
     : isTraining && !doc.training_record_id ? "Nejdřív doplňte evidenci školení a ověření znalostí." : "");
-  const employerReason = signBase || (!missing.includes("EMPLOYER") ? "Zaměstnavatel už podepsal nebo podpis nepotřebuje."
+  const employerReason = (!can.signEmployer ? "Chybí oprávnění podepisovat za zaměstnavatele (HR_SIGN_FOR_EMPLOYER)." : signState) || (!missing.includes("EMPLOYER") ? "Zaměstnavatel už podepsal nebo podpis nepotřebuje."
     : s334 ? "Písemnost § 334 podepisuje zaměstnavatel uznávaným el. podpisem – nahrajte podepsané PDF." : "");
   const qualifiedReason = signBase || (!missing.length ? "Nikdo další už podepsat nemusí." : "");
   const emailChannels = [
@@ -296,11 +297,12 @@ export default function DocumentDetail({ doc, signatures = [], previousSignature
               <ActionButton icon={Stamp} onClick={() => setForm("qualified")} disabled={!!qualifiedReason} reason={qualifiedReason}>Nahrát PDF s uznávaným podpisem</ActionButton>
               <ActionButton icon={Handshake} onClick={() => setForm("handover")} disabled={!!handoverReason} reason={handoverReason}>Zaznamenat předání</ActionButton>
               <ActionButton icon={Mail} onClick={() => setForm("email")} disabled={!!emailReason} reason={emailReason}>Odeslat e-mailem</ActionButton>
-              {(can.generate || can.approve) && !closed && (
-                <ActionButton icon={Ban} tone="red" onClick={() => setForm("void")}>Zneplatnit</ActionButton>
+              {!closed && (
+                <ActionButton icon={Ban} tone="red" onClick={() => setForm("void")} disabled={!can.void} reason={can.void ? "" : "Zneplatnit smí jen uživatel s oprávněním HR_DOCUMENT_VOID."}>Zneplatnit</ActionButton>
               )}
               {can.generate && !closed && !fullySigned && (
-                <ActionButton icon={FilePlus2} onClick={() => setForm("version")}>
+                <ActionButton icon={FilePlus2} onClick={() => setForm("version")} disabled={lockedPartial && !can.void}
+                  reason={lockedPartial && !can.void ? "Zamčený dokument zneplatní jen uživatel s oprávněním HR_DOCUMENT_VOID." : ""}>
                   {lockedPartial ? "Zneplatnit a vytvořit novou verzi" : "Vytvořit novou verzi"}
                 </ActionButton>
               )}

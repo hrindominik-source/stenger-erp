@@ -22,6 +22,7 @@ const STROKES = [Array.from({ length: 15 }, (_, i) => [i * 3, i * 2])];
 const TABLET = "tablet-it-0123456789abcdef";
 const OTHER_TABLET = "tablet-it-ffffffffffffffff";
 const SIGNATORY = "JUDr. Test Zmocněnec";
+const SIGNER_PERMS = ["HR_VIEW_BASIC", "HR_VIEW_SENSITIVE", "HR_VIEW_PAYROLL", "HR_DOCUMENT_SIGN", "HR_SIGN_FOR_EMPLOYER"];
 const EMP_EMAIL = `tereza.${Date.now().toString(36)}@example.test`;
 const MAILPIT = "http://127.0.0.1:54324";
 
@@ -79,7 +80,7 @@ describe.skipIf(!enabled)("faza F - podpis na tablete pri osobnej pritomnosti (l
     const { data: created, error: cErr } = await service.auth.admin.createUser({ email: sEmail, password: sPass, email_confirm: true });
     if (cErr) throw cErr;
     await service.from("profiles").insert({ id: created.user.id, full_name: "Test Zmocnenec", role: "office" });
-    await service.from("hr_permissions").insert({ id: `p-${run}`, user_email: sEmail, permissions: ["HR_VIEW_BASIC", "HR_VIEW_SENSITIVE", "HR_VIEW_PAYROLL", "HR_DOCUMENT_SIGN"] });
+    await service.from("hr_permissions").insert({ id: `p-${run}`, user_email: sEmail, permissions: SIGNER_PERMS });
     await service.from("hr_signatories").insert({ id: `sig-${run}`, full_name: SIGNATORY, full_name_instrumental: "JUDr. Testem Zmocněncem", user_id: created.user.id, valid_from: "2026-01-01" });
     signerHr = createClient(URL_, ANON, { auth: { persistSession: false } });
     if ((await signerHr.auth.signInWithPassword({ email: sEmail, password: sPass })).error) throw new Error("login signer");
@@ -164,6 +165,15 @@ describe.skipIf(!enabled)("faza F - podpis na tablete pri osobnej pritomnosti (l
     expect(r.error).toMatch(/§ 21/);
     await service.from("employees").update({ private_email: EMP_EMAIL }).eq("id", empId);
     expect((await issue(hr, id)).ok).toBe(true);
+  });
+
+  it("faza H: podpis za zamestnavatela len s HR_SIGN_FOR_EMPLOYER (plna moc sama nestaci)", async () => {
+    const id = await newDoc("h", "pracovni_smlouva");
+    await service.from("hr_permissions").update({ permissions: SIGNER_PERMS.filter((p) => p !== "HR_SIGN_FOR_EMPLOYER") }).eq("id", `p-${run}`);
+    const r = await invoke(signerHr, { action: "employer_load", document_id: id });
+    expect(r.status).toBe(403);
+    await service.from("hr_permissions").update({ permissions: SIGNER_PERMS }).eq("id", `p-${run}`);
+    expect((await invoke(signerHr, { action: "employer_load", document_id: id })).ok).toBe(true);
   });
 
   it("tri zle kody zrusia odkaz; novy token zrusi stary", async () => {

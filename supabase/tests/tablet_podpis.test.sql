@@ -86,8 +86,9 @@ select throws_ok($$insert into public.hr_document_signatures (id, hr_document_id
 select lives_ok($$insert into public.hr_document_signatures (id, hr_document_id, method, signer_type, signed_by_name, signed_content_sha256, document_hash, file_path)
   values ('g-s2', 'g-mv', 'ELECTRONIC_QUALIFIED', 'EMPLOYER', 'JUDr. Zastupce', repeat('2', 64), repeat('3', 64), 'zamestnanci/emp-g1/g-mv/uznavany-podpis.pdf')$$,
   'mzdovy vymer: uznavany el. podpis prijaty');
-select lives_ok($$insert into public.hr_document_signatures (id, hr_document_id, method, signer_type, signed_by_name, signed_content_sha256, signature_image_id, intent_text_version_id, intent_text_sha256)
-  values ('g-s3', 'g-ps', 'ELECTRONIC_TABLET', 'EMPLOYER', 'JUDr. Zastupce', repeat('1', 64), 'g-img-2', 'lt-intent-employer-v1', 'h')$$,
+insert into public.hr_signatories (id, full_name, full_name_instrumental, user_id, valid_from, note) values ('sig-g', 'JUDr. Zastupce', 'JUDr. Zastupcem', '00000000-0000-0000-0000-0000000000a8', '2026-01-01', 'test');
+select lives_ok($$insert into public.hr_document_signatures (id, hr_document_id, method, signer_type, signed_by_name, signer_user_id, evidence, signed_content_sha256, signature_image_id, intent_text_version_id, intent_text_sha256)
+  values ('g-s3', 'g-ps', 'ELECTRONIC_TABLET', 'EMPLOYER', 'JUDr. Zastupce', '00000000-0000-0000-0000-0000000000a8', '{"signatory_id": "sig-g"}', repeat('1', 64), 'g-img-2', 'lt-intent-employer-v1', 'h')$$,
   'zmluva: podpis zamestnavatela na tablete povoleny');
 select is(public.hr_signature_certificate_status('g-s2'), 'NOT_VERIFIED', 'uznavany podpis bez overenia = certifikat neovereny');
 select throws_ok($$insert into public.hr_signature_verifications (signature_id, result, method, service_name) values ('g-s3', 'VALID', 'AUTOMATIC', 'x')$$,
