@@ -1,7 +1,6 @@
 // Faza F - pravidla podpisu na tablete a uznavaneho el. podpisu (PAdES).
 // Ciste funkcie bez I/O: pouziva Edge Function hr-signing, testuje vitest.
 // Pravidla su KONCEPT – KE SCHVÁLENÍ PRÁVNIČKOU.
-import { PS_PODEPISUJICI, podepisujiciIndex } from "./podepisujici.js";
 
 // Prejav vule zamestnanca podla typu pravneho ukonu (hr_legal_text_versions.text_key).
 export const EMPLOYEE_INTENT_KEY = {
@@ -19,7 +18,12 @@ export const IDENTITY_DOCUMENTS = {
   JINY: "jiný doklad totožnosti",
 };
 
-export const TOKEN_MINUTES = 30;
+// Podpis len pri osobnej pritomnosti: QR na obrazovke HR + kratky kod.
+export const TOKEN_MINUTES = 10;
+export const MAX_CODE_ATTEMPTS = 3;
+export const PAIRING_CODE_LENGTH = 6;
+export const validDeviceId = (id) => typeof id === "string" && /^[A-Za-z0-9-]{16,64}$/.test(id);
+export const validPairingCode = (c) => typeof c === "string" && c.length === PAIRING_CODE_LENGTH && /^[0-9]+$/.test(c);
 
 // Konkretne udaje skolenia pripojene k prejavu vule (TRAINING_RECORD).
 export function trainingIntentDetail(t) {
@@ -40,18 +44,35 @@ export function validSignatureImage(png, strokes) {
   return !!isPng && png.length >= 100 && png.length <= MAX_PNG && points >= 10;
 }
 
-// Kto smie podpisat za zamestnavatela: prihlaseny pouzivatel z PS_PODEPISUJICI;
-// ak dokument uvadza podepisujiceho (variables_snapshot.zastupce), musi to byt on.
-export function employerSignatory(userName, snapshot = {}) {
-  const idx = podepisujiciIndex(userName);
-  if (idx < 0) return { ok: false, reason: "Přihlášený uživatel není mezi osobami s plnou mocí k podpisu za zaměstnavatele." };
-  const person = PS_PODEPISUJICI[idx];
-  const named = String(snapshot?.zastupce || "").trim();
-  if (named && podepisujiciIndex(named) !== idx) {
-    return { ok: false, reason: `Dokument má podepsat ${named} – přihlaste se jeho/jejím účtem.` };
-  }
-  return { ok: true, name: person.jmeno };
+// Porovnanie mien bez titulov v zatvorke, diakritiky a velkosti pismen.
+export const normalizeName = (n) => String(n || "").normalize("NFD").replace(/[̀-ͯ]/g, "").replace(/\s+/g, " ").trim().toLowerCase();
+
+// Platna osoba s plnou mocou k danemu dnu (zaznam hr_signatories).
+export function signatoryValidOn(sig, isoDate) {
+  return !!sig && sig.valid_from <= isoDate && (!sig.valid_to || sig.valid_to >= isoDate);
 }
+
+// Kto smie podpisat za zamestnavatela: prihlaseny pouzivatel naviazany na
+// platnu osobu s plnou mocou (DB); ak dokument uvadza podepisujiceho
+// (variables_snapshot.zastupce), musi to byt ona.
+export function employerSignatory(signatory, snapshot = {}, isoDate = new Date().toISOString().slice(0, 10)) {
+  if (!signatoryValidOn(signatory, isoDate)) {
+    return { ok: false, reason: "Přihlášený uživatel nemá platnou plnou moc k podpisu za zaměstnavatele." };
+  }
+  const named = String(snapshot?.zastupce || "").trim();
+  if (named && normalizeName(named) !== normalizeName(signatory.full_name)) {
+    return { ok: false, reason: `Dokument má podepsat ${named} – přihlaste se účtem této osoby.` };
+  }
+  return { ok: true, name: signatory.full_name, signatoryId: signatory.id };
+}
+
+// Stav certifikatu uznavaneho podpisu (hr_signature_certificate_status).
+export const CERTIFICATE_STATUS_LABELS = {
+  NOT_VERIFIED: "podpis přítomen, certifikát neověřen",
+  VALID: "podpis přítomen, certifikát ověřen – platný",
+  INVALID: "podpis přítomen, certifikát NEPLATNÝ",
+  INDETERMINATE: "podpis přítomen, ověření certifikátu neprůkazné",
+};
 
 const latin1 = (bytes) => { let s = ""; for (let i = 0; i < bytes.length; i += 0x8000) s += String.fromCharCode.apply(null, bytes.subarray(i, i + 0x8000)); return s; };
 

@@ -144,6 +144,7 @@ describe.skipIf(!enabled)("faza D - kiosk dotaznik (lokalny Supabase)", { timeou
       kiosk_s21: "ANO", kiosk_s335: "ANO", kiosk_s335_notice_id: cfg.texts.S335_NOTICE.id,
     });
     const p = await prepare(s);
+    expect(p.documents, JSON.stringify(p).slice(0, 300)).toBeDefined();
     expect(p.documents.map((d) => d.kind)).toEqual(["QUESTIONNAIRE", "S21", "S335"]);
     const text = (await extractPdfText(fromB64(p.documents[2].pdf_base64))).text;
     expect(text).toContain("S335_NOTICE verze");

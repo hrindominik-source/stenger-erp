@@ -2,14 +2,14 @@ import React, { useState, useEffect, useCallback } from "react";
 import { Loader2, Printer, Tablet, Handshake, Mail, Ban, FilePlus2, CheckCircle2, Clock, AlertCircle, FileSignature, GraduationCap, Stamp } from "lucide-react";
 import { supabase } from "../supabaseClient.js";
 import { uid } from "../lib/utils.js";
-import { sha256Hex } from "../lib/hr/documentHash.js";
 import { hrFileName } from "../lib/hr/fileNames.js";
 import {
   documentRequiredSigners, defaultLegalActType, signatureCounts, isS334Document, missingSigners,
   SIGNER_LABELS, LEGAL_ACT_LABELS, SIGNATURE_METHOD_LABELS,
 } from "../lib/hr/signingRules.js";
 import TabletSigning, { invokeSigning } from "./signing/TabletSigning.jsx";
-import { IDENTITY_DOCUMENTS } from "../../supabase/functions/_shared/hr/tabletSigning.js";
+import { IDENTITY_DOCUMENTS, CERTIFICATE_STATUS_LABELS } from "../../supabase/functions/_shared/hr/tabletSigning.js";
+import QRCode from "qrcode";
 import { deliveryState, deliveryDeadlines, documentDeliveryState, czDate, DELIVERY_CHANNEL_LABELS } from "../lib/hr/deliveryStatus.js";
 
 /* =========================================================================
@@ -66,18 +66,23 @@ export default function DocumentDetail({ doc, signatures = [], previousSignature
   const [events, setEvents] = useState([]);
   const [templateName, setTemplateName] = useState("");
   const [names, setNames] = useState({}); // auth uid -> full_name
-  const [form, setForm] = useState(null); // "handover" | "void" | "version" | "amendment"
+  const [form, setForm] = useState(null); // "handover" | "void" | "version" | "amendment" | "tablet" | ...
+  const [verifications, setVerifications] = useState([]); // overenie certifikatu uznavaneho podpisu
+  const [verifyId, setVerifyId] = useState(null);
 
   // Kluc (string), nie pole - rodic posiela pri kazdom vykresleni nove pole.
   const signatureUsers = signatures.flatMap((s) => [s.uploaded_by, s.scan_matches_original_confirmed_by]).filter(Boolean).join(",");
+  const qualifiedIds = signatures.filter((s) => s.method === "ELECTRONIC_QUALIFIED").map((s) => s.id).join(",");
   const load = useCallback(async () => {
     setLoading(true);
     setError("");
-    const [dlRes, evRes, tplRes] = await Promise.all([
+    const [dlRes, evRes, tplRes, verRes] = await Promise.all([
       supabase.from("hr_document_deliveries").select("*").eq("hr_document_id", doc.id).order("created_at", { ascending: true }),
       supabase.from("hr_document_events").select("*").eq("hr_document_id", doc.id).order("created_at", { ascending: true }),
       doc.template_id ? supabase.from("hr_document_templates").select("name").eq("id", doc.template_id).maybeSingle() : Promise.resolve({ data: null }),
+      qualifiedIds ? supabase.from("hr_signature_verifications").select("*").in("signature_id", qualifiedIds.split(",")).order("verified_at", { ascending: false }) : Promise.resolve({ data: [] }),
     ]);
+    setVerifications(verRes.data || []);
     if (dlRes.error || evRes.error) setError("Nepodařilo se načíst předání a události dokumentu.");
     const dls = dlRes.data || [];
     const evs = evRes.data || [];
@@ -91,7 +96,7 @@ export default function DocumentDetail({ doc, signatures = [], previousSignature
       setNames(Object.fromEntries((data || []).map((p) => [p.id, p.full_name])));
     }
     setLoading(false);
-  }, [doc.id, doc.template_id, doc.generated_by, doc.finalized_by, signatureUsers]);
+  }, [doc.id, doc.template_id, doc.generated_by, doc.finalized_by, signatureUsers, qualifiedIds]);
   useEffect(() => { load(); }, [load]);
 
   const who = (id) => (id ? names[id] || "—" : "—");
@@ -180,6 +185,13 @@ export default function DocumentDetail({ doc, signatures = [], previousSignature
                         ? <>sken <code className="font-mono">{short(s.document_hash)}</code>{s.signed_content_sha256 ? <> k verzi <code className="font-mono">{short(s.signed_content_sha256)}</code></> : " (bez finálního PDF)"}{s.scan_matches_original_confirmed_by ? `, shodu ověřil(a) ${who(s.scan_matches_original_confirmed_by)}` : ""}</>
                         : signatureCounts(doc, s) ? <>k aktuální verzi <code className="font-mono">{short(s.signed_content_sha256)}</code></> : "podpis jiné verze – nepočítá se"}
                       {closed && <b> · neplatí – verze {doc.status === "VOIDED" ? "zneplatněna" : "nahrazena"} (podpis zůstává jen jako záznam)</b>}
+                      {s.method === "ELECTRONIC_QUALIFIED" && (
+                        <CertificateStatus verification={verifications.find((v) => v.signature_id === s.id)} canVerify={can.sign && !closed}
+                          onVerify={() => setVerifyId(s.id)} openFile={openFile} />
+                      )}
+                      {verifyId === s.id && (
+                        <VerifyCertificateForm signature={s} onCancel={() => setVerifyId(null)} onSaved={() => { setVerifyId(null); load(); }} />
+                      )}
                     </div>
                   ))}
                 </div>
@@ -418,6 +430,75 @@ function TrainingForm({ employee, onCancel, onSaved }) {
   );
 }
 
+async function invokeFunction(name, body) {
+  const { data, error } = await supabase.functions.invoke(name, { body });
+  if (data) return data;
+  const detail = error?.context ? await error.context.json().catch(() => null) : null;
+  throw new Error(detail?.error || "Spojení se serverem se nezdařilo. Zkuste to znovu.");
+}
+
+async function fileToBase64(file) {
+  const bytes = new Uint8Array(await file.arrayBuffer());
+  let bin = "";
+  for (let i = 0; i < bytes.length; i += 0x8000) bin += String.fromCharCode.apply(null, bytes.subarray(i, i + 0x8000));
+  return btoa(bin);
+}
+
+// Uznavany podpis: kym sa neoveri certifikat = "podpis přítomen, certifikát neověřen".
+function CertificateStatus({ verification: v, canVerify, onVerify, openFile }) {
+  const status = v?.result || "NOT_VERIFIED";
+  const tone = status === "VALID" ? "text-emerald-700" : status === "NOT_VERIFIED" ? "text-amber-700" : "text-red-700";
+  return (
+    <div className={"mt-0.5 " + tone}>
+      {CERTIFICATE_STATUS_LABELS[status]}
+      {v && <> · {v.service_name}, ověřil(a) {v.verified_by_name || "—"} {fmtTs(v.verified_at)} · protokol{" "}
+        <button type="button" onClick={() => openFile(v.protocol_path, v.protocol_path.split("/").pop())} className="underline">
+          <code className="font-mono">{short(v.protocol_sha256)}</code></button></>}
+      {canVerify && status !== "VALID" && (
+        <button type="button" onClick={onVerify} className="ml-2 underline text-teal-700">Zaznamenat ověření certifikátu</button>
+      )}
+    </div>
+  );
+}
+
+// Rucne overenie cez verejnu overovaciu sluzbu: vysledok + protokol (PDF /
+// snimka), otisk protokolu pocita server, zapise sa kto overil.
+function VerifyCertificateForm({ signature, onCancel, onSaved }) {
+  const [result, setResult] = useState("VALID");
+  const [serviceName, setServiceName] = useState("");
+  const [file, setFile] = useState(null);
+  const [note, setNote] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  async function submit() {
+    setBusy(true); setError("");
+    try {
+      await invokeSigning({ action: "qualified_verify", signature_id: signature.id, result, service_name: serviceName.trim(), note: note.trim() || null, protocol_base64: await fileToBase64(file) });
+      onSaved();
+    } catch (e) { setError(e.message); }
+    setBusy(false);
+  }
+  return (
+    <div className="mt-2 bg-slate-50 border border-slate-200 rounded-lg p-3 text-sm text-slate-700 space-y-2 max-w-xl">
+      <div className="font-medium">Ověření certifikátu podpisu ({signature.signed_by_name})</div>
+      <div className="text-xs text-slate-500">Ověřte podepsané PDF ve veřejné ověřovací službě a nahrajte protokol o ověření (PDF nebo snímek). Zaznamená se, kdo a kdy ověřil.</div>
+      <select value={result} onChange={(e) => setResult(e.target.value)} className="block w-full border border-slate-300 rounded-md px-2 py-1.5 bg-white">
+        <option value="VALID">platný (kvalifikovaný / uznávaný podpis)</option>
+        <option value="INVALID">neplatný</option>
+        <option value="INDETERMINATE">neprůkazné</option>
+      </select>
+      <input value={serviceName} onChange={(e) => setServiceName(e.target.value)} placeholder="Ověřovací služba (např. EU DSS validace)" className="block w-full border border-slate-300 rounded-md px-2 py-1.5" />
+      <input type="file" accept="application/pdf,image/png,image/jpeg" onChange={(e) => setFile(e.target.files?.[0] || null)} />
+      <input value={note} onChange={(e) => setNote(e.target.value)} placeholder="Poznámka (nepovinné)" className="block w-full border border-slate-300 rounded-md px-2 py-1.5" />
+      {error && <div className="bg-red-50 text-red-700 px-3 py-2 rounded-md">{error}</div>}
+      <div className="flex gap-2">
+        <button onClick={submit} disabled={!file || !serviceName.trim() || busy} className="bg-teal-700 hover:bg-teal-800 disabled:opacity-50 text-white px-3 py-1.5 rounded-md">Uložit ověření</button>
+        <button onClick={onCancel} className="text-slate-500 px-3 py-1.5">Zrušit</button>
+      </div>
+    </div>
+  );
+}
+
 function FullScreen({ children }) {
   return <div className="fixed inset-0 z-50 overflow-auto bg-slate-50">{children}</div>;
 }
@@ -430,17 +511,22 @@ function TabletIssueForm({ doc, onCancel, onDone }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [issued, setIssued] = useState(null);
+  const [qr, setQr] = useState("");
   const [signingHere, setSigningHere] = useState(false);
-  const [copied, setCopied] = useState(false);
 
   async function issue() {
     setBusy(true); setError("");
     try {
-      setIssued(await invokeSigning({ action: "issue", document_id: doc.id, identity: { document_type: idDoc, confirmed: true } }));
+      const r = await invokeSigning({ action: "issue", document_id: doc.id, identity: { document_type: idDoc, confirmed: true } });
+      // Odkaz existuje LEN v QR kode na tejto obrazovke - nezobrazuje sa ako
+      // text a neda sa skopirovat ani poslat. Bez kodu z obrazovky HR a
+      // aktivnej relacie HR ho tablet neotvori.
+      const url = `${window.location.origin}${window.location.pathname}?podpis=${encodeURIComponent(r.token)}`;
+      setQr(await QRCode.toDataURL(url, { errorCorrectionLevel: "M", margin: 1, width: 240 }));
+      setIssued(r);
     } catch (e) { setError(e.message); }
     setBusy(false);
   }
-  const link = issued ? `${window.location.origin}${window.location.pathname}?podpis=${encodeURIComponent(issued.token)}` : "";
 
   if (signingHere) {
     return (
@@ -451,10 +537,10 @@ function TabletIssueForm({ doc, onCancel, onDone }) {
   }
   return (
     <div className="mt-3 bg-slate-50 border border-slate-200 rounded-lg p-3 text-sm space-y-2 max-w-xl">
-      <div className="font-medium text-slate-700">Podpis zaměstnance na tabletu</div>
+      <div className="font-medium text-slate-700">Podpis zaměstnance na tabletu – jen při osobní přítomnosti</div>
       {!issued ? (
         <>
-          <div className="text-slate-500">Ověřte totožnost zaměstnance podle dokladu. Číslo dokladu se neukládá – zaznamená se jen druh dokladu a kdo totožnost ověřil.</div>
+          <div className="text-slate-500">Ověřte totožnost zaměstnance podle dokladu. Číslo dokladu se neukládá – zaznamená se jen druh dokladu, kdo totožnost ověřil a jeho přihlášení.</div>
           <label className="block">
             <span className="text-slate-600">Doklad totožnosti</span>
             <select value={idDoc} onChange={(e) => setIdDoc(e.target.value)} className="mt-1 block w-full border border-slate-300 rounded-md px-2 py-1.5 bg-white">
@@ -463,7 +549,7 @@ function TabletIssueForm({ doc, onCancel, onDone }) {
           </label>
           <label className="flex items-start gap-2">
             <input type="checkbox" checked={confirmed} onChange={(e) => setConfirmed(e.target.checked)} className="mt-0.5" />
-            <span>Ověřil(a) jsem totožnost podepisujícího podle tohoto dokladu.</span>
+            <span>Zaměstnanec je osobně přítomen a ověřil(a) jsem jeho totožnost podle tohoto dokladu.</span>
           </label>
           {error && <div className="bg-red-50 text-red-700 px-3 py-2 rounded-md">{error}</div>}
           <div className="flex gap-2">
@@ -475,11 +561,16 @@ function TabletIssueForm({ doc, onCancel, onDone }) {
         </>
       ) : (
         <>
-          <div className="text-slate-600">Podpisový odkaz pro <b>{issued.signer_name}</b> je jednorázový a platí do {new Date(issued.expires_at).toLocaleTimeString("cs-CZ", { hour: "2-digit", minute: "2-digit" })}. Nové vydání předchozí odkaz zruší.</div>
+          <div className="flex flex-wrap items-center gap-4">
+            <img src={qr} alt="QR kód pro podpis na tabletu" width={240} height={240} className="bg-white border border-slate-200 rounded" />
+            <div>
+              <div className="text-slate-600">Naskenujte QR kód tabletem a na tabletu zadejte kód:</div>
+              <div className="text-3xl font-mono font-semibold tracking-widest text-slate-800 my-2" data-testid="pairing-code">{issued.code}</div>
+              <div className="text-xs text-slate-500">Pro <b>{issued.signer_name}</b>. Platí jednou, do {new Date(issued.expires_at).toLocaleTimeString("cs-CZ", { hour: "2-digit", minute: "2-digit" })}, jen dokud jste přihlášen(a). Třikrát chybný kód podpis zruší.</div>
+            </div>
+          </div>
           <div className="flex flex-wrap gap-2">
-            <button onClick={() => setSigningHere(true)} className="bg-teal-700 hover:bg-teal-800 text-white px-3 py-1.5 rounded-md">Spustit podpis na tomto zařízení</button>
-            <button onClick={async () => { try { await navigator.clipboard.writeText(link); setCopied(true); } catch { setCopied(false); } }}
-              className="border border-slate-300 bg-white px-3 py-1.5 rounded-md">{copied ? "Odkaz zkopírován" : "Kopírovat odkaz pro jiný tablet"}</button>
+            <button onClick={() => setSigningHere(true)} className="bg-teal-700 hover:bg-teal-800 text-white px-3 py-1.5 rounded-md">Podepsat na tomto zařízení</button>
             <button onClick={onDone} className="text-slate-500 px-3 py-1.5">Zavřít</button>
           </div>
         </>
@@ -499,10 +590,7 @@ function QualifiedUploadForm({ doc, missing, onCancel, onSaved }) {
   async function submit() {
     setBusy(true); setError("");
     try {
-      const bytes = new Uint8Array(await file.arrayBuffer());
-      let bin = "";
-      for (let i = 0; i < bytes.length; i += 0x8000) bin += String.fromCharCode.apply(null, bytes.subarray(i, i + 0x8000));
-      await invokeSigning({ action: "qualified_upload", document_id: doc.id, signer_type: signer, signed_by_name: name.trim(), pdf_base64: btoa(bin) });
+      await invokeSigning({ action: "qualified_upload", document_id: doc.id, signer_type: signer, signed_by_name: name.trim(), pdf_base64: await fileToBase64(file) });
       onSaved();
     } catch (e) { setError(e.message); }
     setBusy(false);
@@ -563,34 +651,24 @@ function HandoverForm({ doc, s334, onCancel, onSaved }) {
   const [date, setDate] = useState(todayIso());
   const [receipt, setReceipt] = useState(s334);
   const [scan, setScan] = useState(null);
-  const [scanHash, setScanHash] = useState("");
   const [note, setNote] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   async function submit() {
     if (!date || date > todayIso()) { setError("Zadejte datum předání (nejpozději dnes)."); return; }
     if (s334 && !receipt) { setError("Písemnost § 334 lze předat jen proti podpisu potvrzení o převzetí."); return; }
-    if (receipt && (!scan || !scanHash)) { setError("Nahrajte sken podepsaného potvrzení o převzetí."); return; }
+    if (receipt && !scan) { setError("Nahrajte sken podepsaného potvrzení o převzetí."); return; }
     setBusy(true);
     setError("");
-    const id = uid();
-    let receiptPath = null;
-    if (receipt) {
-      // prevzeti/<dokument>/... - subor dedi klasifikaciu dokumentu (hr_object_path_visible)
-      receiptPath = `prevzeti/${doc.id}/${id}-${scanHash.slice(0, 16)}.${(scan.name.split(".").pop() || "pdf").toLowerCase()}`;
-      const { error: upErr } = await supabase.storage.from("hr-dokumenty").upload(receiptPath, scan, { contentType: scan.type || "application/octet-stream", upsert: false });
-      if (upErr) { setBusy(false); setError(upErr.message); return; }
-    }
-    const basis = receipt ? "SIGNED_RECEIPT" : "HANDED_OVER";
-    const { error: err } = await supabase.from("hr_document_deliveries").insert({
-      id, hr_document_id: doc.id, channel: "IN_PERSON_PAPER",
-      delivered_at: date === todayIso() ? new Date().toISOString() : `${date}T12:00:00Z`, delivery_basis: basis,
-      receipt_scan_path: receiptPath, receipt_scan_sha256: receipt ? scanHash : null,
-      confirmation_evidence: receipt || note.trim() ? { receipt: receipt ? "PAPER_SCAN" : null, note: note.trim() || null } : null,
-    });
+    try {
+      // Sken nahra a zahashuje server (hr-delivery) - otisk z prehliadaca sa nepouziva.
+      await invokeFunction("hr-delivery", {
+        action: "in_person", document_id: doc.id, delivered_date: date, receipt, note: note.trim() || null,
+        scan_base64: receipt ? await fileToBase64(scan) : null,
+      });
+      onSaved();
+    } catch (e) { setError(e.message); }
     setBusy(false);
-    if (err) { setError(err.message); return; }
-    onSaved();
   }
   return (
     <div className="mt-3 border border-slate-200 rounded-md p-3 bg-slate-50">
@@ -607,8 +685,8 @@ function HandoverForm({ doc, s334, onCancel, onSaved }) {
         <label className="block text-xs text-slate-600 mb-2">
           Sken podepsaného potvrzení o převzetí (povinný)
           <input type="file" accept="application/pdf,image/*" className="block text-sm mt-1"
-            onChange={async (e) => { const f = e.target.files?.[0] || null; setScan(f); setScanHash(f ? await sha256Hex(await f.arrayBuffer()) : ""); }} />
-          {scanHash && <span className="block mt-1">Otisk skenu: <code className="font-mono">{scanHash.slice(0, 16)}…</code> – po uložení se nedá změnit.</span>}
+            onChange={(e) => setScan(e.target.files?.[0] || null)} />
+          <span className="block mt-1">Otisk skenu spočítá server při uložení; potom se sken nedá změnit.</span>
         </label>
       )}
       <input value={note} onChange={(e) => setNote(e.target.value)} placeholder="Poznámka (nepovinné)"

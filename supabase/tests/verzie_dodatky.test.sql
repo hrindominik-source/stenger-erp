@@ -66,6 +66,11 @@ select throws_ok($$insert into public.hr_document_deliveries (id, hr_document_id
 select throws_ok($$insert into public.hr_document_deliveries (id, hr_document_id, channel, delivered_at, delivery_basis)
   values ('fd-1', 'f-mv', 'IN_PERSON_PAPER', now(), 'SIGNED_RECEIPT')$$, 'P0001', null, '§ 334: potvrdenie bez skenu odmietnute');
 select throws_ok($$insert into public.hr_document_deliveries (id, hr_document_id, channel, delivered_at, delivery_basis, receipt_scan_path, receipt_scan_sha256)
+  values ('fd-1', 'f-mv', 'IN_PERSON_PAPER', now(), 'SIGNED_RECEIPT', 'prevzeti/f-mv/fd-1-' || repeat('a', 16) || '.pdf', repeat('a', 64))$$,
+  'P0001', null, 'HR sken potvrdenia priamo nezapise - otisk pocita server');
+-- dalej ako server (Edge Function hr-delivery)
+set local role service_role;
+select throws_ok($$insert into public.hr_document_deliveries (id, hr_document_id, channel, delivered_at, delivery_basis, receipt_scan_path, receipt_scan_sha256)
   values ('fd-1', 'f-mv', 'IN_PERSON_PAPER', now(), 'SIGNED_RECEIPT', 'prevzeti/f-ok/fd-1-' || repeat('a', 16) || '.pdf', repeat('a', 64))$$,
   'P0001', null, 'sken mimo priecinka dokumentu odmietnuty');
 select throws_ok($$insert into public.hr_document_deliveries (id, hr_document_id, channel, delivered_at, delivery_basis, receipt_scan_path, receipt_scan_sha256)
@@ -78,6 +83,7 @@ select lives_ok($$insert into public.hr_document_deliveries (id, hr_document_id,
   values ('fd-1', 'f-mv', 'IN_PERSON_PAPER', now(), 'SIGNED_RECEIPT', 'prevzeti/f-mv/fd-1-' || repeat('a', 16) || '.pdf', repeat('a', 64))$$,
   '§ 334: odovzdanie so skenom potvrdenia');
 select throws_ok($$update public.hr_document_deliveries set receipt_scan_sha256 = repeat('b', 64) where id = 'fd-1'$$, 'P0001', null, 'sken potvrdenia je nemenny');
+set local role authenticated;
 select lives_ok($$insert into public.hr_document_deliveries (id, hr_document_id, channel, delivered_at, delivery_basis)
   values ('fd-2', 'f-ok', 'IN_PERSON_PAPER', now(), 'HANDED_OVER')$$, 'zmluva (nie § 334): odovzdanie bez potvrdenia povolene');
 select ok(public.hr_object_path_visible('prevzeti/f-mv/fd-1-' || repeat('a', 16) || '.pdf'), 'HR s mzdovymi pravami vidi sken potvrdenia');

@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { PDFDocument } from "pdf-lib";
-import { inspectPades, employerSignatory, allPagesViewed, validSignatureImage, trainingIntentDetail } from "../../../supabase/functions/_shared/hr/tabletSigning.js";
+import { inspectPades, employerSignatory, allPagesViewed, validSignatureImage, trainingIntentDetail, validPairingCode, validDeviceId, CERTIFICATE_STATUS_LABELS } from "../../../supabase/functions/_shared/hr/tabletSigning.js";
 import { signaturePng } from "./__fixtures__/signaturePng.js";
 
 const enc = (s) => new TextEncoder().encode(s);
@@ -39,12 +39,29 @@ describe("PAdES (uznavany el. podpis) - struktura a vazba na finalne PDF", async
   });
 });
 
-describe("podpis za zamestnavatela (plna moc)", () => {
-  it("len osoba s plnou mocou; ak je v dokumente uvedena, musi to byt ona", () => {
-    expect(employerSignatory("Dominik Hrin", {})).toEqual({ ok: true, name: "JUDr. Dominik Hríň" });
-    expect(employerSignatory("Test Personalista", {}).ok).toBe(false);
-    expect(employerSignatory("Dominik Hrin", { zastupce: "Bc. Radka Buchová" }).reason).toMatch(/Radka Buchová/);
-    expect(employerSignatory("Radka Buchova", { zastupce: "Bc. Radka Buchová" }).ok).toBe(true);
+describe("podpis za zamestnavatela (plna moc z DB)", () => {
+  const sig = { id: "s1", full_name: "Mgr. Jana Zkušební", valid_from: "2026-01-01", valid_to: null };
+  it("len platna osoba s plnou mocou; ak je v dokumente uvedena, musi to byt ona", () => {
+    expect(employerSignatory(sig, {}, "2026-10-23")).toEqual({ ok: true, name: "Mgr. Jana Zkušební", signatoryId: "s1" });
+    expect(employerSignatory(null, {}, "2026-10-23").ok).toBe(false);
+    expect(employerSignatory({ ...sig, valid_to: "2026-06-30" }, {}, "2026-10-23").reason).toMatch(/platnou plnou moc/);
+    expect(employerSignatory({ ...sig, valid_from: "2026-11-01" }, {}, "2026-10-23").ok).toBe(false);
+    expect(employerSignatory(sig, { zastupce: "Ing. Petr Vzorový" }, "2026-10-23").reason).toMatch(/Petr Vzorový/);
+    expect(employerSignatory(sig, { zastupce: "Mgr. Jana  Zkusebni" }, "2026-10-23").ok).toBe(true);
+  });
+});
+
+describe("osobna pritomnost a certifikat", () => {
+  it("kod z obrazovky HR a identifikator zariadenia", () => {
+    expect(validPairingCode("012345")).toBe(true);
+    expect(validPairingCode("12345")).toBe(false);
+    expect(validPairingCode("12345a")).toBe(false);
+    expect(validDeviceId("tablet-0123456789abcdef")).toBe(true);
+    expect(validDeviceId("kratke")).toBe(false);
+    expect(validDeviceId("x'; drop table")).toBe(false);
+  });
+  it("uznavany podpis bez overenia = certifikat neovereny", () => {
+    expect(CERTIFICATE_STATUS_LABELS.NOT_VERIFIED).toBe("podpis přítomen, certifikát neověřen");
   });
 });
 

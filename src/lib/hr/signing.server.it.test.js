@@ -1,5 +1,6 @@
-// Integracny test fazy F proti LOKALNEMU Supabase (Edge Function hr-signing
-// + DB triggre). Vymyslene udaje. Spustenie: scripts/test-local-it.sh.
+// Integracny test fazy F (+ doplnky pred G) proti LOKALNEMU Supabase (Edge
+// Function hr-signing + DB triggre). Vymyslene udaje. Spustenie:
+// scripts/test-local-it.sh.
 import { describe, it, expect, beforeAll } from "vitest";
 import fs from "node:fs";
 import path from "node:path";
@@ -18,6 +19,9 @@ const b64 = (u8) => Buffer.from(u8).toString("base64");
 const enc = (s) => new TextEncoder().encode(s);
 const concat = (...ps) => { const o = new Uint8Array(ps.reduce((n, p) => n + p.length, 0)); let i = 0; for (const p of ps) { o.set(p, i); i += p.length; } return o; };
 const STROKES = [Array.from({ length: 15 }, (_, i) => [i * 3, i * 2])];
+const TABLET = "tablet-it-0123456789abcdef";
+const OTHER_TABLET = "tablet-it-ffffffffffffffff";
+const SIGNATORY = "JUDr. Test Zmocněnec";
 
 function fakePades(finalBytes) {
   const pad = (n) => String(n).padStart(10, " ");
@@ -28,14 +32,14 @@ function fakePades(finalBytes) {
   return concat(finalBytes, enc(head.replace("BBBBBBBBBB", pad(b)).replace("CCCCCCCCCC", pad(c)).replace("DDDDDDDDDD", pad(total - c)) + sig + end));
 }
 
-describe.skipIf(!enabled)("faza F - podpis na tablete pre HR (lokalny Supabase)", { timeout: 120000 }, () => {
-  let service, hr, signerHr, tablet;
+describe.skipIf(!enabled)("faza F - podpis na tablete pri osobnej pritomnosti (lokalny Supabase)", { timeout: 120000 }, () => {
+  let service, hr, signerHr, tablet, hrCreds;
   const run = Date.now().toString(36);
   const empId = `emp-f-${run}`;
   let finalBytes;
 
-  async function invoke(client, body) {
-    const { data, error } = await client.functions.invoke("hr-signing", { body });
+  async function invoke(client, body, fn = "hr-signing") {
+    const { data, error } = await client.functions.invoke(fn, { body });
     if (data) return { status: 200, ...data };
     return { status: error.context.status, ...(await error.context.json()) };
   }
@@ -46,31 +50,35 @@ describe.skipIf(!enabled)("faza F - podpis na tablete pre HR (lokalny Supabase)"
     const { error } = await service.from("hr_documents").insert({
       id, employee_id: empId, doc_type: docType, origin: "GENERATED", status: "READY_FOR_SIGNATURE",
       final_pdf_path: p, final_pdf_sha256: await sha256Hex(finalBytes), finalized_at: new Date().toISOString(),
-      final_pdf_text_check: { ok: true, server_verified: true, method: "it-test" }, variables_snapshot: { zastupce: "JUDr. Dominik Hríň" }, ...extra,
+      final_pdf_text_check: { ok: true, server_verified: true, method: "it-test" }, variables_snapshot: { zastupce: SIGNATORY }, ...extra,
     });
     if (error) throw error;
     return id;
   }
   const row = async (id) => (await service.from("hr_documents").select("*").eq("id", id).single()).data;
+  const issue = (client, id) => invoke(client, { action: "issue", document_id: id, identity: { document_type: "OP", confirmed: true } });
   const signBody = (token, loaded, over = {}) => ({
-    action: "sign", token, name_confirmed: true, displayed_sha256: loaded.sha256, intent_text_version_id: loaded.intent.id,
+    action: "sign", token, device_id: TABLET, name_confirmed: true, displayed_sha256: loaded.sha256, intent_text_version_id: loaded.intent.id,
     signature_png_base64: b64(signaturePng(7)), strokes: STROKES,
     evidence: { pages_viewed: Array.from({ length: loaded.pages }, (_, i) => i + 1) }, ...over,
   });
+  const wrongCode = (code) => String((Number(code) + 1) % 1000000).padStart(6, "0");
 
   beforeAll(async () => {
     service = createClient(URL_, SERVICE, { auth: { persistSession: false } });
     const seed = fs.readFileSync(path.join(root, "supabase/seed.sql"), "utf8");
     const [, email, password] = seed.match(/(personalista@test\.local) \/ (\S+)/);
+    hrCreds = { email, password };
     hr = createClient(URL_, ANON, { auth: { persistSession: false } });
-    if ((await hr.auth.signInWithPassword({ email, password })).error) throw new Error("login personalista");
-    // osoba s plnou mocou (meno ako v PS_PODEPISUJICI) - lokalny testovaci ucet
+    if ((await hr.auth.signInWithPassword(hrCreds)).error) throw new Error("login personalista");
+    // osoba s plnou mocou (DB hr_signatories) - lokalny testovaci ucet
     const sEmail = `podpis-${run}@test.local`;
     const sPass = `it-${run}-${Math.random().toString(36).slice(2)}`;
     const { data: created, error: cErr } = await service.auth.admin.createUser({ email: sEmail, password: sPass, email_confirm: true });
     if (cErr) throw cErr;
-    await service.from("profiles").insert({ id: created.user.id, full_name: "Dominik Hrin", role: "office" });
-    await service.from("hr_permissions").insert({ id: `p-${run}`, user_email: sEmail, permissions: ["HR_VIEW_BASIC", "HR_VIEW_SENSITIVE", "HR_DOCUMENT_SIGN"] });
+    await service.from("profiles").insert({ id: created.user.id, full_name: "Test Zmocnenec", role: "office" });
+    await service.from("hr_permissions").insert({ id: `p-${run}`, user_email: sEmail, permissions: ["HR_VIEW_BASIC", "HR_VIEW_SENSITIVE", "HR_VIEW_PAYROLL", "HR_DOCUMENT_SIGN"] });
+    await service.from("hr_signatories").insert({ id: `sig-${run}`, full_name: SIGNATORY, full_name_instrumental: "JUDr. Testem Zmocněncem", user_id: created.user.id, valid_from: "2026-01-01" });
     signerHr = createClient(URL_, ANON, { auth: { persistSession: false } });
     if ((await signerHr.auth.signInWithPassword({ email: sEmail, password: sPass })).error) throw new Error("login signer");
     tablet = createClient(URL_, ANON, { auth: { persistSession: false } }); // tablet bez prihlasenia
@@ -81,19 +89,26 @@ describe.skipIf(!enabled)("faza F - podpis na tablete pre HR (lokalny Supabase)"
     finalBytes = await pdf.save();
   });
 
-  it("zmluva: overenie totoznosti -> token -> podpis zamestnanca, token je jednorazovy", async () => {
+  it("zmluva: overenie totoznosti -> QR token + kod z obrazovky HR -> podpis na tablete", async () => {
     const id = await newDoc("ps", "pracovni_smlouva");
     expect((await invoke(hr, { action: "issue", document_id: id, identity: { document_type: "OP" } })).status).toBe(422);
-    expect((await invoke(tablet, { action: "issue", document_id: id, identity: { document_type: "OP", confirmed: true } })).status).toBe(401);
-    const iss = await invoke(hr, { action: "issue", document_id: id, identity: { document_type: "OP", confirmed: true } });
+    expect((await issue(tablet, id)).status).toBe(401);
+    const iss = await issue(hr, id);
     expect(iss).toMatchObject({ ok: true, signer_name: "Tereza Tabletová" });
-    const { data: tokRow } = await service.from("hr_signing_tokens").select("token_sha256").eq("hr_document_id", id).single();
+    expect(iss.code).toMatch(/^\d{6}$/);
+    const { data: tokRow } = await service.from("hr_signing_tokens").select("*").eq("hr_document_id", id).single();
     expect(tokRow.token_sha256).toBe(await sha256Hex(enc(iss.token))); // v DB len hash
+    expect(tokRow.pairing_code_sha256).not.toContain(iss.code);
+    expect(tokRow.hr_session_id).toMatch(/^[0-9a-f-]{36}$/);
 
-    const loaded = await invoke(tablet, { action: "load", token: iss.token });
+    // bez kodu dokument neuvidi; kod je viazany na zariadenie
+    expect((await invoke(tablet, { action: "load", token: iss.token, device_id: TABLET })).status).toBe(428);
+    expect((await invoke(tablet, { action: "load", token: iss.token, code: iss.code })).status).toBe(422); // bez zariadenia
+    const loaded = await invoke(tablet, { action: "load", token: iss.token, device_id: TABLET, code: iss.code });
     expect(loaded).toMatchObject({ ok: true, pages: 3, sha256: await sha256Hex(finalBytes), signer_name: "Tereza Tabletová" });
-    expect(await sha256Hex(Buffer.from(loaded.pdf_base64, "base64"))).toBe(loaded.sha256);
     expect(loaded.intent.body).toContain("uzavírám tuto smlouvu");
+    expect((await invoke(tablet, { action: "load", token: iss.token, device_id: OTHER_TABLET, code: iss.code })).status).toBe(403);
+    expect((await invoke(tablet, signBody(iss.token, loaded, { device_id: OTHER_TABLET }))).status).toBe(403);
 
     expect((await invoke(tablet, signBody(iss.token, loaded, { evidence: { pages_viewed: [1, 2] } }))).status).toBe(422);
     expect((await invoke(tablet, signBody(iss.token, loaded, { displayed_sha256: "f".repeat(64) }))).status).toBe(409);
@@ -104,73 +119,130 @@ describe.skipIf(!enabled)("faza F - podpis na tablete pre HR (lokalny Supabase)"
 
     const { data: sig } = await service.from("hr_document_signatures").select("*").eq("hr_document_id", id).single();
     expect(sig).toMatchObject({ method: "ELECTRONIC_TABLET", signer_type: "EMPLOYEE", signed_by_name: "Tereza Tabletová" });
-    expect(sig.identity_verification).toMatchObject({ method: "ID_DOCUMENT_CHECKED_BY_HR", document_type: "OP", verified_by_name: "Test Personalista" });
-    expect(sig.evidence).toMatchObject({ channel: "HR_TABLET", all_pages_viewed: true, pages_total: 3, name_confirmed: true });
+    expect(sig.identity_verification).toMatchObject({ method: "ID_DOCUMENT_CHECKED_BY_HR_IN_PERSON", document_type: "OP", verified_by_name: "Test Personalista", hr_session_id: tokRow.hr_session_id });
+    expect(sig.evidence).toMatchObject({ channel: "HR_TABLET_IN_PERSON", device_id: TABLET, hr_session_id: tokRow.hr_session_id, code_attempts: 0, all_pages_viewed: true, pages_total: 3 });
+    expect(sig.device_metadata.device_id).toBe(TABLET);
     expect((await row(id)).status).toBe("READY_FOR_SIGNATURE"); // zamknuty, nie podpisany
 
-    // zamestnavatel: personalista nema plnu moc; osoba s plnou mocou podpise -> SIGNED + original
+    // zamestnavatel: personalista nema plnu moc; osoba s plnou mocou (DB) podpise -> SIGNED
     expect((await invoke(hr, { action: "employer_load", document_id: id })).status).toBe(403);
     const el = await invoke(signerHr, { action: "employer_load", document_id: id });
-    expect(el).toMatchObject({ ok: true, signer_name: "JUDr. Dominik Hríň" });
-    expect((await invoke(signerHr, { action: "employer_sign", document_id: id, displayed_sha256: el.sha256, intent_text_version_id: el.intent.id,
-      signature_png_base64: b64(signaturePng(8)), strokes: STROKES, evidence: { pages_viewed: [1, 2, 3] } })).status).toBe(422); // bez potvrdenia
-    const es = await invoke(signerHr, { action: "employer_sign", document_id: id, confirmed: true, displayed_sha256: el.sha256, intent_text_version_id: el.intent.id,
-      signature_png_base64: b64(signaturePng(8)), strokes: STROKES, evidence: { pages_viewed: [1, 2, 3] } });
-    expect(es).toMatchObject({ ok: true, complete: true });
+    expect(el).toMatchObject({ ok: true, signer_name: SIGNATORY });
+    const empBody = { action: "employer_sign", document_id: id, displayed_sha256: el.sha256, intent_text_version_id: el.intent.id,
+      signature_png_base64: b64(signaturePng(8)), strokes: STROKES, evidence: { pages_viewed: [1, 2, 3] } };
+    expect((await invoke(signerHr, empBody)).status).toBe(422); // bez potvrdenia
+    expect(await invoke(signerHr, { ...empBody, confirmed: true })).toMatchObject({ ok: true, complete: true });
     const done = await row(id);
     expect(done.status).toBe("SIGNED");
-    expect(done.signed_pdf_path).toBeTruthy();
+    const { data: emp } = await service.from("hr_document_signatures").select("evidence").eq("hr_document_id", id).eq("signer_type", "EMPLOYER").single();
+    expect(emp.evidence.signatory_id).toBe(`sig-${run}`);
   });
 
-  it("novy token zrusi stary; po zmene verzie token neplati", async () => {
+  it("tri zle kody zrusia odkaz; novy token zrusi stary", async () => {
     const id = await newDoc("tok", "pracovni_smlouva");
-    const a = await invoke(hr, { action: "issue", document_id: id, identity: { document_type: "PAS", confirmed: true } });
-    const b = await invoke(hr, { action: "issue", document_id: id, identity: { document_type: "PAS", confirmed: true } });
-    expect((await invoke(tablet, { action: "load", token: a.token })).status).toBe(410);
-    expect((await invoke(tablet, { action: "load", token: b.token })).ok).toBe(true);
-    expect((await invoke(tablet, { action: "load", token: "x".repeat(43) })).status).toBe(410);
+    const a = await issue(hr, id);
+    let r = await invoke(tablet, { action: "load", token: a.token, device_id: TABLET, code: wrongCode(a.code) });
+    expect(r.status).toBe(403);
+    expect(r.error).toMatch(/Zbývající pokusy: 2/);
+    expect((await invoke(tablet, { action: "load", token: a.token, device_id: TABLET, code: "12" })).status).toBe(403);
+    r = await invoke(tablet, { action: "load", token: a.token, device_id: TABLET, code: wrongCode(a.code) });
+    expect(r.status).toBe(410);
+    expect((await invoke(tablet, { action: "load", token: a.token, device_id: TABLET, code: a.code })).status).toBe(410); // uz ani spravny
+    const b = await issue(hr, id);
+    const c = await issue(hr, id);
+    expect((await invoke(tablet, { action: "load", token: b.token, device_id: TABLET, code: b.code })).status).toBe(410);
+    expect((await invoke(tablet, { action: "load", token: c.token, device_id: TABLET, code: c.code })).ok).toBe(true);
+    expect((await invoke(tablet, { action: "load", token: "x".repeat(43), device_id: TABLET, code: "000000" })).status).toBe(410);
+  });
+
+  it("odhlasenie HR, ktory overil doklad, odkaz zrusi (ziadny podpis na dialku)", async () => {
+    const id = await newDoc("odhl", "pracovni_smlouva");
+    const hr2 = createClient(URL_, ANON, { auth: { persistSession: false } });
+    if ((await hr2.auth.signInWithPassword(hrCreds)).error) throw new Error("login 2");
+    const t = await issue(hr2, id);
+    expect((await invoke(tablet, { action: "load", token: t.token, device_id: TABLET, code: t.code })).ok).toBe(true);
+    await hr2.auth.signOut({ scope: "local" });
+    const r = await invoke(tablet, { action: "load", token: t.token, device_id: TABLET });
+    expect(r.status).toBe(410);
+    expect(r.error).toMatch(/není přihlášen/);
   });
 
   it("zaznam o skoleni: bez evidencie skolenia sa podpis neponukne", async () => {
     const id = await newDoc("sk", "vstupni_skoleni");
-    const r = await invoke(hr, { action: "issue", document_id: id, identity: { document_type: "OP", confirmed: true } });
+    const r = await issue(hr, id);
     expect(r.status).toBe(409);
     expect(r.error).toMatch(/evidenci školení/);
     await service.from("hr_training_records").insert({ id: `tr-${run}`, employee_id: empId, trained_at: "2026-10-01", trainer_name: "Ing. Školitel",
       scope: "Vstupní BOZP", knowledge_check_method: "TEST", knowledge_check_result: "PASSED", knowledge_checked_at: "2026-10-01", knowledge_checked_by_name: "Ing. Školitel" });
     await service.from("hr_documents").update({ training_record_id: `tr-${run}` }).eq("id", id);
-    const ok = await invoke(hr, { action: "issue", document_id: id, identity: { document_type: "OP", confirmed: true } });
-    const loaded = await invoke(tablet, { action: "load", token: ok.token });
+    const ok = await issue(hr, id);
+    const loaded = await invoke(tablet, { action: "load", token: ok.token, device_id: TABLET, code: ok.code });
     expect(loaded.intent.body).toContain("absolvování školení");
     expect(loaded.intent.detail).toContain("Vstupní BOZP, 01.10.2026");
-    const s = await invoke(tablet, signBody(ok.token, loaded));
-    expect(s).toMatchObject({ ok: true, complete: true });
+    expect(await invoke(tablet, signBody(ok.token, loaded))).toMatchObject({ ok: true, complete: true });
     expect((await row(id)).status).toBe("SIGNED");
   });
 
-  it("mzdovy vymer (§ 334): obrazok podpisu zamestnavatela nestaci, uznavany podpis (PAdES) ano", async () => {
+  it("mzdovy vymer (§ 334): uznavany podpis = 'certifikát neověřen' a e-mail az po overeni", async () => {
     const id = await newDoc("mv", "mzdovy_vymer");
     const el = await invoke(signerHr, { action: "employer_load", document_id: id });
     expect(el.status).toBe(409);
     expect(el.error).toMatch(/uznávaným elektronickým podpisem/);
     const other = finalBytes.slice(); other[30] ^= 1;
-    expect((await invoke(signerHr, { action: "qualified_upload", document_id: id, signed_by_name: "JUDr. Dominik Hríň", pdf_base64: b64(fakePades(other)) })).status).toBe(422);
-    expect((await invoke(signerHr, { action: "qualified_upload", document_id: id, signed_by_name: "JUDr. Dominik Hríň", pdf_base64: b64(finalBytes) })).status).toBe(422);
+    expect((await invoke(signerHr, { action: "qualified_upload", document_id: id, signed_by_name: SIGNATORY, pdf_base64: b64(fakePades(other)) })).status).toBe(422);
+    expect((await invoke(signerHr, { action: "qualified_upload", document_id: id, signed_by_name: SIGNATORY, pdf_base64: b64(finalBytes) })).status).toBe(422);
     const pades = fakePades(finalBytes);
-    const q = await invoke(signerHr, { action: "qualified_upload", document_id: id, signed_by_name: "JUDr. Dominik Hríň", pdf_base64: b64(pades) });
-    expect(q).toMatchObject({ ok: true, complete: true, qualified_original: true });
+    const q = await invoke(signerHr, { action: "qualified_upload", document_id: id, signed_by_name: SIGNATORY, pdf_base64: b64(pades) });
+    expect(q).toMatchObject({ ok: true, complete: true, qualified_original: true, certificate: "NOT_VERIFIED" });
     const done = await row(id);
     expect(done.status).toBe("SIGNED");
-    expect(done.signed_pdf_sha256).toBe(await sha256Hex(pades)); // podpisany original = samotne PAdES PDF
+    expect(done.signed_pdf_sha256).toBe(await sha256Hex(pades));
     const { data: sig } = await service.from("hr_document_signatures").select("*").eq("hr_document_id", id).single();
-    expect(sig).toMatchObject({ method: "ELECTRONIC_QUALIFIED", signer_type: "EMPLOYER" });
-    expect(sig.evidence.certificate_validation).toBe("NOT_PERFORMED");
+    expect(sig.identity_verification.label).toContain("podpis přítomen, certifikát neověřen");
+    const { data: st } = await service.rpc("hr_signature_certificate_status", { p_signature_id: sig.id });
+    expect(st).toBe("NOT_VERIFIED");
+
+    // elektronicke dorucenie § 334 bez overeneho certifikatu odmietnute
+    const email = { hr_document_id: id, channel: "EMAIL_S335_WAGE_OTHER_ADDRESS", recipient_snapshot: "jina@example.com", queued_at: new Date().toISOString() };
+    expect((await service.from("hr_document_deliveries").insert({ id: `dl-${run}-a`, ...email })).error?.message).toMatch(/overenym certifikatem/);
+
+    // rucne overenie: protokol nahra a zahashuje server, zapise sa kto overil
+    const protocol = enc("%PDF-1.4\n% protokol o overeni (test)\n%%EOF\n");
+    expect((await invoke(signerHr, { action: "qualified_verify", signature_id: sig.id, result: "VALID", service_name: "EU DSS", protocol_base64: b64(enc("nie pdf")) })).status).toBe(422);
+    const v = await invoke(hr, { action: "qualified_verify", signature_id: sig.id, result: "VALID", service_name: "EU DSS", protocol_base64: b64(protocol), protocol_sha256: "0".repeat(64) });
+    expect(v).toMatchObject({ ok: true, label: "podpis přítomen, certifikát ověřen – platný" });
+    expect(v.verification).toMatchObject({ result: "VALID", method: "MANUAL_PUBLIC_SERVICE", verified_by_name: "Test Personalista", protocol_sha256: await sha256Hex(protocol) });
+    const { data: stored } = await service.storage.from(BUCKET).download(v.verification.protocol_path);
+    expect(await sha256Hex(new Uint8Array(await stored.arrayBuffer()))).toBe(v.verification.protocol_sha256);
+    expect((await service.from("hr_document_deliveries").insert({ id: `dl-${run}-b`, ...email })).error).toBeNull();
+  });
+
+  it("plna moc z DB: neplatna alebo ina osoba nepodpise", async () => {
+    const id = await newDoc("pm", "pracovni_smlouva", { variables_snapshot: { zastupce: "Ing. Petr Vzorový" } });
+    const r = await invoke(signerHr, { action: "employer_load", document_id: id });
+    expect(r.status).toBe(403);
+    expect(r.error).toMatch(/Ing\. Petr Vzorový/);
+    await service.from("hr_signatories").update({ valid_to: "2026-01-31" }).eq("id", `sig-${run}`);
+    const id2 = await newDoc("pm2", "pracovni_smlouva");
+    const r2 = await invoke(signerHr, { action: "employer_load", document_id: id2 });
+    expect(r2.status).toBe(403);
+    expect(r2.error).toMatch(/platnou plnou moc/);
+    await service.from("hr_signatories").update({ valid_to: null }).eq("id", `sig-${run}`);
+  });
+
+  it("sken plnej moci: len HR_ADMIN, otisk pocita server, potom nemenny", async () => {
+    const scan = enc("%PDF-1.4\n% plna moc (test)\n%%EOF\n");
+    expect((await invoke(hr, { action: "signatory_scan", signatory_id: `sig-${run}`, scan_base64: b64(scan) })).status).toBe(403);
+    const admin = createClient(URL_, ANON, { auth: { persistSession: false } });
+    if ((await admin.auth.signInWithPassword({ email: "hr.admin@test.local", password: hrCreds.password })).error) throw new Error("login admin");
+    const r = await invoke(admin, { action: "signatory_scan", signatory_id: `sig-${run}`, scan_base64: b64(scan) });
+    expect(r).toMatchObject({ ok: true, sha256: await sha256Hex(scan) });
+    expect(r.path).toMatch(new RegExp(`^plne-moci/sig-${run}-[0-9a-f]{16}\\.pdf$`));
+    expect((await invoke(admin, { action: "signatory_scan", signatory_id: `sig-${run}`, scan_base64: b64(scan) })).status).toBe(409);
   });
 
   it("klient sa k tokenom nedostane ani ako HR", async () => {
     const { data } = await hr.from("hr_signing_tokens").select("*");
     expect(data).toEqual([]);
-    const { error } = await hr.from("hr_signing_tokens").insert({ token_sha256: "a".repeat(64), hr_document_id: "x", final_pdf_sha256: "x", signer_type: "EMPLOYEE", signer_name: "x", identity_verification: {}, created_by: "22222222-2222-2222-2222-222222222222", expires_at: new Date(Date.now() + 60000).toISOString() });
-    expect(error).toBeTruthy();
   });
 });

@@ -2,7 +2,11 @@ import { describe, it, expect } from "vitest";
 import { readFileSync } from "node:fs";
 import PizZip from "pizzip";
 import { fillDocxTemplate, extractTemplateKeys } from "./docxTemplate.js";
-import { buildPsData, psMissing, psVariant, hoursInWords, probationText, defaultPovinnosti, podepisujiciIndex } from "./pracovniSmlouva.js";
+import { buildPsData, psMissing, psVariant, hoursInWords, probationText, defaultPovinnosti } from "./pracovniSmlouva.js";
+
+// Vymyslene osoby s plnou mocou (realne su v DB hr_signatories).
+const SIG_A = { full_name: "Mgr. Jana Zkušební", full_name_instrumental: "Mgr. Janou Zkušební" };
+const SIG_B = { full_name: "Ing. Petr Vzorový", full_name_instrumental: "Ing. Petrem Vzorovým" };
 
 const tpl = (name) => {
   const b = readFileSync(new URL(`../../../public/hr/sablony/${name}.docx`, import.meta.url));
@@ -44,16 +48,16 @@ describe("pracovní smlouva", () => {
   it("chybějící údaje", () => {
     const d = buildPsData(cz, {});
     expect(psMissing(d, "pracovni_smlouva")).toEqual(["Za zaměstnavatele podepisuje", "Datum podpisu"]);
-    const d2 = buildPsData({ ...cz, fixed_term_end_date: "" }, { podepisujici: 0, datumPodpisu: "2026-10-20" });
+    const d2 = buildPsData({ ...cz, fixed_term_end_date: "" }, { podepisujici: SIG_A, datumPodpisu: "2026-10-20" });
     expect(psMissing(d2, "pracovni_smlouva")).toEqual(["Doba trvání"]);
   });
   it("vyplní vzor ČR bez zbytků", () => {
     const keys = extractTemplateKeys(tpl("pracovni_smlouva"));
-    const d = buildPsData(cz, { podepisujici: 0, datumPodpisu: "2026-10-20" });
+    const d = buildPsData(cz, { podepisujici: SIG_A, datumPodpisu: "2026-10-20" });
     keys.forEach((k) => expect(d).toHaveProperty(k));
     const t = docText(fillDocxTemplate(tpl("pracovni_smlouva"), d));
     expect(t).not.toMatch(/\{\{|…{3}/);
-    expect(t).toContain("zastoupená Bc. Radkou Buchovou, na základě plné moci");
+    expect(t).toContain("zastoupená Mgr. Janou Zkušební, na základě plné moci");
     expect(t).toContain("Jméno:Ing. Jana Nováková roz.: Svobodová");
     expect(t).toContain("vykonávat práci jako dělnice.");
     expect(t).toContain("Mezi základní povinnosti dělnice patří výroba popcornu");
@@ -65,24 +69,18 @@ describe("pracovní smlouva", () => {
   });
   it("vyplní vzor pro cizince", () => {
     const v = { ...cz, nationality: "Ukrajina", cz_doklad_cislo: "FX123456", cislo_pojistence: "9003051234", weekly_hours: "38,75", employment_type: "doba_neurcita" };
-    const d = buildPsData(v, { podepisujici: 1, datumPodpisu: "2026-10-20" });
+    const d = buildPsData(v, { podepisujici: SIG_B, datumPodpisu: "2026-10-20" });
     expect(psMissing(d, "pracovni_smlouva_cizinec")).toEqual([]);
     const keys = extractTemplateKeys(tpl("pracovni_smlouva_cizinec"));
     keys.forEach((k) => expect(d).toHaveProperty(k));
     const t = docText(fillDocxTemplate(tpl("pracovni_smlouva_cizinec"), d));
     expect(t).not.toMatch(/\{\{|…{3}/);
-    expect(t).toContain("zastoupená JUDr. Dominikem Hríněm");
+    expect(t).toContain("zastoupená Ing. Petrem Vzorovým");
     expect(t).toContain("Příslušnost:Ukrajina");
     expect(t).toContain("Číslo pasu:FX123456");
     expect(t).toContain("(rod. číslo OSSZ: 9003051234)");
     expect(t).toContain("na dobu neurčitou.");
     expect(t).toContain("třicet osm celých sedmdesát pět setin");
     expect(t).toContain("platné vízum");
-  });
-  it("podepisující podle přihlášeného uživatele (bez diakritiky)", () => {
-    expect(podepisujiciIndex("Dominik Hrin")).toBe(1);
-    expect(podepisujiciIndex("Radka Buchová")).toBe(0);
-    expect(podepisujiciIndex("Ralf Stenger")).toBe(-1);
-    expect(podepisujiciIndex("")).toBe(-1);
   });
 });

@@ -51,3 +51,10 @@ values
   ('er-test-1', 'emp-test-1', 'ACTIVE', 'doba_urcita', current_date + 7, 40, 'Příbram', 'pos-test-hi001'),
   ('er-test-2', 'emp-test-2', 'ACTIVE', 'doba_neurcita', current_date - 30, 40, 'Příbram', 'pos-test-hi001')
 on conflict (id) do nothing;
+
+-- Osoby s plnou mocou (vymyslene, len lokalne). Mgr. Jana Zkusebni podpisuje
+-- uctom hr.admin@test.local; Ing. Petr Vzorovy nema ucet (jen papier).
+insert into public.hr_signatories (id, full_name, full_name_instrumental, user_id, valid_from, note) values
+  ('seed-sig-1', 'Mgr. Jana Zkušební', 'Mgr. Janou Zkušební', '11111111-1111-1111-1111-111111111111', '2026-01-01', 'vymyšlená osoba – lokální test'),
+  ('seed-sig-2', 'Ing. Petr Vzorový', 'Ing. Petrem Vzorovým', null, '2026-01-01', 'vymyšlená osoba – lokální test')
+on conflict (id) do nothing;

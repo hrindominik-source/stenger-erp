@@ -425,6 +425,10 @@ static_files = ["./functions/_shared/fonts/*.ttf"]
 
 # Podpisovy rezim na tablete pre HR (faza F): HR akcie s prihlasenim,
 # podpis zamestnanca anon klucom + jednorazovym tokenom.
+# Predanie/dorucenie pisomnosti (sken potvrdenia hashuje server; faza G e-mail).
+[functions.hr-delivery]
+verify_jwt = true
+
 [functions.hr-signing]
 verify_jwt = true
 static_files = ["./functions/_shared/fonts/*.ttf"]

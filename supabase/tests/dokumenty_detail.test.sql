@@ -80,8 +80,13 @@ select throws_ok($$insert into public.hr_document_deliveries (id, hr_document_id
   values ('ed-2', 'e-mv', 'IN_PERSON_PAPER', now(), 'SIGNED_RECEIPT')$$, 'P0001', null, 'potvrdenie prevzatia bez zaznamu odmietnute');
 select throws_ok($$insert into public.hr_document_deliveries (id, hr_document_id, channel, delivered_at, delivery_basis, confirmation_evidence)
   values ('ed-2', 'e-mv', 'IN_PERSON_PAPER', now(), 'SIGNED_RECEIPT', '{"receipt": "PAPER_SIGNATURE"}')$$, 'P0001', null, 'potvrdenie prevzatia bez skenu odmietnute (migracia 53)');
-select lives_ok($$insert into public.hr_document_deliveries (id, hr_document_id, channel, delivered_at, delivery_basis, receipt_scan_path, receipt_scan_sha256)
-  values ('ed-2', 'e-mv', 'IN_PERSON_PAPER', now(), 'SIGNED_RECEIPT', 'prevzeti/e-mv/ed-2-' || repeat('7', 16) || '.pdf', repeat('7', 64))$$, 'mzdovy vymer odovzdany proti skenu potvrdenia');
+select throws_ok($$insert into public.hr_document_deliveries (id, hr_document_id, channel, delivered_at, delivery_basis, receipt_scan_path, receipt_scan_sha256)
+  values ('ed-2', 'e-mv', 'IN_PERSON_PAPER', now(), 'SIGNED_RECEIPT', 'prevzeti/e-mv/ed-2-' || repeat('7', 16) || '.pdf', repeat('7', 64))$$,
+  'P0001', null, 'HR sken potvrdenia s vlastnym otiskom nezapise (migracia 55 - otisk pocita server)');
+set local role service_role;
+select lives_ok($$insert into public.hr_document_deliveries (id, hr_document_id, channel, delivered_at, delivery_basis, receipt_scan_path, receipt_scan_sha256, handed_over_by)
+  values ('ed-2', 'e-mv', 'IN_PERSON_PAPER', now(), 'SIGNED_RECEIPT', 'prevzeti/e-mv/ed-2-' || repeat('7', 16) || '.pdf', repeat('7', 64), '00000000-0000-0000-0000-0000000000e1')$$, 'mzdovy vymer odovzdany proti skenu potvrdenia (server)');
+set local role authenticated;
 
 -- ---------- 4. nova verzia ----------
 select throws_ok($$select public.hr_document_new_version('e-napln', ' ')$$, 'P0001', null, 'nova verzia vyzaduje dovod');

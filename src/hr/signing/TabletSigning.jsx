@@ -6,9 +6,9 @@ import SignaturePad from "./SignaturePad.jsx";
 
 /* =========================================================================
    Podpisovy rezim na tablete (faza F). Dve pouzitia:
-   - mode "employee": podpisujuci zamestnanec, identita = jednorazovy token
-     (vydal ho HR po overeni totoznosti); funguje aj bez prihlasenia
-     (samostatna stranka ?podpis=<token>);
+   - mode "employee": podpisujuci zamestnanec pri osobnej pritomnosti -
+     token z QR kodu na obrazovke HR + kratky kod z tej istej obrazovky;
+     po zadani kodu je podpis viazany na toto zariadenie (device_id);
    - mode "employer": prihlasena osoba s plnou mocou podpisuje za
      zamestnavatela.
    Server (Edge Function hr-signing) overi otisk zobrazeneho PDF, zobrazenie
@@ -21,7 +21,24 @@ export async function invokeSigning(body) {
   const { data, error } = await supabase.functions.invoke("hr-signing", { body });
   if (data) return data;
   const detail = error?.context ? await error.context.json().catch(() => null) : null;
-  throw new Error(detail?.error || "Spojení se serverem se nezdařilo. Zkuste to znovu.");
+  const e = new Error(detail?.error || "Spojení se serverem se nezdařilo. Zkuste to znovu.");
+  e.status = error?.context?.status || 0;
+  throw e;
+}
+
+// Identifikator zariadenia (tablet) - nahodny, ulozeny v prehliadaci; zapise
+// sa do dokazov podpisu. Ked ulozisko nefunguje, plati pocas tejto stranky.
+let memoryDeviceId = null;
+export function deviceId() {
+  const fresh = () => (crypto.randomUUID ? crypto.randomUUID() : `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 14)}`);
+  try {
+    let id = localStorage.getItem("stenger.deviceId");
+    if (!id || !/^[A-Za-z0-9-]{16,64}$/.test(id)) { id = fresh(); localStorage.setItem("stenger.deviceId", id); }
+    return id;
+  } catch {
+    memoryDeviceId = memoryDeviceId || fresh();
+    return memoryDeviceId;
+  }
 }
 
 export default function TabletSigning({ mode = "employee", token, documentId, onDone, onCancel }) {
@@ -32,15 +49,32 @@ export default function TabletSigning({ mode = "employee", token, documentId, on
   const [padEmpty, setPadEmpty] = useState(true);
   const [busy, setBusy] = useState(false);
   const [result, setResult] = useState(null);
+  const [needCode, setNeedCode] = useState(false);
+  const [code, setCode] = useState("");
+  const [fatal, setFatal] = useState(false);
   const pad = useRef(null);
   const employer = mode === "employer";
 
-  async function load() {
+  async function load(withCode) {
     setError(""); setDoc(null);
     try {
-      const r = await invokeSigning(employer ? { action: "employer_load", document_id: documentId } : { action: "load", token });
+      const r = await invokeSigning(employer
+        ? { action: "employer_load", document_id: documentId }
+        : { action: "load", token, device_id: deviceId(), code: withCode || undefined });
+      setNeedCode(false);
       setDoc({ ...r, bytes: fromB64(r.pdf_base64) });
-    } catch (e) { setError(e.message); }
+    } catch (e) {
+      // 428 = chyba kod z obrazovky HR, 403 = zly kod (zostavaju pokusy)
+      if (!employer && (e.status === 428 || (e.status === 403 && /kód/i.test(e.message)))) {
+        setNeedCode(true);
+        setCode("");
+        if (e.status === 403) setError(e.message);
+      } else {
+        setNeedCode(false);
+        setFatal(e.status === 410);
+        setError(e.message);
+      }
+    }
   }
   useEffect(() => { load(); /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, []);
 
@@ -54,7 +88,7 @@ export default function TabletSigning({ mode = "employee", token, documentId, on
       };
       const r = await invokeSigning(employer
         ? { action: "employer_sign", document_id: documentId, confirmed: true, ...common }
-        : { action: "sign", token, name_confirmed: true, ...common });
+        : { action: "sign", token, device_id: deviceId(), name_confirmed: true, ...common });
       setResult(r);
     } catch (e) { setError(e.message); }
     setBusy(false);
@@ -87,12 +121,26 @@ export default function TabletSigning({ mode = "employee", token, documentId, on
       </div>,
     );
   }
+  if (needCode) {
+    return shell(
+      <div className="bg-white rounded-xl border border-slate-200 p-8 text-center max-w-md mx-auto">
+        <div className="text-lg font-semibold text-slate-800 mb-1">Kód z obrazovky personálního oddělení</div>
+        <div className="text-slate-500 mb-4">Podpis je možný jen osobně u pracovníka HR. Zadejte šestimístný kód, který vidí na své obrazovce.</div>
+        <form onSubmit={(e) => { e.preventDefault(); if (code.length === 6) load(code); }}>
+          <input value={code} onChange={(e) => setCode(e.target.value.replace(/[^0-9]/g, "").slice(0, 6))} inputMode="numeric" autoComplete="one-time-code"
+            aria-label="Kód" className="w-48 text-center text-3xl font-mono tracking-widest border border-slate-300 rounded-lg px-3 py-2 mb-3" autoFocus />
+          {error && <div className="bg-red-50 text-red-700 text-sm px-3 py-2 rounded-md mb-3">{error}</div>}
+          <div><button type="submit" disabled={code.length !== 6} className="bg-teal-700 hover:bg-teal-800 disabled:opacity-50 text-white px-6 py-2.5 rounded-lg">Pokračovat</button></div>
+        </form>
+      </div>,
+    );
+  }
   if (error && !doc) {
     return shell(
       <div className="bg-white rounded-xl border border-slate-200 p-8 text-center">
         <AlertCircle className="mx-auto mb-3 text-red-400" size={32} />
         <div className="text-slate-700 mb-4">{error}</div>
-        <button onClick={load} className="bg-teal-700 text-white px-5 py-2.5 rounded-lg">Zkusit znovu</button>
+        {!fatal && <button onClick={() => load()} className="bg-teal-700 text-white px-5 py-2.5 rounded-lg">Zkusit znovu</button>}
       </div>,
     );
   }
@@ -132,7 +180,8 @@ export default function TabletSigning({ mode = "employee", token, documentId, on
   );
 }
 
-// Samostatna stranka ?podpis=<token> (tablet bez prihlasenia).
+// Samostatna stranka ?podpis=<token> (tablet bez prihlasenia; token len z QR
+// na obrazovke HR, bez kodu z tej istej obrazovky sa dokument neotvori).
 export function TabletSigningPage() {
   const token = new URLSearchParams(window.location.search).get("podpis") || "";
   const [done, setDone] = useState(false);

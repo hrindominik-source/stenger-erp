@@ -99,3 +99,23 @@ npx supabase status -o env | grep -E '^(API_URL|ANON_KEY)=' | sed -e 's/^API_URL
 - UI: v detaile dokumentu „Podepsat na tabletu“, „Podepsat za zaměstnavatele“, „Nahrát PDF s uznávaným podpisem“; samostatná stránka `?podpis=<token>` pre iný tablet.
 - Poradie nasadenia: migrácia 54 → deploy `hr-signing` → frontend. Rollback: `supabase/rollback/20261023110000_tablet_podpis_hr_rollback.sql` (pred rollbackom 53; zastaví sa, ak už existujú podpisy z tabletu HR alebo za zamestnávateľa; funkciu `hr-signing` najprv vypnúť).
 - Otvorené: overenie platnosti kvalifikovaného certifikátu (`certificate_validation: NOT_PERFORMED`); osoby s plnou mocou sú zatiaľ v kóde (`_shared/hr/podepisujici.js`).
+
+## Doplnky pred fázou G (migrácia 55)
+
+- Migrácia `20261023120000_pritomnost_overenie_plne_moci.sql` (+ rollback `supabase/rollback/20261023120000_pritomnost_overenie_plne_moci_rollback.sql`, spúšťa sa pred rollbackom 54; spolu s DB vrátiť aj frontend a funkcie `hr-signing`, `hr-delivery`).
+- **Podpis len pri osobnej prítomnosti:** odkaz existuje len ako QR kód na obrazovke HR (nezobrazuje sa ako text, nedá sa kopírovať ani poslať). Tablet po otvorení vyžiada 6-miestny kód z obrazovky HR; 3 zlé kódy = token zrušený. Token platí 10 min, jednorazovo, len na zariadení, ktoré kód zadalo, a len kým je prihlásená relácia HR, ktorá overila doklad (`hr_auth_session_active`, len pre server). Dôkazy: `device_id`, `hr_session_id`, kto overil doklad, čas overenia kódu, počet pokusov. Zostatkové riziko: HR by mohol QR aj kód odfotiť a poslať – technicky to bráni krátka platnosť a väzba na prihlásenie HR, nie úplne; je to porušenie postupu.
+- **Sken potvrdenia o prevzatí** nahráva nová Edge Function `hr-delivery` (`in_person`): typ súboru podľa obsahu, otisk počíta server; DB odmietne sken zapísaný klientom a úložisko odmietne priamy zápis do `prevzeti/`, `plne-moci/` a protokolov overenia.
+- **Uznávaný podpis:** kým sa neoverí certifikát, stav je „podpis přítomen, certifikát neověřen“ (`hr_signature_certificate_status` = `NOT_VERIFIED`). Elektronické doručenie písomnosti § 334 (kanály `EMAIL%`) DB povolí len pri uznávanom podpise zamestnávateľa s overením `VALID`.
+- **Osoby s plnou mocou** sú v tabuľke `hr_signatories` (meno, 7. pád, účet, platnosť od–do, sken plnej moci s otiskom zo servera, citlivosť skenu). Spravuje HR_ADMIN v Personalistika → Nastavení, zmeny idú do auditu, nemaže sa (ukončí sa dátumom). Mená sú z kódu odstránené. **Po nasadení na produkciu ich musí HR_ADMIN zadať** (inak sa v zmluvách nedá vybrať podpisujúci) – reálne mená nie sú v migrácii ani v seede.
+- Nová funkcia `hr-delivery` (sekcia v `config.toml`). Nová závislosť `qrcode@1.5.4` (čistý JS).
+- Integračné testy bežia postupne (`--pool=forks --no-file-parallelism`) – test finálneho PDF zakladá novú verziu textu prejavu vôle, ktorá by paralelne bežiacim podpisovým testom zmenila text. Lokálny Edge runtime občas vráti `WORKER_LIMIT` pri generovaní PDF v kiosku (limit prostredia; opakovanie prejde).
+
+### Návrh: overenie platnosti certifikátu uznávaného podpisu
+
+| | Ručne – verejná overovacia služba (pripravené) | Automaticky – vlastná validačná služba |
+|---|---|---|
+| Postup | HR nahrá podpísané PDF do verejnej overovacej služby (napr. demo validácia EU DSS alebo štátna služba na overenie podpisu), stiahne protokol, v detaile dokumentu „Zaznamenat ověření certifikátu“: výsledok, služba, protokol. Server protokol uloží a zahashuje, zapíše kto a kedy. | Pri nahratí PAdES server pošle PDF do **vlastnej** inštancie EU DSS (open source, Java) – výsledok a validačná správa sa uložia ako overenie s `method = AUTOMATIC`. |
+| Plusy | Funguje hneď, bez infraštruktúry; protokol je dôkaz. | Bez ručného kroku, jednotné, kontrola dôveryhodných zoznamov (EU TSL). |
+| Mínusy | Ručný krok; mzdové PDF sa nahráva do služby tretej strany (vyžaduje posúdenie GDPR/DPA). | Treba hostovať a udržiavať Java službu mimo Supabase; vlastná prevádzka. |
+
+Odporúčanie: zatiaľ ručne (počet elektronicky doručovaných písomností § 334 je malý), pred ostrým použitím nechať právničku/DPO odsúhlasiť zvolenú verejnú službu. Automatiku doplniť neskôr do tej istej tabuľky `hr_signature_verifications` (bez zmeny schémy). Komerčné validačné API bez zmluvy o spracovaní neodporúčam.

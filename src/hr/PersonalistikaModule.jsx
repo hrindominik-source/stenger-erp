@@ -15,7 +15,7 @@ import { EMPLOYEE_SECTIONS, emptyEmployeeValues, normalizeLegacyDraft, valuesFro
 import EmployeeFieldsForm, { EmployeeFieldsView, applyFieldChange } from "./EmployeeFieldsForm.jsx";
 import { childTaxWarnings } from "../lib/hr/taxChildren.js";
 import { RZ_POLOZKY, RZ_SLEVY, VYUCTOVANI, VYUCTOVANI_STAV, taxYearRecord, taxYearStatus, childMonthsForYear, childrenUnder3, rzWarnings, settlementWarning } from "../lib/hr/taxYear.js";
-import { PS_TEMPLATES, PS_PODEPISUJICI, psVariant, buildPsData, psMissing, psFieldsFor, defaultPovinnosti, isPovinnostiNavrh, podepisujiciIndex } from "../lib/hr/pracovniSmlouva.js";
+import { PS_TEMPLATES, psVariant, buildPsData, psMissing, psFieldsFor, defaultPovinnosti, isPovinnostiNavrh } from "../lib/hr/pracovniSmlouva.js";
 import { hrFileName, fileExt } from "../lib/hr/fileNames.js";
 import { nastupChecklist, nastupSummary, nastupRelevant, registraceCssz } from "../lib/hr/nastupniBalicek.js";
 import { verifyFinalPdf, buildFinalPdfUploadPath, TEXT_CHECK_REASON_LABELS } from "../lib/hr/finalPdf.js";
@@ -2778,6 +2778,22 @@ function VyuctovaniSection({ employee, values, payroll, year, canEdit, onSaved }
 
 // Kontakt "Vyhotovil" - jmeno prihlaseneho uzivatele; telefon/e-mail si
 // prohlizec pamatuje (per uzivatel, jen pohodli).
+// Osoby s plnou mocou platne dnes (hr_signatories, spravuje HR_ADMIN).
+function useSignatories() {
+  const [list, setList] = useState([]);
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      const d = new Date().toISOString().slice(0, 10);
+      const { data } = await supabase.from("hr_signatories").select("id, full_name, full_name_instrumental, user_id, valid_from, valid_to")
+        .lte("valid_from", d).or(`valid_to.is.null,valid_to.gte.${d}`).order("full_name");
+      if (!cancelled) setList(data || []);
+    })();
+    return () => { cancelled = true; };
+  }, []);
+  return list;
+}
+
 function useCurrentUserContact() {
   const [state, setState] = useState({ name: "", kontakt: "" });
   useEffect(() => {
@@ -3473,15 +3489,16 @@ function PracovniSmlouvaForm({ employee, sensitive, payroll, currentEmployment, 
   const [povinnosti, setPovinnosti] = useState(() => defaultPovinnosti(values));
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
-  // Prihlaseny podepisujici se predvybere.
+  const signatories = useSignatories();
+  // Prihlaseny podepisujici (naviazany ucet) se predvybere.
   useEffect(() => {
-    if (podepisujici !== "" || !me.name) return;
-    const idx = podepisujiciIndex(me.name);
-    if (idx >= 0) setPodepisujici(String(idx));
+    if (podepisujici !== "" || !me.userId) return;
+    const mine = signatories.find((x) => x.user_id === me.userId);
+    if (mine) setPodepisujici(mine.id);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [me.name]);
+  }, [me.userId, signatories]);
 
-  const data = buildPsData(values, { podepisujici: podepisujici === "" ? -1 : Number(podepisujici), datumPodpisu, povinnosti });
+  const data = buildPsData(values, { podepisujici: signatories.find((x) => x.id === podepisujici) || null, datumPodpisu, povinnosti });
   const missing = psMissing(data, variant);
   const fields = psFieldsFor(variant).filter((f) => f.karta);
   const tpl = PS_TEMPLATES[variant];
@@ -3526,7 +3543,7 @@ function PracovniSmlouvaForm({ employee, sensitive, payroll, currentEmployment, 
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-x-4">
         <SelectFieldLocal label="Vzor" value={variant} onChange={setVariant} options={Object.entries(PS_TEMPLATES).map(([k, t]) => ({ value: k, label: t.nazev }))} />
         <SelectFieldLocal label="Za zaměstnavatele podepisuje (plná moc)" value={podepisujici} onChange={setPodepisujici}
-          options={[{ value: "", label: "— vyberte —" }, ...PS_PODEPISUJICI.map((p, i) => ({ value: String(i), label: p.jmeno }))]} />
+          options={[{ value: "", label: "— vyberte —" }, ...signatories.map((x) => ({ value: x.id, label: x.full_name }))]} />
         <DateFieldLocal label="Datum podpisu" value={datumPodpisu} onChange={setDatumPodpisu} />
       </div>
       {variant !== psVariant(values) && (
@@ -3845,21 +3862,22 @@ function GenerateDocumentForm({ employee, sensitive, payroll, currentEmployment,
 
   const usedKeys = version?.variables_schema?.keys || TEMPLATE_REQUIRED_KEYS[template?.doc_type] || [];
   const requiredKeys = TEMPLATE_REQUIRED_KEYS[template?.doc_type] || usedKeys;
-  // Za zamestnavatele podepisuje jen osoba s plnou moci (PS_PODEPISUJICI) -
+  // Za zamestnavatele podepisuje jen osoba s plnou moci (hr_signatories) -
   // jmeno s titulem a 7. pad se doplni z vyberu, nepise se rucne.
   const usesSignatory = usedKeys.some((k) => SIGNATORY_KEYS.includes(k));
   const me = useCurrentUserContact();
   const [podepisujici, setPodepisujici] = useState("");
+  const signatories = useSignatories();
   useEffect(() => {
-    if (podepisujici !== "" || !me.name) return;
-    const idx = podepisujiciIndex(me.name);
-    if (idx >= 0) setPodepisujici(String(idx));
+    if (podepisujici !== "" || !me.userId) return;
+    const mine = signatories.find((x) => x.user_id === me.userId);
+    if (mine) setPodepisujici(mine.id);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [me.name]);
+  }, [me.userId, signatories]);
   useEffect(() => {
-    const p = PS_PODEPISUJICI[Number(podepisujici)];
-    setManualFields((prev) => ({ ...prev, zastupce: p?.jmeno || "", zastupce_pad7: p?.pad7 || "", predavajici: p?.jmeno || "" }));
-  }, [podepisujici]);
+    const p = signatories.find((x) => x.id === podepisujici);
+    setManualFields((prev) => ({ ...prev, zastupce: p?.full_name || "", zastupce_pad7: p?.full_name_instrumental || "", predavajici: p?.full_name || "" }));
+  }, [podepisujici, signatories]);
   const manualKeysToShow = usedKeys.filter((k) => MANUAL_DOC_FIELD_KEYS.includes(k) && !SIGNATORY_KEYS.includes(k));
   const autoKeysToShow = usedKeys.filter((k) => !MANUAL_DOC_FIELD_KEYS.includes(k));
 
@@ -3976,7 +3994,7 @@ function GenerateDocumentForm({ employee, sensitive, payroll, currentEmployment,
           {usesSignatory && (
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-4">
               <SelectFieldLocal label="Za zaměstnavatele podepisuje (plná moc)" value={podepisujici} onChange={setPodepisujici}
-                options={[{ value: "", label: "— vyberte —" }, ...PS_PODEPISUJICI.map((p, i) => ({ value: String(i), label: p.jmeno }))]} />
+                options={[{ value: "", label: "— vyberte —" }, ...signatories.map((x) => ({ value: x.id, label: x.full_name }))]} />
             </div>
           )}
           {manualKeysToShow.length > 0 && (
@@ -5209,6 +5227,136 @@ function SettingsTab() {
       <div className="space-y-3">
         {rows.map((row) => <PermissionRow key={row.id} row={row} onSave={(p) => savePermissions(row, p)} />)}
         {rows.length === 0 && <div className="text-sm text-slate-400">Zatím nikdo nemá přiřazená oprávnění.</div>}
+      </div>
+      <SignatoriesSettings />
+    </div>
+  );
+}
+
+/* ---------------- Osoby s plnou mocí (HR_ADMIN) ----------------
+   Kdo smi podepisovat za zamestnavatele: jmeno (a 7. pad do smluv), ucet pro
+   elektronicky podpis, platnost od-do, sken plne moci (otisk pocita server,
+   pak nemenny) a citlivost skenu. Zmeny jdou do auditu; nemaze se -
+   plna moc se ukonci datem "do". */
+const SIGNATORY_SENSITIVITY = [
+  { value: "HR_VIEW_SENSITIVE", label: "citlivé (HR – citlivé údaje)" },
+  { value: "HR_VIEW_BASIC", label: "běžné (HR – základní přístup)" },
+];
+
+function SignatoriesSettings() {
+  const [rows, setRows] = useState([]);
+  const [users, setUsers] = useState([]);
+  const [editing, setEditing] = useState(null); // {} = novy
+  const [error, setError] = useState("");
+  const [scanFor, setScanFor] = useState(null);
+  const [busy, setBusy] = useState(false);
+  const load = useCallback(async () => {
+    const [sRes, pRes] = await Promise.all([
+      supabase.from("hr_signatories").select("*").order("valid_from", { ascending: false }),
+      supabase.from("profiles").select("id, full_name").eq("role", "office").order("full_name"),
+    ]);
+    if (sRes.error) setError("Nepodařilo se načíst osoby s plnou mocí.");
+    setRows(sRes.data || []);
+    setUsers(pRes.data || []);
+  }, []);
+  useEffect(() => { load(); }, [load]);
+  const userName = (id) => users.find((u) => u.id === id)?.full_name || (id ? "neznámý účet" : "bez účtu (jen papír)");
+  const today = new Date().toISOString().slice(0, 10);
+
+  async function save(row) {
+    setError("");
+    const payload = {
+      full_name: row.full_name.trim(), full_name_instrumental: row.full_name_instrumental.trim(), user_id: row.user_id || null,
+      valid_from: row.valid_from, valid_to: row.valid_to || null, sensitivity: row.sensitivity || "HR_VIEW_SENSITIVE", note: row.note?.trim() || null,
+    };
+    const { error: err } = row.id
+      ? await supabase.from("hr_signatories").update(payload).eq("id", row.id)
+      : await supabase.from("hr_signatories").insert(payload);
+    if (err) { setError(err.message); return; }
+    setEditing(null);
+    load();
+  }
+
+  async function uploadScan(row, file) {
+    setBusy(true); setError("");
+    try {
+      const bytes = new Uint8Array(await file.arrayBuffer());
+      let bin = "";
+      for (let i = 0; i < bytes.length; i += 0x8000) bin += String.fromCharCode.apply(null, bytes.subarray(i, i + 0x8000));
+      const { data, error: err } = await supabase.functions.invoke("hr-signing", { body: { action: "signatory_scan", signatory_id: row.id, scan_base64: btoa(bin) } });
+      if (!data) {
+        const detail = err?.context ? await err.context.json().catch(() => null) : null;
+        throw new Error(detail?.error || "Nahrání se nezdařilo.");
+      }
+      setScanFor(null);
+      load();
+    } catch (e) { setError(e.message); }
+    setBusy(false);
+  }
+
+  async function openScan(row) {
+    const { data } = await supabase.storage.from("hr-dokumenty").createSignedUrl(row.poa_scan_path, 60);
+    if (data?.signedUrl) window.open(data.signedUrl, "_blank", "noopener");
+  }
+
+  return (
+    <div className="mt-8">
+      <div className="flex items-center justify-between mb-2">
+        <h2 className="text-lg font-semibold">Osoby s plnou mocí k podpisu za zaměstnavatele</h2>
+        {!editing && <button onClick={() => setEditing({ full_name: "", full_name_instrumental: "", user_id: "", valid_from: today, valid_to: "", sensitivity: "HR_VIEW_SENSITIVE", note: "" })}
+          className="flex items-center gap-1.5 bg-teal-700 hover:bg-teal-800 text-white text-sm font-medium px-3 py-2 rounded-md"><UserPlus size={16} /> Přidat osobu</button>}
+      </div>
+      <div className="text-xs text-slate-500 mb-3">Jméno se vyplňuje do smluv („zastoupená …, na základě plné moci“). Elektronicky za zaměstnavatele podepisuje jen osoba s propojeným účtem a platnou plnou mocí. Záznam se nemaže – platnost ukončíte datem „do“. Změny se zapisují do auditu.</div>
+      {error && <div className="bg-red-50 text-red-700 text-sm px-3 py-2 rounded-md mb-2">{error}</div>}
+      {editing && (
+        <div className="border border-slate-200 rounded-md p-3 bg-slate-50 mb-3 grid gap-2 sm:grid-cols-2 text-sm">
+          <label>Jméno s titulem<input value={editing.full_name} onChange={(e) => setEditing({ ...editing, full_name: e.target.value })} className="mt-1 block w-full border border-slate-300 rounded-md px-2 py-1.5" /></label>
+          <label>7. pád („zastoupená kým“)<input value={editing.full_name_instrumental} onChange={(e) => setEditing({ ...editing, full_name_instrumental: e.target.value })} className="mt-1 block w-full border border-slate-300 rounded-md px-2 py-1.5" /></label>
+          <label>Účet pro elektronický podpis
+            <select value={editing.user_id || ""} onChange={(e) => setEditing({ ...editing, user_id: e.target.value })} className="mt-1 block w-full border border-slate-300 rounded-md px-2 py-1.5 bg-white">
+              <option value="">— bez účtu (jen papír) —</option>
+              {users.map((u) => <option key={u.id} value={u.id}>{u.full_name}</option>)}
+            </select>
+          </label>
+          <label>Citlivost skenu plné moci
+            <select value={editing.sensitivity} onChange={(e) => setEditing({ ...editing, sensitivity: e.target.value })} className="mt-1 block w-full border border-slate-300 rounded-md px-2 py-1.5 bg-white">
+              {SIGNATORY_SENSITIVITY.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+            </select>
+          </label>
+          <label>Platí od<input type="date" value={editing.valid_from} onChange={(e) => setEditing({ ...editing, valid_from: e.target.value })} className="mt-1 block w-full border border-slate-300 rounded-md px-2 py-1.5" /></label>
+          <label>Platí do (nepovinné)<input type="date" value={editing.valid_to || ""} onChange={(e) => setEditing({ ...editing, valid_to: e.target.value })} className="mt-1 block w-full border border-slate-300 rounded-md px-2 py-1.5" /></label>
+          <label className="sm:col-span-2">Poznámka<input value={editing.note || ""} onChange={(e) => setEditing({ ...editing, note: e.target.value })} className="mt-1 block w-full border border-slate-300 rounded-md px-2 py-1.5" /></label>
+          <div className="sm:col-span-2 flex gap-2">
+            <button onClick={() => save(editing)} disabled={!editing.full_name.trim() || !editing.full_name_instrumental.trim() || !editing.valid_from}
+              className="bg-teal-700 hover:bg-teal-800 disabled:opacity-50 text-white px-3 py-1.5 rounded-md">Uložit</button>
+            <button onClick={() => setEditing(null)} className="text-slate-500 px-3 py-1.5">Zrušit</button>
+          </div>
+        </div>
+      )}
+      <div className="space-y-2">
+        {rows.map((r) => {
+          const valid = r.valid_from <= today && (!r.valid_to || r.valid_to >= today);
+          return (
+            <div key={r.id} className="border border-slate-200 rounded-md px-3 py-2 text-sm bg-white">
+              <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+                <span className="font-medium">{r.full_name}</span>
+                <span className={valid ? "text-emerald-700" : "text-slate-400"}>{valid ? "platná" : "neplatná"} · {fmtDate(r.valid_from)} – {r.valid_to ? fmtDate(r.valid_to) : "neurčito"}</span>
+                <span className="text-slate-500">účet: {userName(r.user_id)}</span>
+                <span className="text-slate-500">{SIGNATORY_SENSITIVITY.find((o) => o.value === r.sensitivity)?.label}</span>
+                <span className="flex-1" />
+                <button onClick={() => setEditing({ ...r, user_id: r.user_id || "", valid_to: r.valid_to || "" })} className="text-teal-700 underline">Upravit</button>
+              </div>
+              <div className="text-xs text-slate-500 mt-1">
+                {r.poa_scan_path
+                  ? <>Sken plné moci: <button onClick={() => openScan(r)} className="underline">otevřít</button> · otisk <code className="font-mono">{r.poa_scan_sha256.slice(0, 16)}…</code> (nemění se)</>
+                  : scanFor === r.id
+                    ? <input type="file" accept="application/pdf,image/png,image/jpeg" disabled={busy} onChange={(e) => e.target.files?.[0] && uploadScan(r, e.target.files[0])} />
+                    : <>Sken plné moci chybí · <button onClick={() => setScanFor(r.id)} className="underline text-teal-700">nahrát</button></>}
+              </div>
+            </div>
+          );
+        })}
+        {rows.length === 0 && <div className="text-sm text-slate-400">Zatím nikdo – bez osoby s plnou mocí nelze vyplnit podepisujícího ve smlouvách.</div>}
       </div>
     </div>
   );

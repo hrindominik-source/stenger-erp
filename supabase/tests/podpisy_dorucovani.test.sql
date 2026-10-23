@@ -123,11 +123,27 @@ select throws_ok($$insert into public.hr_document_deliveries (id, hr_document_id
 insert into public.hr_document_signatures (id, hr_document_id, method, signer_type, signed_by_name, file_path)
   values ('p-mv', 'doc-mv', 'PAPER', 'EMPLOYER', 'JUDr. Zastupce', 'zamestnanci/emp-1/mv.scan.pdf');
 update public.hr_documents set status = 'SIGNED' where id = 'doc-mv';
+select throws_ok($$insert into public.hr_document_deliveries (id, hr_document_id, channel, recipient_snapshot, queued_at)
+  values ('dl-mv0', 'doc-mv', 'EMAIL_S335_WAGE_OTHER_ADDRESS', 'jina.adresa@example.com', now())$$, 'P0001', null,
+  'mzdovy vymer podpisany na papieri: elektronicke dorucenie odmietnute (migracia 55)');
+-- uznavany podpis zamestnavatela + overenie certifikatu
+insert into public.hr_documents (id, employee_id, doc_type, origin, status, final_pdf_path, final_pdf_sha256, final_pdf_text_check, finalized_at)
+  values ('doc-mv2', 'emp-1', 'mzdovy_vymer', 'GENERATED', 'READY_FOR_SIGNATURE', 'zamestnanci/emp-1/mv2.final.pdf', repeat('9', 64), '{"ok":true,"server_verified":true}', now());
+insert into public.hr_document_signatures (id, hr_document_id, method, signer_type, signed_by_name, signed_content_sha256, document_hash, file_path)
+  values ('q-mv2', 'doc-mv2', 'ELECTRONIC_QUALIFIED', 'EMPLOYER', 'JUDr. Zastupce', repeat('9', 64), repeat('8', 64), 'zamestnanci/emp-1/mv2.pades.pdf');
+update public.hr_documents set status = 'SIGNED' where id = 'doc-mv2';
+select throws_ok($$insert into public.hr_document_deliveries (id, hr_document_id, channel, recipient_snapshot, queued_at)
+  values ('dl-mv', 'doc-mv2', 'EMAIL_S335_WAGE_OTHER_ADDRESS', 'jina.adresa@example.com', now())$$, 'P0001', null,
+  'uznavany podpis s neovereným certifikatom: elektronicke dorucenie § 334 odmietnute');
+insert into public.hr_signature_verifications (signature_id, result, method, service_name) values ('q-mv2', 'INDETERMINATE', 'AUTOMATIC', 'test');
+select is(public.hr_signature_certificate_status('q-mv2'), 'INDETERMINATE', 'stav certifikatu = posledne overenie');
+select is(public.hr_document_employer_signature_verified('doc-mv2'), false, 'neprukazne overenie nestaci');
+insert into public.hr_signature_verifications (signature_id, result, method, service_name) values ('q-mv2', 'VALID', 'AUTOMATIC', 'test');
 select lives_ok($$insert into public.hr_document_deliveries (id, hr_document_id, channel, recipient_snapshot, queued_at)
-  values ('dl-mv', 'doc-mv', 'EMAIL_S335_WAGE_OTHER_ADDRESS', 'jina.adresa@example.com', now())$$, 'mzdovy vymer na inu adresu povoleny');
+  values ('dl-mv', 'doc-mv2', 'EMAIL_S335_WAGE_OTHER_ADDRESS', 'jina.adresa@example.com', now())$$, 'mzdovy vymer s overenym uznavanym podpisom na inu adresu povoleny');
 select throws_ok($$update public.hr_document_deliveries set delivered_at = now(), delivery_basis = 'FICTION_15_DAYS' where id = 'dl-mv'$$, 'P0001', null, 'mzdovy vymer na inu adresu: ziadna fikcia dorucenia');
 select throws_ok($$insert into public.hr_document_deliveries (id, hr_document_id, channel, recipient_snapshot, delivered_at, delivery_basis)
-  values ('dl-y', 'doc-mv', 'EMAIL_S335_WAGE_OTHER_ADDRESS', 'a@example.com', now(), 'EMPLOYEE_CONFIRMATION')$$, 'P0001', null, 'e-mail § 334 nie je doruceny uz pri vlozeni');
+  values ('dl-y', 'doc-mv2', 'EMAIL_S335_WAGE_OTHER_ADDRESS', 'a@example.com', now(), 'EMPLOYEE_CONFIRMATION')$$, 'P0001', null, 'e-mail § 334 nie je doruceny uz pri vlozeni');
 update public.hr_document_deliveries set sent_at = now(), send_status = 'SENT' where id = 'dl-21';
 select throws_ok($$update public.hr_document_deliveries set sent_at = now() - interval '1 day' where id = 'dl-21'$$, 'P0001', null, 'cas odoslania sa neprepisuje');
 

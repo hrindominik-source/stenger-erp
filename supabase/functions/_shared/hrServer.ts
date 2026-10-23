@@ -72,3 +72,26 @@ export function handle(fn: (req: Request) => Promise<Response>) {
     }
   };
 }
+
+// Relacia prihlaseneho pouzivatela (claim session_id z JWT, ktory uz overil
+// authorize()); pouziva sa na vazbu podpisoveho tokenu na relaciu HR.
+export function sessionIdFromRequest(req: Request): string {
+  const jwt = (req.headers.get("Authorization") || "").replace(/^Bearer\s+/, "");
+  try {
+    const part = jwt.split(".")[1].replaceAll("-", "+").replaceAll("_", "/");
+    const sid = JSON.parse(atob(part + "=".repeat((4 - (part.length % 4)) % 4))).session_id;
+    if (typeof sid === "string" && /^[0-9a-f-]{36}$/.test(sid)) return sid;
+  } catch { /* nizsie */ }
+  throw new HttpError(401, "Přihlášení HR nemá relaci – přihlaste se znovu.");
+}
+
+// Typ nahraneho skenu podla obsahu (nie podla nazvu/MIME z prehliadaca).
+export function scanType(bytes: Uint8Array): { ext: string; mime: string } | null {
+  const b = bytes;
+  if (b.length > 4 && b[0] === 0x25 && b[1] === 0x50 && b[2] === 0x44 && b[3] === 0x46) return { ext: "pdf", mime: "application/pdf" };
+  if (b.length > 8 && b[0] === 0x89 && b[1] === 0x50 && b[2] === 0x4e && b[3] === 0x47) return { ext: "png", mime: "image/png" };
+  if (b.length > 3 && b[0] === 0xff && b[1] === 0xd8 && b[2] === 0xff) return { ext: "jpg", mime: "image/jpeg" };
+  return null;
+}
+export const MAX_SCAN_BYTES = 15_000_000;
+export const fromBase64 = (s: string) => Uint8Array.from(atob(s), (c) => c.charCodeAt(0));

@@ -12,9 +12,8 @@ export const PS_TEMPLATES = {
   pracovni_smlouva_cizinec: { url: `${BASE}hr/sablony/pracovni_smlouva_cizinec.docx`, nazev: "Pracovní smlouva – cizinec" },
 };
 
-// Podepisujici za zamestnavatele (plna moc) - zdielane so serverom.
-export { PS_PODEPISUJICI, podepisujiciIndex } from "../../../supabase/functions/_shared/hr/podepisujici.js";
-import { PS_PODEPISUJICI } from "../../../supabase/functions/_shared/hr/podepisujici.js";
+// Podepisujici za zamestnavatele (plna moc) su v DB (hr_signatories,
+// spravuje HR_ADMIN) - do buildPsData sa posiela vybrany zaznam.
 
 export const psVariant = (v) => (isValuesForeigner(v) ? "pracovni_smlouva_cizinec" : "pracovni_smlouva");
 
@@ -78,16 +77,16 @@ function addressLine(v, prefix) {
 }
 
 // Hlavni prevod karta -> data sablony.
-// opts: { podepisujici (index do PS_PODEPISUJICI), datumPodpisu (iso), povinnosti }
+// opts: { podepisujici (zaznam hr_signatories: full_name, full_name_instrumental), datumPodpisu (iso), povinnosti }
 export function buildPsData(v, opts = {}) {
   const cizinec = isValuesForeigner(v);
-  const podp = PS_PODEPISUJICI[opts.podepisujici] || null;
+  const podp = opts.podepisujici || null;
   const doklad = cizinec ? (v.cz_doklad_cislo || v.id_document_number) : v.id_document_number;
   const kontakt = addressLine(v, "kontakt") || (cizinec ? addressLine(v, "pobyt") : "") || addressLine(v, "perm");
   const pozice = v.nazev_pozice || v.position_label || "";
   return {
-    zastupce: podp?.jmeno || "",
-    zastupce_pad7: podp?.pad7 || "",
+    zastupce: podp?.full_name || "",
+    zastupce_pad7: podp?.full_name_instrumental || "",
     zarazeni: pozice,
     druh_prace: pozice,
     cele_jmeno: [v.title, v.first_name, v.last_name].filter(Boolean).join(" "),
