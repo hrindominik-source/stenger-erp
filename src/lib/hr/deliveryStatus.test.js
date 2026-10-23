@@ -35,7 +35,7 @@ describe("lehoty", () => {
     expect(d.label).toContain("nástup 05.10.2026");
   });
   it("§ 21: bez dokladu o dodani lehota nebezi", () => {
-    expect(deliveryDeadlines({ channel: "EMAIL_S21", sent_at: "2026-10-01" })[0].label).toContain("neběží");
+    expect(deliveryDeadlines({ channel: "EMAIL_S21", sent_at: "2026-10-01" })[0].label).toContain("Lhůta k odstoupení neurčena");
   });
   it("§ 335 suhlas: fikcia 15. den od dodania, nie od odoslania", () => {
     const [d] = deliveryDeadlines({ channel: "EMAIL_S335_CONSENT", sent_at: "2026-10-01", provider_delivered_at: "2026-10-02" }, { today: "2026-10-20" });
@@ -67,5 +67,25 @@ describe("faza G - e-mail", () => {
   it("§ 21 lehota bezi od dodania podla stlpca provider_delivered_at", () => {
     const [d] = deliveryDeadlines({ channel: "EMAIL_S21", sent_at: "2026-10-01", provider_delivered_at: "2026-10-02", delivered_at: "2026-10-02", withdrawal_deadline: "2026-10-09" }, { today: "2026-10-05" });
     expect(d).toMatchObject({ date: "2026-10-09", state: "running" });
+  });
+});
+
+describe("doplnky G - lehoty bez dokladu o dodani", () => {
+  const sent = { channel: "EMAIL_S21", send_status: "SENT", sent_at: "2026-10-01T08:00:00Z" };
+  it("§ 21 bez dokladu: lehota neurcena, pravo zanika nastupom - porovnanie s datumom nastupu", () => {
+    const before = deliveryDeadlines(sent, { today: "2026-10-03", startDate: "2026-10-10" })[0];
+    expect(before).toMatchObject({ date: "2026-10-10", state: "running" });
+    expect(before.label).toBe("Lhůta k odstoupení neurčena (chybí doklad o dodání) – právo na odstoupení zaniká nástupem do práce – nástup 10.10.2026");
+    const after = deliveryDeadlines(sent, { today: "2026-10-10", startDate: "2026-10-10" })[0];
+    expect(after).toMatchObject({ state: "info" });
+    expect(after.label).toMatch(/právo zaniklo/);
+    expect(deliveryDeadlines(sent, { today: "2026-10-03" })[0]).toMatchObject({ state: "warn" });
+  });
+  it("§ 335 suhlas: bez dokladu o dodani fikcia nebezi ani po 15 dnoch od odoslania", () => {
+    const d = deliveryDeadlines({ channel: "EMAIL_S335_CONSENT", send_status: "SENT", sent_at: "2026-09-01" }, { today: "2026-10-20" });
+    expect(d).toHaveLength(1);
+    expect(d[0]).toMatchObject({ state: "info" });
+    expect(d[0].date).toBeUndefined();
+    expect(deliveryState({ channel: "EMAIL_S335_CONSENT", send_status: "SENT", sent_at: "2026-09-01" }).key).toBe("SENT_UNCONFIRMED");
   });
 });

@@ -11,7 +11,8 @@
 //   Lokalne len do testovacej schranky Mailpit.
 // { action: "retry", delivery_id }                 zlyhane odoslanie (max. 3 pokusy)
 // { action: "confirm_receipt", delivery_id, confirmed_date, scan_base64 }
-//   pisomne potvrdenie prevzatia od zamestnanca (sken / PDF odpovede)
+//   pisomne potvrdenie prevzatia od zamestnanca: sken, PDF alebo ulozena
+//   odpoved e-mailom (.eml) - nemenne, otisk pocita server
 // { action: "record_withdrawal", delivery_id, received_date, scan_base64 }
 //   pisomne odstupenie od zmluvy (§ 21 odst. 2)
 // { action: "sweep" }                              vyhodnotenie lehot
@@ -19,7 +20,7 @@
 // { action: "provider_event", delivery_id, event: "DELIVERED" | "BOUNCED", at? }
 import { createClient } from "npm:@supabase/supabase-js@2.45.4";
 import {
-  json, handle, HttpError, authorize, loadVisibleDocument, BUCKET, scanType, MAX_SCAN_BYTES, fromBase64,
+  json, handle, HttpError, authorize, loadVisibleDocument, BUCKET, scanType, emailMessageType, MAX_SCAN_BYTES, fromBase64,
 } from "../_shared/hrServer.ts";
 import { sha256Hex } from "../_shared/pdfTextCheck.js";
 import { defaultLegalActType, isS334Document } from "../_shared/signingRules.js";
@@ -28,18 +29,19 @@ import { queueAndSend, sendQueuedDelivery, validDeclaration, MAX_SEND_ATTEMPTS }
 const todayIso = () => new Date().toISOString().slice(0, 10);
 const isEmail = (s: string) => /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(s);
 
-// Sken (PDF/PNG/JPG) do prevzeti/<dokument>/ - otisk pocita server.
-async function storeScan(service: any, docId: string, prefix: string, base64: unknown) {
+// Sken (PDF/PNG/JPG, volitelne .eml) do prevzeti/<dokument>/ - otisk pocita server.
+async function storeScan(service: any, docId: string, prefix: string, base64: unknown, { allowEml = false } = {}) {
   const bytes = fromBase64(String(base64 || ""));
-  if (!bytes.length) throw new HttpError(422, "Nahrajte sken (PDF, PNG nebo JPG).");
-  if (bytes.length > MAX_SCAN_BYTES) throw new HttpError(413, "Sken je příliš velký (max. 15 MB).");
-  const type = scanType(bytes);
-  if (!type) throw new HttpError(422, "Sken musí být PDF, PNG nebo JPG.");
+  const kinds = allowEml ? "PDF, PNG, JPG nebo uložený e-mail .eml" : "PDF, PNG nebo JPG";
+  if (!bytes.length) throw new HttpError(422, `Nahrajte soubor (${kinds}).`);
+  if (bytes.length > MAX_SCAN_BYTES) throw new HttpError(413, "Soubor je příliš velký (max. 15 MB).");
+  const type = scanType(bytes) || (allowEml ? emailMessageType(bytes) : null);
+  if (!type) throw new HttpError(422, `Soubor musí být ${kinds}.`);
   const sha = await sha256Hex(bytes);
   const path = `prevzeti/${docId}/${prefix}-${sha.slice(0, 16)}.${type.ext}`;
   const { error } = await service.storage.from(BUCKET).upload(path, new Blob([bytes], { type: type.mime }), { contentType: type.mime, upsert: false });
   if (error) throw new HttpError(409, error.message);
-  return { path, sha };
+  return { path, sha, ext: type.ext };
 }
 
 async function inPerson(req: Request, body: any) {
@@ -129,11 +131,12 @@ async function confirmReceipt(req: Request, body: any) {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(date) || date > todayIso() || date < String(dl.sent_at).slice(0, 10)) {
     throw new HttpError(422, "Datum potvrzení musí být mezi odesláním a dneškem.");
   }
-  const scan = await storeScan(service, dl.hr_document_id, `${dl.id}-potvrzeni`, body.scan_base64);
+  const scan = await storeScan(service, dl.hr_document_id, `${dl.id}-potvrzeni`, body.scan_base64, { allowEml: true });
   const { data, error } = await service.from("hr_document_deliveries").update({
     delivered_at: date === todayIso() ? new Date().toISOString() : `${date}T12:00:00Z`, delivery_basis: "EMPLOYEE_CONFIRMATION",
     receipt_scan_path: scan.path, receipt_scan_sha256: scan.sha, handed_over_by: user.id,
-    confirmation_evidence: { ...(dl.confirmation_evidence || {}), confirmation: { recorded_by: user.id, receipt_scan_hashed_by: "server" } },
+    confirmation_evidence: { ...(dl.confirmation_evidence || {}), confirmation: {
+      recorded_by: user.id, receipt_scan_hashed_by: "server", kind: scan.ext === "eml" ? "EMAIL_REPLY" : "WRITTEN_SCAN" } },
   }).eq("id", dl.id).select("*").single();
   if (error) {
     await service.storage.from(BUCKET).remove([scan.path]);

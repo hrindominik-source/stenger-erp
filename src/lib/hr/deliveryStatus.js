@@ -69,7 +69,12 @@ export function deliveryDeadlines(dl, { today, startDate } = {}) {
         label: `Lhůta k odstoupení (§ 21, ${S21_WITHDRAWAL_DAYS} dní od dodání) do ${czDate(date)}${started ? ` – jen do začátku plnění (nástup ${czDate(startDate)})` : ""}`,
       });
     } else if (dl.sent_at) {
-      out.push({ key: "s21", label: "Lhůta k odstoupení (§ 21) neběží – dodání neověřeno", state: "info" });
+      // Bez dokladu o dodani nevieme urcit zaciatok 7-dnovej lehoty; pravo
+      // na odstupenie v kazdom pripade zanika zacatim plnenia (nastupom).
+      const base = "Lhůta k odstoupení neurčena (chybí doklad o dodání) – právo na odstoupení zaniká nástupem do práce";
+      if (!startDate) out.push({ key: "s21", label: `${base} (datum nástupu není zadán)`, state: "warn" });
+      else if (today && today >= startDate) out.push({ key: "s21", label: `${base} – nástup ${czDate(startDate)}, právo zaniklo`, state: "info" });
+      else out.push({ key: "s21", date: startDate, label: `${base} – nástup ${czDate(startDate)}`, state: "running" });
     }
   }
   if (dl.channel === "EMAIL_S335_CONSENT" && !dl.delivered_at && !dl.ineffective_at) {

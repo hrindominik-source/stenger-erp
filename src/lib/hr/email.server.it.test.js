@@ -146,6 +146,28 @@ describe.skipIf(!enabled)("faza G - dorucovanie e-mailom (lokalny Mailpit)", { t
     expect(c.delivery).toMatchObject({ delivery_basis: "EMPLOYEE_CONFIRMATION", receipt_scan_sha256: await sha256Hex(SCAN) });
   });
 
+  it("mzdovy vymer: potvrdenie prevzatia ako odpoved e-mailom (.eml) - server hash, nemenne, citatelne len s pravami k dokumentu", async () => {
+    const id = await signedDoc("mveml", "mzdovy_vymer");
+    const r = await hrCall({ action: "send_email", document_id: id, channel: "EMAIL_S335_WAGE_OTHER_ADDRESS", recipient: `eml.${run}@example.test` });
+    const today = new Date().toISOString().slice(0, 10);
+    const junk = enc("toto nie je e-mail ani sken");
+    const bad = await hrCall({ action: "confirm_receipt", delivery_id: r.delivery.id, confirmed_date: today, scan_base64: b64(junk) });
+    expect(bad.status).toBe(422);
+    expect(bad.error).toMatch(/\.eml/);
+    const eml = enc([`From: Gustav <eml.${run}@example.test>`, "To: personalni@stenger.test", "Date: Fri, 23 Oct 2026 10:00:00 +0200",
+      "Subject: Re: Mzdovy vymer", "Content-Type: text/plain; charset=utf-8", "", "Potvrzuji prevzeti mzdoveho vymeru.", ""].join("\r\n"));
+    const c = await hrCall({ action: "confirm_receipt", delivery_id: r.delivery.id, confirmed_date: today, scan_base64: b64(eml), receipt_sha256: "f".repeat(64) });
+    expect(c.delivery).toMatchObject({ delivery_basis: "EMPLOYEE_CONFIRMATION", receipt_scan_sha256: await sha256Hex(eml) });
+    expect(c.delivery.receipt_scan_path).toMatch(/^prevzeti\/.+\.eml$/);
+    expect(c.delivery.confirmation_evidence.confirmation).toMatchObject({ kind: "EMAIL_REPLY", receipt_scan_hashed_by: "server" });
+    const { data: file } = await hr.storage.from(BUCKET).download(c.delivery.receipt_scan_path);
+    expect(new Uint8Array(await file.arrayBuffer())).toEqual(eml);
+    const { error: up } = await hr.storage.from(BUCKET).upload(c.delivery.receipt_scan_path, new Blob([junk]), { upsert: true });
+    expect(up).toBeTruthy();
+    const { error: ch } = await service.from("hr_document_deliveries").update({ receipt_scan_path: `prevzeti/${id}/ine.eml` }).eq("id", r.delivery.id);
+    expect(ch?.message || "").toMatch(/nem|nelze|sken/i);
+  });
+
   it("§ 335 suhlas: fikcia 15. den od dodania; odvolany suhlas blokuje dalsie zasielky", async () => {
     const id = await signedDoc("mvs", "mzdovy_vymer");
     expect((await hrCall({ action: "send_email", document_id: id, channel: "EMAIL_S335_CONSENT" })).status).toBe(409); // bez suhlasu

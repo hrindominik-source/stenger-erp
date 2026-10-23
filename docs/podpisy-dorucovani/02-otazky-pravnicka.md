@@ -9,5 +9,7 @@ Stav: KONCEPT. Do odpovedí sa správanie systému drží konzervatívne (v zát
 5. **Novela 2025** – overiť, či elektronické uzatváranie zmlúv po novom vyžaduje výslovný súhlas zamestnanca (neoverené v primárnom zdroji).
 6. **Lehoty uchovávania** jednotlivých typov dokumentov (zmluvy, mzdové výmery, osobný dotazník, záznamy o školení BOZP, doklady o doručení, obrázky podpisov a dôkazné záznamy) – podklad pre anonymizáciu po skončení pomeru.
 7. **Trvalé mazanie** – je prípustné aj pri záznamoch označených ako testovacie/duplicitné, ak obsahujú podpísané dokumenty? (Predvolene: áno len pri označení `TEST`/`DUPLICATE`, s dôvodom v audite.)
-8. **Mzdový výmer (§ 335 odst. 3)** – postačí ako „písemné potvrzení převzetí“ odpoveď zamestnanca e-mailom, alebo len podpísané potvrdenie? (Predvolene: dôvod `EMPLOYEE_CONFIRMATION` s uloženým dôkazom, rozhoduje HR.)
+8. **Mzdový výměr (§ 335 odst. 3) – písemné potvrzení převzetí.** Splňuje odpověď zaměstnance e-mailem (uložená jako .eml nebo PDF, nemenná, otisk počítá server) požadavek „písemného potvrzení“ podle § 335 odst. 3, nebo je nutné podepsané potvrzení (sken)? (Zatím systém přijímá obojí s důvodem `EMPLOYEE_CONFIRMATION`, druh důkazu `EMAIL_REPLY` / `WRITTEN_SCAN` je v záznamu; rozhoduje HR.)
 9. **Kiosk** – je potrebné, aby zariadenie odomykal HR (prevencia vyplnenia dotazníka cudzou osobou)? (Predvolene vypnuté, pripravené za feature flagom.)
+10. **Lhůta k odstoupení (§ 21) bez dokladu o dodání.** Když poskytovatel e-mailů nepotvrdí dodání, systém lhůtu nepočítá a ukazuje „lhůta neurčena – právo na odstoupení zaniká nástupem do práce“. Je to správný výklad?
+11. **Vnitřní pokyn pro HR k podpisu na tabletu** (`pokyn-hr-podpis-na-tabletu.md`) – schválit text.

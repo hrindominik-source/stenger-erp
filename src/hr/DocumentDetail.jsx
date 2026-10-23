@@ -272,7 +272,7 @@ export default function DocumentDetail({ doc, signatures = [], previousSignature
                   )}
                   {dl.receipt_scan_path && (
                     <button type="button" onClick={() => openFile(dl.receipt_scan_path)} className="text-xs text-emerald-700 hover:text-emerald-900 flex items-center gap-1">
-                      <Stamp size={12} /> Potvrzení o převzetí (sken) · otisk <code className="font-mono">{short(dl.receipt_scan_sha256)}</code>
+                      <Stamp size={12} /> Potvrzení o převzetí ({dl.confirmation_evidence?.confirmation?.kind === "EMAIL_REPLY" ? "odpověď e-mailem .eml" : "sken"}) · otisk <code className="font-mono">{short(dl.receipt_scan_sha256)}</code>
                     </button>
                   )}
                   {deliveryDeadlines(dl, { today: todayIso(), startDate: employment?.start_date }).map((d) => (
@@ -837,7 +837,7 @@ function DeliveryRecordForm({ form, onCancel, onSaved }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   async function submit() {
-    if (!scan) { setError(confirm ? "Nahrajte písemné potvrzení převzetí (sken nebo PDF odpovědi)." : "Nahrajte sken písemného odstoupení."); return; }
+    if (!scan) { setError(confirm ? "Nahrajte písemné potvrzení převzetí (sken, PDF nebo uložený e-mail .eml)." : "Nahrajte sken písemného odstoupení."); return; }
     setBusy(true);
     setError("");
     try {
@@ -856,8 +856,8 @@ function DeliveryRecordForm({ form, onCancel, onSaved }) {
       <input type="date" value={date} max={todayIso()} min={confirm && form.sentAt ? String(form.sentAt).slice(0, 10) : undefined} onChange={(e) => setDate(e.target.value)}
         className="border border-slate-300 rounded-md px-3 py-1.5 text-sm mb-2" />
       <label className="block text-xs text-slate-600 mb-2">
-        {confirm ? "Potvrzení (sken / PDF odpovědi zaměstnance)" : "Sken písemného odstoupení"}
-        <input type="file" accept="application/pdf,image/*" className="block text-sm mt-1" onChange={(e) => setScan(e.target.files?.[0] || null)} />
+        {confirm ? "Potvrzení (sken, PDF nebo odpověď zaměstnance uložená jako .eml)" : "Sken písemného odstoupení"}
+        <input type="file" accept={confirm ? "application/pdf,image/*,.eml,message/rfc822" : "application/pdf,image/*"} className="block text-sm mt-1" onChange={(e) => setScan(e.target.files?.[0] || null)} />
         <span className="block mt-1">Otisk spočítá server při uložení; potom se soubor nedá změnit.</span>
       </label>
       {error && <div className="text-xs text-red-700 mb-2">{error}</div>}

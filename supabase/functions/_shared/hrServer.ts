@@ -93,5 +93,19 @@ export function scanType(bytes: Uint8Array): { ext: string; mime: string } | nul
   if (b.length > 3 && b[0] === 0xff && b[1] === 0xd8 && b[2] === 0xff) return { ext: "jpg", mime: "image/jpeg" };
   return null;
 }
+// Ulozena e-mailova sprava (.eml, RFC 5322) - odpoved zamestnanca ako dokaz.
+// Len textova hlavicka s From: a Date:/Subject: pred prvym prazdnym riadkom.
+export function emailMessageType(bytes: Uint8Array): { ext: string; mime: string } | null {
+  const head = bytes.subarray(0, 64 * 1024);
+  if (head.includes(0)) return null;
+  const text = new TextDecoder("latin1").decode(head);
+  const end = text.search(/\r?\n\r?\n/);
+  if (end <= 0) return null;
+  const lines = text.slice(0, end).split(/\r?\n/);
+  if (!lines.every((l) => /^[!-9;-~]+:/.test(l) || /^[ \t]/.test(l))) return null;
+  const names = new Set(lines.map((l) => l.split(":")[0].toLowerCase()));
+  if (!names.has("from") || !(names.has("date") || names.has("subject"))) return null;
+  return { ext: "eml", mime: "message/rfc822" };
+}
 export const MAX_SCAN_BYTES = 15_000_000;
 export const fromBase64 = (s: string) => Uint8Array.from(atob(s), (c) => c.charCodeAt(0));

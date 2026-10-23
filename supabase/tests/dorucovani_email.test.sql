@@ -99,6 +99,12 @@ select is((select delivery_basis from public.hr_document_deliveries where id = '
 select is(((select delivered_at from public.hr_document_deliveries where id = 'dl-e7') at time zone 'Europe/Prague')::date,
   ((now() - interval '16 days') at time zone 'Europe/Prague')::date + 15, 'datum fikcie = 15. den');
 select is((select delivered_at from public.hr_document_deliveries where id = 'dl-e8'), null, 'bez dokladu o dodani fikcia nebezi');
+-- fikcia nikdy bez dokladu o dodani: samotne odoslanie (ani po 40 dnoch) nestaci
+select throws_ok($$update public.hr_document_deliveries set sent_at = now() - interval '40 days' where id = 'dl-e8'$$, 'P0001', null, 'cas odoslania sa neprepisuje (lehotu nejde posunut)');
+select throws_ok($$update public.hr_document_deliveries set delivered_at = sent_at + interval '15 days', delivery_basis = 'FICTION_15_DAYS' where id = 'dl-e8'$$,
+  'P0001', null, 'fikcia bez dokladu o dodani odmietnuta ani ked uplynulo 15 dni od odoslania');
+select throws_ok($$update public.hr_document_deliveries set delivered_at = now(), delivery_basis = 'FICTION_15_DAYS' where id = 'dl-e5'$$,
+  'P0001', null, 'mzdovy vymer na inu adresu: fikcia nikdy');
 select is(public.hr_document_deliveries_sweep(), 0, 'sweep je idempotentny');
 
 -- ---------- HR: len server zapisuje e-mail ----------
