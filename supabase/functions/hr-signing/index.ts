@@ -202,6 +202,22 @@ async function issue(req: Request, body: any) {
   return json({ ok: true, token, code, expires_at: expires, signer_name: name });
 }
 
+// ---------- HR: stav vydaneho tokenu (obrazovka s QR kodom) ----------
+// Len pracovnik, ktory token vydal; bez tokenu sa nic nezisti.
+async function tokenStatus(req: Request, body: any) {
+  const { user, service } = await authorize(req, ["HR_DOCUMENT_SIGN"]);
+  if (typeof body.token !== "string" || body.token.length < 30) throw new HttpError(422, "Chybí token.");
+  const { data: t } = await service.from("hr_signing_tokens")
+    .select("created_by, expires_at, used_at, revoked_at, code_attempts, code_verified_at")
+    .eq("token_sha256", await sha256Hex(enc(body.token))).maybeSingle();
+  if (!t || t.created_by !== user.id) throw new HttpError(404, "Podpis nenalezen.");
+  const status = t.used_at ? "USED"
+    : t.revoked_at ? ((t.code_attempts || 0) >= MAX_CODE_ATTEMPTS ? "REVOKED_CODE" : "REVOKED")
+    : new Date(t.expires_at) < new Date() ? "EXPIRED"
+    : t.code_verified_at ? "OPENED" : "ACTIVE";
+  return json({ ok: true, status, attempts_left: Math.max(0, MAX_CODE_ATTEMPTS - (t.code_attempts || 0)) });
+}
+
 // ---------- tablet: token + kod + zariadenie ----------
 async function tokenRow(service: SupabaseClient, token: unknown) {
   if (typeof token !== "string" || token.length < 30) throw new HttpError(401, "Neplatný podpisový kód QR.");
@@ -479,6 +495,7 @@ Deno.serve(handle(async (req) => {
   switch (body.action) {
     case "issue": return issue(req, body);
     case "load": return load(service(), body);
+    case "token_status": return tokenStatus(req, body);
     case "sign": return sign(service(), req, body);
     case "employer_load": return employerLoad(req, body);
     case "employer_sign": return employerSign(req, body);

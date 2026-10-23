@@ -75,6 +75,7 @@ export default function DocumentDetail({ doc, signatures = [], previousSignature
 
   // Kluc (string), nie pole - rodic posiela pri kazdom vykresleni nove pole.
   const signatureUsers = signatures.flatMap((s) => [s.uploaded_by, s.scan_matches_original_confirmed_by]).filter(Boolean).join(",");
+  const textVersionId = doc.variables_snapshot?.text_version_id || "";
   const qualifiedIds = signatures.filter((s) => s.method === "ELECTRONIC_QUALIFIED").map((s) => s.id).join(",");
   const load = useCallback(async () => {
     setLoading(true);
@@ -84,7 +85,10 @@ export default function DocumentDetail({ doc, signatures = [], previousSignature
     const [dlRes, evRes, tplRes, verRes] = await Promise.all([
       supabase.from("hr_document_deliveries").select("*").eq("hr_document_id", doc.id).order("created_at", { ascending: true }),
       supabase.from("hr_document_events").select("*").eq("hr_document_id", doc.id).order("created_at", { ascending: true }),
-      doc.template_id ? supabase.from("hr_document_templates").select("name").eq("id", doc.template_id).maybeSingle() : Promise.resolve({ data: null }),
+      doc.template_id ? supabase.from("hr_document_templates").select("name").eq("id", doc.template_id).maybeSingle()
+        // vyhlasenia (§ 21 / § 335) vznikaju z verzovaneho textu, nie zo sablony
+        : textVersionId ? supabase.from("hr_legal_text_versions").select("title, version_no, status").eq("id", textVersionId).maybeSingle()
+        : Promise.resolve({ data: null }),
       qualifiedIds ? supabase.from("hr_signature_verifications").select("*").in("signature_id", qualifiedIds.split(",")).order("verified_at", { ascending: false }) : Promise.resolve({ data: [] }),
     ]);
     setVerifications(verRes.data || []);
@@ -93,7 +97,8 @@ export default function DocumentDetail({ doc, signatures = [], previousSignature
     const evs = evRes.data || [];
     setDeliveries(dls);
     setEvents(evs);
-    setTemplateName(tplRes.data?.name || "");
+    const tpl = tplRes.data;
+    setTemplateName(!tpl ? "" : tpl.name || `text „${tpl.title}“, verze ${tpl.version_no}${tpl.status === "KONCEPT" ? " (koncept)" : tpl.status === "VYRAZENO" ? " (vyřazená)" : ""}`);
     const ids = [...new Set([doc.generated_by, doc.finalized_by, ...dls.map((d) => d.handed_over_by), ...evs.map((e) => e.created_by),
       ...signatureUsers.split(",")].filter(Boolean))];
     if (ids.length) {
@@ -101,7 +106,7 @@ export default function DocumentDetail({ doc, signatures = [], previousSignature
       setNames(Object.fromEntries((data || []).map((p) => [p.id, p.full_name])));
     }
     setLoading(false);
-  }, [doc.id, doc.template_id, doc.generated_by, doc.finalized_by, signatureUsers, qualifiedIds]);
+  }, [doc.id, doc.template_id, textVersionId, doc.generated_by, doc.finalized_by, signatureUsers, qualifiedIds]);
   useEffect(() => { load(); }, [load]);
 
   const who = (id) => (id ? names[id] || "—" : "—");
@@ -134,9 +139,10 @@ export default function DocumentDetail({ doc, signatures = [], previousSignature
   const signState = closed ? "Dokument je zneplatněn / nahrazen."
     : fullySigned ? "Dokument je už podepsán všemi stranami." : !serverPdf ? "Nejdřív nahrajte finální PDF (ověřené serverem)." : "";
   const signBase = !can.sign ? "Chybí oprávnění k podpisu dokumentů." : signState;
-  const tabletReason = signBase || (!missing.includes("EMPLOYEE") ? "Zaměstnanec už podepsal nebo podpis nepotřebuje."
+  const tabletReason = (!required.includes("EMPLOYEE") ? "Podpis zaměstnance se u tohoto dokumentu nevyžaduje." : "") || signBase || (!missing.includes("EMPLOYEE") ? "Zaměstnanec už podepsal."
     : isTraining && !doc.training_record_id ? "Nejdřív doplňte evidenci školení a ověření znalostí." : "");
-  const employerReason = (!can.signEmployer ? "Chybí oprávnění podepisovat za zaměstnavatele (HR_SIGN_FOR_EMPLOYER)." : signState) || (!missing.includes("EMPLOYER") ? "Zaměstnavatel už podepsal nebo podpis nepotřebuje."
+  const employerReason = (!required.includes("EMPLOYER") ? "Podpis zaměstnavatele se u tohoto dokumentu nevyžaduje." : "")
+    || (!can.signEmployer ? "Chybí oprávnění podepisovat za zaměstnavatele (HR_SIGN_FOR_EMPLOYER)." : signState) || (!missing.includes("EMPLOYER") ? "Zaměstnavatel už podepsal."
     : s334 ? "Písemnost § 334 podepisuje zaměstnavatel uznávaným el. podpisem – nahrajte podepsané PDF." : "");
   const qualifiedReason = signBase || (!missing.length ? "Nikdo další už podepsat nemusí." : "");
   const emailChannels = [
@@ -576,6 +582,28 @@ function TabletIssueForm({ doc, onCancel, onDone }) {
   const [issued, setIssued] = useState(null);
   const [qr, setQr] = useState("");
   const [signingHere, setSigningHere] = useState(false);
+  const [tokenState, setTokenState] = useState(null);
+
+  // Stav vydaneho odkazu (3 zle kody, vyprsanie, podpis) - obrazovka HR nesmie
+  // ukazovat zruseny kod ako platny.
+  useEffect(() => {
+    if (!issued || signingHere) return undefined;
+    let stop = false;
+    const poll = async () => {
+      try {
+        const r = await invokeSigning({ action: "token_status", token: issued.token });
+        if (!stop) setTokenState(r);
+      } catch { /* docasny vypadok - skusi znova */ }
+    };
+    poll();
+    const t = setInterval(poll, 3000);
+    return () => { stop = true; clearInterval(t); };
+  }, [issued, signingHere]);
+  const closed = tokenState && ["REVOKED_CODE", "REVOKED", "EXPIRED", "USED"].includes(tokenState.status);
+
+  function reissue() {
+    setIssued(null); setQr(""); setTokenState(null); setConfirmed(false); setError("");
+  }
 
   async function issue() {
     setBusy(true); setError("");
@@ -622,6 +650,27 @@ function TabletIssueForm({ doc, onCancel, onDone }) {
             <button onClick={onCancel} className="text-slate-500 px-3 py-1.5">Zrušit</button>
           </div>
         </>
+      ) : closed ? (
+        <>
+          {tokenState.status === "USED" ? (
+            <div className="bg-emerald-50 text-emerald-800 px-3 py-2 rounded-md flex items-center gap-2"><CheckCircle2 size={16} /> Zaměstnanec dokument podepsal.</div>
+          ) : (
+            <div className="bg-red-50 text-red-700 px-3 py-2 rounded-md flex items-start gap-2" data-testid="pairing-closed">
+              <AlertCircle size={16} className="mt-0.5 shrink-0" />
+              <span>
+                {tokenState.status === "REVOKED_CODE" && "Kód byl zrušen – na tabletu byl třikrát zadán chybný kód. QR kód ani kód už neplatí."}
+                {tokenState.status === "REVOKED" && "Podpis byl zrušen (byl připraven nový nebo se změnil dokument). QR kód ani kód už neplatí."}
+                {tokenState.status === "EXPIRED" && "Platnost QR kódu a kódu vypršela."}
+              </span>
+            </div>
+          )}
+          <div className="flex flex-wrap gap-2">
+            {tokenState.status !== "USED" && (
+              <button onClick={reissue} className="bg-teal-700 hover:bg-teal-800 text-white px-3 py-1.5 rounded-md">Připravit nový kód</button>
+            )}
+            <button onClick={onDone} className="text-slate-500 px-3 py-1.5">Zavřít</button>
+          </div>
+        </>
       ) : (
         <>
           <div className="flex flex-wrap items-center gap-4">
@@ -629,6 +678,10 @@ function TabletIssueForm({ doc, onCancel, onDone }) {
             <div>
               <div className="text-slate-600">Naskenujte QR kód tabletem a na tabletu zadejte kód:</div>
               <div className="text-3xl font-mono font-semibold tracking-widest text-slate-800 my-2" data-testid="pairing-code">{issued.code}</div>
+              {tokenState?.status === "ACTIVE" && tokenState.attempts_left < 3 && (
+                <div className="text-sm text-amber-700">Na tabletu byl zadán chybný kód – zbývající pokusy: {tokenState.attempts_left}.</div>
+              )}
+              {tokenState?.status === "OPENED" && <div className="text-sm text-emerald-700">Dokument je otevřen na tabletu.</div>}
               <div className="text-xs text-slate-500">Pro <b>{issued.signer_name}</b>. Platí jednou, do {new Date(issued.expires_at).toLocaleTimeString("cs-CZ", { hour: "2-digit", minute: "2-digit" })}, jen dokud jste přihlášen(a). Třikrát chybný kód podpis zruší.</div>
             </div>
           </div>

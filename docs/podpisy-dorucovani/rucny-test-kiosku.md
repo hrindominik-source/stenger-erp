@@ -111,6 +111,8 @@ Každý scenár = nový dotazník (na konci „Začít nový dotazník“ alebo 
 - [ ] Stav ukazuje „Čeká na podpis: zaměstnavatel“ (nie „Podepsáno“).
 - [ ] Znova „Nahrát podepsaný sken“ so Zaměstnavatelem → stav „Podepsáno“.
 
+**Automaticky pred ručným testom (skutočný Chrome, lokálny Supabase):** `npm run test:e2e` – podpis na tablete v oknách 1024×700, 820×1180 a 1280×415 (PDF je biele s čitateľným textom podľa pixelov plátna, bez vodorovného posuvníka, po posunutí na koniec sa podpis sprístupní) a obrazovka HR po 3 zlých kódoch. Test spúšťa vlastný Vite na porte 5190, server na 5180 nechá tak.
+
 **H. Príprava pre podpis na tablete a e-mail** (raz po `db reset`)
 - [ ] Studio → SQL Editor: `update public.hr_settings set value = 'true' where key = 'electronic_contract_enabled';`
 - [ ] Prihlásiť sa ako `hr.admin@test.local` (je zároveň vymyslená osoba s plnou mocou „Mgr. Jana Zkušební“).
@@ -120,8 +122,9 @@ Každý scenár = nový dotazník (na konci „Začít nový dotazník“ alebo 
 - [ ] Dokumenty → „Prohlášení (§ 21 / § 335)“ → „Oznámení elektronické adresy (§ 21)“ → otvorí sa detail dokumentu (PDF vytvoril server).
 - [ ] „Podepsat na tabletu“ → druh dokladu (OP) → zaškrtnúť „osobně přítomen…“ → „Připravit podpis“ → zobrazí sa **QR kód a 6-miestny kód**; odkaz nie je nikde ako text.
 - [ ] Na PC: F12 → Ctrl+Shift+M (iPad) → „Podepsat na tomto zařízení“. Tablet si vypýta kód:
-  - [ ] 2× zlý kód → „Zbývající pokusy“; 3. zlý kód → „podpis byl zrušen“ → v HR „Podepsat na tabletu“ znova;
-  - [ ] správny kód → prejsť všetky strany → podpis → „Podepsat“.
+  - [ ] 2× zlý kód → „Zbývající pokusy“ (HR vidí počet zostávajúcich pokusov); 3. zlý kód → „podpis byl zrušen“ → obrazovka HR do pár sekúnd ukáže „Kód byl zrušen“, skryje QR aj kód a ponúkne „Připravit nový kód“;
+  - [ ] správny kód → strana PDF je biela s čitateľným textom, bez vodorovného posuvníka → posunúť na koniec → „Zobrazeno 1 z 1 stran“ → podpis → „Podepsat“.
+- [ ] Detail vyhlásenia: „Šablona: text „Oznámení elektronické adresy…“, verze 1 (koncept)“; pri „Podepsat za zaměstnavatele“ vysvetlenie „Podpis zaměstnavatele se u tohoto dokumentu nevyžaduje.“
 - [ ] Voliteľne skutočný tablet/mobil v tej istej Wi-Fi (bod 2): HR otvoriť cez `http://<IP-PC>:5180`, QR kód potom obsahuje adresu PC a dá sa naskenovať. Na mobile zadať kód.
 - [ ] Odhlásiť HR počas otvoreného podpisu → tablet odmietne („Pracovník HR … už není přihlášen“).
 - [ ] Po podpise: Dokumenty → panel Prohlášení ukazuje platné § 21 oznámenie.

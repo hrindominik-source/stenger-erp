@@ -179,13 +179,18 @@ describe.skipIf(!enabled)("faza F - podpis na tablete pri osobnej pritomnosti (l
   it("tri zle kody zrusia odkaz; novy token zrusi stary", async () => {
     const id = await newDoc("tok", "pracovni_smlouva");
     const a = await issue(hr, id);
+    expect(await invoke(hr, { action: "token_status", token: a.token })).toMatchObject({ status: "ACTIVE", attempts_left: 3 });
+    expect((await invoke(signerHr, { action: "token_status", token: a.token })).status).toBe(404); // len ten, kto vydal
     let r = await invoke(tablet, { action: "load", token: a.token, device_id: TABLET, code: wrongCode(a.code) });
     expect(r.status).toBe(403);
     expect(r.error).toMatch(/Zbývající pokusy: 2/);
+    expect(await invoke(hr, { action: "token_status", token: a.token })).toMatchObject({ status: "ACTIVE", attempts_left: 2 });
     expect((await invoke(tablet, { action: "load", token: a.token, device_id: TABLET, code: "12" })).status).toBe(403);
     r = await invoke(tablet, { action: "load", token: a.token, device_id: TABLET, code: wrongCode(a.code) });
     expect(r.status).toBe(410);
     expect((await invoke(tablet, { action: "load", token: a.token, device_id: TABLET, code: a.code })).status).toBe(410); // uz ani spravny
+    // obrazovka HR musi ukazat, ze kod bol zruseny
+    expect(await invoke(hr, { action: "token_status", token: a.token })).toMatchObject({ status: "REVOKED_CODE", attempts_left: 0 });
     const b = await issue(hr, id);
     const c = await issue(hr, id);
     expect((await invoke(tablet, { action: "load", token: b.token, device_id: TABLET, code: b.code })).status).toBe(410);
