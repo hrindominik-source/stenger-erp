@@ -39,3 +39,29 @@ export function signingState(doc, signatures = []) {
   const required = documentRequiredSigners(doc);
   return { state: missing.length < required.length ? "partial" : "unsigned", missing };
 }
+
+// Pisomnost § 334 (zrkadlo DB hr_is_s334_document, migracia 52): osobne sa
+// dorucuje len proti podpisu potvrdenia prevzatia. KONCEPT – KE SCHVÁLENÍ PRÁVNIČKOU.
+export function isS334Document(doc) {
+  return (doc?.legal_act_type || defaultLegalActType(doc?.doc_type)) === "EMPLOYER_UNILATERAL"
+    || ["platovy_vymer", "mzdovy_vymer", "vypoved_zamestnavatele", "zruseni_ve_zkusebni_dobe"].includes(doc?.doc_type);
+}
+
+export const LEGAL_ACT_LABELS = {
+  BILATERAL_CONTRACT: "dvoustranná smlouva",
+  EMPLOYER_UNILATERAL: "jednostranný úkon zaměstnavatele",
+  EMPLOYEE_DECLARATION: "prohlášení zaměstnance",
+  RECEIPT_ACKNOWLEDGEMENT: "potvrzení převzetí",
+  TRAINING_RECORD: "záznam o školení",
+};
+
+export const SIGNATURE_METHOD_LABELS = {
+  PAPER: "papír (sken)",
+  ELECTRONIC_TABLET: "tablet",
+  ELECTRONIC_QUALIFIED: "kvalifikovaný el. podpis",
+};
+
+// Pocita sa podpis k aktualnej verzii? (rovnake pravidlo ako missingSigners)
+export function signatureCounts(doc, s) {
+  return s.method === "PAPER" || (ELECTRONIC.includes(s.method) && !!doc?.final_pdf_sha256 && s.signed_content_sha256 === doc.final_pdf_sha256);
+}

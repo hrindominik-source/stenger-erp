@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback } from "react";
-import { Loader2, AlertCircle, Users2, UserPlus, ArrowLeft, ShieldAlert, Settings, LayoutDashboard, FileText, Pencil, CheckCircle2, Briefcase, Plus, Upload, Download, Stamp, HeartPulse, History, Trash2, Paperclip } from "lucide-react";
+import { Loader2, AlertCircle, Users2, UserPlus, ArrowLeft, ShieldAlert, Settings, LayoutDashboard, FileText, Pencil, CheckCircle2, ChevronDown, ChevronRight, Briefcase, Plus, Upload, Download, Stamp, HeartPulse, History, Trash2, Paperclip } from "lucide-react";
 import { supabase } from "../supabaseClient.js";
 import { uid, skDateStrFromIso } from "../lib/utils.js";
 import { computeFixedTermStatus, canProposeExtension, FIXED_TERM_RULES, sortContractEventsChronologically, shouldMarkEmployeeInactive } from "../lib/hrContractRules.js";
@@ -21,6 +21,7 @@ import { nastupChecklist, nastupSummary, nastupRelevant, registraceCssz } from "
 import { verifyFinalPdf, buildFinalPdfUploadPath, TEXT_CHECK_REASON_LABELS } from "../lib/hr/finalPdf.js";
 import { KIOSK_DRAFT_KEYS, KIOSK_DOCS } from "../lib/hr/kioskDocuments.js";
 import { documentRequiredSigners, signingState, SIGNER_LABELS } from "../lib/hr/signingRules.js";
+import DocumentDetail from "./DocumentDetail.jsx";
 import { ABSENCE_TYPES, ABSENCE_DOC_TYPES, absenceType, absenceList, isAbsenceActive, activeAbsence, absenceStatusText, probationOverlapDays, absenceInProbation, addDaysIso } from "../lib/hr/absences.js";
 
 const HR_DOKUMENTY_BUCKET = "hr-dokumenty";
@@ -928,6 +929,7 @@ function EmployeeDetail({ id, permissions, onBack }) {
   const [timeline, setTimeline] = useState([]);
   const [medicalExams, setMedicalExams] = useState([]);
   const [hrDocs, setHrDocs] = useState([]);
+  const [hrDeliveries, setHrDeliveries] = useState([]);
   const [confirmingDelete, setConfirmingDelete] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [deleteError, setDeleteError] = useState("");
@@ -984,8 +986,13 @@ function EmployeeDetail({ id, permissions, onBack }) {
   // Dokumenty pre nastupni balicek - samostatne, aby sa po ulozeni dokumentu
   // neprekreslil cely detail.
   const loadDocs = useCallback(async () => {
-    const { data } = await supabase.from("hr_documents").select("id, doc_type, status, employment_id").eq("employee_id", id);
-    setHrDocs(data || []);
+    const { data } = await supabase.from("hr_documents").select("id, doc_type, status, employment_id, locked_at, is_manual_history_entry").eq("employee_id", id);
+    const docs = data || [];
+    const { data: dls } = docs.length
+      ? await supabase.from("hr_document_deliveries").select("hr_document_id, delivered_at, sent_at").in("hr_document_id", docs.map((d) => d.id))
+      : { data: [] };
+    setHrDocs(docs);
+    setHrDeliveries(dls || []);
   }, [id]);
   useEffect(() => { loadDocs(); }, [loadDocs]);
 
@@ -1012,7 +1019,7 @@ function EmployeeDetail({ id, permissions, onBack }) {
   const todayStr = new Date().toISOString().slice(0, 10);
   const nastupItems = nastupRelevant(currentEmployment, todayStr)
     ? nastupChecklist({
-      employee, employment: currentEmployment, documents: hrDocs, agenda: agendaItems(employee, payroll), timeline, payroll,
+      employee, employment: currentEmployment, documents: hrDocs, deliveries: hrDeliveries, agenda: agendaItems(employee, payroll), timeline, payroll,
       uplatnujeSlevy: valuesFromRecords({ employee, payroll }).tax_uplatneni, canPayroll, today: todayStr,
     })
     : null;
@@ -3414,6 +3421,7 @@ function MzdovePodminkyTab({ payroll, currentEmployment, canEdit, onEditInKarta,
 
 const NASTUP_STATE_CLS = {
   done: "bg-emerald-100 text-emerald-700",
+  signed: "bg-sky-100 text-sky-800",
   created: "bg-amber-100 text-amber-800",
   missing: "bg-slate-100 text-slate-600",
 };
@@ -3425,7 +3433,7 @@ function NastupniBalicekCard({ items, onAction }) {
       <div className="flex items-center justify-between gap-2 flex-wrap mb-2">
         <h2 className="font-semibold text-sm flex items-center gap-1.5"><Briefcase size={15} /> Nástupní balíček</h2>
         <span className="text-xs text-slate-500">
-          {s.done ? "vše hotovo ✓" : [s.missing && `chybí ${s.missing}`, s.toSign && `k podpisu ${s.toSign}`].filter(Boolean).join(" · ")}
+          {s.done ? "vše hotovo ✓" : [s.missing && `chybí ${s.missing}`, s.toSign && `k podpisu ${s.toSign}`, s.notHanded && `nepředáno ${s.notHanded}`].filter(Boolean).join(" · ")}
         </span>
       </div>
       <div className="divide-y divide-slate-100">
@@ -3439,7 +3447,7 @@ function NastupniBalicekCard({ items, onAction }) {
               <span className={"px-2 py-0.5 rounded-full text-xs " + (it.overdue ? "bg-red-100 text-red-700 font-medium" : NASTUP_STATE_CLS[it.state])}>{it.detail}</span>
               {it.state !== "done" && onAction && (
                 <button onClick={() => onAction(it.action)} className="text-xs text-teal-700 hover:text-teal-900 font-medium">
-                  {it.action.preset ? (it.state === "created" ? "Otevřít" : "Vytvořit") : "Přejít"} →
+                  {it.action.preset ? (it.state === "missing" ? "Vytvořit" : it.state === "signed" ? "Předat" : "Otevřít") : "Přejít"} →
                 </button>
               )}
             </span>
@@ -3593,6 +3601,7 @@ function DokumentyTab({ employee, sensitive, payroll, currentEmployment, permiss
   const [creating, setCreating] = useState(false);
   const [signingId, setSigningId] = useState(null);
   const [finalizingId, setFinalizingId] = useState(null);
+  const [detailId, setDetailId] = useState(null);
   const canGenerate = hasPerm(permissions, "HR_DOCUMENT_GENERATE");
   const [activePreset, setActivePreset] = useState(null);
   const [creatingPs, setCreatingPs] = useState(false);
@@ -3769,6 +3778,15 @@ function DokumentyTab({ employee, sensitive, payroll, currentEmployment, permiss
                   </div>
                 )}
                 {signingId === d.id && <SignDocumentForm doc={d} signatures={signatures} onCancel={() => setSigningId(null)} onSaved={() => { setSigningId(null); load(); }} />}
+                <button onClick={() => setDetailId(detailId === d.id ? null : d.id)} className="mt-2 text-xs text-slate-500 hover:text-slate-800 flex items-center gap-1">
+                  {detailId === d.id ? <ChevronDown size={14} /> : <ChevronRight size={14} />} Detail – vytvoření, podpis, předání, lhůty
+                </button>
+                {detailId === d.id && (
+                  <DocumentDetail doc={d} signatures={signatures} documents={documents} employee={employee} employment={currentEmployment}
+                    docLabel={docLabel} openFile={openFile}
+                    can={{ generate: canGenerate, approve: canApprove, sign: canSign, send: hasPerm(permissions, "HR_DOCUMENT_SEND") }}
+                    onChanged={load} />
+                )}
               </div>
             );
           })}
@@ -4087,8 +4105,17 @@ function SignDocumentForm({ doc, signatures = [], onCancel, onSaved }) {
   const [extraEmployer, setExtraEmployer] = useState(false);
   const [signedAt, setSignedAt] = useState(new Date().toISOString().slice(0, 10));
   const [file, setFile] = useState(null);
+  const [scanHash, setScanHash] = useState("");
+  // HR potvrdi, ze sken zodpoveda tejto verzii (DB: hr_document_signatures_bind_version).
+  const [confirmed, setConfirmed] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
+
+  async function pickFile(f) {
+    setFile(f);
+    setScanHash("");
+    if (f) setScanHash(await sha256Hex(await f.arrayBuffer()));
+  }
 
   const rows = Object.entries(signers);
   async function submit() {
@@ -4096,6 +4123,7 @@ function SignDocumentForm({ doc, signatures = [], onCancel, onSaved }) {
     const chosen = rows.filter(([, v]) => v.checked);
     if (!chosen.length) { setError("Označte, kdo na skenu podepsal."); return; }
     if (chosen.some(([, v]) => !v.name.trim())) { setError("Vyplňte jméno u každého, kdo podepsal."); return; }
+    if (!confirmed) { setError("Potvrďte, že sken odpovídá této verzi dokumentu."); return; }
     setSaving(true);
     setError("");
     try {
@@ -4110,6 +4138,7 @@ function SignDocumentForm({ doc, signatures = [], onCancel, onSaved }) {
         id: uid(), hr_document_id: doc.id, method: "PAPER", signer_type: signerType,
         signed_at: signedAt ? new Date(signedAt).toISOString() : null, signed_by_name: v.name.trim(),
         document_hash: hash, uploaded_by: userData?.user?.id || null, file_path: storagePath,
+        scan_matches_original_confirmed_by: userData?.user?.id || null,
       })));
       if (sigErr) throw sigErr;
       // hr_documents.file_path sa ZAMERNE NEPREPISUJE - zostava navzdy
@@ -4155,8 +4184,18 @@ function SignDocumentForm({ doc, signatures = [], onCancel, onSaved }) {
       </div>
       <label className="block mb-3">
         <span className="block text-xs font-medium text-slate-500 mb-1">Naskenovaný podepsaný soubor</span>
-        <input type="file" onChange={(e) => setFile(e.target.files?.[0] || null)} className="text-sm" />
+        <input type="file" onChange={(e) => pickFile(e.target.files?.[0] || null)} className="text-sm" />
       </label>
+      <div className="text-xs text-slate-600 bg-slate-50 border border-slate-200 rounded-md p-2 mb-3 space-y-0.5">
+        <div>Sken patří k verzi <b>v{doc.version_no || 1}</b>{doc.final_pdf_sha256
+          ? <> – finální PDF, otisk originálu <code className="font-mono">{doc.final_pdf_sha256.slice(0, 16)}…</code></>
+          : " – vygenerovaný dokument (finální PDF nebylo nahráno)"}</div>
+        {scanHash && <div>Otisk skenu: <code className="font-mono">{scanHash.slice(0, 16)}…</code></div>}
+        <label className="flex items-start gap-2 pt-1 text-sm text-slate-700">
+          <input type="checkbox" checked={confirmed} onChange={(e) => setConfirmed(e.target.checked)} className="mt-0.5" />
+          <span>Potvrzuji, že sken je podepsané vyhotovení právě této verze (obsah odpovídá {doc.final_pdf_sha256 ? "finálnímu PDF" : "vygenerovanému dokumentu"}).</span>
+        </label>
+      </div>
       {error && <div className="text-red-600 text-xs mb-2">{error}</div>}
       <div className="flex justify-end gap-2">
         <button onClick={onCancel} className="text-sm text-slate-500 px-3 py-2">Zrušit</button>

@@ -32,7 +32,8 @@ describe("nástupní balíček", () => {
       payroll: { data: { prohlaseni_poplatnika: [{ rok: 2026 }] } },
     });
     const k = byKey(items);
-    expect(k.ps.state).toBe("done");
+    expect(k.ps.state).toBe("signed");
+    expect(k.ps.detail).toBe("podepsáno – nepředáno");
     expect(k.vymer.state).toBe("created");
     expect(k.skoleni.state).toBe("missing");
     expect(k.dotaznik.state).toBe("done");
@@ -40,7 +41,28 @@ describe("nástupní balíček", () => {
     expect(k.cssz.state).toBe("done");
     expect(k.zp.state).toBe("missing");
     expect(k.zp.overdue).toBe(false);
-    expect(nastupSummary(items)).toMatchObject({ missing: 3, toSign: 1, done: false });
+    expect(nastupSummary(items)).toMatchObject({ missing: 3, toSign: 1, notHanded: 1, done: false });
+  });
+  it("chybí / k podpisu / podepsáno – nepředáno / hotovo", () => {
+    const docs = [
+      { id: "ps", doc_type: "pracovni_smlouva", status: "SIGNED" },
+      { id: "ps-old", doc_type: "pracovni_smlouva", status: "SUPERSEDED" },
+      { id: "mv", doc_type: "mzdovy_vymer", status: "READY_FOR_SIGNATURE", locked_at: "2026-10-02" },
+      { id: "nap", doc_type: "popis_pracovniho_mista", status: "SIGNED" },
+      { id: "sk", doc_type: "vstupni_skoleni", status: "SIGNED" },
+      { id: "dot", doc_type: "osobni_dotaznik", status: "SIGNED" },
+    ];
+    const k = byKey(nastupChecklist({
+      employment: emp, canPayroll: true, today: "2026-10-05", documents: docs,
+      deliveries: [{ hr_document_id: "ps", delivered_at: "2026-10-02" }, { hr_document_id: "nap", sent_at: "2026-10-02" }],
+    }));
+    expect([k.ps.state, k.ps.detail]).toEqual(["done", "podepsáno a předáno"]);
+    expect([k.vymer.state, k.vymer.detail]).toEqual(["created", "k podpisu – čeká na další podpis"]);
+    expect([k.napln.state, k.napln.detail]).toEqual(["signed", "podepsáno – nepředáno"]); // odoslane, nedorucene
+    expect(k.skoleni.state).toBe("done"); // skoleni sa neodovzdava
+    expect([k.dotaznik.state, k.dotaznik.detail]).toEqual(["done", "podepsán (dotazník na tabletu)"]);
+    const zrusena = byKey(nastupChecklist({ employment: emp, today: "2026-10-05", documents: [{ id: "x", doc_type: "pracovni_smlouva", status: "VOIDED" }] }));
+    expect(zrusena.ps.state).toBe("missing");
   });
   it("bez mzdových práv bez výměru a prohlášení; nepodepisuje = hotovo", () => {
     expect(nastupChecklist({ employment: emp, canPayroll: false, today: "2026-10-05" }).map((i) => i.key)).toEqual(["ps", "napln", "skoleni", "dotaznik", "cssz", "zp"]);

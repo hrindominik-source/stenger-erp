@@ -37,3 +37,13 @@ describe("zamknuty != podpisany", () => {
     expect(signingState({ ...contract, status: "SIGNED" }, []).state).toBe("signed");
   });
 });
+
+describe("pisomnost § 334", async () => {
+  const { isS334Document } = await import("./signingRules.js");
+  it("mzdovy vymer a jednostranne ukony zamestnavatela", () => {
+    expect(isS334Document({ doc_type: "mzdovy_vymer" })).toBe(true);
+    expect(isS334Document({ doc_type: "zruseni_ve_zkusebni_dobe" })).toBe(true);
+    expect(isS334Document({ doc_type: "pracovni_smlouva" })).toBe(false);
+    expect(isS334Document({ doc_type: "other", legal_act_type: "EMPLOYER_UNILATERAL" })).toBe(true);
+  });
+});

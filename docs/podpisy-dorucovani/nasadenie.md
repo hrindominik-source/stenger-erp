@@ -70,3 +70,14 @@ npx supabase status -o env | grep -E '^(API_URL|ANON_KEY)=' | sed -e 's/^API_URL
   - typ úkonu sa doplní podľa druhu dokumentu (UI ho doteraz nevypĺňalo); zamknuté historické dokumenty sa nemenia.
 - Rollback: `supabase/rollback/20261022160000_uplny_podpis_rollback.sql` (pred 50). Reťazec 51 → 48 je otestovaný lokálne.
 - Ručný test kiosku: `rucny-test-kiosku.md`.
+
+## Fáza E – detail dokumentu (migrácia 52)
+
+- `20261022170000_dokumenty_detail.sql`:
+  - `hr_document_events`: záznam „staženo k tisku“ s otiskom verzie; len pridávanie, RLS ako pri dokumente;
+  - papierový sken sa viaže na otisk finálneho PDF a vyžaduje potvrdenie HR, že sken zodpovedá originálu (`scan_matches_original_confirmed_by`);
+  - osobné odovzdanie: kto/kedy sa zapíše; písomnosť § 334 len proti podpisu potvrdenia prevzatia (KONCEPT);
+  - `hr_document_new_version`: nepodpísaný dokument → kópia DRAFT v+1, pôvodný SUPERSEDED s dôvodom.
+- Rollback: `supabase/rollback/20261022170000_dokumenty_detail_rollback.sql` (pred 51). Reťazec 52 → 48 otestovaný.
+- UI: súčasný zoznam a tlačidlá ostali; pod každým dokumentom rozbaľovací „Detail“ (vytvorenie, podpis, odovzdanie, lehoty, akcie). Nástupní balíček: chybí / k podpisu / podepsáno – nepředáno / hotovo.
+- Otvorené (F/G): podpis na tablete, odoslanie e-mailom; sken potvrdenia prevzatia sa zatiaľ neukladá (len záznam + poznámka).

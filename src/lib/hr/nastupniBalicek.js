@@ -11,7 +11,8 @@ export const NASTUP_DOCS = [
   { key: "ps", label: "Pracovní smlouva", types: ["pracovni_smlouva", "pracovni_smlouva_cizinec"], preset: "pracovni_smlouva" },
   { key: "vymer", label: "Mzdový výměr", types: ["platovy_vymer", "mzdovy_vymer"], preset: "platovy_vymer", payroll: true },
   { key: "napln", label: "Náplň práce", types: ["hi001_naplen_prace_delnice", "popis_pracovniho_mista"], preset: "hi001_naplen_prace_delnice" },
-  { key: "skoleni", label: "Vstupní školení BOZP", types: ["vstupni_skoleni"], preset: "vstupni_skoleni" },
+  // zaznam o skoleni zostava u zamestnavatela - nic sa neodovzdava
+  { key: "skoleni", label: "Vstupní školení BOZP", types: ["vstupni_skoleni"], preset: "vstupni_skoleni", noHandover: true },
 ];
 
 const dayDiff = (a, b) => Math.round((new Date(a + "T00:00:00Z") - new Date(b + "T00:00:00Z")) / 86400000);
@@ -38,28 +39,39 @@ function lastRegistration(agenda, urad) {
     .sort((a, b) => String(b.datum || "").localeCompare(String(a.datum || "")))[0] || null;
 }
 
-// stav: missing | created (vytvoreno, ceka na podpis) | done
+// Dokument je "predany", ked ma dorucenie (delivered_at) - osobne odovzdanie
+// vyhotovenia alebo dorucenie § 334. Rucny historicky zaznam sa berie ako hotovy.
+const handedOver = (d, deliveries) => d.is_manual_history_entry || deliveries.some((x) => x.hr_document_id === d.id && x.delivered_at);
+
+// stav: missing (chybi) | created (k podpisu) | signed (podepsano - nepredano) | done
 // action: { tab, preset? } - kam prepnout v detailu zamestnance
-export function nastupChecklist({ employee, employment, documents = [], agenda = [], timeline = [], payroll, uplatnujeSlevy, canPayroll, today }) {
+export function nastupChecklist({ employee, employment, documents = [], deliveries = [], agenda = [], timeline = [], payroll, uplatnujeSlevy, canPayroll, today }) {
   const start = employment?.start_date || today;
   const docs = documents.filter((d) => !d.employment_id || d.employment_id === employment?.id);
   const items = [];
   for (const def of NASTUP_DOCS) {
     if (def.payroll && !canPayroll) continue;
-    const mine = docs.filter((d) => def.types.includes(d.doc_type) && d.status !== "ARCHIVED");
-    const signed = mine.find((d) => d.status === "SIGNED");
+    const mine = docs.filter((d) => def.types.includes(d.doc_type) && !["ARCHIVED", "VOIDED", "SUPERSEDED"].includes(d.status));
+    const signed = mine.filter((d) => d.status === "SIGNED");
+    const done = signed.find((d) => def.noHandover || handedOver(d, deliveries));
+    const state = done ? "done" : signed.length ? "signed" : mine.length ? "created" : "missing";
     items.push({
-      key: def.key, label: def.label,
-      state: signed ? "done" : mine.length ? "created" : "missing",
-      detail: signed ? "podepsáno" : mine.some((d) => d.locked_at) ? "čeká na další podpis" : mine.length ? "vytvořeno – nahrajte podepsaný sken" : "chybí",
+      key: def.key, label: def.label, state,
+      detail: {
+        done: def.noHandover ? "podepsáno" : "podepsáno a předáno",
+        signed: "podepsáno – nepředáno",
+        created: mine.some((d) => d.locked_at) ? "k podpisu – čeká na další podpis" : "k podpisu",
+        missing: "chybí",
+      }[state],
       action: { tab: "dokumenty", preset: def.preset },
     });
   }
   const dotaznik = timeline.find((t) => t.event_type === "JMHZ_EXPORT" && String(t.event_date || "") >= addDays(start, -60));
+  const dotaznikPodepsan = documents.some((d) => d.doc_type === "osobni_dotaznik" && d.status === "SIGNED");
   items.push({
     key: "dotaznik", label: "Osobní dotazník zaměstnance",
-    state: dotaznik ? "done" : "missing",
-    detail: dotaznik ? "vytištěn – podepsaný uložte do Dokumentů" : "chybí",
+    state: dotaznik || dotaznikPodepsan ? "done" : "missing",
+    detail: dotaznikPodepsan ? "podepsán (dotazník na tabletu)" : dotaznik ? "vytištěn – podepsaný uložte do Dokumentů" : "chybí",
     action: { tab: "jmhz" },
   });
   if (canPayroll) {
@@ -92,6 +104,7 @@ export function nastupSummary(items) {
   return {
     missing: items.filter((i) => i.state === "missing").length,
     toSign: items.filter((i) => i.state === "created").length,
+    notHanded: items.filter((i) => i.state === "signed").length,
     overdue: items.some((i) => i.overdue),
     done: items.every((i) => i.state === "done"),
   };

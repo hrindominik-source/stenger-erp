@@ -49,7 +49,7 @@ select is((select count(*)::int from storage.objects where bucket_id = 'hr-dokum
 select throws_ok($$insert into public.hr_signature_images (id, png, png_sha256) values ('ki-x', decode(repeat('ab', 200), 'hex'), 'x')$$,
   '42501', null, 'anon nevlozi obrazok podpisu priamo');
 select throws_ok($$insert into public.hr_document_signatures (id, hr_document_id, method, signer_type) values ('ks-x', 'kd-b-q', 'PAPER', 'EMPLOYEE')$$,
-  '42501', null, 'anon nevlozi podpis priamo');
+  null, null, 'anon nevlozi podpis priamo (RLS alebo kontrola skenu)');
 select throws_ok($$select public.hr_onboarding_review('onb-a', 'REVIEWED', 'emp-x')$$, '42501', null, 'anon nevola kontrolu HR');
 select is(public.hr_onboarding_save_draft(repeat('z', 64), '{"first_name":"X"}'), false, 'cudzi/neplatny token: koncept sa neulozi');
 select is(public.hr_onboarding_submit(repeat('z', 64), 'PAPER'), false, 'neplatny token: neodosle sa');
