@@ -8,4 +8,7 @@ import react from "@vitejs/plugin-react";
 export default defineConfig({
   base: process.env.GH_PAGES === "true" ? "/stenger-erp/" : "/",
   plugins: [react()],
+  // dev server nesleduje vystup buildu a testov - `npm run build` pri bezacom
+  // serveri inak na Windows zhodi watcher (EBUSY v dist/)
+  server: { watch: { ignored: ["**/dist/**", "**/test-results/**", "**/playwright-report/**"] } },
 });

@@ -73,6 +73,9 @@ export default function DocumentDetail({ doc, signatures = [], previousSignature
   const [verifyId, setVerifyId] = useState(null);
   const [dlForm, setDlForm] = useState(null); // { id, kind: "confirm" | "withdrawal" }
   const [dlBusy, setDlBusy] = useState(false);
+  // chybajuce podpisy podla servera (ten isty udaj, z ktoreho server odmieta „uz podepsal“)
+  const [serverMissing, setServerMissing] = useState(null);
+  const [completion, setCompletion] = useState({ busy: false, error: "" });
 
   // Kluc (string), nie pole - rodic posiela pri kazdom vykresleni nove pole.
   const signatureUsers = signatures.flatMap((s) => [s.uploaded_by, s.scan_matches_original_confirmed_by]).filter(Boolean).join(",");
@@ -83,7 +86,7 @@ export default function DocumentDetail({ doc, signatures = [], previousSignature
     setError("");
     // Faza G: vyhodnotit lehoty (neucinnost § 335 odst. 3, fikcia § 335) pred zobrazenim.
     await supabase.rpc("hr_document_deliveries_sweep").then(() => null, () => null);
-    const [dlRes, evRes, tplRes, verRes] = await Promise.all([
+    const [dlRes, evRes, tplRes, verRes, missRes] = await Promise.all([
       supabase.from("hr_document_deliveries").select("*").eq("hr_document_id", doc.id).order("created_at", { ascending: true }),
       supabase.from("hr_document_events").select("*").eq("hr_document_id", doc.id).order("created_at", { ascending: true }),
       doc.template_id ? supabase.from("hr_document_templates").select("name").eq("id", doc.template_id).maybeSingle()
@@ -91,7 +94,9 @@ export default function DocumentDetail({ doc, signatures = [], previousSignature
         : textVersionId ? supabase.from("hr_legal_text_versions").select("title, version_no, status").eq("id", textVersionId).maybeSingle()
         : Promise.resolve({ data: null }),
       qualifiedIds ? supabase.from("hr_signature_verifications").select("*").in("signature_id", qualifiedIds.split(",")).order("verified_at", { ascending: false }) : Promise.resolve({ data: [] }),
+      supabase.rpc("hr_document_missing_signers", { p_document_id: doc.id }),
     ]);
+    setServerMissing(missRes.error ? null : (missRes.data || []));
     setVerifications(verRes.data || []);
     if (dlRes.error || evRes.error) setError("Nepodařilo se načíst předání a události dokumentu.");
     const dls = dlRes.data || [];
@@ -109,6 +114,18 @@ export default function DocumentDetail({ doc, signatures = [], previousSignature
     setLoading(false);
   }, [doc.id, doc.template_id, textVersionId, doc.generated_by, doc.finalized_by, signatureUsers, qualifiedIds]);
   useEffect(() => { load(); }, [load]);
+
+  async function completeSigning() {
+    setCompletion({ busy: true, error: "" });
+    try {
+      const c = await invokeSigning({ action: "complete", document_id: doc.id });
+      if (c.complete) await invokeSigning({ action: "deliver_after_signing", document_id: doc.id }).catch(() => null);
+      setCompletion({ busy: false, error: "" });
+      onChanged?.();
+    } catch (e) {
+      setCompletion({ busy: false, error: e.message });
+    }
+  }
 
   const who = (id) => (id ? names[id] || "—" : "—");
   const legalAct = doc.legal_act_type || defaultLegalActType(doc.doc_type);
@@ -135,7 +152,10 @@ export default function DocumentDetail({ doc, signatures = [], previousSignature
   const printReason = !doc.final_pdf_path ? "Nejdřív nahrajte finální PDF." : fullySigned ? "Dokument je podepsán – použijte podepsaný originál." : closed ? "Dokument je zneplatněn / nahrazen." : "";
   const handoverReason = !can.send ? "Chybí oprávnění k předávání dokumentů." : closed ? "Dokument je zneplatněn / nahrazen."
     : !fullySigned ? "Předat lze až dokument podepsaný všemi stranami." : overall.key === "DELIVERED" ? "Dokument už byl předán." : "";
-  const missing = missingSigners(doc, signatures);
+  const missing = serverMissing || missingSigners(doc, signatures);
+  // vsetky podpisy su ulozene, ale podpisany original / stav este nevznikol
+  // (napr. strata spojenia alebo limit servera) - dokoncit opakovatelne
+  const needsCompletion = serverMissing !== null && !serverMissing.length && !fullySigned && !closed && !!doc.locked_at;
   // podpisane vyhlasenie zamestnanca (§ 21 / § 335) - len HR_ADMIN (migracia 61)
   const signedDeclaration = SIGNED_DECLARATION_TYPES.includes(doc.doc_type) && ["SIGNED", "ARCHIVED"].includes(doc.status);
   const voidReason = signedDeclaration
@@ -214,6 +234,17 @@ export default function DocumentDetail({ doc, signatures = [], previousSignature
           </Section>
 
           <Section title="Podpis">
+            {needsCompletion && (
+              <div className="bg-amber-50 border border-amber-200 text-amber-900 rounded-md px-3 py-2 mb-2 text-sm" data-testid="needs-completion">
+                Všechny podpisy jsou uloženy, ale dokument ještě není dokončen (podepsaný originál, stav „Podepsáno“, e-mail).
+                <div className="mt-1 flex items-center gap-2">
+                  <button type="button" onClick={completeSigning} disabled={completion.busy} className="text-teal-700 hover:text-teal-900 font-medium disabled:opacity-50">
+                    {completion.busy ? "Dokončuji…" : "Dokončit podpis"}
+                  </button>
+                  {completion.error && <span className="text-red-700">{completion.error}</span>}
+                </div>
+              </div>
+            )}
             {required.map((r) => {
               const mine = signatures.filter((s) => s.signer_type === r);
               const ok = mine.filter((s) => signatureCounts(doc, s));
@@ -345,7 +376,7 @@ export default function DocumentDetail({ doc, signatures = [], previousSignature
             )}
             {form === "employer" && (
               <FullScreen>
-                <TabletSigning mode="employer" documentId={doc.id} onCancel={() => setForm(null)} onDone={() => { setForm(null); load(); onChanged?.(); }} />
+                <TabletSigning mode="employer" documentId={doc.id} onCancel={() => { setForm(null); load(); onChanged?.(); }} onDone={() => { setForm(null); load(); onChanged?.(); }} />
               </FullScreen>
             )}
             {form === "qualified" && (
@@ -633,7 +664,7 @@ function TabletIssueForm({ doc, onCancel, onDone }) {
   if (signingHere) {
     return (
       <FullScreen>
-        <TabletSigning mode="employee" token={issued.token} onCancel={() => setSigningHere(false)} onDone={onDone} />
+        <TabletSigning mode="employee" token={issued.token} onCancel={() => { setSigningHere(false); onDone?.(); }} onDone={onDone} />
       </FullScreen>
     );
   }

@@ -15,7 +15,9 @@ async function invokeKiosk(body) {
   const { data, error } = await supabase.functions.invoke("hr-kiosk", { body });
   if (data) return data;
   const detail = error?.context ? await error.context.json().catch(() => null) : null;
-  throw new Error(detail?.error || "Spojení se serverem se nezdařilo. Zkuste to znovu.");
+  const e = new Error(detail?.error || "Spojení se serverem se nezdařilo. Zkuste to znovu.");
+  e.status = error?.context?.status || 0;
+  throw e;
 }
 
 // Krok "Bydliště a kontakt" - doplnok pod polia: e-mail pre kontrolu a
@@ -161,12 +163,23 @@ export function KioskSigningStep({ session, onSubmit, onSignedChange, submitting
 
   async function signCurrent() {
     setBusy(true); setError("");
+    const target = { session_token: session.session_token, document_id: current.id };
     try {
-      await invokeKiosk({
-        action: "sign", session_token: session.session_token, document_id: current.id, displayed_sha256: current.sha256,
-        intent_text_version_id: current.intent.id, signature_png_base64: pad.current.toPngBase64(), strokes: pad.current.getStrokes(),
-        evidence: { pages_viewed: view.pagesViewed, viewed_at: new Date().toISOString(), viewport: { w: window.innerWidth, h: window.innerHeight } },
-      });
+      try {
+        await invokeKiosk({
+          action: "sign", ...target, displayed_sha256: current.sha256,
+          intent_text_version_id: current.intent.id, signature_png_base64: pad.current.toPngBase64(), strokes: pad.current.getStrokes(),
+          evidence: { pages_viewed: view.pagesViewed, viewed_at: new Date().toISOString(), viewport: { w: window.innerWidth, h: window.innerHeight } },
+        });
+      } catch (e) {
+        // bez odpovede (spojenie / limit servera): overit, ci sa podpis ulozil
+        if (e.status && e.status < 500) throw e;
+        const st = await invokeKiosk({ action: "complete", ...target }).catch(() => null);
+        if (!st) throw new Error("Spojení se serverem se nezdařilo a stav podpisu nelze ověřit. Zkuste to znovu – podpis se neuloží dvakrát.");
+        if (!st.signed) throw new Error("Podpis se neuložil, zkuste to znovu.");
+      }
+      // podpisany original - opakovatelne; neuspech nerusi ulozeny podpis (dokonci HR)
+      await invokeKiosk({ action: "complete", ...target }).catch(() => null);
       setDocs((list) => list.map((d) => (d.id === current.id ? { ...d, signed: true, bytes: null } : d)));
       setView({ allViewed: false, pagesViewed: [] });
       setPadPoints(0);

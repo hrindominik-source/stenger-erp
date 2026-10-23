@@ -170,12 +170,9 @@ async function sign(service: SupabaseClient, body: any, req: Request) {
   const def = (KIOSK_DOCS as Record<string, any>)[kind];
   if (!def) throw new HttpError(400, "Tento dokument nelze v dotazniku podepsat.");
 
-  // Obnova po vypadku: podpis je ulozeny (dokument zamknuty), chyba original.
-  if (doc.locked_at) {
-    if (doc.status === "SIGNED") return json({ ok: true, already: true });
-    const r = await createSignedOriginal(service, doc, { employeeName: personName(draft) });
-    return json({ ok: true, signed_pdf_sha256: r.sha256, recovered: true });
-  }
+  // Podpis uz je ulozeny (dokument zamknuty) - dalsi podpis nie; original
+  // dokonci samostatna akcia "complete".
+  if (doc.locked_at) return json({ ok: true, saved: true, already: true, needs_completion: doc.status !== "SIGNED" });
   if (doc.status !== "READY_FOR_SIGNATURE") throw new HttpError(409, "Dokument neni pripraven k podpisu.");
   if (body.displayed_sha256 !== doc.final_pdf_sha256) throw new HttpError(409, "Zobrazeny dokument neodpovida finalni verzi - nactete ho prosim znovu.");
   // Podpis (meno, e-mail vo vyhlaseni) len k udajom, z ktorych PDF vzniklo.
@@ -228,9 +225,21 @@ async function sign(service: SupabaseClient, body: any, req: Request) {
     }
   }
 
-  const { data: locked } = await service.from("hr_documents").select("*").eq("id", doc.id).single();
-  const r = await createSignedOriginal(service, locked, { employeeName: personName(draft) });
-  return json({ ok: true, signed_pdf_sha256: r.sha256 });
+  // Podpisany original v samostatnej poziadavke (limit CPU) - klient vola "complete".
+  return json({ ok: true, saved: true, needs_completion: true });
+}
+
+// Podpisany original + SIGNED; idempotentne a bezpecne opakovatelne aj po
+// strate spojenia (signed = ci je podpis ulozeny).
+async function complete(service: SupabaseClient, body: any) {
+  const session = await loadSession(service, body.session_token);
+  const draft = session.draft_data || {};
+  const { data: doc } = await service.from("hr_documents").select("*").eq("id", String(body.document_id || "")).maybeSingle();
+  if (!doc || doc.onboarding_session_id !== session.id) throw new HttpError(404, "Dokument nenalezen.");
+  if (!doc.locked_at) return json({ ok: true, signed: false, complete: false });
+  if (doc.status === "SIGNED" && doc.signed_pdf_path) return json({ ok: true, signed: true, complete: true, already: true });
+  const r = await createSignedOriginal(service, doc, { employeeName: personName(draft) });
+  return json({ ok: true, signed: true, complete: true, signed_pdf_sha256: r.sha256 });
 }
 
 Deno.serve(handle(async (req) => {
@@ -238,5 +247,6 @@ Deno.serve(handle(async (req) => {
   const service = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!, { auth: { persistSession: false } });
   if (body.action === "prepare") return prepare(service, body);
   if (body.action === "sign") return sign(service, body, req);
+  if (body.action === "complete") return complete(service, body);
   throw new HttpError(400, "Neznama akce.");
 }));

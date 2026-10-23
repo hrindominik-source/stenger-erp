@@ -36,3 +36,16 @@ Testy:
 Rollback: `supabase/rollback/20261023170000_bezpecnostne_opravy_rollback.sql` spúšťať pred rollbackom 59, spolu s vrátením frontendu a funkcií `hr-signing` a `hr-kiosk`.
 
 **Zistenie z testov:** generovanie PDF dotazníka v kiosku (`prepare`) lokálne občas narazí na limit CPU času edge runtime (`WORKER_LIMIT`). Hostovaný Supabase má limit CPU na požiadavku tiež. **Na generálke na stagingu treba overiť**, či `prepare` s dotazníkom a § 21/§ 335 prejde. Ak nie, generovanie treba rozdeliť po dokumentoch.
+
+## Doplnok 23. 10. 2026 – polovičný podpis pri limite CPU (ručný test)
+
+Pri podpise za zamestnávateľa sa podpis uložil, ale tvorba podpísaného originálu v tej istej požiadavke prekročila limit CPU Edge Function (WORKER_LIMIT). Dokument ostal „K podpisu“ bez originálu a klient ukázal chybu spojenia.
+
+Oprava:
+- podpis (`sign`, `employer_sign`, kiosk `sign`) len uloží podpis;
+- `complete` (podpísaný originál + „Podepsáno“) a `deliver_after_signing` (e-mail § 21) sú samostatné, idempotentné kroky;
+- `signing_status` po strate spojenia overí, či sa podpis uložil;
+- detail dokumentu berie chýbajúce podpisy zo servera (ten istý údaj ako kontrola „už podepsal“) a ponúkne „Dokončit podpis“;
+- počet strán sa berie z overenia finálneho PDF, nie z opätovnej extrakcie textu.
+
+Testy: IT (idempotencia, jeden e-mail) a e2e (strata spojenia pred serverom a po uložení podpisu).

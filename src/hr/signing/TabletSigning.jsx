@@ -86,12 +86,38 @@ export default function TabletSigning({ mode = "employee", token, documentId, on
         signature_png_base64: pad.current.toPngBase64(), strokes: pad.current.getStrokes(),
         evidence: { pages_viewed: view.pagesViewed, viewed_at: new Date().toISOString(), viewport: { w: window.innerWidth, h: window.innerHeight } },
       };
-      const r = await invokeSigning(employer
-        ? { action: "employer_sign", document_id: documentId, confirmed: true, ...common }
-        : { action: "sign", token, device_id: deviceId(), name_confirmed: true, ...common });
-      setResult(r);
+      const target = employer ? { document_id: documentId } : { token };
+      let saved;
+      try {
+        saved = await invokeSigning(employer
+          ? { action: "employer_sign", document_id: documentId, confirmed: true, ...common }
+          : { action: "sign", token, device_id: deviceId(), name_confirmed: true, ...common });
+      } catch (e) {
+        // Strata spojenia / limit servera: odpoved neprisla, podpis sa ale mohol
+        // ulozit - overit na serveri a ukazat pravdu.
+        if (e.status && e.status < 500) throw e;
+        const st = await invokeSigning({ action: "signing_status", ...target, signer_type: employer ? "EMPLOYER" : "EMPLOYEE" }).catch(() => null);
+        if (!st) throw new Error("Spojení se serverem se nezdařilo a stav podpisu nelze ověřit. Zkontrolujte připojení a zkuste to znovu – podpis se neuloží dvakrát.");
+        if (!st.signed) throw new Error("Podpis se neuložil, zkuste to znovu.");
+        saved = { saved: true, recovered: true, missing: st.missing, needs_completion: st.needs_completion, complete: st.complete };
+      }
+      setResult({ ...saved, completing: !!saved.needs_completion });
+      if (saved.needs_completion) await completeAfterSign(target, saved);
     } catch (e) { setError(e.message); }
     setBusy(false);
+  }
+
+  // Podpisany original + stav „Podepsáno“ a e-mail - samostatne, opakovatelne
+  // kroky. Neuspech nerusi ulozeny podpis; dokonci sa aj z detailu dokumentu.
+  async function completeAfterSign(target, saved) {
+    try {
+      const c = await invokeSigning({ action: "complete", ...target });
+      let s21 = null;
+      if (c.complete) s21 = (await invokeSigning({ action: "deliver_after_signing", ...target }).catch(() => null))?.s21 || null;
+      setResult({ ...saved, ...c, s21, completing: false });
+    } catch {
+      setResult({ ...saved, completing: false, completionFailed: true });
+    }
   }
 
   const shell = (children) => (
@@ -114,10 +140,14 @@ export default function TabletSigning({ mode = "employee", token, documentId, on
         <CheckCircle2 className="mx-auto mb-3 text-emerald-600" size={40} />
         <div className="text-lg font-semibold text-slate-800 mb-1">Podepsáno</div>
         <div className="text-slate-600 mb-6">
-          {result.complete ? "Dokument je podepsán všemi stranami." : "Váš podpis je uložen. Dokument ještě podepíše druhá strana."}
+          <span className="block font-medium text-slate-800 mb-1" data-testid="sign-result">Podpis byl uložen.</span>
+          {result.completing ? "Dokončuji podepsaný dokument…"
+            : result.complete ? "Dokument je podepsán všemi stranami."
+            : result.completionFailed ? "Dokončení dokumentu (podepsaný originál) se teď nepodařilo – dokončí se z detailu dokumentu v HR."
+            : "Dokument ještě podepíše druhá strana."}
           {!employer && " Vraťte prosím zařízení personálnímu oddělení."}
         </div>
-        {onDone && <button onClick={() => onDone(result)} className="bg-teal-700 hover:bg-teal-800 text-white px-6 py-2.5 rounded-lg">Hotovo</button>}
+        {onDone && <button onClick={() => onDone(result)} disabled={result.completing} className="disabled:opacity-50 bg-teal-700 hover:bg-teal-800 text-white px-6 py-2.5 rounded-lg">Hotovo</button>}
       </div>,
     );
   }
@@ -164,7 +194,7 @@ export default function TabletSigning({ mode = "employee", token, documentId, on
         <div className="bg-teal-50 border border-teal-200 rounded-lg px-4 py-3 text-slate-800 mb-3">
           {doc.intent.body}
           {doc.intent.detail && <div className="mt-1">{doc.intent.detail}</div>}
-          <div className="text-xs text-slate-400 mt-1">Verze textu {doc.intent.version_no}</div>
+          <div className="text-xs text-slate-400 mt-1">Verze textu {doc.intent.version_no}{doc.intent.status === "KONCEPT" ? " (koncept)" : ""}</div>
         </div>
         <SignaturePad ref={pad} onChange={({ points }) => setPadPoints(points)} />
         {error && <div className="bg-red-50 text-red-700 text-sm px-3 py-2 rounded-md mt-3">{error}</div>}

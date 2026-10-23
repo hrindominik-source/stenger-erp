@@ -138,8 +138,26 @@ describe.skipIf(!enabled)("faza F - podpis na tablete pri osobnej pritomnosti (l
     const empBody = { action: "employer_sign", document_id: id, displayed_sha256: el.sha256, intent_text_version_id: el.intent.id,
       signature_png_base64: b64(signaturePng(8)), strokes: STROKES, evidence: { pages_viewed: [1, 2, 3] } };
     expect((await invoke(signerHr, empBody)).status).toBe(422); // bez potvrdenia
-    const fin = await invoke(signerHr, { ...empBody, confirmed: true });
-    expect(fin).toMatchObject({ ok: true, complete: true, s21: { sent: true, send_status: "SENT" } });
+    // pred podpisom: stav "neulozeny" (klient po strate spojenia ukaze pravdu)
+    expect(await invoke(signerHr, { action: "signing_status", document_id: id, signer_type: "EMPLOYER" })).toMatchObject({ signed: false, missing: ["EMPLOYER"] });
+    const saved = await invoke(signerHr, { ...empBody, confirmed: true });
+    // podpis sa len ulozi; podpisany original a e-mail su samostatne opakovatelne kroky
+    expect(saved).toMatchObject({ ok: true, saved: true, complete: false, missing: [], needs_completion: true });
+    expect((await row(id)).status).toBe("READY_FOR_SIGNATURE");
+    // strata spojenia po ulozeni: klient overi stav - podpis je ulozeny
+    expect(await invoke(signerHr, { action: "signing_status", document_id: id, signer_type: "EMPLOYER" })).toMatchObject({ signed: true, missing: [], needs_completion: true });
+    // opakovany podpis odmietne (uz podepsal) - z toho isteho udaja
+    expect((await invoke(signerHr, { ...empBody, confirmed: true })).status).toBe(409);
+    const c1 = await invoke(signerHr, { action: "complete", document_id: id });
+    expect(c1).toMatchObject({ ok: true, complete: true });
+    const c2 = await invoke(signerHr, { action: "complete", document_id: id });
+    expect(c2).toMatchObject({ ok: true, complete: true, already: true, signed_pdf_sha256: c1.signed_pdf_sha256 });
+    const fin = await invoke(signerHr, { action: "deliver_after_signing", document_id: id });
+    expect(fin).toMatchObject({ ok: true, s21: { sent: true, send_status: "SENT" } });
+    const again = await invoke(signerHr, { action: "deliver_after_signing", document_id: id });
+    expect(again.s21).toMatchObject({ already: true, delivery_id: fin.s21.delivery_id });
+    const { count: dlCount } = await service.from("hr_document_deliveries").select("id", { count: "exact", head: true }).eq("hr_document_id", id);
+    expect(dlCount).toBe(1); // e-mail len raz
     const done = await row(id);
     expect(done.status).toBe("SIGNED");
     // faza G: podpisany original hned zaslany na § 21 adresu (lokalny Mailpit)
@@ -222,7 +240,9 @@ describe.skipIf(!enabled)("faza F - podpis na tablete pri osobnej pritomnosti (l
     const loaded = await invoke(tablet, { action: "load", token: ok.token, device_id: TABLET, code: ok.code });
     expect(loaded.intent.body).toContain("absolvování školení");
     expect(loaded.intent.detail).toContain("Vstupní BOZP, 01.10.2026");
-    expect(await invoke(tablet, signBody(ok.token, loaded))).toMatchObject({ ok: true, complete: true });
+    expect(await invoke(tablet, signBody(ok.token, loaded))).toMatchObject({ ok: true, saved: true, needs_completion: true });
+    expect(await invoke(tablet, { action: "signing_status", token: ok.token })).toMatchObject({ signed: true });
+    expect(await invoke(tablet, { action: "complete", token: ok.token })).toMatchObject({ ok: true, complete: true });
     expect((await row(id)).status).toBe("SIGNED");
   });
 

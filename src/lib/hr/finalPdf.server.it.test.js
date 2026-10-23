@@ -123,7 +123,8 @@ describe.skipIf(!enabled)("faza C - overenie na serveri (lokalny Supabase)", { t
     expect((await finalize(id, "zmluva.pdf")).ok).toBe(true);
     const d = await row(id);
     const { data: lt } = await service.from("hr_legal_text_versions").insert({
-      id: `lt-it-${run}`, text_key: "INTENT_BILATERAL_CONTRACT", version_no: Number(Date.now() % 100000), title: "Projev vůle",
+      // VYRAZENO: testovaci text sa nesmie stat aktualnym prejavom vole v lokalnej DB
+      id: `lt-it-${run}`, text_key: "INTENT_BILATERAL_CONTRACT", version_no: Number(Date.now() % 100000), title: "Projev vůle", status: "VYRAZENO",
       body: "KONCEPT – KE SCHVÁLENÍ PRÁVNIČKOU. Seznámil/a jsem se s celým obsahem a uzavírám tuto smlouvu.", body_sha256: "x",
     }).select().single();
     for (const [i, signer] of ["EMPLOYEE", "EMPLOYER"].entries()) {

@@ -17,6 +17,11 @@
 // Papierovy sken: { action: "paper_upload", document_id, scan_base64, signers: [{ signer_type, name }], signed_date, confirmed }
 //   sken ulozi a zahashuje server (podpisy zapisuje len server - migracia 60)
 // Plna moc (HR_ADMIN): { action: "signatory_scan", signatory_id, scan_base64 }
+// Dokoncenie po podpise - samostatne, opakovatelne kroky (limit CPU Edge
+// Function; podpis nikdy nezostane v polovicnom stave):
+//   { action: "signing_status", document_id | token, signer_type? }  lahke: je podpis ulozeny?
+//   { action: "complete", document_id | token }   podpisany original + stav SIGNED (idempotentne)
+//   { action: "deliver_after_signing", document_id | token }  e-mail na § 21 adresu (idempotentne)
 import { createClient, type SupabaseClient } from "npm:@supabase/supabase-js@2.45.4";
 import {
   json, handle, HttpError, download, authorize, loadVisibleDocument, extractPdfPages, BUCKET,
@@ -82,12 +87,34 @@ async function signable(service: SupabaseClient, doc: Record<string, any>, signe
   if (!missing.includes(signer)) throw new HttpError(409, signer === "EMPLOYEE" ? "Zaměstnanec už podepsal nebo podpis nepotřebuje." : "Zaměstnavatel už podepsal nebo podpis nepotřebuje.");
 }
 
-async function finish(service: SupabaseClient, docId: string, actorId: string) {
+// Stav po ulozeni podpisu - bez tazkej prace (podpisany original sa robi
+// v samostatnej poziadavke "complete").
+async function afterSignature(service: SupabaseClient, docId: string) {
   const { data: doc } = await service.from("hr_documents").select("*").eq("id", docId).single();
   const missing = await missingSigners(service, doc);
+  return { saved: true, complete: false, missing, needs_completion: missing.length === 0 };
+}
+
+// Podpisany original + SIGNED. Idempotentne: existujuci original sa nevytvara
+// znova; pri sbehu dvoch volani vyhra prve (signed_pdf_path je null).
+async function completeDocument(service: SupabaseClient, docId: string) {
+  const { data: doc } = await service.from("hr_documents").select("*").eq("id", docId).single();
+  if (!doc) throw new HttpError(404, "Dokument nenalezen.");
+  if (["VOIDED", "SUPERSEDED"].includes(doc.status)) throw new HttpError(409, "Dokument je zneplatněn / nahrazen.");
+  const missing = await missingSigners(service, doc);
   if (missing.length) return { complete: false, missing };
+  if (doc.signed_pdf_path && ["SIGNED", "ARCHIVED"].includes(doc.status)) {
+    return { complete: true, already: true, signed_pdf_sha256: doc.signed_pdf_sha256 };
+  }
   const r = await createSignedOriginal(service, doc);
-  return { complete: true, signed_pdf_sha256: r.sha256, s21: await sendS21AfterSigning(service, docId, actorId) };
+  return { complete: true, signed_pdf_sha256: r.sha256 };
+}
+
+// Stary tvar (uznavany podpis): dokoncenie + e-mail v jednej poziadavke.
+async function finish(service: SupabaseClient, docId: string, actorId: string) {
+  const c = await completeDocument(service, docId);
+  if (!c.complete) return c;
+  return { ...c, s21: await sendS21AfterSigning(service, docId, actorId) };
 }
 
 // Faza G: zmluva podpisana elektronicky (zamestnanec na tablete) -> hned
@@ -99,6 +126,11 @@ async function sendS21AfterSigning(service: SupabaseClient, docId: string, actor
   if (legalAct(doc) !== "BILATERAL_CONTRACT") return null;
   const { data: sigs } = await service.from("hr_document_signatures").select("method, signer_type").eq("hr_document_id", docId);
   if (!(sigs || []).some((x) => x.signer_type === "EMPLOYEE" && x.method.startsWith("ELECTRONIC"))) return null;
+  if (!doc.signed_pdf_path || !["SIGNED", "ARCHIVED"].includes(doc.status)) return { sent: false, reason: "Dokument ještě není dokončen (podepsaný originál)." };
+  // uz zaradene / odoslane (aj neuspesne - opakovanie je samostatna akcia HR)
+  const { data: prior } = await service.from("hr_document_deliveries").select("id, send_status, send_error")
+    .eq("hr_document_id", docId).eq("channel", "EMAIL_S21").order("created_at", { ascending: false }).limit(1);
+  if (prior?.length) return { sent: prior[0].send_status === "SENT", delivery_id: prior[0].id, send_status: prior[0].send_status, send_error: prior[0].send_error || null, already: true };
   const decl = await validDeclaration(service, doc.employee_id, "S21_ADDRESS_NOTICE");
   if (!decl) return { sent: false, reason: "Chybí platné § 21 oznámení – předejte vyhotovení osobně." };
   try {
@@ -154,7 +186,9 @@ async function saveTabletSignature(service: SupabaseClient, req: Request, doc: R
 async function pdfForSigning(service: SupabaseClient, doc: Record<string, any>) {
   const bytes = await download(service, doc.final_pdf_path);
   if ((await sha256Hex(bytes)) !== doc.final_pdf_sha256) throw new HttpError(500, "Finální PDF v úložišti neodpovídá otisku.");
-  const pages = (await extractPdfPages(bytes)).length;
+  // pocet stran zisteny serverom pri overeni finalneho PDF (bez opakovanej extrakcie - limit CPU)
+  const known = Number(doc.final_pdf_text_check?.pages || doc.variables_snapshot?.pages);
+  const pages = Number.isInteger(known) && known > 0 ? known : (await extractPdfPages(bytes)).length;
   return { bytes, pages };
 }
 
@@ -200,6 +234,55 @@ async function issue(req: Request, body: any) {
   if (error) throw new HttpError(500, error.message);
   // token patri len do QR kodu na obrazovke HR; kod HR zada/povie na tablete
   return json({ ok: true, token, code, expires_at: expires, signer_name: name });
+}
+
+// ---------- dokoncenie po podpise (HR alebo tablet s pouzitym tokenom) ----------
+// Tablet: token, ktory uz bol pouzity na podpis (inak by sa dalo dokoncovat
+// cudzie dokumenty); HR: dokument, ktory pouzivatel vidi.
+async function completionTarget(req: Request, body: any) {
+  if (typeof body.token === "string") {
+    const service = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!, { auth: { persistSession: false } });
+    if (body.token.length < 30) throw new HttpError(401, "Neplatný podpisový kód QR.");
+    const { data: t } = await service.from("hr_signing_tokens").select("id, hr_document_id, created_by, used_at")
+      .eq("token_sha256", await sha256Hex(enc(body.token))).maybeSingle();
+    if (!t) throw new HttpError(401, "Neplatný podpisový kód QR.");
+    return { service, docId: t.hr_document_id as string, actorId: t.created_by as string, token: t };
+  }
+  const { user, userClient, service } = await authorize(req, ["HR_DOCUMENT_SIGN", "HR_SIGN_FOR_EMPLOYER", "HR_VIEW_BASIC"]);
+  const doc = await loadVisibleDocument(userClient, service, String(body.document_id || ""));
+  return { service, docId: doc.id as string, actorId: user.id as string, user, token: null };
+}
+
+// Lahka kontrola po strate spojenia: je podpis tejto strany ulozeny?
+async function signingStatus(req: Request, body: any) {
+  const { service, docId, user, token } = await completionTarget(req, body);
+  const { data: doc } = await service.from("hr_documents").select("id, status, signed_pdf_path, final_pdf_sha256").eq("id", docId).single();
+  let signed = false;
+  if (token) {
+    const { data: s } = await service.from("hr_document_signatures").select("id").eq("hr_document_id", docId)
+      .eq("signer_type", "EMPLOYEE").eq("evidence->>signing_token_id", token.id).limit(1);
+    signed = !!token.used_at && !!s?.length;
+  } else {
+    const signer = body.signer_type === "EMPLOYEE" ? "EMPLOYEE" : "EMPLOYER";
+    let q = service.from("hr_document_signatures").select("id").eq("hr_document_id", docId).eq("signer_type", signer)
+      .eq("signed_content_sha256", doc.final_pdf_sha256);
+    if (signer === "EMPLOYER") q = q.eq("signer_user_id", user!.id);
+    const { data: s } = await q.limit(1);
+    signed = !!s?.length;
+  }
+  const missing = await missingSigners(service, doc);
+  const complete = ["SIGNED", "ARCHIVED"].includes(doc.status) && !!doc.signed_pdf_path;
+  return json({ ok: true, signed, missing, complete, needs_completion: !missing.length && !complete });
+}
+
+async function completeAction(req: Request, body: any) {
+  const { service, docId } = await completionTarget(req, body);
+  return json({ ok: true, ...(await completeDocument(service, docId)) });
+}
+
+async function deliverAfterSigning(req: Request, body: any) {
+  const { service, docId, actorId } = await completionTarget(req, body);
+  return json({ ok: true, s21: await sendS21AfterSigning(service, docId, actorId) });
 }
 
 // ---------- HR: stav vydaneho tokenu (obrazovka s QR kodom) ----------
@@ -269,7 +352,7 @@ async function load(service: SupabaseClient, body: any) {
   return json({
     ok: true, document: { id: doc.id, title: DOC_TITLES[doc.doc_type] || doc.doc_type, version_no: doc.version_no },
     signer_name: t.signer_name, sha256: doc.final_pdf_sha256, pages, pdf_base64: b64(bytes), expires_at: t.expires_at,
-    intent: { id: intent.id, version_no: intent.version_no, body: intent.body, detail },
+    intent: { id: intent.id, version_no: intent.version_no, status: intent.status, body: intent.body, detail },
   });
 }
 
@@ -297,7 +380,7 @@ async function sign(service: SupabaseClient, req: Request, body: any) {
       intent_detail: detail || null, training_record_id: tr?.id || null, stroke_count: strokes.length,
     },
   });
-  return json({ ok: true, ...(await finish(service, doc.id, t.created_by)) });
+  return json({ ok: true, ...(await afterSignature(service, doc.id)) });
 }
 
 // ---------- HR: podpis za zamestnavatela ----------
@@ -327,7 +410,7 @@ async function employerLoad(req: Request, body: any) {
   return json({
     ok: true, document: { id: doc.id, title: DOC_TITLES[doc.doc_type] || doc.doc_type, version_no: doc.version_no },
     signer_name: name, sha256: doc.final_pdf_sha256, pages, pdf_base64: b64(bytes),
-    intent: { id: intent.id, version_no: intent.version_no, body: intent.body, detail: "" },
+    intent: { id: intent.id, version_no: intent.version_no, status: intent.status, body: intent.body, detail: "" },
   });
 }
 
@@ -346,7 +429,7 @@ async function employerSign(req: Request, body: any) {
       viewed_at: body.evidence?.viewed_at || null, confirmed: true, stroke_count: strokes.length,
     },
   });
-  return json({ ok: true, ...(await finish(service, doc.id, user.id)) });
+  return json({ ok: true, ...(await afterSignature(service, doc.id)) });
 }
 
 // ---------- HR: uznavany el. podpis (PAdES) ----------
@@ -496,6 +579,9 @@ Deno.serve(handle(async (req) => {
     case "issue": return issue(req, body);
     case "load": return load(service(), body);
     case "token_status": return tokenStatus(req, body);
+    case "signing_status": return signingStatus(req, body);
+    case "complete": return completeAction(req, body);
+    case "deliver_after_signing": return deliverAfterSigning(req, body);
     case "sign": return sign(service(), req, body);
     case "employer_load": return employerLoad(req, body);
     case "employer_sign": return employerSign(req, body);

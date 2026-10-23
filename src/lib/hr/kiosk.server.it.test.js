@@ -36,11 +36,17 @@ describe.skipIf(!enabled)("faza D - kiosk dotaznik (lokalny Supabase)", { timeou
     return { status: error.context.status, ...(await error.context.json()) };
   }
   const prepare = (s) => call({ action: "prepare", session_token: s.session_token });
-  const sign = (s, d, over = {}) => call({
-    action: "sign", session_token: s.session_token, document_id: d.id, displayed_sha256: d.sha256,
-    intent_text_version_id: d.intent.id, signature_png_base64: toB64(signaturePng(Math.random() * 6)), strokes: STROKES,
-    evidence: { pages_viewed: Array.from({ length: d.pages }, (_, i) => i + 1), viewed_at: new Date().toISOString() }, ...over,
-  });
+  // ako klient: ulozenie podpisu, potom samostatne dokoncenie (podpisany original)
+  const sign = async (s, d, over = {}) => {
+    const r = await call({
+      action: "sign", session_token: s.session_token, document_id: d.id, displayed_sha256: d.sha256,
+      intent_text_version_id: d.intent.id, signature_png_base64: toB64(signaturePng(Math.random() * 6)), strokes: STROKES,
+      evidence: { pages_viewed: Array.from({ length: d.pages }, (_, i) => i + 1), viewed_at: new Date().toISOString() }, ...over,
+    });
+    if (r.status !== 200 || !r.needs_completion) return r;
+    const c = await call({ action: "complete", session_token: s.session_token, document_id: d.id });
+    return { ...r, ...c, status: c.status };
+  };
 
   beforeAll(async () => {
     kiosk = createClient(URL_, ANON, { auth: { persistSession: false } });
