@@ -5,6 +5,18 @@ begin;
 create extension if not exists pgtap with schema extensions;
 select no_plan();
 
+-- Kolko riadkov tabulky vidi aktualna rola; zamietnutie (42501 - napr. RLS
+-- politika vola funkciu, ktoru anon nesmie spustit, migracia 62) = 0.
+create function pg_temp.anon_vidi(t regclass) returns int language plpgsql as $f$
+declare n int;
+begin
+  execute format('select count(*) from %s', t) into n;
+  return n;
+exception when insufficient_privilege then
+  return 0;
+end $f$;
+grant execute on function pg_temp.anon_vidi(regclass) to anon;
+
 -- ---------- pripravne data (ako postgres) ----------
 insert into auth.users (id, email) values
   ('00000000-0000-0000-0000-0000000000e1', 'hr.e@test.local'),
@@ -107,7 +119,7 @@ select throws_ok($$insert into public.hr_document_events (hr_document_id, event_
 
 set local role anon;
 set local request.jwt.claims = '{"role": "anon"}';
-select is((select count(*) from public.hr_document_events)::int, 0, 'anon nevidi ziadne udalosti');
+select is(pg_temp.anon_vidi('public.hr_document_events'), 0, 'anon nevidi ziadne udalosti');
 select throws_ok($$insert into public.hr_document_events (hr_document_id, event_type) values ('e-ps', 'PRINT_DOWNLOADED')$$, '42501', null, 'anon nezapise udalost');
 reset role;
 

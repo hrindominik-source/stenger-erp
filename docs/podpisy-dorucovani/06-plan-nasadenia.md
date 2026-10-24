@@ -35,6 +35,7 @@ Stav k 23. 10. 2026. **Nič z tohto sa nespúšťa bez výslovného súhlasu pri
 | 59 | `20261023160000_sablona_pracovnej_zmluvy.sql` | vzor pracovnej zmluvy ako šablóna v1, nemenné verzie šablón | nové riadky šablón (dokumenty bez zmeny) |
 | 60 | `20261023170000_bezpecnostne_opravy.sql` | opravy z nezávislej kontroly (`07-nezavisla-kontrola.md`): podpisy a doručenia len zo servera, zmrazenie po finalizácii, … | – (pozor: frontend a `hr-signing`/`hr-kiosk` nasadiť spolu) |
 | 61 | `20261023180000_zneplatnenie_vyhlaseni.sql` | podpísané vyhlásenie zamestnanca (§ 21 / § 335) zneplatní len HR_ADMIN s dôvodom ≥ 10 znakov | – |
+| 62 | `20261024100000_anon_execute.sql` | `anon` a `PUBLIC` smú spúšťať len funkcie kiosku, plánovania smien a `current_role()`; ostatným (aj `hr_admin_delete_employee`) EXECUTE odobraté; nové funkcie bez `anon` / `PUBLIC` | – (pozor: anonymné čítanie HR tabuliek vráti zamietnutie namiesto prázdneho výsledku) |
 
 Baseline `20261022120000_baseline.sql` sa v produkcii **nespúšťa** (produkcia ju má). Pri CLI by sa označila ako aplikovaná (`migration repair`), čo je zápis do produkcie a vyžaduje súhlas.
 
@@ -104,6 +105,7 @@ Poradie je vždy opačné: **frontend → Edge Functions (vypnúť) → rollback
 
 | Rollback | Zastaví sa, ak existujú |
 |---|---|
+| 62 `…anon_execute_rollback.sql` | – |
 | 61 `…zneplatnenie_vyhlaseni_rollback.sql` | – |
 | 60 `…bezpecnostne_opravy_rollback.sql` | – (vrátiť spolu frontend a funkcie) |
 | 59 `…sablona_pracovnej_zmluvy_rollback.sql` | zmluvy vygenerované zo šablóny `tpl-ps*` |

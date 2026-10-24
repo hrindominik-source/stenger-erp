@@ -4,6 +4,18 @@ begin;
 create extension if not exists pgtap with schema extensions;
 select no_plan();
 
+-- Kolko riadkov tabulky vidi aktualna rola; zamietnutie (42501 - napr. RLS
+-- politika vola funkciu, ktoru anon nesmie spustit, migracia 62) = 0.
+create function pg_temp.anon_vidi(t regclass) returns int language plpgsql as $f$
+declare n int;
+begin
+  execute format('select count(*) from %s', t) into n;
+  return n;
+exception when insufficient_privilege then
+  return 0;
+end $f$;
+grant execute on function pg_temp.anon_vidi(regclass) to anon;
+
 -- ---------- pravne texty (koncepty) ----------
 select is((select count(*)::int from public.hr_legal_text_versions
   where text_key in ('S21_ADDRESS_NOTICE', 'S335_NOTICE', 'S335_CONSENT', 'INTENT_QUESTIONNAIRE', 'INTENT_EMPLOYEE_DECLARATION')
@@ -40,12 +52,12 @@ insert into public.hr_signature_images (id, png, png_sha256) values
 
 -- ---------- anon nevidi nic okrem RPC ----------
 set local role anon;
-select is((select count(*)::int from public.hr_documents), 0, 'anon necita HR dokumenty');
-select is((select count(*)::int from public.hr_signature_images), 0, 'anon necita obrazky podpisov');
-select is((select count(*)::int from public.hr_document_signatures), 0, 'anon necita podpisy');
-select is((select count(*)::int from public.employee_contact_declarations), 0, 'anon necita vyhlasenia');
-select is((select count(*)::int from public.onboarding_sessions), 0, 'anon necita relacie (ani svoju)');
-select is((select count(*)::int from storage.objects where bucket_id = 'hr-dokumenty'), 0, 'anon necita subory v ulozisku');
+select is(pg_temp.anon_vidi('public.hr_documents'), 0, 'anon necita HR dokumenty');
+select is(pg_temp.anon_vidi('public.hr_signature_images'), 0, 'anon necita obrazky podpisov');
+select is(pg_temp.anon_vidi('public.hr_document_signatures'), 0, 'anon necita podpisy');
+select is(pg_temp.anon_vidi('public.employee_contact_declarations'), 0, 'anon necita vyhlasenia');
+select is(pg_temp.anon_vidi('public.onboarding_sessions'), 0, 'anon necita relacie (ani svoju)');
+select is(pg_temp.anon_vidi('storage.objects'), 0, 'anon necita subory v ulozisku');
 select throws_ok($$insert into public.hr_signature_images (id, png, png_sha256) values ('ki-x', decode(repeat('ab', 200), 'hex'), 'x')$$,
   '42501', null, 'anon nevlozi obrazok podpisu priamo');
 select throws_ok($$insert into public.hr_document_signatures (id, hr_document_id, method, signer_type) values ('ks-x', 'kd-b-q', 'PAPER', 'EMPLOYEE')$$,

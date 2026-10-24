@@ -6,6 +6,18 @@ begin;
 create extension if not exists pgtap with schema extensions;
 select no_plan();
 
+-- Kolko riadkov tabulky vidi aktualna rola; zamietnutie (42501 - napr. RLS
+-- politika vola funkciu, ktoru anon nesmie spustit, migracia 62) = 0.
+create function pg_temp.anon_vidi(t regclass) returns int language plpgsql as $f$
+declare n int;
+begin
+  execute format('select count(*) from %s', t) into n;
+  return n;
+exception when insufficient_privilege then
+  return 0;
+end $f$;
+grant execute on function pg_temp.anon_vidi(regclass) to anon;
+
 insert into auth.users (id, email) values
   ('00000000-0000-0000-0000-0000000000c1', 'zakladni.h@test.local'),
   ('00000000-0000-0000-0000-0000000000c2', 'zneplatnuje.h@test.local'),
@@ -96,11 +108,11 @@ select is((select count(*) from pg_policy where polcmd in ('w', 'd', '*') and po
   'public.hr_kiosk_unlocks'::regclass, 'public.hr_signing_tokens'::regclass))::int, 0, 'podpisy, dokazy, vyhlasenia, tokeny: ziadna UPDATE/DELETE politika');
 set local role anon;
 set local request.jwt.claims = '{"role": "anon"}';
-select is((select count(*) from public.hr_documents)::int + (select count(*) from public.hr_document_signatures)::int
-  + (select count(*) from public.hr_signature_images)::int + (select count(*) from public.employee_contact_declarations)::int
-  + (select count(*) from public.hr_document_deliveries)::int + (select count(*) from public.hr_signatories)::int
-  + (select count(*) from public.hr_signature_verifications)::int + (select count(*) from public.hr_signing_tokens)::int
-  + (select count(*) from public.hr_legal_text_versions)::int + (select count(*) from public.onboarding_sessions)::int, 0,
+select is(pg_temp.anon_vidi('public.hr_documents') + pg_temp.anon_vidi('public.hr_document_signatures')
+  + pg_temp.anon_vidi('public.hr_signature_images') + pg_temp.anon_vidi('public.employee_contact_declarations')
+  + pg_temp.anon_vidi('public.hr_document_deliveries') + pg_temp.anon_vidi('public.hr_signatories')
+  + pg_temp.anon_vidi('public.hr_signature_verifications') + pg_temp.anon_vidi('public.hr_signing_tokens')
+  + pg_temp.anon_vidi('public.hr_legal_text_versions') + pg_temp.anon_vidi('public.onboarding_sessions'), 0,
   'anon nevidi ziadne riadky novych tabuliek');
 select throws_ok($$insert into public.hr_signature_images (id, png, png_sha256) values ('anon-img', decode('ab', 'hex'), 'x')$$, '42501', null, 'anon nezapise obrazok podpisu');
 select throws_ok($$select public.hr_document_deliveries_sweep()$$, '42501', null, 'anon nespusti sweep');

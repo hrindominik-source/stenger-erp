@@ -5,6 +5,18 @@ begin;
 create extension if not exists pgtap with schema extensions;
 select no_plan();
 
+-- Kolko riadkov tabulky vidi aktualna rola; zamietnutie (42501 - napr. RLS
+-- politika vola funkciu, ktoru anon nesmie spustit, migracia 62) = 0.
+create function pg_temp.anon_vidi(t regclass) returns int language plpgsql as $f$
+declare n int;
+begin
+  execute format('select count(*) from %s', t) into n;
+  return n;
+exception when insufficient_privilege then
+  return 0;
+end $f$;
+grant execute on function pg_temp.anon_vidi(regclass) to anon;
+
 -- ---------- pripravne data (ako postgres) ----------
 insert into auth.users (id, email) values
   ('00000000-0000-0000-0000-0000000000a1', 'admin@test.local'),
@@ -173,8 +185,8 @@ select is((select count(*) from public.audit_log where entity = 'employees_hard_
 -- ---------- 5. kiosk (anon) ----------
 set local role anon;
 set local request.jwt.claims = '{"role": "anon"}';
-select is((select count(*) from public.onboarding_sessions)::int, 0, 'anon necita relacie');
-select is((select count(*) from public.hr_signature_images)::int, 0, 'anon necita obrazky podpisov');
+select is(pg_temp.anon_vidi('public.onboarding_sessions'), 0, 'anon necita relacie');
+select is(pg_temp.anon_vidi('public.hr_signature_images'), 0, 'anon necita obrazky podpisov');
 select is((select count(*) from public.hr_onboarding_start_session())::int, 1, 'anon zalozi relaciu kiosku');
 select isnt((select expires_at from public.hr_onboarding_start_session()), null, 'relacia ma expiraciu');
 select is((public.hr_onboarding_config()->>'s335_consent_enabled'), 'false', '§ 335 suhlas predvolene vypnuty');
