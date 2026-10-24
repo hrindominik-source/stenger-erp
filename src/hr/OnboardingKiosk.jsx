@@ -5,6 +5,7 @@ import { emptyEmployeeValues, MAX_CHILDREN } from "../lib/hr/employeeFields.js";
 import EmployeeFieldsForm, { EmployeeFieldsView, applyFieldChange, visibleSections } from "./EmployeeFieldsForm.jsx";
 import { validateKioskEmail, validateKioskCommunication } from "../lib/hr/kioskDocuments.js";
 import { KioskEmailChoice, KioskCommunicationStep, KioskSigningStep } from "./KioskSteps.jsx";
+import { useIdleTimeout, IdleWarning, IDLE_DEVICE_MS } from "../lib/useIdleTimeout.jsx";
 
 /* =========================================================================
    Tabletovy onboarding dotaznik (kiosk) pre noveho zamestnanca.
@@ -57,6 +58,18 @@ export default function OnboardingKiosk() {
   const [anySigned, setAnySigned] = useState(false);
   const [submittedMode, setSubmittedMode] = useState(null);
   const saveTimer = useRef(null);
+  const [idleEnded, setIdleEnded] = useState(false);
+
+  // 5 min necinnosti: udaje zmiznu z obrazovky, relacia sa zahodi a tablet sa
+  // zamkne (dalsi pokracuje len s novym kodom od HR).
+  const idleWarning = useIdleTimeout(IDLE_DEVICE_MS, () => {
+    if (saveTimer.current) clearTimeout(saveTimer.current);
+    setSession(null);
+    setDraft(emptyEmployeeValues());
+    setEmailConfirm("");
+    setIdleEnded(true);
+    startSession();
+  }, { enabled: phase === "form" || phase === "done" });
 
   useEffect(() => {
     // Best-effort - viz komentar na zaciatku suboru. Nezavisi od vysledku,
@@ -174,7 +187,8 @@ export default function OnboardingKiosk() {
   if (phase === "unlock") {
     return (
       <KioskShell>
-        <KioskUnlock error={error} onSubmit={(code) => startSession(code)} />
+        {idleEnded && <div className="bg-amber-50 text-amber-800 text-sm px-3 py-2 rounded-md mb-2 text-center" data-testid="kiosk-idle-ended">Předchozí dotazník byl ukončen pro nečinnost a údaje z obrazovky zmizely.</div>}
+        <KioskUnlock error={error} onSubmit={(code) => { setIdleEnded(false); startSession(code); }} />
       </KioskShell>
     );
   }
@@ -208,6 +222,7 @@ export default function OnboardingKiosk() {
 
   return (
     <KioskShell>
+      {idleWarning && <IdleWarning text="Dotazník se za minutu ukončí pro nečinnost – dotkněte se obrazovky." />}
       <div className="flex items-center justify-between mb-6">
         <div className="text-sm text-slate-400">Krok {stepIndex + 1} z {STEPS.length}</div>
         <div className="text-sm font-medium text-slate-600">{step.label}</div>

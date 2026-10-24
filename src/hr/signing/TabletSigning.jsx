@@ -3,6 +3,7 @@ import { Loader2, AlertCircle, CheckCircle2, FileSignature, X } from "lucide-rea
 import { supabase } from "../../supabaseClient.js";
 import PdfPagesViewer from "./PdfPagesViewer.jsx";
 import SignaturePad, { signBlockedReason } from "./SignaturePad.jsx";
+import { useIdleTimeout, IdleWarning, IDLE_DEVICE_MS } from "../../lib/useIdleTimeout.jsx";
 
 /* =========================================================================
    Podpisovy rezim na tablete (faza F). Dve pouzitia:
@@ -54,6 +55,12 @@ export default function TabletSigning({ mode = "employee", token, documentId, on
   const [fatal, setFatal] = useState(false);
   const pad = useRef(null);
   const employer = mode === "employer";
+  // Tablet v rukach zamestnanca: 5 min necinnosti dokument zatvori (za
+  // zamestnavatela bezi v Personalistike, tam plati jej 15 min).
+  const idleWarning = useIdleTimeout(IDLE_DEVICE_MS, () => {
+    setDoc(null); setNeedCode(false); setCode(""); setFatal(true);
+    setError("Podpis byl ukončen pro nečinnost. Požádejte personální oddělení o nový odkaz.");
+  }, { enabled: !employer && !result && !fatal });
 
   async function load(withCode) {
     setError(""); setDoc(null);
@@ -131,6 +138,7 @@ export default function TabletSigning({ mode = "employee", token, documentId, on
         </div>
         {children}
       </div>
+      {idleWarning && <IdleWarning text="Podpis se za minutu ukončí pro nečinnost." />}
     </div>
   );
 

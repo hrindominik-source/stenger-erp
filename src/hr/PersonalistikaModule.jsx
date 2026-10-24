@@ -25,6 +25,7 @@ import { documentRequiredSigners, defaultLegalActType, signingState, SIGNER_LABE
 import LegalTextsSection from "./LegalTexts.jsx";
 import KonatelPrehled from "./KonatelPrehled.jsx";
 import MfaGate from "./MfaGate.jsx";
+import { useIdleTimeout, IdleWarning, IDLE_HR_MS, IDLE_LOGOUT_FLAG } from "../lib/useIdleTimeout.jsx";
 import DeclarationsPanel from "./Declarations.jsx";
 import DocumentDetail, { fileToBase64 } from "./DocumentDetail.jsx";
 import { invokeSigning } from "./signing/TabletSigning.jsx";
@@ -173,6 +174,10 @@ export default function PersonalistikaModule() {
   const [openEmployeeId, setOpenEmployeeId] = useState(null);
   const [mfa, setMfa] = useState(null); // { required, ok } - migracia 67
   const [reloadKey, setReloadKey] = useState(0);
+  const idleWarning = useIdleTimeout(IDLE_HR_MS, () => {
+    try { sessionStorage.setItem(IDLE_LOGOUT_FLAG, "1"); } catch { /* bez uloziska len bez hlasky */ }
+    supabase.auth.signOut();
+  });
 
   useEffect(() => {
     let cancelled = false;
@@ -194,8 +199,9 @@ export default function PersonalistikaModule() {
   if (permissions === null) {
     return <div className="text-center text-slate-400 py-10"><Loader2 className="animate-spin mx-auto mb-2" size={24} /> Načítám oprávnění...</div>;
   }
+  const idleBanner = idleWarning && <IdleWarning text="Za minutu budete z Personalistiky odhlášeni pro nečinnost." />;
   if (mfa?.required && !mfa.ok) {
-    return <MfaGate onVerified={() => { setPermissions(null); setReloadKey((k) => k + 1); }} />;
+    return <>{idleBanner}<MfaGate onVerified={() => { setPermissions(null); setReloadKey((k) => k + 1); }} /></>;
   }
   if (permError) {
     return <div className="bg-red-50 text-red-700 text-sm px-3 py-2 rounded-md flex items-center gap-2"><AlertCircle size={16} /> {permError}</div>;
@@ -212,6 +218,7 @@ export default function PersonalistikaModule() {
 
   return (
     <div>
+      {idleBanner}
       <HrSubNav tab={tab} onChange={changeTab} permissions={permissions} />
       {tab === "dashboard" && <DashboardTab permissions={permissions} onOpenEmployee={(id) => { setOpenEmployeeId(id); setTab("zamestnanci"); }} />}
       {tab === "zamestnanci" && (

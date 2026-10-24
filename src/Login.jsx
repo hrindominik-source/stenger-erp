@@ -1,4 +1,13 @@
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
+import { IDLE_LOGOUT_FLAG } from "./lib/useIdleTimeout.jsx";
+
+function readIdleFlag() {
+  try {
+    return !!sessionStorage.getItem(IDLE_LOGOUT_FLAG);
+  } catch {
+    return false;
+  }
+}
 import { Loader2, AlertCircle, LogIn } from "lucide-react";
 
 export default function Login({ onSignIn, onSwitchApp }) {
@@ -6,6 +15,11 @@ export default function Login({ onSignIn, onSwitchApp }) {
   const [password, setPassword] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+  const [idleOut] = useState(readIdleFlag);
+  // priznak sa zmaze az po zobrazeni (inicializator useState bezi v StrictMode dvakrat)
+  useEffect(() => {
+    try { sessionStorage.removeItem(IDLE_LOGOUT_FLAG); } catch { /* nic */ }
+  }, []);
 
   async function handleSubmit(e) {
     e.preventDefault();
@@ -30,6 +44,7 @@ export default function Login({ onSignIn, onSwitchApp }) {
           <div className="text-xs tracking-wider text-slate-400 mb-1">Stenger Czech s.r.o.</div>
           <h1 className="text-lg font-semibold text-slate-900">Přihlášení</h1>
         </div>
+        {idleOut && <div className="bg-amber-50 text-amber-800 text-sm px-3 py-2 rounded-md mb-4" data-testid="idle-logout">Byli jste odhlášeni pro nečinnost.</div>}
         <form onSubmit={handleSubmit}>
           <label className="block mb-3">
             <span className="block text-xs font-medium text-slate-500 mb-1">E-mail</span>
