@@ -34,9 +34,11 @@ describe.skipIf(!enabled)("faza D - kiosk dotaznik (lokalny Supabase)", { timeou
     expect(saved).toBe(true);
     return s;
   }
-  async function call(body) {
+  async function call(body, retry = 2) {
     const { data, error } = await kiosk.functions.invoke("hr-kiosk", { body });
     if (data) return { status: 200, ...data };
+    // 546 WORKER_LIMIT = limit CPU lokalneho edge runtime (generovanie PDF), nie chyba testovaneho kodu
+    if (error.context.status === 546 && retry > 0) return call(body, retry - 1);
     return { status: error.context.status, ...(await error.context.json()) };
   }
   const prepare = (s) => call({ action: "prepare", session_token: s.session_token });

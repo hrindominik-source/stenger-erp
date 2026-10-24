@@ -40,7 +40,7 @@ select is((select user_id from public.hr_permissions where id = 'p-b2'), '000000
 
 -- ---------- personalistka: HR ano, zvysok ERP nie ----------
 set local role authenticated;
-set local request.jwt.claims = '{"sub": "00000000-0000-0000-0000-0000000000b2", "email": "personalistka.b@test.local", "role": "authenticated"}';
+set local request.jwt.claims = '{"sub": "00000000-0000-0000-0000-0000000000b2", "email": "personalistka.b@test.local", "role": "authenticated", "aal": "aal2"}';
 select ok(public.hr_role_ok(), 'rola personalistika je HR rola');
 select is((select count(*) from public.employees where id = 'emp-b1')::int, 1, 'personalistka vidi zamestnancov');
 select is((select birth_number from public.employee_sensitive_data where employee_id = 'emp-b1'), '900101/0000', 'personalistka vidi citlive udaje');
@@ -68,14 +68,14 @@ select is((select profile from public.hr_permissions where id = 'p-b2'), 'PERSON
 
 -- ---------- externa uctovnicka ----------
 set local role authenticated;
-set local request.jwt.claims = '{"sub": "00000000-0000-0000-0000-0000000000b3", "email": "ucetni.b@test.local", "role": "authenticated"}';
+set local request.jwt.claims = '{"sub": "00000000-0000-0000-0000-0000000000b3", "email": "ucetni.b@test.local", "role": "authenticated", "aal": "aal2"}';
 select is((select data->>'mzda_castka' from public.employee_payroll_data where employee_id = 'emp-b1'), '30000', 'uctovnicka vidi mzdu');
 select is((select count(*) from public.orders)::int, 0, 'uctovnicka nevidi objednavky');
 select throws_ok($$insert into public.employees (id, first_name, last_name) values ('emp-b2', 'X', 'Y')$$, '42501', null, 'uctovnicka nezaklada zamestnancov');
 select is((select count(*) from public.hr_document_templates)::int, (select count(*) from public.hr_document_templates)::int, 'uctovnicka moze citat sablony (BASIC)');
 select throws_ok($$select public.hr_kiosk_issue_unlock()$$, 'P0001', null, 'uctovnicka nevydava kody kiosku');
 -- po platnosti ziadny pristup
-set local request.jwt.claims = '{"sub": "00000000-0000-0000-0000-0000000000b4", "email": "ucetni-stara.b@test.local", "role": "authenticated"}';
+set local request.jwt.claims = '{"sub": "00000000-0000-0000-0000-0000000000b4", "email": "ucetni-stara.b@test.local", "role": "authenticated", "aal": "aal2"}';
 select is(public.hr_get_permissions(), '{}'::text[], 'po skonceni platnosti ziadne opravnenia');
 select is((select count(*) from public.employee_payroll_data)::int, 0, 'po skonceni platnosti nevidi mzdy');
 reset role;
@@ -84,15 +84,15 @@ reset role;
 update auth.users set email = 'novy.b@test.local' where id = '00000000-0000-0000-0000-0000000000b3';
 insert into auth.users (id, email) values ('00000000-0000-0000-0000-0000000000b5', 'ucetni.b2@test.local');
 set local role authenticated;
-set local request.jwt.claims = '{"sub": "00000000-0000-0000-0000-0000000000b3", "email": "novy.b@test.local", "role": "authenticated"}';
+set local request.jwt.claims = '{"sub": "00000000-0000-0000-0000-0000000000b3", "email": "novy.b@test.local", "role": "authenticated", "aal": "aal2"}';
 select ok('HR_VIEW_PAYROLL' = any(public.hr_get_permissions()), 'opravnenia idu s uctom aj po zmene e-mailu');
-set local request.jwt.claims = '{"sub": "00000000-0000-0000-0000-0000000000b5", "email": "ucetni.b@test.local", "role": "authenticated"}';
+set local request.jwt.claims = '{"sub": "00000000-0000-0000-0000-0000000000b5", "email": "ucetni.b@test.local", "role": "authenticated", "aal": "aal2"}';
 select is(public.hr_get_permissions(), '{}'::text[], 'iny ucet s povodnym e-mailom opravnenia nededi');
 reset role;
 
 -- ---------- pravidla pri zmene z aplikacie (jednatel) ----------
 set local role authenticated;
-set local request.jwt.claims = '{"sub": "00000000-0000-0000-0000-0000000000b1", "email": "konatel.b@test.local", "role": "authenticated"}';
+set local request.jwt.claims = '{"sub": "00000000-0000-0000-0000-0000000000b1", "email": "konatel.b@test.local", "role": "authenticated", "aal": "aal2"}';
 select throws_like($$insert into public.hr_permissions (id, user_email, profile, permissions, note) values ('p-x1', 'x1@test.local', 'VLASTNI', array['HR_ADMIN'], 'test')$$,
   '%profilem Jednatel%', 'HR_ADMIN nejde pridelit vlastnym nastavenim');
 select throws_like($$insert into public.hr_permissions (id, user_email, profile, permissions) values ('p-x2', 'x2@test.local', 'VLASTNI', array['HR_VIEW_BASIC'])$$,
@@ -107,7 +107,7 @@ select ok((select granted_at is not null and user_id is null from public.hr_perm
 
 -- ---------- jednatel moze mazat (riadeny vymaz) ----------
 set local role authenticated;
-set local request.jwt.claims = '{"sub": "00000000-0000-0000-0000-0000000000b1", "email": "konatel.b@test.local", "role": "authenticated"}';
+set local request.jwt.claims = '{"sub": "00000000-0000-0000-0000-0000000000b1", "email": "konatel.b@test.local", "role": "authenticated", "aal": "aal2"}';
 delete from public.employee_payroll_data where employee_id = 'emp-b1';
 select is((select count(*) from public.employee_payroll_data where employee_id = 'emp-b1')::int, 0, 'HR_ADMIN mazat moze');
 reset role;

@@ -18,7 +18,7 @@ export async function approveTextsForTest(service, keys = [...ECOMM_TEXT_KEYS, .
       if (error) throw error;
       const source = versions.find((v) => v.status === "KONCEPT") || versions[0];
       const { error: insErr } = await service.from("hr_legal_text_versions").insert({
-        id, text_key: key, version_no: versions[0].version_no + 1 + attempt, title: source.title, body: source.body, body_sha256: "x",
+        id, text_key: key, version_no: Math.max(versions[0].version_no + 1, 100000) + attempt, title: source.title, body: source.body, body_sha256: "x",
         status: "SCHVALENO", approval_note: "Dočasně schváleno pro lokální test.",
       });
       if (!insErr) break;

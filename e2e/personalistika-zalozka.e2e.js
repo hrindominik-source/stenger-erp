@@ -4,6 +4,7 @@
 import { test, expect } from "@playwright/test";
 import fs from "node:fs";
 import path from "node:path";
+import { prepareMfa, completeMfa } from "./mfa.js";
 
 const enabled = !!process.env.LOCAL_SUPABASE_URL;
 test.skip(!enabled, "chyba lokalny Supabase (scripts/test-local-e2e.sh)");
@@ -11,6 +12,7 @@ test.skip(!enabled, "chyba lokalny Supabase (scripts/test-local-e2e.sh)");
 test("prve kliknutie na Personalistiku pocas nacitania sa nestrati", async ({ page }) => {
   const seed = fs.readFileSync(path.resolve("supabase/seed.sql"), "utf8");
   const [, email, password] = seed.match(/(hr\.admin@test\.local) \/ (\S+)/);
+  await prepareMfa(email); // jednatel: povinne dvojfazove prihlasenie (migracia 67)
   await page.goto("/");
   await page.getByRole("button", { name: /Personalistika, kvalita a kontroly/ }).click();
   await page.getByLabel(/e-?mail/i).fill(email);
@@ -18,6 +20,9 @@ test("prve kliknutie na Personalistiku pocas nacitania sa nestrati", async ({ pa
   await page.getByRole("button", { name: /přihlásit/i }).click();
   const tab = page.locator("nav button", { hasText: "Personalistika" });
   await tab.waitFor();
+  // overenie kodom raz; relacia aal2 ostava aj po obnoveni stranky
+  await tab.click();
+  await completeMfa(page);
 
   // pomala siet: kazda poziadavka na data / prihlasenie trva 1,2 s
   await page.route("**/{rest,auth}/v1/**", async (r) => { await new Promise((ok) => setTimeout(ok, 1200)); return r.continue().catch(() => {}); });

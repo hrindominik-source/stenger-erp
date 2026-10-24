@@ -9,6 +9,7 @@
 import { test, expect } from "@playwright/test";
 import fs from "node:fs";
 import path from "node:path";
+import { prepareMfa, completeMfa } from "./mfa.js";
 import crypto from "node:crypto";
 import { createClient } from "@supabase/supabase-js";
 import { PDFDocument, StandardFonts } from "pdf-lib";
@@ -62,12 +63,14 @@ test("K + L: papierovy sken, potvrdenie o prevzati a predanie mzdoveho vymeru", 
   const fakePdf = { name: "sken.pdf", mimeType: "application/pdf", buffer: Buffer.from("toto je textovy soubor, ne sken") };
 
   await page.setViewportSize({ width: 1280, height: 900 });
+  await prepareMfa(email); // jednatel: povinne dvojfazove prihlasenie (migracia 67)
   await page.goto("/");
   await page.getByRole("button", { name: /Personalistika, kvalita a kontroly/ }).click();
   await page.getByLabel(/e-?mail/i).fill(email);
   await page.getByLabel(/heslo/i).fill(password);
   await page.getByRole("button", { name: /přihlásit/i }).click();
   await page.locator("nav button", { hasText: "Personalistika" }).click();
+  await completeMfa(page);
   await page.getByRole("row", { name: new RegExp(last) }).click();
   await page.getByRole("button", { name: "Dokumenty", exact: true }).click();
   const card = (id) => page.locator(`[data-doc-id="${id}"]`);

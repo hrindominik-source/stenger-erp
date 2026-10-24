@@ -29,7 +29,7 @@ select ok(exists (select 1 from public.audit_log where entity = 'hr_approval_boo
 
 -- ---------- sablona: spravca pripravi, schvali len jednatel ----------
 set local role authenticated;
-set local request.jwt.claims = '{"sub": "00000000-0000-0000-0000-0000000000d2", "email": "spravce.c@test.local", "role": "authenticated"}';
+set local request.jwt.claims = '{"sub": "00000000-0000-0000-0000-0000000000d2", "email": "spravce.c@test.local", "role": "authenticated", "aal": "aal2"}';
 select lives_ok($$insert into public.hr_document_templates (id, name, doc_type, status) values ('t-c1', 'Dodatek C', 'dodatek', 'KE_SCHVALENI')$$, 'spravca zalozi sablonu');
 select lives_ok($$insert into public.hr_document_template_versions (id, template_id, version_number, file_path, mapping_status, uploaded_by)
   values ('tv-c1', 't-c1', 1, 'sablony/t-c1/v1.docx', 'SCHVALENA', '00000000-0000-0000-0000-0000000000d2')$$, 'spravca nahra verziu (tagy OK)');
@@ -43,7 +43,7 @@ select is((select count(*)::int from public.hr_notifications where entity_id = '
   'nova verzia caka u jednatela');
 
 set local role authenticated;
-set local request.jwt.claims = '{"sub": "00000000-0000-0000-0000-0000000000d1", "email": "konatel.c@test.local", "role": "authenticated"}';
+set local request.jwt.claims = '{"sub": "00000000-0000-0000-0000-0000000000d1", "email": "konatel.c@test.local", "role": "authenticated", "aal": "aal2"}';
 select lives_ok($$select public.hr_approve_template_version('tv-c1', 'overeno', current_date + 365, '§ 40 ZP')$$, 'jednatel schvali');
 reset role;
 select is((select approved_by from public.hr_document_template_versions where id = 'tv-c1'), '00000000-0000-0000-0000-0000000000d1'::uuid, 'kto schvalil zapisala DB');
@@ -52,7 +52,7 @@ select ok((select status = 'SCHVALENA' and current_version_id = 'tv-c1' and next
 select is((select count(*)::int from public.hr_notifications where entity_id = 'tv-c1' and kind = 'KE_SCHVALENI' and resolved_at is null), 0, 'po schvaleni uz necaka');
 
 set local role authenticated;
-set local request.jwt.claims = '{"sub": "00000000-0000-0000-0000-0000000000d2", "email": "spravce.c@test.local", "role": "authenticated"}';
+set local request.jwt.claims = '{"sub": "00000000-0000-0000-0000-0000000000d2", "email": "spravce.c@test.local", "role": "authenticated", "aal": "aal2"}';
 select lives_ok($$insert into public.hr_documents (id, employee_id, doc_type, origin, status, template_id, template_version_id)
   values ('d-c2', 'emp-c1', 'dodatek', 'GENERATED', 'DRAFT', 't-c1', 'tv-c1')$$, 'dokument zo schvalenej sablony ano');
 select throws_like($$update public.hr_document_template_versions set approved_at = now() - interval '1 day' where id = 'tv-c1'$$,
@@ -64,9 +64,10 @@ select throws_like($$insert into public.hr_documents (id, employee_id, doc_type,
 
 -- ---------- pravne texty ----------
 set local role authenticated;
-set local request.jwt.claims = '{"sub": "00000000-0000-0000-0000-0000000000d2", "email": "spravce.c@test.local", "role": "authenticated"}';
+set local request.jwt.claims = '{"sub": "00000000-0000-0000-0000-0000000000d2", "email": "spravce.c@test.local", "role": "authenticated", "aal": "aal2"}';
 insert into public.hr_legal_text_versions (id, text_key, version_no, title, body, body_sha256, status)
-  values ('lt-c2', 'INTENT_TRAINING_RECORD', 2, 'Projev vůle – školení', 'KONCEPT – KE SCHVÁLENÍ PRÁVNIČKOU. Nový text.', 'x', 'SCHVALENO');
+  select 'lt-c2', 'INTENT_TRAINING_RECORD', max(version_no) + 1, 'Projev vůle – školení', 'KONCEPT – KE SCHVÁLENÍ PRÁVNIČKOU. Nový text.', 'x', 'SCHVALENO'
+  from public.hr_legal_text_versions where text_key = 'INTENT_TRAINING_RECORD';
 select throws_like($$update public.hr_legal_text_versions set status = 'SCHVALENO' where id = 'lt-c2'$$, '%jednatel%', 'spravca textov priamo neschvali');
 select throws_like($$select public.hr_approve_legal_text('lt-c2')$$, '%jednatel%', 'spravca nema schvalovaciu funkciu textov');
 reset role;
@@ -74,7 +75,7 @@ select is((select status from public.hr_legal_text_versions where id = 'lt-c2'),
 select isnt((public.hr_current_legal_text('INTENT_TRAINING_RECORD')).id, 'lt-c2', 'koncept sa nepouzije, plati predchadzajuci schvaleny');
 
 set local role authenticated;
-set local request.jwt.claims = '{"sub": "00000000-0000-0000-0000-0000000000d1", "email": "konatel.c@test.local", "role": "authenticated"}';
+set local request.jwt.claims = '{"sub": "00000000-0000-0000-0000-0000000000d1", "email": "konatel.c@test.local", "role": "authenticated", "aal": "aal2"}';
 select lives_ok($$select public.hr_approve_legal_text('lt-c2', 'po kontrole', null, '§ 103 ZP')$$, 'jednatel schvali text');
 reset role;
 select is((public.hr_current_legal_text('INTENT_TRAINING_RECORD')).id, 'lt-c2', 'pouzije sa novo schvaleny text');

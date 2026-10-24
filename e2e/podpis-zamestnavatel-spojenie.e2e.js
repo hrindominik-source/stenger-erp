@@ -8,6 +8,7 @@
 import { test, expect } from "@playwright/test";
 import fs from "node:fs";
 import path from "node:path";
+import { prepareMfa, completeMfa } from "./mfa.js";
 import crypto from "node:crypto";
 import { createClient } from "@supabase/supabase-js";
 import { approveTextsForTest, ESIGN_TEXT_KEYS } from "../src/lib/hr/itApprovedTexts.js";
@@ -62,12 +63,14 @@ test("strata spojenia pri podpise za zamestnavatela: klient ukaze pravdu a dokum
   if (sErr) throw sErr;
 
   await page.setViewportSize({ width: 1280, height: 900 });
+  await prepareMfa(email); // jednatel: povinne dvojfazove prihlasenie (migracia 67)
   await page.goto("/");
   await page.getByRole("button", { name: /Personalistika, kvalita a kontroly/ }).click();
   await page.getByLabel(/e-?mail/i).fill(email);
   await page.getByLabel(/heslo/i).fill(password);
   await page.getByRole("button", { name: /přihlásit/i }).click();
   await page.locator("nav button", { hasText: "Personalistika" }).click();
+  await completeMfa(page);
   await page.getByRole("row", { name: new RegExp(last) }).click();
   await page.getByRole("button", { name: "Dokumenty", exact: true }).click();
   await page.getByRole("button", { name: /Detail – vytvoření, podpis/ }).first().click();

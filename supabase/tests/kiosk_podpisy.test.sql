@@ -21,7 +21,7 @@ grant execute on function pg_temp.anon_vidi(regclass) to anon;
 -- ---------- pravne texty (koncepty) ----------
 select is((select count(*)::int from public.hr_legal_text_versions
   where text_key in ('S21_ADDRESS_NOTICE', 'S335_NOTICE', 'S335_CONSENT', 'INTENT_QUESTIONNAIRE', 'INTENT_EMPLOYEE_DECLARATION')
-    and body like 'KONCEPT – KE SCHVÁLENÍ PRÁVNIČKOU.%'), 5, 'texty kiosku nesu oznacenie konceptu pre pravnicku');
+    and version_no = 1 and body like 'KONCEPT – KE SCHVÁLENÍ PRÁVNIČKOU.%'), 5, 'texty kiosku nesu oznacenie konceptu pre pravnicku');
 select is((select count(*)::int from public.hr_legal_text_versions
   where text_key in ('S21_ADDRESS_NOTICE', 'S335_NOTICE', 'S335_CONSENT') and status = 'KONCEPT'), 3,
   'migracia 66: § 21 a § 335 ostavaju neschvalene');

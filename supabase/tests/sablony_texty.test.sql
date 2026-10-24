@@ -6,7 +6,7 @@ create extension if not exists pgtap with schema extensions;
 select no_plan();
 
 -- ---------- texty a typy ----------
-select is((select count(*) from public.hr_legal_text_versions where text_key in ('S335_REVOCATION', 'RECEIPT_CONFIRMATION') and body like 'KONCEPT – KE SCHVÁLENÍ PRÁVNIČKOU.%')::int, 2,
+select is((select count(*) from public.hr_legal_text_versions where text_key in ('S335_REVOCATION', 'RECEIPT_CONFIRMATION') and version_no = 1 and body like 'KONCEPT – KE SCHVÁLENÍ PRÁVNIČKOU.%')::int, 2,
   'nove texty su koncepty ke schvaleni pravnickou');
 select is((select body_sha256 from public.hr_legal_text_versions where id = 'lt-s335-revocation-v1'),
   encode(extensions.digest(convert_to((select body from public.hr_legal_text_versions where id = 'lt-s335-revocation-v1'), 'UTF8'), 'sha256'), 'hex'), 'otisk textu pocita DB');

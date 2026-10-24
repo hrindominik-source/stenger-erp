@@ -24,6 +24,7 @@ import { KIOSK_DRAFT_KEYS, KIOSK_DOCS } from "../lib/hr/kioskDocuments.js";
 import { documentRequiredSigners, defaultLegalActType, signingState, SIGNER_LABELS } from "../lib/hr/signingRules.js";
 import LegalTextsSection from "./LegalTexts.jsx";
 import KonatelPrehled from "./KonatelPrehled.jsx";
+import MfaGate from "./MfaGate.jsx";
 import DeclarationsPanel from "./Declarations.jsx";
 import DocumentDetail, { fileToBase64 } from "./DocumentDetail.jsx";
 import { invokeSigning } from "./signing/TabletSigning.jsx";
@@ -170,17 +171,20 @@ export default function PersonalistikaModule() {
   const [permError, setPermError] = useState("");
   const [tab, setTab] = useState("dashboard");
   const [openEmployeeId, setOpenEmployeeId] = useState(null);
+  const [mfa, setMfa] = useState(null); // { required, ok } - migracia 67
+  const [reloadKey, setReloadKey] = useState(0);
 
   useEffect(() => {
     let cancelled = false;
     (async () => {
-      const { data, error } = await supabase.rpc("hr_get_permissions");
+      const [{ data, error }, { data: mfaData }] = await Promise.all([supabase.rpc("hr_get_permissions"), supabase.rpc("hr_mfa_status")]);
       if (cancelled) return;
+      setMfa(mfaData || { required: false, ok: true });
       if (error) { setPermError("Nepodařilo se načíst oprávnění."); setPermissions([]); return; }
       setPermissions(data || []);
     })();
     return () => { cancelled = true; };
-  }, []);
+  }, [reloadKey]);
 
   function changeTab(next) {
     setTab(next);
@@ -189,6 +193,9 @@ export default function PersonalistikaModule() {
 
   if (permissions === null) {
     return <div className="text-center text-slate-400 py-10"><Loader2 className="animate-spin mx-auto mb-2" size={24} /> Načítám oprávnění...</div>;
+  }
+  if (mfa?.required && !mfa.ok) {
+    return <MfaGate onVerified={() => { setPermissions(null); setReloadKey((k) => k + 1); }} />;
   }
   if (permError) {
     return <div className="bg-red-50 text-red-700 text-sm px-3 py-2 rounded-md flex items-center gap-2"><AlertCircle size={16} /> {permError}</div>;

@@ -3,6 +3,7 @@
 // scripts/test-local-it.sh.
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import { approveTextsForTest } from "./itApprovedTexts.js";
+import { signInAal2 } from "./itTotp.js";
 import fs from "node:fs";
 import path from "node:path";
 import { createClient } from "@supabase/supabase-js";
@@ -318,7 +319,8 @@ describe.skipIf(!enabled)("faza F - podpis na tablete pri osobnej pritomnosti (l
     const scan = enc("%PDF-1.4\n% plna moc (test)\n%%EOF\n");
     expect((await invoke(hr, { action: "signatory_scan", signatory_id: `sig-${run}`, scan_base64: b64(scan) })).status).toBe(403);
     const admin = createClient(URL_, ANON, { auth: { persistSession: false } });
-    if ((await admin.auth.signInWithPassword({ email: "hr.admin@test.local", password: hrCreds.password })).error) throw new Error("login admin");
+    // jednatel ma povinne dvojfazove prihlasenie (migracia 67)
+    await signInAal2(admin, service, "hr.admin@test.local", hrCreds.password);
     const r = await invoke(admin, { action: "signatory_scan", signatory_id: `sig-${run}`, scan_base64: b64(scan) });
     expect(r).toMatchObject({ ok: true, sha256: await sha256Hex(scan) });
     expect(r.path).toMatch(new RegExp(`^plne-moci/sig-${run}-[0-9a-f]{16}\\.pdf$`));

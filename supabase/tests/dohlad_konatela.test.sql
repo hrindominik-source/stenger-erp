@@ -40,7 +40,7 @@ select ok((select count(*) from public.audit_log where entity = 'profiles' and e
 select ok((select count(*) from public.hr_notifications where event_type = 'PERMISSIONS_CHANGED' and entity_id = 'p-a2') > 0, 'novy pristup -> upozornenie');
 
 set local role authenticated;
-set local request.jwt.claims = '{"sub": "00000000-0000-0000-0000-0000000000a2", "email": "personalistka.a@test.local", "role": "authenticated"}';
+set local request.jwt.claims = '{"sub": "00000000-0000-0000-0000-0000000000a2", "email": "personalistka.a@test.local", "role": "authenticated", "aal": "aal2"}';
 update public.employee_payroll_data set data = data || '{"mzda_castka": "32000", "mzda_platnost_od": "2026-11-01"}' where employee_id = 'emp-a1';
 select is((select count(*) from public.hr_notifications)::int, 0, 'personalistka upozornenia nevidi');
 select throws_like($$select public.hr_konatel_summary(7)$$, '%Neopravneno%', 'personalistka nedostane suhrn');
@@ -50,7 +50,7 @@ select ok((select read_at is null and actor_id = '00000000-0000-0000-0000-000000
   'upozornenie je neprecitane, autor personalistka');
 
 set local role authenticated;
-set local request.jwt.claims = '{"sub": "00000000-0000-0000-0000-0000000000a1", "email": "konatel.a@test.local", "role": "authenticated"}';
+set local request.jwt.claims = '{"sub": "00000000-0000-0000-0000-0000000000a1", "email": "konatel.a@test.local", "role": "authenticated", "aal": "aal2"}';
 update public.employee_payroll_data set data = data || '{"mzda_castka": "33000"}' where employee_id = 'emp-a1';
 select ok((select read_at is not null from public.hr_notifications where event_type = 'WAGE_CHANGED' and data->>'na' = '33000'),
   'krok samotneho jednatela je rovno precitany');
@@ -76,7 +76,7 @@ select is((select count(*) from public.hr_notifications where kind = 'KE_SCHVALE
 
 -- ---------- HR_AUDIT_VIEW len entity, ku ktorym ma pravo na udaje ----------
 set local role authenticated;
-set local request.jwt.claims = '{"sub": "00000000-0000-0000-0000-0000000000a3", "email": "auditor.a@test.local", "role": "authenticated"}';
+set local request.jwt.claims = '{"sub": "00000000-0000-0000-0000-0000000000a3", "email": "auditor.a@test.local", "role": "authenticated", "aal": "aal2"}';
 select ok((select count(*) from public.audit_log where entity = 'employees' and entity_id = 'emp-a1') > 0, 'HR_AUDIT_VIEW vidi audit zamestnancov');
 select is((select count(*) from public.audit_log where entity = 'employee_payroll_data')::int, 0, 'bez HR_VIEW_PAYROLL nevidi audit mzdy');
 select is((select count(*) from public.audit_log where entity = 'hr_permissions')::int, 0, 'nevidi audit opravneni');
