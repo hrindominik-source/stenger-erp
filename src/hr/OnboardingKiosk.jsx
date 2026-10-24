@@ -66,14 +66,29 @@ export default function OnboardingKiosk() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  async function startSession() {
+  // Kiosk je odomknuty kodom od HR (Nástupy -> Odemknout tablet) - bez neho
+  // nevznikne relacia (audit S-03). Kazdy novy dotaznik = novy kod.
+  async function startSession(unlockCode) {
     setPhase("starting");
     setError("");
-    const [{ data, error: err }, { data: cfg, error: cfgErr }] = await Promise.all([
-      supabase.rpc("hr_onboarding_start_session"),
-      supabase.rpc("hr_onboarding_config"),
-    ]);
-    if (err || cfgErr || !data || !data[0]) {
+    const { data: cfg, error: cfgErr } = await supabase.rpc("hr_onboarding_config");
+    if (cfgErr || !cfg) {
+      setError("Nepodařilo se zahájit dotazník. Zkontrolujte připojení a zkuste to znovu.");
+      setPhase("error");
+      return;
+    }
+    if (cfg.device_unlock_required !== false && !unlockCode) {
+      setConfig(cfg);
+      setPhase("unlock");
+      return;
+    }
+    const { data, error: err } = await supabase.rpc("hr_onboarding_start_session", unlockCode ? { p_unlock_code: unlockCode } : {});
+    if (err && /odemceno/i.test(err.message || "")) {
+      setError("Kód je neplatný, už byl použit nebo vypršel. Požádejte personální oddělení o nový.");
+      setPhase("unlock");
+      return;
+    }
+    if (err || !data || !data[0]) {
       setError("Nepodařilo se zahájit dotazník. Zkontrolujte připojení a zkuste to znovu.");
       setPhase("error");
       return;
@@ -156,13 +171,21 @@ export default function OnboardingKiosk() {
     );
   }
 
+  if (phase === "unlock") {
+    return (
+      <KioskShell>
+        <KioskUnlock error={error} onSubmit={(code) => startSession(code)} />
+      </KioskShell>
+    );
+  }
+
   if (phase === "error") {
     return (
       <KioskShell>
         <div className="text-center py-16">
           <AlertCircle className="mx-auto mb-3 text-red-400" size={36} />
           <div className="text-slate-700 mb-4">{error}</div>
-          <button onClick={startSession} className="bg-teal-700 hover:bg-teal-800 text-white text-base font-medium px-6 py-3 rounded-lg">Zkusit znovu</button>
+          <button onClick={() => startSession()} className="bg-teal-700 hover:bg-teal-800 text-white text-base font-medium px-6 py-3 rounded-lg">Zkusit znovu</button>
         </div>
       </KioskShell>
     );
@@ -175,7 +198,7 @@ export default function OnboardingKiosk() {
           <CheckCircle2 className="mx-auto mb-4 text-emerald-500" size={48} />
           <div className="text-xl font-semibold text-slate-800 mb-2">Děkujeme!</div>
           <div className="text-slate-500 mb-8">Váš dotazník byl odeslán. Osobní referent jej zkontroluje a založí váš personální spis.{submittedMode === "PAPER" && " Dotazník vám vytiskne k vlastnoručnímu podpisu."}</div>
-          <button onClick={startSession} className="bg-slate-100 hover:bg-slate-200 text-slate-600 text-sm font-medium px-5 py-2.5 rounded-lg">Začít nový dotazník (další osoba)</button>
+          <button onClick={() => startSession()} className="bg-slate-100 hover:bg-slate-200 text-slate-600 text-sm font-medium px-5 py-2.5 rounded-lg">Začít nový dotazník (další osoba)</button>
         </div>
       </KioskShell>
     );
@@ -245,5 +268,20 @@ function KioskShell({ children }) {
         {children}
       </div>
     </div>
+  );
+}
+
+function KioskUnlock({ error, onSubmit }) {
+  const [code, setCode] = useState("");
+  return (
+    <form className="max-w-sm mx-auto text-center py-12" onSubmit={(e) => { e.preventDefault(); if (code.trim()) onSubmit(code.trim().toUpperCase()); }}>
+      <ShieldCheck className="mx-auto mb-3 text-teal-600" size={36} />
+      <div className="text-lg font-semibold text-slate-800 mb-1">Tablet je zamčený</div>
+      <div className="text-slate-500 text-sm mb-5">Kód pro odemčení vám dá personální oddělení (platí jednou, 15 minut).</div>
+      <input aria-label="Kód pro odemčení" value={code} onChange={(e) => setCode(e.target.value)} autoComplete="off" autoCapitalize="characters"
+        className="w-full text-center text-2xl tracking-widest font-mono border border-slate-300 rounded-lg px-4 py-3 mb-3 uppercase" maxLength={16} />
+      {error && <div className="text-red-600 text-sm mb-3">{error}</div>}
+      <button type="submit" disabled={!code.trim()} className="w-full bg-teal-700 hover:bg-teal-800 disabled:opacity-50 text-white text-base font-medium px-6 py-3 rounded-lg">Odemknout a začít dotazník</button>
+    </form>
   );
 }

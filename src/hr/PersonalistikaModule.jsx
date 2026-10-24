@@ -520,6 +520,40 @@ function EmployeesListTab({ mode, permissions, onOpen }) {
    sa len predvyplní do EmployeeCreateForm (rovnaky insert kod, rovnaka
    karta), HR po kontrole ulozi - nic sa nezapisuje automaticky. */
 
+/* Odomknutie nastupneho tabletu (audit S-03): kiosk bez kodu nezalozi
+   dotaznik. Kod plati raz a kratko (hr_settings.kiosk.unlock_ttl_minutes),
+   v DB je len jeho hash. */
+function KioskUnlockPanel() {
+  const [code, setCode] = useState(null);
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState("");
+  async function issue() {
+    setBusy(true);
+    setErr("");
+    const { data, error } = await supabase.rpc("hr_kiosk_issue_unlock");
+    setBusy(false);
+    if (error) { setErr("Kód se nepodařilo vydat."); return; }
+    setCode({ value: data, at: new Date() });
+  }
+  return (
+    <div className="bg-teal-50 border border-teal-200 rounded-lg p-3 mb-4 flex flex-wrap items-center gap-3">
+      <div className="text-sm text-teal-900 flex-1 min-w-[200px]">
+        Tablet s nástupním dotazníkem se odemyká jednorázovým kódem – vydejte ho až u nového zaměstnance.
+      </div>
+      {code && (
+        <div className="text-center">
+          <div data-testid="kiosk-unlock-code" className="font-mono text-2xl font-semibold tracking-widest text-teal-900">{code.value}</div>
+          <div className="text-[11px] text-teal-700">vydán {code.at.toLocaleTimeString("cs-CZ")}, platí jednou</div>
+        </div>
+      )}
+      <button onClick={issue} disabled={busy} className="bg-teal-700 hover:bg-teal-800 disabled:opacity-50 text-white text-sm font-medium px-4 py-2 rounded-md">
+        {busy ? "Vydávám..." : code ? "Vydat nový kód" : "Odemknout tablet"}
+      </button>
+      {err && <div className="w-full text-xs text-red-600">{err}</div>}
+    </div>
+  );
+}
+
 function OnboardingReviewTab({ permissions, onOpenEmployee }) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -576,6 +610,7 @@ function OnboardingReviewTab({ permissions, onOpenEmployee }) {
     <div>
       <h1 className="text-xl font-semibold mb-4">Nástupy - čekající na kontrolu</h1>
       <p className="text-xs text-slate-400 mb-3">Dotazníky vyplněné na tabletu novým zaměstnancem - nic se nezaloží automaticky, každý vyžaduje ruční kontrolu a potvrzení.</p>
+      <KioskUnlockPanel />
       {loading ? (
         <div className="text-center text-slate-400 py-10"><Loader2 className="animate-spin mx-auto mb-2" size={24} /> Načítám...</div>
       ) : error ? (

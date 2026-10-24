@@ -35,10 +35,10 @@ reset role;
 update public.hr_settings set value = 'false'::jsonb where key = 's335_consent_enabled';
 
 -- ---------- priprava: relacie a dokumenty (server) ----------
-insert into public.onboarding_sessions (id, session_token, status, draft_data, expires_at) values
-  ('onb-a', repeat('a', 64), 'IN_PROGRESS', '{"first_name":"Jana","last_name":"Testová","private_email":"jana@example.test"}', now() + interval '1 hour'),
-  ('onb-b', repeat('b', 64), 'IN_PROGRESS', '{"first_name":"Petr","last_name":"Vzorek"}', now() + interval '1 hour'),
-  ('onb-c', repeat('c', 64), 'IN_PROGRESS', '{"first_name":"Eva","last_name":"Pokusná"}', now() + interval '1 hour');
+insert into public.onboarding_sessions (id, session_token_sha256, status, draft_data, expires_at) values
+  ('onb-a', public.hr_onboarding_token_hash(repeat('a', 64)), 'IN_PROGRESS', '{"first_name":"Jana","last_name":"Testová","private_email":"jana@example.test"}', now() + interval '1 hour'),
+  ('onb-b', public.hr_onboarding_token_hash(repeat('b', 64)), 'IN_PROGRESS', '{"first_name":"Petr","last_name":"Vzorek"}', now() + interval '1 hour'),
+  ('onb-c', public.hr_onboarding_token_hash(repeat('c', 64)), 'IN_PROGRESS', '{"first_name":"Eva","last_name":"Pokusná"}', now() + interval '1 hour');
 insert into public.hr_documents (id, onboarding_session_id, doc_type, origin, status, legal_act_type,
     final_pdf_path, final_pdf_sha256, final_pdf_text_check, finalized_at) values
   ('kd-a-q', 'onb-a', 'osobni_dotaznik', 'GENERATED', 'READY_FOR_SIGNATURE', 'EMPLOYEE_DECLARATION',

@@ -14,7 +14,8 @@ select set_eq(
   $$values ('hr_onboarding_config()'), ('hr_onboarding_start_session(text)'), ('hr_onboarding_save_draft(text,jsonb)'),
            ('hr_onboarding_submit(text,text)'), ('plan_smien_has_employee_pin(text)'), ('plan_smien_set_employee_pin(text,text)'),
            ('plan_smien_verify_employee_pin(text,text)'), ('plan_smien_verify_admin_pin(text)'),
-           ('plan_smien_reset_employee_pin(text,text)'), ('plan_smien_set_admin_pin(text,text)'), ('"current_role"()')$$,
+           ('plan_smien_reset_employee_pin(text,text)'), ('plan_smien_set_admin_pin(text,text)'),
+           ('plan_smien_save(text,jsonb)'), ('plan_smien_add_request(text,text,jsonb)'), ('"current_role"()')$$,
   'anon smie spustat len kiosk, planovanie smien a current_role');
 
 -- ziadna funkcia v public nie je spustitelna cez PUBLIC

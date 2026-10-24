@@ -23,7 +23,10 @@ describe.skipIf(!enabled)("faza D - kiosk dotaznik (lokalny Supabase)", { timeou
   let kiosk, service, hr;
 
   async function newSession(draft) {
-    const { data, error } = await kiosk.rpc("hr_onboarding_start_session");
+    // kiosk sa odomyka kodom od HR (audit S-03, migr. 63)
+    const { data: code, error: codeErr } = await hr.rpc("hr_kiosk_issue_unlock");
+    if (codeErr) throw codeErr;
+    const { data, error } = await kiosk.rpc("hr_onboarding_start_session", { p_unlock_code: code });
     if (error) throw error;
     const s = data[0];
     const { data: saved } = await kiosk.rpc("hr_onboarding_save_draft", { p_session_token: s.session_token, p_draft_data: draft });

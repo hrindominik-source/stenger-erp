@@ -41,8 +41,10 @@ const hex = (b: Uint8Array) => Array.from(b, (x) => x.toString(16).padStart(2, "
 
 async function loadSession(service: SupabaseClient, token: unknown) {
   if (typeof token !== "string" || token.length < 32) throw new HttpError(401, "Neplatna relace.");
+  // v DB je len SHA-256 tokenu (migr. 63) - HR token relacie nevidi
+  const tokenSha = await sha256Hex(new TextEncoder().encode(token));
   const { data } = await service.from("onboarding_sessions").select("id, status, draft_data, expires_at")
-    .eq("session_token", token).maybeSingle();
+    .eq("session_token_sha256", tokenSha).maybeSingle();
   if (!data || data.status !== "IN_PROGRESS" || (data.expires_at && new Date(data.expires_at) < new Date())) {
     throw new HttpError(401, "Relace dotazniku neplati - zacnete prosim znovu.");
   }

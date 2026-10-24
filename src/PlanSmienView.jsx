@@ -1666,29 +1666,33 @@ export default function PlanSmienView({ onBack }) {
   const saveReqIdRef = useRef(0);
   const saveTimeoutRef = useRef(null);
   const latestPayloadRef = useRef(null);
+  // Zapis do DB overuje PIN na serveri (plan_smien_save / plan_smien_add_request,
+  // migr. 63) - PIN sa drzi len v pamati pocas prihlasenia.
+  const adminPinRef = useRef(null);
+  const employeePinRef = useRef(null);
   useEffect(() => {
-    if (!loaded) return;
+    if (!loaded || loginRole !== 'admin') return;
     const payload = { employees, absences, requests, weeks, activeWeekId };
     latestPayloadRef.current = payload;
     if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current);
     saveTimeoutRef.current = setTimeout(() => {
       saveTimeoutRef.current = null;
       const reqId = ++saveReqIdRef.current;
-      supabase.from('plan_smien').update({ data: payload, updated_at: new Date().toISOString() }).eq('id', 1).then(({ error }) => {
+      supabase.rpc('plan_smien_save', { p_admin_pin: adminPinRef.current, p_data: payload }).then(({ data: ok, error }) => {
         if (reqId !== saveReqIdRef.current) return;
-        setSaveError(!!error);
+        setSaveError(!!error || !ok);
       });
     }, 1000);
-  }, [employees, absences, requests, weeks, activeWeekId, loaded]);
+  }, [employees, absences, requests, weeks, activeWeekId, loaded, loginRole]);
 
   // Flush pripadny cakajuci (debounced) zapis pri opusteni zalozky, aby posledna
   // uprava tesne pred odchodom neostala tiche neulozena.
   useEffect(() => {
     return () => {
-      if (saveTimeoutRef.current && latestPayloadRef.current) {
+      if (saveTimeoutRef.current && latestPayloadRef.current && adminPinRef.current) {
         clearTimeout(saveTimeoutRef.current);
         // Komponent uz bude odmountovany - nevolat setState, len fire-and-forget zapis.
-        supabase.from('plan_smien').update({ data: latestPayloadRef.current, updated_at: new Date().toISOString() }).eq('id', 1).then(({ error }) => { if (error) console.error(error); });
+        supabase.rpc('plan_smien_save', { p_admin_pin: adminPinRef.current, p_data: latestPayloadRef.current }).then(({ error }) => { if (error) console.error(error); });
       }
     };
   }, []);
@@ -1866,7 +1870,7 @@ export default function PlanSmienView({ onBack }) {
   async function attemptAdminLogin(pin) {
     const { data: ok, error } = await supabase.rpc('plan_smien_verify_admin_pin', { p_pin: pin });
     if (error) return false;
-    if (ok) { setLoginRole('admin'); return true; }
+    if (ok) { adminPinRef.current = pin; setLoginRole('admin'); return true; }
     return false;
   }
   async function attemptEmployeeLogin(employeeId, pin) {
@@ -1878,16 +1882,17 @@ export default function PlanSmienView({ onBack }) {
       if (!pin || pin.length < 4) return { success: false, message: 'Zvolte si PIN, alespoň 4 znaky.' };
       const { data: set, error } = await supabase.rpc('plan_smien_set_employee_pin', { p_employee_id: employeeId, p_pin: pin });
       if (error || !set) return { success: false, message: 'Nepodařilo se uložit PIN, zkuste to znovu.' };
+      employeePinRef.current = pin;
       setLoginRole('employee');
       setLoginEmployeeId(employeeId);
       return { success: true };
     }
     const { data: ok, error: verErr } = await supabase.rpc('plan_smien_verify_employee_pin', { p_employee_id: employeeId, p_pin: pin });
     if (verErr) return { success: false, message: 'Chyba připojení, zkuste to znovu.' };
-    if (ok) { setLoginRole('employee'); setLoginEmployeeId(employeeId); return { success: true }; }
+    if (ok) { employeePinRef.current = pin; setLoginRole('employee'); setLoginEmployeeId(employeeId); return { success: true }; }
     return { success: false, message: 'Nesprávný PIN.' };
   }
-  function logout() { setLoginRole(null); setLoginEmployeeId(null); }
+  function logout() { adminPinRef.current = null; employeePinRef.current = null; setLoginRole(null); setLoginEmployeeId(null); }
   async function resetEmployeePin(id, adminPin) {
     if (!adminPin) return { success: false, message: 'Zadejte admin PIN.' };
     const { data: ok, error } = await supabase.rpc('plan_smien_reset_employee_pin', { p_admin_pin: adminPin, p_employee_id: id });
@@ -1900,10 +1905,18 @@ export default function PlanSmienView({ onBack }) {
     const { data: ok, error } = await supabase.rpc('plan_smien_set_admin_pin', { p_current_pin: currentPin, p_new_pin: newPin });
     if (error) return { success: false, message: 'Chyba připojení, zkuste to znovu.' };
     if (!ok) return { success: false, message: 'Nesprávný současný PIN.' };
+    if (adminPinRef.current) adminPinRef.current = newPin;
     return { success: true };
   }
   function submitAbsenceRequest(employeeId, from, to, reason, nightOnFromOk, nightOnToOk) {
-    setRequests(rs => [...rs, { id: 'r' + Date.now(), employeeId, from, to, reason, nightOnFromOk, nightOnToOk, status: 'pending' }]);
+    const req = { id: 'r' + Date.now(), employeeId, from, to, reason, nightOnFromOk, nightOnToOk, status: 'pending' };
+    setRequests(rs => [...rs, req]);
+    supabase.rpc('plan_smien_add_request', { p_employee_id: employeeId, p_pin: employeePinRef.current, p_request: req }).then(({ data: ok, error }) => {
+      if (error || !ok) {
+        setRequests(rs => rs.filter(r => r.id !== req.id));
+        setSaveError(true);
+      }
+    });
   }
   function approveRequest(id) {
     const req = requests.find(r => r.id === id);
@@ -1958,7 +1971,16 @@ export default function PlanSmienView({ onBack }) {
   if (loginRole === 'employee') {
     const emp = employees.find(e => e.id === loginEmployeeId);
     if (!emp) { logout(); return null; }
-    return <EmployeePortal employee={emp} weeks={weeks} requests={requests} onSubmitRequest={submitAbsenceRequest} onLogout={logout} />;
+    return (
+      <>
+        {saveError && (
+          <div className="bg-red-600 text-white text-sm text-center py-2 px-4">
+            Žádost se nepodařilo uložit. Zkuste to znovu; pokud to nepomůže, zkontrolujte připojení k internetu.
+          </div>
+        )}
+        <EmployeePortal employee={emp} weeks={weeks} requests={requests} onSubmitRequest={submitAbsenceRequest} onLogout={logout} />
+      </>
+    );
   }
 
   return (

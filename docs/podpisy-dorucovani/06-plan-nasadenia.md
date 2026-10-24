@@ -36,6 +36,7 @@ Stav k 23. 10. 2026. **Nič z tohto sa nespúšťa bez výslovného súhlasu pri
 | 60 | `20261023170000_bezpecnostne_opravy.sql` | opravy z nezávislej kontroly (`07-nezavisla-kontrola.md`): podpisy a doručenia len zo servera, zmrazenie po finalizácii, … | – (pozor: frontend a `hr-signing`/`hr-kiosk` nasadiť spolu) |
 | 61 | `20261023180000_zneplatnenie_vyhlaseni.sql` | podpísané vyhlásenie zamestnanca (§ 21 / § 335) zneplatní len HR_ADMIN s dôvodom ≥ 10 znakov | – |
 | 62 | `20261024100000_anon_execute.sql` | `anon` a `PUBLIC` smú spúšťať len funkcie kiosku, plánovania smien a `current_role()`; ostatným (aj `hr_admin_delete_employee`) EXECUTE odobraté; nové funkcie bez `anon` / `PUBLIC` | – (pozor: anonymné čítanie HR tabuliek vráti zamietnutie namiesto prázdneho výsledku) |
+| 63 | `20261025100000_audit_vysoke_nalezy.sql` | Audit S-01: neznámy súbor v `hr-dokumenty` vidí len HR_ADMIN, prílohy zamestnanca len `HR_VIEW_PAYROLL`; S-02: token kiosku len ako SHA-256 (stĺpec `session_token` zrušený); S-03: `kiosk.device_unlock_required = true`; `plan_smien` zápis len cez `plan_smien_save` / `plan_smien_add_request` s PIN, obmedzenie chybných PIN | **Po nasadení:** kiosk vyžaduje kód (Nástupy → Odemknout tablet) – informovať personalistku; zmeniť predvolený admin PIN Plánu smien, ak je stále `1234`; nasadiť zároveň frontend a Edge Function `hr-kiosk` (hľadá reláciu podľa hashu) |
 
 Baseline `20261022120000_baseline.sql` sa v produkcii **nespúšťa** (produkcia ju má). Pri CLI by sa označila ako aplikovaná (`migration repair`), čo je zápis do produkcie a vyžaduje súhlas.
 
@@ -106,6 +107,7 @@ Poradie je vždy opačné: **frontend → Edge Functions (vypnúť) → rollback
 | Rollback | Zastaví sa, ak existujú |
 |---|---|
 | 62 `…anon_execute_rollback.sql` | – |
+| 63 `…audit_vysoke_nalezy_rollback.sql` | rozpracované kioskové relácie prestanú platiť; S-01–S-03 a zápis do `plan_smien` opäť otvorené |
 | 61 `…zneplatnenie_vyhlaseni_rollback.sql` | – |
 | 60 `…bezpecnostne_opravy_rollback.sql` | – (vrátiť spolu frontend a funkcie) |
 | 59 `…sablona_pracovnej_zmluvy_rollback.sql` | zmluvy vygenerované zo šablóny `tpl-ps*` |

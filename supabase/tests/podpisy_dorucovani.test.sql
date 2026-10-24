@@ -187,6 +187,10 @@ set local role anon;
 set local request.jwt.claims = '{"role": "anon"}';
 select is(pg_temp.anon_vidi('public.onboarding_sessions'), 0, 'anon necita relacie');
 select is(pg_temp.anon_vidi('public.hr_signature_images'), 0, 'anon necita obrazky podpisov');
+select throws_ok($$select * from public.hr_onboarding_start_session()$$, 'P0001', null, 'predvolene kiosk bez kodu nezalozi relaciu (S-03)');
+reset role;
+update public.hr_settings set value = '{"session_ttl_hours": 8, "max_new_sessions_per_hour": 30, "device_unlock_required": false}' where key = 'kiosk';
+set local role anon;
 select is((select count(*) from public.hr_onboarding_start_session())::int, 1, 'anon zalozi relaciu kiosku');
 select isnt((select expires_at from public.hr_onboarding_start_session()), null, 'relacia ma expiraciu');
 select is((public.hr_onboarding_config()->>'s335_consent_enabled'), 'false', '§ 335 suhlas predvolene vypnuty');
@@ -200,8 +204,8 @@ set local role anon;
 select throws_ok($$select * from public.hr_onboarding_start_session('ZLYKOD')$$, 'P0001', null, 'pri zapnutom odomknuti treba platny kod');
 reset role;
 -- Relacia po expiracii: ulozenie zlyha a upratovanie zmaze koncept.
-insert into public.onboarding_sessions (id, session_token, status, draft_data, expires_at)
-  values ('onb-old', 'tok-old', 'IN_PROGRESS', '{"first_name": "Stary"}', now() - interval '1 minute');
+insert into public.onboarding_sessions (id, session_token_sha256, status, draft_data, expires_at)
+  values ('onb-old', public.hr_onboarding_token_hash('tok-old'), 'IN_PROGRESS', '{"first_name": "Stary"}', now() - interval '1 minute');
 select is(public.hr_onboarding_save_draft('tok-old', '{"x": 1}'), false, 'expirovana relacia sa neda ulozit');
 select ok(public.hr_onboarding_cleanup() >= 1, 'upratovanie oznaci expirovane relacie');
 select is((select draft_data from public.onboarding_sessions where id = 'onb-old'), '{}'::jsonb, 'koncept expirovanej relacie je vymazany');
