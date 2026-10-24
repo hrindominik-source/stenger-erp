@@ -10,10 +10,11 @@
 --  - buckety len nastavenia, nie subory.
 -- Tabulky, ktore nemusia existovat (supabase_migrations.schema_migrations,
 -- cron.job), sa citaju cez query_to_xml - ak chybaju, vznikne riadok
--- "(chyba)" namiesto chyby dotazu.
+-- "(chyba)" namiesto chyby dotazu. (Verzia 2 tu vracala prazdny nazov -
+-- NULL z query_to_xml prichadza ako prazdny retazec; vyznam je rovnaky.)
 select kind, name, def from (
   -- verzia katalogu (zmena skriptu = zmena tohto cisla)
-  select 'meta' as kind, 'catalog_version' as name, '2' as def
+  select 'meta' as kind, 'catalog_version' as name, '3' as def
   union all
   select 'meta', 'server_version', current_setting('server_version')
 
@@ -135,8 +136,8 @@ select kind, name, def from (
 
   -- historia migracii (ak tabulka existuje); obsah migracie len ako SHA-256
   union all
-  select 'migration', coalesce(x.version, '(chyba)'),
-         case when x.version is null then 'supabase_migrations.schema_migrations neexistuje'
+  select 'migration', coalesce(nullif(x.version, ''), '(chyba)'),
+         case when nullif(x.version, '') is null then 'supabase_migrations.schema_migrations neexistuje'
               else 'name=' || coalesce(x.name, '') || ' sha256=' || coalesce(x.statements_sha256, '') end
   from xmltable('/table/row' passing query_to_xml(
          case when to_regclass('supabase_migrations.schema_migrations') is not null
@@ -149,8 +150,8 @@ select kind, name, def from (
 
   -- cron ulohy (ak je pg_cron): nazov, rozvrh, stav - BEZ prikazu
   union all
-  select 'cron_job', coalesce(x.jobname, '(chyba)'),
-         case when x.jobname is null then 'cron.job neexistuje (pg_cron nie je zapnuty)'
+  select 'cron_job', coalesce(nullif(x.jobname, ''), '(chyba)'),
+         case when nullif(x.jobname, '') is null then 'cron.job neexistuje (pg_cron nie je zapnuty)'
               else 'schedule=' || coalesce(x.schedule, '') || ' active=' || coalesce(x.active, '') end
   from xmltable('/table/row' passing query_to_xml(
          case when to_regclass('cron.job') is not null
