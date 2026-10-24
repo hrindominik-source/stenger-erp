@@ -2,6 +2,8 @@
 -- lokalny Supabase - nikdy nespustat proti produkcii.
 -- Prihlasenie v `npm run dev`: hr.admin@test.local / test-heslo-lokal
 --                              personalista@test.local / test-heslo-lokal
+--                              personalistka@test.local / test-heslo-lokal  (rola personalistika, profil PERSONALISTA)
+--                              ucetni@test.local / test-heslo-lokal         (rola ucetni_ext, profil UCTOVNIK_EXT)
 
 insert into auth.users (instance_id, id, aud, role, email, encrypted_password, email_confirmed_at,
   raw_app_meta_data, raw_user_meta_data, created_at, updated_at, confirmation_token, recovery_token,
@@ -12,6 +14,12 @@ values
    '{"provider":"email","providers":["email"]}', '{}', now(), now(), '', '', '', ''),
   ('00000000-0000-0000-0000-000000000000', '22222222-2222-2222-2222-222222222222', 'authenticated', 'authenticated',
    'personalista@test.local', extensions.crypt('test-heslo-lokal', extensions.gen_salt('bf')), now(),
+   '{"provider":"email","providers":["email"]}', '{}', now(), now(), '', '', '', ''),
+  ('00000000-0000-0000-0000-000000000000', '33333333-3333-3333-3333-333333333333', 'authenticated', 'authenticated',
+   'personalistka@test.local', extensions.crypt('test-heslo-lokal', extensions.gen_salt('bf')), now(),
+   '{"provider":"email","providers":["email"]}', '{}', now(), now(), '', '', '', ''),
+  ('00000000-0000-0000-0000-000000000000', '44444444-4444-4444-4444-444444444444', 'authenticated', 'authenticated',
+   'ucetni@test.local', extensions.crypt('test-heslo-lokal', extensions.gen_salt('bf')), now(),
    '{"provider":"email","providers":["email"]}', '{}', now(), now(), '', '', '', '')
 on conflict (id) do nothing;
 
@@ -20,18 +28,28 @@ values
   (gen_random_uuid(), '11111111-1111-1111-1111-111111111111', '11111111-1111-1111-1111-111111111111',
    '{"sub":"11111111-1111-1111-1111-111111111111","email":"hr.admin@test.local"}', 'email', now(), now(), now()),
   (gen_random_uuid(), '22222222-2222-2222-2222-222222222222', '22222222-2222-2222-2222-222222222222',
-   '{"sub":"22222222-2222-2222-2222-222222222222","email":"personalista@test.local"}', 'email', now(), now(), now())
+   '{"sub":"22222222-2222-2222-2222-222222222222","email":"personalista@test.local"}', 'email', now(), now(), now()),
+  (gen_random_uuid(), '33333333-3333-3333-3333-333333333333', '33333333-3333-3333-3333-333333333333',
+   '{"sub":"33333333-3333-3333-3333-333333333333","email":"personalistka@test.local"}', 'email', now(), now(), now()),
+  (gen_random_uuid(), '44444444-4444-4444-4444-444444444444', '44444444-4444-4444-4444-444444444444',
+   '{"sub":"44444444-4444-4444-4444-444444444444","email":"ucetni@test.local"}', 'email', now(), now(), now())
 on conflict do nothing;
 
 insert into public.profiles (id, full_name, role) values
   ('11111111-1111-1111-1111-111111111111', 'Test HR Admin', 'office'),
-  ('22222222-2222-2222-2222-222222222222', 'Test Personalista', 'office')
+  ('22222222-2222-2222-2222-222222222222', 'Test Personalista', 'office'),
+  ('33333333-3333-3333-3333-333333333333', 'Test Personalistka', 'personalistika'),
+  ('44444444-4444-4444-4444-444444444444', 'Test Ucetni', 'ucetni_ext')
 on conflict (id) do nothing;
 
-insert into public.hr_permissions (id, user_email, permissions) values
-  ('seed-test-admin', 'hr.admin@test.local', array['HR_ADMIN']),
-  ('seed-test-hr', 'personalista@test.local', array['HR_VIEW_BASIC', 'HR_VIEW_SENSITIVE', 'HR_EDIT',
+insert into public.hr_permissions (id, user_email, profile, permissions) values
+  ('seed-test-admin', 'hr.admin@test.local', 'KONATEL', array['HR_ADMIN']),
+  ('seed-test-hr', 'personalista@test.local', 'VLASTNI', array['HR_VIEW_BASIC', 'HR_VIEW_SENSITIVE', 'HR_EDIT',
     'HR_DOCUMENT_GENERATE', 'HR_DOCUMENT_SIGN', 'HR_DOCUMENT_SEND'])
+on conflict (user_email) do nothing;
+insert into public.hr_permissions (id, user_email, profile, valid_until) values
+  ('seed-test-personalistka', 'personalistka@test.local', 'PERSONALISTA', null),
+  ('seed-test-ucetni', 'ucetni@test.local', 'UCTOVNIK_EXT', current_date + 90)
 on conflict (user_email) do nothing;
 
 insert into public.positions (id, code, name) values

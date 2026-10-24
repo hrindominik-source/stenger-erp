@@ -628,6 +628,15 @@ function MiniERP() {
       <Loader2 className="animate-spin mr-2" size={20} /> Načítám...
     </div>
   );
+  // Personalistka a externa uctovnicka (balik B auditu) vidia len
+  // Personalistiku - ziadna dalsia cast ERP, nech zvolili cokolvek.
+  if (HR_ONLY_ROLES.includes(profile?.role)) {
+    return (
+      <Suspense fallback={lazyFallback}>
+        <KvalitaView fullName={profile.full_name} onSignOut={signOut} onBack={switchApp} hrOnly />
+      </Suspense>
+    );
+  }
   if (appChoice === "kvalita") {
     if (profile?.role !== "office") {
       return (
@@ -732,6 +741,7 @@ export default function MiniERPRoot() {
   }
   return <MiniERP />;
 }
+const HR_ONLY_ROLES = ["personalistika", "ucetni_ext"];
 const CENOTVORBA_ALLOWED_EMAILS = ["dh@stenger.eu"];
 const AUDIT_LOG_ALLOWED_EMAILS = ["dh@stenger.eu"];
 const RSPO_CERT_CODE = "BVC-RSPO-CZ009581, PALMÖL MB";

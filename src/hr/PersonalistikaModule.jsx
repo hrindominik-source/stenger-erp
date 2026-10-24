@@ -86,7 +86,8 @@ const HR_PERMISSION_OPTIONS = [
   { value: "HR_VIEW_MEDICAL_ADMIN", label: "Zobrazit evidenci lékařských prohlídek" },
   { value: "HR_EDIT", label: "Upravovat záznamy" },
   { value: "HR_DOCUMENT_GENERATE", label: "Generovat dokumenty" },
-  { value: "HR_DOCUMENT_APPROVE", label: "Schvalovat dokumenty/šablony" },
+  { value: "HR_DOCUMENT_APPROVE", label: "Posouvat stav dokumentů (ke kontrole, schváleno)" },
+  { value: "HR_TEMPLATE_APPROVE", label: "Spravovat a schvalovat šablony dokumentů" },
   { value: "HR_DOCUMENT_SIGN", label: "Zaznamenávat podpisy (papír, tablet zaměstnance, uznávaný podpis)" },
   { value: "HR_SIGN_FOR_EMPLOYER", label: "Podepisovat za zaměstnavatele (jen s platnou plnou mocí)" },
   { value: "HR_DOCUMENT_SEND", label: "Předávat a doručovat dokumenty (osobně, e-mailem)" },
@@ -134,14 +135,15 @@ const HR_SUB_TABS = [
   { key: "byvali", label: "Bývalí zaměstnanci", icon: Users2 },
   { key: "nastupy", label: "Nástupy", icon: UserPlus, editOnly: true },
   { key: "pozice", label: "Pozice", icon: Briefcase },
-  { key: "sablony", label: "Šablony dokumentů", icon: FileText },
+  { key: "sablony", label: "Šablony dokumentů", icon: FileText, templatesOnly: true },
   { key: "nastaveni", label: "Nastavení", icon: Settings, adminOnly: true },
 ];
 
 function HrSubNav({ tab, onChange, permissions }) {
   return (
     <div className="flex flex-wrap gap-1.5 bg-white border border-slate-200 rounded-lg p-1.5 mb-4">
-      {HR_SUB_TABS.filter((t) => (!t.adminOnly || hasPerm(permissions, "HR_ADMIN")) && (!t.editOnly || hasPerm(permissions, "HR_EDIT"))).map((t) => {
+      {HR_SUB_TABS.filter((t) => (!t.adminOnly || hasPerm(permissions, "HR_ADMIN")) && (!t.editOnly || hasPerm(permissions, "HR_EDIT"))
+        && (!t.templatesOnly || hasPerm(permissions, "HR_TEMPLATE_APPROVE") || hasPerm(permissions, "HR_LEGAL_TEXTS_ADMIN"))).map((t) => {
         const Icon = t.icon;
         const active = tab === t.key;
         return (
@@ -4969,7 +4971,7 @@ function TemplatesTab({ permissions }) {
   const [templates, setTemplates] = useState([]);
   const [versionsByTemplate, setVersionsByTemplate] = useState(new Map());
   const [uploading, setUploading] = useState(false);
-  const canApprove = hasPerm(permissions, "HR_DOCUMENT_APPROVE");
+  const canApprove = hasPerm(permissions, "HR_TEMPLATE_APPROVE");
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -5022,7 +5024,7 @@ function TemplatesTab({ permissions }) {
       <div className="flex items-center justify-between mb-4">
         <h1 className="text-xl font-semibold">Šablony dokumentů</h1>
       </div>
-      {hasPerm(permissions, "HR_DOCUMENT_APPROVE") && (
+      {canApprove && (
         <UploadTemplateForm uploading={uploading} setUploading={setUploading} onUploaded={load} templates={templates} />
       )}
       {loading ? (
@@ -5235,11 +5237,29 @@ function UploadTemplateForm({ uploading, setUploading, onUploaded, templates }) 
 
 /* ---------------- Nastavení (HR_ADMIN) ---------------- */
 
+/* Profily opravneni (balik B auditu): opravnenia profilu nastavuje DB
+   (hr_profile_permissions); UI ich len zobrazuje. VLASTNI = vynimka s
+   dovodom, bez HR_ADMIN. Externa uctovnicka ma povinny koniec pristupu. */
+const HR_PROFILE_OPTIONS = [
+  { value: "KONATEL", label: "Jednatel (vše, schvaluje)" },
+  { value: "PERSONALISTA", label: "Personalista (každodenní práce, bez šablon a nastavení)" },
+  { value: "UCTOVNIK_EXT", label: "Externí účetní (jen mzdové podklady, časově omezeno)" },
+  { value: "VLASTNI", label: "Vlastní nastavení (výjimka s důvodem)" },
+];
+const profileLabel = (v) => HR_PROFILE_OPTIONS.find((o) => o.value === v)?.label.split(" (")[0] || v;
+const isoToCz = (d) => (d ? d.split("-").reverse().join(". ") : "");
+
+function permissionValidity(row, today) {
+  if (row.valid_from && row.valid_from > today) return { active: false, text: `platí od ${isoToCz(row.valid_from)}` };
+  if (row.valid_until && row.valid_until < today) return { active: false, text: `vypršelo ${isoToCz(row.valid_until)}` };
+  return { active: true, text: row.valid_until ? `do ${isoToCz(row.valid_until)}` : "bez omezení" };
+}
+
 function SettingsTab() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [rows, setRows] = useState([]);
-  const [adding, setAdding] = useState(false);
+  const [editing, setEditing] = useState(null); // {} = nova osoba
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -5251,23 +5271,30 @@ function SettingsTab() {
 
   useEffect(() => { load(); }, [load]);
 
-  async function savePermissions(row, permissions) {
-    await supabase.from("hr_permissions").upsert({ id: row.id || uid(), user_email: row.user_email, permissions }, { onConflict: "user_email" });
-    load();
-  }
-
   if (loading) return <div className="text-center text-slate-400 py-10"><Loader2 className="animate-spin mx-auto mb-2" size={24} /> Načítám...</div>;
   if (error) return <div className="bg-red-50 text-red-700 text-sm px-3 py-2 rounded-md">{error}</div>;
 
+  const today = new Date().toISOString().slice(0, 10);
+  const admins = rows.filter((r) => (r.permissions || []).includes("HR_ADMIN") && permissionValidity(r, today).active);
   return (
     <div>
       <div className="flex items-center justify-between mb-4">
         <h1 className="text-xl font-semibold">Nastavení přístupů</h1>
-        {!adding && <button onClick={() => setAdding(true)} className="flex items-center gap-1.5 bg-teal-700 hover:bg-teal-800 text-white text-sm font-medium px-3 py-2 rounded-md"><UserPlus size={16} /> Přidat osobu</button>}
+        {!editing && <button onClick={() => setEditing({})} className="flex items-center gap-1.5 bg-teal-700 hover:bg-teal-800 text-white text-sm font-medium px-3 py-2 rounded-md"><UserPlus size={16} /> Přidat osobu</button>}
       </div>
-      {adding && <AddPermissionForm onCancel={() => setAdding(false)} onSaved={() => { setAdding(false); load(); }} />}
+      <p className="text-xs text-slate-500 mb-3">
+        Personalista a externí účetní potřebují i odpovídající roli účtu (personalistika / ucetni_ext) – pak vidí jen Personalistiku, ne zbytek ERP.
+      </p>
+      {admins.length > 1 && (
+        <div data-testid="vice-adminu" className="bg-amber-50 border border-amber-200 text-amber-800 text-sm px-3 py-2 rounded-md mb-3">
+          Plná práva (HR_ADMIN) má {admins.length} osob: {admins.map((a) => a.user_email).join(", ")}. Podle pravidel má být jediným administrátorem jednatel.
+        </div>
+      )}
+      {editing && !editing.id && <PermissionForm row={editing} onCancel={() => setEditing(null)} onSaved={() => { setEditing(null); load(); }} />}
       <div className="space-y-3">
-        {rows.map((row) => <PermissionRow key={row.id} row={row} onSave={(p) => savePermissions(row, p)} />)}
+        {rows.map((row) => (editing && editing.id === row.id
+          ? <PermissionForm key={row.id} row={row} onCancel={() => setEditing(null)} onSaved={() => { setEditing(null); load(); }} />
+          : <PermissionRow key={row.id} row={row} today={today} onEdit={() => setEditing(row)} />))}
         {rows.length === 0 && <div className="text-sm text-slate-400">Zatím nikdo nemá přiřazená oprávnění.</div>}
       </div>
       <SignatoriesSettings />
@@ -5295,7 +5322,7 @@ function SignatoriesSettings() {
   const load = useCallback(async () => {
     const [sRes, pRes] = await Promise.all([
       supabase.from("hr_signatories").select("*").order("valid_from", { ascending: false }),
-      supabase.from("profiles").select("id, full_name").eq("role", "office").order("full_name"),
+      supabase.from("profiles").select("id, full_name").in("role", ["office", "personalistika"]).order("full_name"),
     ]);
     if (sRes.error) setError("Nepodařilo se načíst osoby s plnou mocí.");
     setRows(sRes.data || []);
@@ -5404,25 +5431,59 @@ function SignatoriesSettings() {
   );
 }
 
-function AddPermissionForm({ onCancel, onSaved }) {
-  const [email, setEmail] = useState("");
-  const [selected, setSelected] = useState(["HR_VIEW_BASIC"]);
+function PermissionForm({ row, onCancel, onSaved }) {
+  const isNew = !row.id;
+  const [email, setEmail] = useState(row.user_email || "");
+  const [profile, setProfile] = useState(row.profile || "PERSONALISTA");
+  const [selected, setSelected] = useState(row.permissions || ["HR_VIEW_BASIC"]);
+  const [validFrom, setValidFrom] = useState(row.valid_from || "");
+  const [validUntil, setValidUntil] = useState(row.valid_until || "");
+  const [note, setNote] = useState(row.note || "");
+  const [preview, setPreview] = useState([]);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
 
+  useEffect(() => {
+    if (profile === "VLASTNI") return;
+    supabase.rpc("hr_profile_permissions", { p_profile: profile }).then(({ data }) => setPreview(data || []));
+  }, [profile]);
+
   async function submit() {
-    if (!email.trim()) { setError("Vyplňte e-mail."); return; }
+    if (isNew && !email.trim()) { setError("Vyplňte e-mail."); return; }
+    if (profile === "UCTOVNIK_EXT" && !validUntil) { setError("Externí účetní musí mít datum konce přístupu."); return; }
+    if (profile === "VLASTNI" && !note.trim()) { setError("U vlastního nastavení uveďte důvod."); return; }
     setSaving(true);
     setError("");
-    const { error: err } = await supabase.from("hr_permissions").insert({ id: uid(), user_email: email.trim().toLowerCase(), permissions: selected });
-    if (err) { setError(err.message.includes("duplicate") ? "Tento e-mail už má oprávnění přiřazená." : err.message); setSaving(false); return; }
+    const payload = {
+      profile, valid_from: validFrom || null, valid_until: validUntil || null, note: note.trim() || null,
+      ...(profile === "VLASTNI" ? { permissions: selected } : {}),
+    };
+    const { error: err } = isNew
+      ? await supabase.from("hr_permissions").insert({ id: uid(), user_email: email.trim().toLowerCase(), ...payload })
+      : await supabase.from("hr_permissions").update(payload).eq("id", row.id);
+    setSaving(false);
+    if (err) { setError(err.message.includes("duplicate") ? "Tento e-mail nebo účet už má oprávnění přiřazená." : err.message); return; }
     onSaved();
   }
 
   return (
     <div className="bg-white border border-slate-200 rounded-lg p-4 mb-3">
-      <TextField label="E-mail uživatele" value={email} onChange={setEmail} />
-      <PermissionCheckboxes selected={selected} onChange={setSelected} />
+      {isNew ? <TextField label="E-mail uživatele" value={email} onChange={setEmail} /> : <div className="font-medium text-sm mb-3">{row.user_email}</div>}
+      <SelectFieldLocal label="Profil" value={profile} onChange={setProfile} options={HR_PROFILE_OPTIONS} />
+      <div className="grid grid-cols-2 gap-3">
+        <DateFieldLocal label="Platí od (nepovinné)" value={validFrom} onChange={setValidFrom} />
+        <DateFieldLocal label={profile === "UCTOVNIK_EXT" ? "Platí do (povinné)" : "Platí do (nepovinné)"} value={validUntil} onChange={setValidUntil} />
+      </div>
+      {profile === "VLASTNI" ? (
+        <>
+          <TextField label="Důvod výjimky (povinné)" value={note} onChange={setNote} />
+          <PermissionCheckboxes selected={selected} onChange={setSelected} exclude={["HR_ADMIN"]} />
+        </>
+      ) : (
+        <div className="flex flex-wrap gap-1 mt-1">
+          {preview.map((p) => <span key={p} className="px-2 py-0.5 rounded-full text-xs bg-slate-100 text-slate-600">{p}</span>)}
+        </div>
+      )}
       {error && <div className="bg-red-50 text-red-700 text-sm px-3 py-2 rounded-md mt-2 mb-2">{error}</div>}
       <div className="flex justify-end gap-2 mt-2">
         <button onClick={onCancel} className="text-sm text-slate-500 px-3 py-2">Zrušit</button>
@@ -5432,43 +5493,35 @@ function AddPermissionForm({ onCancel, onSaved }) {
   );
 }
 
-function PermissionRow({ row, onSave }) {
-  const [editing, setEditing] = useState(false);
-  const [selected, setSelected] = useState(row.permissions || []);
-
-  if (!editing) {
-    return (
-      <div className="bg-white border border-slate-200 rounded-lg p-4 flex justify-between items-start flex-wrap gap-2">
-        <div>
-          <div className="font-medium text-sm">{row.user_email}</div>
-          <div className="flex flex-wrap gap-1 mt-1.5">
-            {(row.permissions || []).map((p) => <span key={p} className="px-2 py-0.5 rounded-full text-xs bg-slate-100 text-slate-600">{p}</span>)}
-            {(row.permissions || []).length === 0 && <span className="text-xs text-slate-400">Žádná oprávnění</span>}
-          </div>
-        </div>
-        <button onClick={() => { setSelected(row.permissions || []); setEditing(true); }} className="flex items-center gap-1 text-sm text-teal-700 hover:text-teal-900"><Pencil size={14} /> Upravit</button>
-      </div>
-    );
-  }
+function PermissionRow({ row, today, onEdit }) {
+  const validity = permissionValidity(row, today);
   return (
-    <div className="bg-white border border-slate-200 rounded-lg p-4">
-      <div className="font-medium text-sm mb-2">{row.user_email}</div>
-      <PermissionCheckboxes selected={selected} onChange={setSelected} />
-      <div className="flex justify-end gap-2 mt-2">
-        <button onClick={() => setEditing(false)} className="text-sm text-slate-500 px-3 py-2">Zrušit</button>
-        <button onClick={() => { onSave(selected); setEditing(false); }} className="bg-teal-700 hover:bg-teal-800 text-white text-sm font-medium px-4 py-2 rounded-md">Uložit</button>
+    <div data-testid="permission-row" className={`bg-white border border-slate-200 rounded-lg p-4 flex justify-between items-start flex-wrap gap-2 ${validity.active ? "" : "opacity-60"}`}>
+      <div>
+        <div className="font-medium text-sm">{row.user_email}</div>
+        <div className="text-xs text-slate-500 mt-0.5">
+          {profileLabel(row.profile)} · {validity.text}
+          {!row.user_id && " · účet zatím neexistuje"}
+          {row.granted_at && ` · změněno ${new Date(row.granted_at).toLocaleDateString("cs-CZ")}`}
+        </div>
+        {row.profile === "VLASTNI" && row.note && <div className="text-xs text-amber-700 mt-0.5">Výjimka: {row.note}</div>}
+        <div className="flex flex-wrap gap-1 mt-1.5">
+          {(row.permissions || []).map((p) => <span key={p} className="px-2 py-0.5 rounded-full text-xs bg-slate-100 text-slate-600">{p}</span>)}
+          {(row.permissions || []).length === 0 && <span className="text-xs text-slate-400">Žádná oprávnění</span>}
+        </div>
       </div>
+      <button onClick={onEdit} className="flex items-center gap-1 text-sm text-teal-700 hover:text-teal-900"><Pencil size={14} /> Upravit</button>
     </div>
   );
 }
 
-function PermissionCheckboxes({ selected, onChange }) {
+function PermissionCheckboxes({ selected, onChange, exclude = [] }) {
   function toggle(p) {
     onChange(selected.includes(p) ? selected.filter((x) => x !== p) : [...selected, p]);
   }
   return (
     <div className="grid grid-cols-1 sm:grid-cols-2 gap-1.5 mt-2">
-      {HR_PERMISSION_OPTIONS.map((o) => (
+      {HR_PERMISSION_OPTIONS.filter((o) => !exclude.includes(o.value)).map((o) => (
         <label key={o.value} className="flex items-center gap-2 text-sm text-slate-600">
           <input type="checkbox" checked={selected.includes(o.value)} onChange={() => toggle(o.value)} /> {o.label}
         </label>

@@ -141,8 +141,9 @@ function KvalitaTabButton({ active, onClick, color, icon, label }) {
 const KVALITA_TAB_KEY = "stenger.kvalita.tab";
 const KVALITA_TABS = ["prehlad", "checklisty", "terminy", "personalistika"];
 
-export default function KvalitaView({ fullName, onSignOut, onBack }) {
+export default function KvalitaView({ fullName, onSignOut, onBack, hrOnly = false }) {
   const [tab, setTabState] = useState(() => {
+    if (hrOnly) return "personalistika";
     try { const t = sessionStorage.getItem(KVALITA_TAB_KEY); return KVALITA_TABS.includes(t) ? t : "prehlad"; } catch { return "prehlad"; }
   });
   const setTab = (t) => {
@@ -173,6 +174,8 @@ export default function KvalitaView({ fullName, onSignOut, onBack }) {
   }, []);
 
   useEffect(() => {
+    // rola len pre Personalistiku: checklisty a terminy kvality sa nenacitavaju
+    if (hrOnly) { setLoading(false); return undefined; }
     let cancelled = false;
     (async () => {
       await fetchAll();
@@ -183,7 +186,7 @@ export default function KvalitaView({ fullName, onSignOut, onBack }) {
       cancelled = true;
       clearInterval(pollRef.current);
     };
-  }, [fetchAll]);
+  }, [fetchAll, hrOnly]);
 
   async function saveTemplate(record) {
     const { error: err } = await supabase.from("checklist_templates").insert({ id: record.id, data: record });
@@ -252,9 +255,11 @@ export default function KvalitaView({ fullName, onSignOut, onBack }) {
         </div>
         <div className="max-w-4xl mx-auto px-4 pb-4">
           <nav className="flex items-stretch gap-2 mt-1 bg-white/5 backdrop-blur-sm border border-white/10 rounded-2xl p-2 shadow-inner overflow-x-auto">
+            {!hrOnly && <>
             <KvalitaTabButton active={tab === "prehlad"} onClick={() => setTab("prehlad")} color="prehlad" icon={<LayoutDashboard size={20} />} label="Přehled" />
             <KvalitaTabButton active={tab === "checklisty"} onClick={() => setTab("checklisty")} color="checklisty" icon={<ListChecks size={20} />} label="Checklisty" />
             <KvalitaTabButton active={tab === "terminy"} onClick={() => setTab("terminy")} color="terminy" icon={<CalendarClock size={20} />} label="Termíny" />
+            </>}
             <KvalitaTabButton active={tab === "personalistika"} onClick={() => setTab("personalistika")} color="personalistika" icon={<Users size={20} />} label="Personalistika" />
           </nav>
         </div>
@@ -264,6 +269,8 @@ export default function KvalitaView({ fullName, onSignOut, onBack }) {
         {error && <div className="mb-4 bg-red-50 text-red-700 text-sm px-3 py-2 rounded-md flex items-center gap-2"><AlertCircle size={16} /> {error}</div>}
         {loading ? (
           <div className="text-center text-slate-400 py-10"><Loader2 className="animate-spin mx-auto mb-2" size={24} /> Načítám...</div>
+        ) : hrOnly ? (
+          <PersonalistikaModule />
         ) : tab === "prehlad" ? (
           <PrehledTab templates={templates} submissions={submissions} terminy={terminy} onGoToChecklisty={() => setTab("checklisty")} onGoToTerminy={() => setTab("terminy")} />
         ) : tab === "checklisty" ? (
