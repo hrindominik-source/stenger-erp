@@ -216,4 +216,33 @@ V závorce je, jak se systém chová do Vaší odpovědi (konzervativně).
 13. **Potvrzení o převzetí u papírově podepsaných dokumentů.** Otisk v potvrzení odkazuje na vytištěné finální PDF (u elektronického podpisu na podepsaný originál). Je to dostatečná identifikace písemnosti? *(Ano.)*
 14. **Ověření certifikátu uznávaného podpisu.** Navrhujeme ruční ověření ve veřejné ověřovací službě s uložením protokolu. Můžeme do takové služby nahrát mzdové PDF (GDPR), případně kterou službu doporučujete? *(Elektronické doručení § 334 až po ověření certifikátu.)*
 
+## 7. Otázky z auditu personalistiky (GDPR a kontrolní mechanismy)
+
+Vyplývají z interního auditu (`docs/audit/`). Jde o pracovní hodnocení, ne o závěry.
+
+- **Q-A1 · Nepřítomnosti jako údaj o zdraví.** Je rozlišení druhu nepřítomnosti (PN – nemoc / úraz / pracovní úraz, OČR) údajem o zdraví podle čl. 9 GDPR? Kdo ve firmě jej smí vidět (personalista, účetní, nadřízený)? Návrh: běžně jen „nepřítomen“.
+- **Q-A2 · Lhůty uchovávání (doplňuje otázku 6).** Jaké lhůty platí pro:
+  - osobní spis;
+  - mzdové listy a podklady pro ČSSZ/ZP;
+  - daňová prohlášení a doklady k dětem;
+  - lékařské posudky;
+  - doklady k exekucím;
+  - zamítnuté nebo nepřevzaté dotazníky uchazečů z kiosku;
+  - auditní log;
+  - důkazy o podpisu (obrázek podpisu, údaje zařízení)?
+
+  Systém žádné lhůty nemá a hodnoty nebudeme odhadovat.
+- **Q-A3 · Auditní log po výmazu.** Smí auditní log uchovávat úplné kopie citlivých údajů i po výmazu nebo anonymizaci zaměstnance? Jak dlouho? Postačí maskování (jen které pole se změnilo)?
+- **Q-A4 · Need-to-know.** Má personalista vidět mzdový výměr, údaje o dětech a zdravotní omezení, pokud je pro svou práci nepotřebuje? Nebo má být mzdová vrstva jen u jednatele a účetní?
+- **Q-A5 · DPIA.** Je nutné posouzení vlivu (čl. 35) pro podpis na tabletu, uchovávání obrázků podpisu a údajů o zařízení, popř. pro záznam přístupů k citlivým údajům?
+- **Q-A6 · Externí účetní.** Je zpracovatelem (smlouva podle čl. 28), nebo samostatným správcem? V jakém rozsahu jí smíme zpřístupnit údaje?
+- **Q-A7 · E-mail.** Je přípustné posílat smlouvy a mzdové výměry jako nešifrovanou přílohu na soukromý e-mail (i při § 21 / § 335 ZP)? Je šifrování (heslo k PDF) nutné, nebo jen vhodné?
+- **Q-A8 · Kiosk a uchazeči.** Které informace podle čl. 13 musí uchazeč dostat před vyplněním dotazníku? Smí dotazník sbírat rodná čísla dětí, zdravotní omezení a daňové údaje už před uzavřením pracovního poměru?
+- **Q-A9 · Přenos mimo EU a nový server.** Stačí standardní smlouvy o zpracování u poskytovatelů (databáze, hosting, e-mail)? Co musí obsahovat smlouva se správcem vlastního serveru?
+- **Q-A10 · Porušení zabezpečení.** Kdo rozhoduje o ohlášení ÚOOÚ a v jaké lhůtě? Kdy se informují zaměstnanci? Prosíme o šablonu záznamu incidentu.
+- **Q-A11 · MFA.** Je dvoufaktorové přihlášení pro uživatele s přístupem k HR údajům „vhodným technickým opatřením“ podle čl. 32, které bychom měli zavést povinně?
+- **Q-A12 · Záznam přístupů.** Smíme zaznamenávat, kdo a kdy si prohlížel rodné číslo, mzdu nebo zdravotní údaje zaměstnance? Jak dlouho takový záznam uchovávat? Je třeba o něm informovat uživatele HR?
+- **Q-A13 · Podpis za zaměstnavatele.** Které dokumenty smí personalista s plnou mocí podepsat sám a které by měl podepisovat jednatel? Například výpověď, dohoda o rozvázání, okamžité zrušení, zrušení ve zkušební době, změna mzdy. Je vhodné to promítnout do textu plné moci?
+- **Q-A14 · Šablony a revize.** Doporučujete interval pravidelné revize šablon a textů (např. pololetně a k 1. 1.)? Jakou formou chcete potvrzovat „právně ověřeno k datu“?
+
 Děkujeme. Odpovědi stačí poslat s čísly textů (T, E, P) a otázek.
