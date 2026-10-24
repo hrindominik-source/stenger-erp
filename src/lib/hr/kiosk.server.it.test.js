@@ -2,6 +2,7 @@
 // Edge Function hr-kiosk -> DB triggre -> kontrola HR. Vymyslene udaje.
 // Spustenie: scripts/test-local-it.sh. Bez LOCAL_SUPABASE_* sa preskoci.
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
+import { approveTextsForTest } from "./itApprovedTexts.js";
 import fs from "node:fs";
 import path from "node:path";
 import { createClient } from "@supabase/supabase-js";
@@ -20,7 +21,7 @@ const toB64 = (b) => Buffer.from(b).toString("base64");
 const STROKES = [Array.from({ length: 30 }, (_, i) => [i * 5, 20 + (i % 7)])];
 
 describe.skipIf(!enabled)("faza D - kiosk dotaznik (lokalny Supabase)", { timeout: 180000 }, () => {
-  let kiosk, service, hr;
+  let kiosk, service, hr, approved;
 
   async function newSession(draft) {
     // kiosk sa odomyka kodom od HR (audit S-03, migr. 63)
@@ -59,9 +60,11 @@ describe.skipIf(!enabled)("faza D - kiosk dotaznik (lokalny Supabase)", { timeou
     const [, email, password] = seed.match(/(personalista@test\.local) \/ (\S+)/);
     const { error } = await hr.auth.signInWithPassword({ email, password });
     if (error) throw error;
+    approved = await approveTextsForTest(service);
   });
   afterAll(async () => {
     await service.from("hr_settings").update({ value: false }).eq("key", "s335_consent_enabled");
+    await approved?.cleanup();
   });
 
   it("podpis len k udajom, z ktorych PDF vzniklo (migracia 60)", async () => {

@@ -19,12 +19,20 @@ grant execute on function pg_temp.anon_vidi(regclass) to anon;
 -- ---------- pravne texty (koncepty) ----------
 select is((select count(*)::int from public.hr_legal_text_versions
   where text_key in ('S21_ADDRESS_NOTICE', 'S335_NOTICE', 'S335_CONSENT', 'INTENT_QUESTIONNAIRE', 'INTENT_EMPLOYEE_DECLARATION')
-    and status = 'KONCEPT' and body like 'KONCEPT – KE SCHVÁLENÍ PRÁVNIČKOU.%'), 5, 'texty kiosku su koncepty na schvalenie pravnickou');
+    and body like 'KONCEPT – KE SCHVÁLENÍ PRÁVNIČKOU.%'), 5, 'texty kiosku nesu oznacenie konceptu pre pravnicku');
+select is((select count(*)::int from public.hr_legal_text_versions
+  where text_key in ('S21_ADDRESS_NOTICE', 'S335_NOTICE', 'S335_CONSENT') and status = 'KONCEPT'), 3,
+  'migracia 66: § 21 a § 335 ostavaju neschvalene');
 select is((select count(*)::int from public.hr_legal_text_versions where body_sha256 = 'x'), 0, 'hash textov pocita DB');
 
 -- ---------- konfiguracia pre kiosk (anon) ----------
 set local role anon;
-select ok((public.hr_onboarding_config()->'texts') ? 'S21_ADDRESS_NOTICE', 'kiosk dostane text § 21 oznamenia');
+select ok(not ((public.hr_onboarding_config()->'texts') ? 'S21_ADDRESS_NOTICE'), 'neschvaleny text § 21 kiosk nedostane');
+reset role;
+-- dalej ako po schvaleni jednatelom (len v tomto teste)
+update public.hr_legal_text_versions set status = 'SCHVALENO' where text_key in ('S21_ADDRESS_NOTICE', 'S335_NOTICE', 'S335_CONSENT') and status = 'KONCEPT';
+set local role anon;
+select ok((public.hr_onboarding_config()->'texts') ? 'S21_ADDRESS_NOTICE', 'kiosk dostane schvaleny text § 21 oznamenia');
 select ok(not ((public.hr_onboarding_config()->'texts') ? 'S335_NOTICE'), '§ 335 vypnuty: poucenie ani suhlas sa kiosku neposiela');
 select throws_ok($$select public.hr_current_legal_text('S21_ADDRESS_NOTICE')$$, '42501', null, 'anon nevola interne funkcie');
 reset role;

@@ -32,25 +32,33 @@ describe("e-mail v kiosku", () => {
   });
 });
 
+// schvalene texty (migracia 66: bez schvaleneho textu sa volba neponuka)
+const TEXTS = { texts: { S21_ADDRESS_NOTICE: { id: "t21" }, S335_NOTICE: { id: "n" }, S335_CONSENT: { id: "c" } } };
+
 describe("Elektronická komunikace - volby", () => {
+  it("bez schvaleneho textu sa § 21 ani § 335 neponuka a dokument nevznikne", () => {
+    const d = { ...DRAFT, kiosk_s21: "ANO", kiosk_s335: "ANO", kiosk_s335_notice_id: "n" };
+    expect(validateKioskCommunication(DRAFT, { s335_consent_enabled: true, texts: {} })).toEqual([]);
+    expect(kioskDocumentPlan(d, { s335_consent_enabled: true, texts: {} })).toEqual(["QUESTIONNAIRE"]);
+  });
   it("bez e-mailu sa nic nevolí a vznikne len dotaznik", () => {
     const d = { ...DRAFT, private_email: "", no_private_email: true, kiosk_s21: "ANO", kiosk_s335: "ANO", kiosk_s335_notice_id: "n" };
     expect(validateKioskCommunication(d, { s335_consent_enabled: true })).toEqual([]);
     expect(kioskDocumentPlan(d, { s335_consent_enabled: true })).toEqual(["QUESTIONNAIRE"]);
   });
   it("§ 21 volba nie je predvyplnena", () => {
-    expect(validateKioskCommunication(DRAFT, {})).toHaveLength(1);
-    expect(validateKioskCommunication({ ...DRAFT, kiosk_s21: "NE" }, {})).toEqual([]);
+    expect(validateKioskCommunication(DRAFT, TEXTS)).toHaveLength(1);
+    expect(validateKioskCommunication({ ...DRAFT, kiosk_s21: "NE" }, TEXTS)).toEqual([]);
   });
   it("§ 21 ANO: samostatne oznamenie; NE: ziadne", () => {
-    expect(kioskDocumentPlan({ ...DRAFT, kiosk_s21: "ANO" }, {})).toEqual(["QUESTIONNAIRE", "S21"]);
-    expect(kioskDocumentPlan({ ...DRAFT, kiosk_s21: "NE" }, {})).toEqual(["QUESTIONNAIRE"]);
+    expect(kioskDocumentPlan({ ...DRAFT, kiosk_s21: "ANO" }, TEXTS)).toEqual(["QUESTIONNAIRE", "S21"]);
+    expect(kioskDocumentPlan({ ...DRAFT, kiosk_s21: "NE" }, TEXTS)).toEqual(["QUESTIONNAIRE"]);
   });
   it("§ 335 predvolene vypnuty - ani suhlas ANO nevytvori dokument", () => {
     expect(kioskDocumentPlan({ ...DRAFT, kiosk_s21: "NE", kiosk_s335: "ANO", kiosk_s335_notice_id: "n" }, {})).toEqual(["QUESTIONNAIRE"]);
   });
   it("§ 335 zapnuty: najprv poucenie, potom samostatna volba; samostatny dokument", () => {
-    const cfg = { s335_consent_enabled: true };
+    const cfg = { ...TEXTS, s335_consent_enabled: true };
     expect(validateKioskCommunication({ ...DRAFT, kiosk_s21: "NE" }, cfg)[0]).toMatch(/poučení/);
     expect(validateKioskCommunication({ ...DRAFT, kiosk_s21: "NE", kiosk_s335_notice_id: "n" }, cfg)[0]).toMatch(/souhlasíte/);
     expect(kioskDocumentPlan({ ...DRAFT, kiosk_s21: "ANO", kiosk_s335: "ANO", kiosk_s335_notice_id: "n" }, cfg)).toEqual(["QUESTIONNAIRE", "S21", "S335"]);

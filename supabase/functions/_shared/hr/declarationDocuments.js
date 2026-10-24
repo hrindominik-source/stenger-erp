@@ -25,8 +25,8 @@ export function declarationInputErrors(kind, { employee, email, text, notice, ta
   const out = [];
   if (!employee?.first_name || !employee?.last_name) out.push("Chybí jméno zaměstnance.");
   if (def.needsEmail && !isValidEmail(email)) out.push("Zaměstnanec nemá platný soukromý e-mail.");
-  if (!text?.body) out.push(`Chybí text ${def.textKey}.`);
-  if (def.noticeKey && !notice?.body) out.push("Souhlas § 335 vyžaduje poučení.");
+  if (!text?.body) out.push(`Text ${def.textKey} není schválený jednatelem – dokument nelze vytvořit.`);
+  if (def.noticeKey && !notice?.body) out.push("Souhlas § 335 vyžaduje schválené poučení.");
   if ((kind === "S335" || kind === "S335_NOTICE") && s335Enabled !== true) out.push("Elektronické doručování podle § 335 je vypnuté (nastavení s335_consent_enabled).");
   if (kind === "RECEIPT" && (!target?.title || !/^[0-9a-f]{64}$/.test(target?.sha256 || ""))) out.push("Potvrzení o převzetí potřebuje podepsaný dokument.");
   return out;

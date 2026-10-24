@@ -48,8 +48,10 @@ export function validateKioskEmail(draft, confirm) {
 export function validateKioskCommunication(draft, config) {
   const errors = [];
   if (!draftEmail(draft)) return errors;
-  if (!["ANO", "NE"].includes(draft.kiosk_s21)) errors.push("Zvolte, zda oznamujete e-mail pro účely § 21 zákoníku práce.");
-  if (config?.s335_consent_enabled) {
+  const texts = config?.texts || {};
+  // bez schvaleneho textu sa volba neponuka (migracia 66)
+  if (texts.S21_ADDRESS_NOTICE && !["ANO", "NE"].includes(draft.kiosk_s21)) errors.push("Zvolte, zda oznamujete e-mail pro účely § 21 zákoníku práce.");
+  if (config?.s335_consent_enabled && texts.S335_NOTICE && texts.S335_CONSENT) {
     if (!draft.kiosk_s335_notice_id) errors.push("Přečtěte si poučení o elektronickém doručování.");
     else if (!["ANO", "NE"].includes(draft.kiosk_s335)) errors.push("Zvolte, zda souhlasíte s elektronickým doručováním písemností.");
   }
@@ -62,8 +64,9 @@ export function validateKioskCommunication(draft, config) {
 export function kioskDocumentPlan(draft, config) {
   const plan = ["QUESTIONNAIRE"];
   const email = draftEmail(draft);
-  if (email && draft.kiosk_s21 === "ANO") plan.push("S21");
-  if (email && config?.s335_consent_enabled && draft.kiosk_s335 === "ANO" && draft.kiosk_s335_notice_id) plan.push("S335");
+  const texts = config?.texts || {};
+  if (email && texts.S21_ADDRESS_NOTICE && draft.kiosk_s21 === "ANO") plan.push("S21");
+  if (email && config?.s335_consent_enabled && texts.S335_NOTICE && texts.S335_CONSENT && draft.kiosk_s335 === "ANO" && draft.kiosk_s335_notice_id) plan.push("S335");
   return plan;
 }
 

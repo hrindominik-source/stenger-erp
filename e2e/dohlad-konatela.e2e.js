@@ -31,7 +31,7 @@ test("jednatel: udalosti, vsetko precitane, pristupy", async ({ page }) => {
   await page.locator("nav button", { hasText: "Personalistika" }).click();
   await page.getByRole("button", { name: "Pro jednatele", exact: true }).click();
   await expect(page.getByText("Čeká na schválení", { exact: true }).first()).toBeVisible({ timeout: 30000 });
-  await expect(page.getByTestId("konatel-access-row").filter({ hasText: "Externí účetní" })).toBeVisible();
+  await expect(page.getByTestId("konatel-access-row").filter({ hasText: "Externí účetní" }).first()).toBeVisible();
   // seed (pridelenie pristupov) vytvoril nove udalosti
   await expect(page.getByTestId("konatel-notification").first()).toBeVisible();
   await page.getByRole("button", { name: /Vše přečteno/ }).click();

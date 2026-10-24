@@ -4995,14 +4995,15 @@ function TemplatesTab({ permissions }) {
 
   useEffect(() => { load(); }, [load]);
 
-  async function approveVersion(template, version) {
-    const { data: userData } = await supabase.auth.getUser();
-    const { error: vErr } = await supabase.from("hr_document_template_versions").update({ mapping_status: "SCHVALENA" }).eq("id", version.id);
-    if (vErr) { window.alert(vErr.message); return; }
-    const { error: tErr } = await supabase.from("hr_document_templates").update({
-      status: "SCHVALENA", current_version_id: version.id, approved_by: userData?.user?.id || null, approved_at: new Date().toISOString(),
-    }).eq("id", template.id);
-    if (tErr) { window.alert(tErr.message); return; }
+  // Schvaluje len jednatel - kto a kedy zapise DB (migracia 66).
+  const canFinalApprove = hasPerm(permissions, "HR_ADMIN");
+  const [approving, setApproving] = useState(null); // { versionId, note, review }
+  async function approveVersion() {
+    const { error: aErr } = await supabase.rpc("hr_approve_template_version", {
+      p_version_id: approving.versionId, p_note: approving.note || null, p_next_review: approving.review || null, p_legal_basis: null,
+    });
+    if (aErr) { setError(aErr.message); return; }
+    setApproving(null);
     load();
   }
 
@@ -5065,6 +5066,7 @@ function TemplatesTab({ permissions }) {
                     <div className="text-xs text-slate-500">{DOC_TYPE_LABELS[t.doc_type] || t.doc_type}</div>
                   </div>
                   <div className="flex items-center gap-2">
+                    {t.next_review_date && <span className={"text-xs " + (t.next_review_date < new Date().toISOString().slice(0, 10) ? "text-red-600" : "text-slate-500")}>revize do {skDateStrFromIso(t.next_review_date)}</span>}
                     <TemplateStatusBadge status={t.status} />
                     {t.status !== "VYRAZENA" && canApprove && (
                       <button onClick={() => retireTemplate(t)} className="text-xs text-red-500 hover:text-red-700 underline underline-offset-2">Vyřadit</button>
@@ -5072,7 +5074,7 @@ function TemplatesTab({ permissions }) {
                   </div>
                 </div>
                 {!t.current_version_id && t.status !== "VYRAZENA" && (
-                  <div className="mt-2 bg-amber-50 text-amber-800 text-xs px-3 py-2 rounded-md">Šablona zatím není aktivní - u zaměstnanců se nenabízí, dokud neaktivujete některou verzi.</div>
+                  <div className="mt-2 bg-amber-50 text-amber-800 text-xs px-3 py-2 rounded-md">Šablona zatím není schválená - u zaměstnanců se nenabízí, dokud jednatel neschválí některou verzi.</div>
                 )}
                 <div className="mt-3 space-y-2">
                   {versions.map((v) => (
@@ -5083,20 +5085,33 @@ function TemplatesTab({ permissions }) {
                         <span className="text-xs text-slate-400 truncate">{v.required_permissions?.length ? v.required_permissions.join(", ") : "výchozí ochrana"}</span>
                       </div>
                       <div className="flex items-center gap-2 whitespace-nowrap">
+                        {v.approved_at && <span className="text-xs text-slate-500" title={v.approval_note || ""}>schváleno {skDateStrFromIso(v.approved_at.slice(0, 10))}</span>}
                         <MappingStatusBadge status={v.mapping_status} />
-                        {v.mapping_status === "SCHVALENA" && v.id !== t.current_version_id && canApprove && (
-                          <button onClick={() => approveVersion(t, v)} className="bg-teal-700 hover:bg-teal-800 text-white text-xs font-medium px-3 py-1 rounded-md">Aktivovat</button>
-                        )}
+                        {v.mapping_status === "SCHVALENA" && v.id !== t.current_version_id && t.status !== "VYRAZENA" && (canFinalApprove
+                          ? <button onClick={() => setApproving({ versionId: v.id, note: "", review: "" })} className="bg-teal-700 hover:bg-teal-800 text-white text-xs font-medium px-3 py-1 rounded-md">Schválit a aktivovat</button>
+                          : <span className="text-xs text-amber-700">čeká na schválení jednatelem</span>)}
                       </div>
                     </div>
                   ))}
+                  {approving && versions.some((v) => v.id === approving.versionId) && (
+                    <div className="border border-teal-200 bg-teal-50 rounded-md p-3 flex flex-wrap items-end gap-3 text-sm" data-testid="template-approve-form">
+                      <label className="flex flex-col text-xs text-slate-600 flex-1 min-w-[12rem]">Poznámka ke schválení (např. ověřeno právničkou dne…)
+                        <input value={approving.note} onChange={(e) => setApproving({ ...approving, note: e.target.value })} className="border border-slate-300 rounded-md px-2 py-1 text-sm" />
+                      </label>
+                      <label className="flex flex-col text-xs text-slate-600">Další revize
+                        <input type="date" value={approving.review} onChange={(e) => setApproving({ ...approving, review: e.target.value })} className="border border-slate-300 rounded-md px-2 py-1 text-sm" />
+                      </label>
+                      <button onClick={approveVersion} className="bg-teal-700 hover:bg-teal-800 text-white text-xs font-medium px-3 py-1.5 rounded-md">Schválit</button>
+                      <button onClick={() => setApproving(null)} className="text-xs text-slate-500 hover:underline">Zrušit</button>
+                    </div>
+                  )}
                 </div>
               </div>
             );
           })}
         </div>
       )}
-      <LegalTextsSection canEdit={hasPerm(permissions, "HR_LEGAL_TEXTS_ADMIN")} />
+      <LegalTextsSection canEdit={hasPerm(permissions, "HR_LEGAL_TEXTS_ADMIN")} canApprove={hasPerm(permissions, "HR_ADMIN")} />
     </div>
   );
 }
@@ -5188,7 +5203,7 @@ function UploadTemplateForm({ uploading, setUploading, onUploaded, templates }) 
       await supabase.from("hr_document_templates").update({ status: "KE_SCHVALENI" }).eq("id", templateId).eq("status", "NAHRANA");
 
       setFile(null); setCheckResult(null); setName("");
-      setSuccess("Šablona nahrána. Aby se nabízela u zaměstnanců, klikněte níže u nové verze na \"Aktivovat\".");
+      setSuccess("Šablona nahrána. U zaměstnanců se začne nabízet, až ji jednatel schválí (upozornění dostane v přehledu).");
       onUploaded();
     } catch (e) {
       console.error(e);

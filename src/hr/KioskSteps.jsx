@@ -82,19 +82,31 @@ export function KioskCommunicationStep({ draft, config, onChange, errors }) {
       </div>
     );
   }
+  const s335Available = !!(config?.s335_consent_enabled && texts.S335_NOTICE && texts.S335_CONSENT);
+  // bez schvalenych textov sa § 21 ani § 335 neponuka (migracia 66)
+  if (!texts.S21_ADDRESS_NOTICE && !s335Available) {
+    return (
+      <div className="bg-slate-50 border border-slate-200 rounded-lg p-4 text-slate-600 flex gap-2" data-testid="kiosk-no-ecomm">
+        <Mail size={18} className="shrink-0 mt-0.5" />
+        <span>E-mail <strong className="text-slate-700">{email}</strong> máme pro běžnou komunikaci. Smlouvy i další písemnosti vám budeme předávat osobně. Pokračujte prosím dál.</span>
+      </div>
+    );
+  }
   return (
     <div className="space-y-8">
-      <section>
-        <h2 className="text-base font-semibold text-slate-800 mb-1">A. Oznámení elektronické adresy (§ 21 zákoníku práce)</h2>
-        <p className="text-sm text-slate-500 mb-3">E-mail: <strong className="text-slate-700">{email}</strong></p>
-        {texts.S21_ADDRESS_NOTICE ? <LegalText text={texts.S21_ADDRESS_NOTICE} /> : <div className="text-red-700 text-sm">Text oznámení není k dispozici.</div>}
-        <Choice name="kiosk_s21" value={draft.kiosk_s21} onChange={(v) => onChange("kiosk_s21", v)} options={[
-          ["ANO", "Ano, oznamuji tuto adresu pro účely § 21 zákoníku práce (samostatné oznámení podepíšu)."],
-          ["NE", "Ne, tuto adresu pro účely § 21 neoznamuji."],
-        ]} />
-      </section>
+      {texts.S21_ADDRESS_NOTICE && (
+        <section>
+          <h2 className="text-base font-semibold text-slate-800 mb-1">A. Oznámení elektronické adresy (§ 21 zákoníku práce)</h2>
+          <p className="text-sm text-slate-500 mb-3">E-mail: <strong className="text-slate-700">{email}</strong></p>
+          <LegalText text={texts.S21_ADDRESS_NOTICE} />
+          <Choice name="kiosk_s21" value={draft.kiosk_s21} onChange={(v) => onChange("kiosk_s21", v)} options={[
+            ["ANO", "Ano, oznamuji tuto adresu pro účely § 21 zákoníku práce (samostatné oznámení podepíšu)."],
+            ["NE", "Ne, tuto adresu pro účely § 21 neoznamuji."],
+          ]} />
+        </section>
+      )}
 
-      {config?.s335_consent_enabled && texts.S335_NOTICE && texts.S335_CONSENT && (
+      {s335Available && (
         <section>
           <h2 className="text-base font-semibold text-slate-800 mb-1">B. Doručování písemností elektronicky (§ 335 zákoníku práce)</h2>
           <p className="text-sm text-slate-500 mb-3">Dobrovolné. Bez souhlasu vám písemnosti doručujeme osobně nebo poštou. Nejdříve si prosím přečtěte celé poučení.</p>

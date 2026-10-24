@@ -20,11 +20,12 @@ export const LEGAL_TEXT_LABELS = {
   INTENT_TRAINING_RECORD: "Projev vůle – záznam o školení",
   INTENT_QUESTIONNAIRE: "Prohlášení k osobnímu dotazníku",
 };
-const STATUS = { KONCEPT: "koncept – ke schválení právničkou", SCHVALENO: "schváleno", VYRAZENO: "vyřazeno" };
+const STATUS = { KONCEPT: "koncept – neschváleno, nepoužívá se", SCHVALENO: "schváleno jednatelem", VYRAZENO: "vyřazeno" };
 const STATUS_CLS = { KONCEPT: "bg-amber-50 text-amber-800", SCHVALENO: "bg-emerald-50 text-emerald-800", VYRAZENO: "bg-slate-100 text-slate-500" };
 const fmtTs = (iso) => (iso ? new Date(iso).toLocaleString("cs-CZ") : "");
 
-export default function LegalTextsSection({ canEdit }) {
+export default function LegalTextsSection({ canEdit, canApprove }) {
+  const [approving, setApproving] = useState(null); // { id, note, review }
   const [rows, setRows] = useState([]);
   const [error, setError] = useState("");
   const [open, setOpen] = useState(null); // text_key
@@ -52,6 +53,16 @@ export default function LegalTextsSection({ canEdit }) {
     setEditing(null);
     load();
   }
+  // Schvaluje len jednatel; kto a kedy zapise DB, predchadzajuca schvalena verzia sa vyradi.
+  async function approve() {
+    setError("");
+    const { error: err } = await supabase.rpc("hr_approve_legal_text", {
+      p_id: approving.id, p_note: approving.note || null, p_next_review: approving.review || null, p_legal_basis: null,
+    });
+    if (err) { setError(err.message); return; }
+    setApproving(null);
+    load();
+  }
   async function setStatus(row, status) {
     setError("");
     const { error: err } = await supabase.from("hr_legal_text_versions").update({ status }).eq("id", row.id);
@@ -63,21 +74,24 @@ export default function LegalTextsSection({ canEdit }) {
     <div className="mt-8">
       <h2 className="text-lg font-semibold mb-1">Texty prohlášení a poučení</h2>
       <div className="text-xs text-slate-500 mb-3">
-        Změna textu vytvoří novou verzi; dokumenty se generují z aktuální (nejnovější nevyřazené) verze a podepsané dokumenty zůstávají vázané na svou verzi.
-        Všechny texty jsou koncepty ke schválení právničkou.{!canEdit && " Upravovat smí jen oprávnění „Spravovat texty prohlášení a poučení“."}
+        Změna textu vytvoří novou verzi; používá se jen verze schválená jednatelem (koncept se nepoužije nikde) a podepsané dokumenty zůstávají vázané na svou verzi.
+        Označení „KONCEPT – KE SCHVÁLENÍ PRÁVNIČKOU“ v textu zůstává, dokud text neschválí právnička; ověření uveďte v poznámce ke schválení.{!canEdit && " Upravovat smí jen oprávnění „Spravovat texty prohlášení a poučení“."}
       </div>
       {error && <div className="bg-red-50 text-red-700 text-sm px-3 py-2 rounded-md mb-2">{error}</div>}
       <div className="space-y-2">
         {keys.map((key) => {
           const versions = rows.filter((r) => r.text_key === key);
-          const current = versions.find((r) => r.status !== "VYRAZENO");
+          const current = versions.find((r) => r.status === "SCHVALENO");
+          const pending = versions.find((r) => r.status === "KONCEPT");
           return (
             <div key={key} className="border border-slate-200 rounded-md p-3 bg-white">
               <button type="button" onClick={() => setOpen(open === key ? null : key)} className="w-full flex items-center justify-between text-left">
                 <span className="flex items-center gap-1 text-sm font-medium">
                   {open === key ? <ChevronDown size={14} /> : <ChevronRight size={14} />} {LEGAL_TEXT_LABELS[key] || key}
                 </span>
-                {current && <span className={"text-xs px-2 py-0.5 rounded " + STATUS_CLS[current.status]}>v{current.version_no} · {STATUS[current.status]}</span>}
+                {current
+                  ? <span className={"text-xs px-2 py-0.5 rounded " + STATUS_CLS[current.status]}>v{current.version_no} · {STATUS[current.status]}{pending ? " · nová verze čeká" : ""}</span>
+                  : <span className={"text-xs px-2 py-0.5 rounded " + STATUS_CLS.KONCEPT}>neschváleno – nepoužívá se</span>}
               </button>
               {open === key && (
                 <div className="mt-2 space-y-2">
@@ -85,17 +99,30 @@ export default function LegalTextsSection({ canEdit }) {
                     <div key={v.id} className={"border-l-2 pl-2 " + (v === current ? "border-teal-600" : "border-slate-200")}>
                       <div className="text-xs text-slate-500">
                         verze {v.version_no} · {STATUS[v.status]}{v === current ? " · aktuální" : ""} · vytvořeno {fmtTs(v.created_at)}
-                        {v.approved_at ? ` · schváleno ${fmtTs(v.approved_at)}` : ""} · otisk <code className="font-mono">{String(v.body_sha256).slice(0, 12)}…</code>
+                        {v.approved_at ? ` · schváleno ${fmtTs(v.approved_at)}` : ""}{v.next_review_date ? ` · revize do ${v.next_review_date.split("-").reverse().join(".")}` : ""}
+                        {v.approval_note ? ` · ${v.approval_note}` : ""} · otisk <code className="font-mono">{String(v.body_sha256).slice(0, 12)}…</code>
                       </div>
                       <div className="text-sm font-medium">{v.title}</div>
                       <div className="text-sm whitespace-pre-wrap text-slate-700">{v.body}</div>
-                      {canEdit && v.status !== "VYRAZENO" && (
+                      {(canEdit || canApprove) && v.status !== "VYRAZENO" && (
                         <div className="flex gap-3 text-xs mt-1">
-                          {v.status === "KONCEPT" && (
-                            <button type="button" onClick={() => setStatus(v, "SCHVALENO")} className="text-emerald-700 hover:text-emerald-900"
-                              title="Jen po písemném schválení textu právničkou">Označit jako schválené právničkou</button>
+                          {v.status === "KONCEPT" && canApprove && (
+                            <button type="button" onClick={() => setApproving({ id: v.id, note: "", review: "" })} className="text-emerald-700 hover:text-emerald-900">Schválit (jednatel)</button>
                           )}
-                          <button type="button" onClick={() => setStatus(v, "VYRAZENO")} className="text-red-700 hover:text-red-900">Vyřadit verzi</button>
+                          {v.status === "KONCEPT" && !canApprove && <span className="text-amber-700">čeká na schválení jednatelem</span>}
+                          {canEdit && <button type="button" onClick={() => setStatus(v, "VYRAZENO")} className="text-red-700 hover:text-red-900">Vyřadit verzi</button>}
+                        </div>
+                      )}
+                      {approving?.id === v.id && (
+                        <div className="mt-2 border border-teal-200 bg-teal-50 rounded-md p-2 flex flex-wrap items-end gap-2 text-sm" data-testid="legal-approve-form">
+                          <label className="flex flex-col text-xs text-slate-600 flex-1 min-w-[12rem]">Poznámka ke schválení (např. ověřeno právničkou dne…)
+                            <input value={approving.note} onChange={(e) => setApproving({ ...approving, note: e.target.value })} className="border border-slate-300 rounded-md px-2 py-1 text-sm" />
+                          </label>
+                          <label className="flex flex-col text-xs text-slate-600">Další revize
+                            <input type="date" value={approving.review} onChange={(e) => setApproving({ ...approving, review: e.target.value })} className="border border-slate-300 rounded-md px-2 py-1 text-sm" />
+                          </label>
+                          <button type="button" onClick={approve} className="bg-teal-700 hover:bg-teal-800 text-white text-xs font-medium px-3 py-1.5 rounded-md">Schválit</button>
+                          <button type="button" onClick={() => setApproving(null)} className="text-xs text-slate-500 hover:underline">Zrušit</button>
                         </div>
                       )}
                     </div>

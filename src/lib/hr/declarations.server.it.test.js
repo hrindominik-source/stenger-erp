@@ -1,6 +1,7 @@
 // Integracny test fazy I: vyhlasenia a poucenia z verzovanych textov
 // (Edge Function hr-declarations). Proti LOKALNEMU Supabase, vymyslene udaje.
-import { describe, it, expect, beforeAll } from "vitest";
+import { describe, it, expect, beforeAll, afterAll } from "vitest";
+import { approveTextsForTest } from "./itApprovedTexts.js";
 import fs from "node:fs";
 import path from "node:path";
 import { createClient } from "@supabase/supabase-js";
@@ -15,7 +16,7 @@ const root = path.resolve(__dirname, "../../..");
 const BUCKET = "hr-dokumenty";
 
 describe.skipIf(!enabled)("faza I - vyhlasenia z verzovanych textov (lokalny Supabase)", { timeout: 120000 }, () => {
-  let service, hr;
+  let service, hr, approved;
   const run = Date.now().toString(36);
   const empId = `emp-i-${run}`;
   const email = `iveta.${run}@example.test`;
@@ -40,17 +41,19 @@ describe.skipIf(!enabled)("faza I - vyhlasenia z verzovanych textov (lokalny Sup
     hr = createClient(URL_, ANON, { auth: { persistSession: false } });
     if ((await hr.auth.signInWithPassword({ email: login, password })).error) throw new Error("login");
     await service.from("employees").insert({ id: empId, first_name: "Iveta", last_name: "Textová", record_flag: "TEST", private_email: email });
+    approved = await approveTextsForTest(service, undefined, run);
   });
+  afterAll(async () => { await approved?.cleanup(); });
 
   it("§ 21 oznamenie: server PDF z aktualneho textu, po podpise vznikne vyhlasenie; nove vyhotovenie nahradi nepodpisane", async () => {
     const a = await create({ kind: "S21" });
-    expect(a).toMatchObject({ ok: true, text_status: "KONCEPT" });
+    expect(a).toMatchObject({ ok: true, text_status: "SCHVALENO" });
     const b = await create({ kind: "S21" });
     expect((await row(a.document_id)).status).toBe("VOIDED");
     const d = await row(b.document_id);
     expect(d).toMatchObject({ doc_type: "s21_oznameni_adresy", status: "READY_FOR_SIGNATURE", legal_act_type: "EMPLOYEE_DECLARATION" });
     expect(d.final_pdf_text_check).toMatchObject({ ok: true, server_verified: true, method: "server-generated-v1" });
-    expect(d.variables_snapshot).toMatchObject({ declaration_kind: "S21_ADDRESS_NOTICE", email, text_version_id: "lt-s21-address-notice-v1" });
+    expect(d.variables_snapshot).toMatchObject({ declaration_kind: "S21_ADDRESS_NOTICE", email, text_version_id: approved.ids[0] });
     const { data: file } = await service.storage.from(BUCKET).download(d.final_pdf_path);
     const bytes = new Uint8Array(await file.arrayBuffer());
     expect(await sha256Hex(bytes)).toBe(d.final_pdf_sha256);
@@ -81,10 +84,10 @@ describe.skipIf(!enabled)("faza I - vyhlasenia z verzovanych textov (lokalny Sup
       expect((await create({ kind: "S335_REVOCATION" })).status).toBe(409); // nie je co odvolat
       const c = await create({ kind: "S335" });
       const cd = await row(c.document_id);
-      expect(cd.variables_snapshot).toMatchObject({ declaration_kind: "S335_CONSENT", notice_version_id: "lt-s335-notice-v1" });
+      expect(cd.variables_snapshot).toMatchObject({ declaration_kind: "S335_CONSENT", notice_version_id: approved.ids[1] });
       await paperSign(c.document_id);
       const { data: consent } = await service.from("employee_contact_declarations").select("*").eq("hr_document_id", c.document_id).single();
-      expect(consent).toMatchObject({ kind: "S335_CONSENT", notice_version_id: "lt-s335-notice-v1" });
+      expect(consent).toMatchObject({ kind: "S335_CONSENT", notice_version_id: approved.ids[1] });
 
       const rv = await create({ kind: "S335_REVOCATION" });
       expect((await row(rv.document_id)).variables_snapshot.consent_id).toBe(consent.id);
@@ -99,13 +102,13 @@ describe.skipIf(!enabled)("faza I - vyhlasenia z verzovanych textov (lokalny Sup
   it("nova verzia textu sa pouzije pre nove dokumenty; stary podpisany dokument ostava na starej verzii", async () => {
     const before = await create({ kind: "S21" });
     const { data: v } = await service.from("hr_legal_text_versions").insert({
-      id: `lt-s21-it-${run}`, text_key: "S21_ADDRESS_NOTICE", version_no: 900 + Math.floor(Math.random() * 99), title: "Oznámení elektronické adresy (§ 21 zákoníku práce)",
-      body: "KONCEPT – KE SCHVÁLENÍ PRÁVNIČKOU. Upravená verze pro test.", body_sha256: "x",
+      id: `lt-s21-it-${run}`, text_key: "S21_ADDRESS_NOTICE", version_no: (await service.from("hr_legal_text_versions").select("version_no").eq("text_key", "S21_ADDRESS_NOTICE").order("version_no", { ascending: false }).limit(1).single()).data.version_no + 1, title: "Oznámení elektronické adresy (§ 21 zákoníku práce)",
+      body: "KONCEPT – KE SCHVÁLENÍ PRÁVNIČKOU. Upravená verze pro test.", body_sha256: "x", status: "SCHVALENO",
     }).select().single();
     try {
       const after = await create({ kind: "S21" });
       expect((await row(after.document_id)).variables_snapshot.text_version_id).toBe(v.id);
-      expect((await row(before.document_id)).variables_snapshot.text_version_id).toBe("lt-s21-address-notice-v1");
+      expect((await row(before.document_id)).variables_snapshot.text_version_id).toBe(approved.ids[0]);
     } finally {
       await service.from("hr_legal_text_versions").update({ status: "VYRAZENO" }).eq("id", v.id);
     }

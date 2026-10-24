@@ -51,7 +51,8 @@ const today = () => new Date().toISOString().slice(0, 10);
 
 async function currentText(service: SupabaseClient, key: string) {
   const { data, error } = await service.rpc("hr_current_legal_text", { p_key: key });
-  if (error || !data?.id) throw new HttpError(500, `Chybi text ${key}.`);
+  if (error) throw new HttpError(500, error.message);
+  if (!data?.id) throw new HttpError(409, `Text ${key} není schválený jednatelem (nebo je po termínu revize) – podpis nelze provést.`);
   return data;
 }
 

@@ -4,6 +4,7 @@ import { test, expect } from "@playwright/test";
 import fs from "node:fs";
 import path from "node:path";
 import { createClient } from "@supabase/supabase-js";
+import { approveTextsForTest } from "../src/lib/hr/itApprovedTexts.js";
 
 const URL_ = process.env.LOCAL_SUPABASE_URL;
 const SERVICE = process.env.LOCAL_SUPABASE_SERVICE_KEY;
@@ -11,6 +12,13 @@ const enabled = !!(URL_ && SERVICE && /^http:\/\/(127\.0\.0\.1|localhost)/.test(
 const run = Date.now().toString(36);
 
 test.skip(!enabled, "chyba lokalny Supabase (scripts/test-local-e2e.sh)");
+
+// § 21 je od migracie 66 neschvaleny - docasne schvalenie len pre test
+let approved;
+test.beforeAll(async () => {
+  if (enabled) approved = await approveTextsForTest(createClient(URL_, SERVICE, { auth: { persistSession: false } }), ["S21_ADDRESS_NOTICE"], run);
+});
+test.afterAll(async () => { await approved?.cleanup(); });
 test.use({ actionTimeout: 15000 });
 
 test("3 zle kody na tablete: HR vidi zruseny kod a moze pripravit novy", async ({ page, browser }) => {

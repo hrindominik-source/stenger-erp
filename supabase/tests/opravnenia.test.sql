@@ -72,7 +72,8 @@ reset role;
 -- ---------- zneplatnenie ----------
 -- zakladni.h nevidi citlive dokumenty -> pre test viditelny koncept: klasifikacia BASIC
 insert into public.hr_document_templates (id, name, doc_type) values ('h-tpl', 'Test H', 'pracovni_smlouva') on conflict do nothing;
-insert into public.hr_document_template_versions (id, template_id, version_number, file_path, required_permissions) values ('h-tv', 'h-tpl', 1, 'sablony/h.docx', array['HR_VIEW_BASIC']) on conflict do nothing;
+insert into public.hr_document_template_versions (id, template_id, version_number, file_path, required_permissions, approved_at) values ('h-tv', 'h-tpl', 1, 'sablony/h.docx', array['HR_VIEW_BASIC'], now()) on conflict do nothing;
+update public.hr_document_templates set status = 'SCHVALENA', current_version_id = 'h-tv' where id = 'h-tpl';
 insert into public.hr_documents (id, employee_id, doc_type, origin, status, template_id, template_version_id) values
   ('h-basic', 'emp-h1', 'pracovni_smlouva', 'GENERATED', 'DRAFT', 'h-tpl', 'h-tv');
 set local role authenticated;

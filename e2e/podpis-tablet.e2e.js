@@ -6,6 +6,7 @@ import { test, expect } from "@playwright/test";
 import fs from "node:fs";
 import path from "node:path";
 import { createClient } from "@supabase/supabase-js";
+import { approveTextsForTest } from "../src/lib/hr/itApprovedTexts.js";
 
 const URL_ = process.env.LOCAL_SUPABASE_URL;
 const ANON = process.env.LOCAL_SUPABASE_ANON_KEY;
@@ -13,7 +14,7 @@ const SERVICE = process.env.LOCAL_SUPABASE_SERVICE_KEY;
 const enabled = !!(URL_ && ANON && SERVICE && /^http:\/\/(127\.0\.0\.1|localhost)/.test(URL_ || ""));
 const run = Date.now().toString(36);
 
-let service, hr;
+let service, hr, approved;
 
 async function invoke(client, fn, body, retry = 1) {
   const { data, error } = await client.functions.invoke(fn, { body });
@@ -53,7 +54,10 @@ test.describe("podpis na tablete – vykreslenie a prezretie stran", () => {
     hr = createClient(URL_, ANON, { auth: { persistSession: false } });
     const { error } = await hr.auth.signInWithPassword({ email, password });
     if (error) throw error;
+    // § 21 je od migracie 66 neschvaleny - docasne schvalenie len pre test
+    approved = await approveTextsForTest(service, ["S21_ADDRESS_NOTICE"], run);
   });
+  test.afterAll(async () => { await approved?.cleanup(); });
 
   // 1024x700 = notebook, 820x1180 = tablet na vysku, 1280x415 = nizke okno z rucneho testu
   for (const vp of [{ width: 1024, height: 700 }, { width: 820, height: 1180 }, { width: 1280, height: 415 }]) {

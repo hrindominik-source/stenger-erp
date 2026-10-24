@@ -6,7 +6,7 @@ create extension if not exists pgtap with schema extensions;
 select no_plan();
 
 -- ---------- texty a typy ----------
-select is((select count(*) from public.hr_legal_text_versions where text_key in ('S335_REVOCATION', 'RECEIPT_CONFIRMATION') and status = 'KONCEPT' and body like 'KONCEPT – KE SCHVÁLENÍ PRÁVNIČKOU.%')::int, 2,
+select is((select count(*) from public.hr_legal_text_versions where text_key in ('S335_REVOCATION', 'RECEIPT_CONFIRMATION') and body like 'KONCEPT – KE SCHVÁLENÍ PRÁVNIČKOU.%')::int, 2,
   'nove texty su koncepty ke schvaleni pravnickou');
 select is((select body_sha256 from public.hr_legal_text_versions where id = 'lt-s335-revocation-v1'),
   encode(extensions.digest(convert_to((select body from public.hr_legal_text_versions where id = 'lt-s335-revocation-v1'), 'UTF8'), 'sha256'), 'hex'), 'otisk textu pocita DB');
@@ -18,8 +18,10 @@ select is(public.hr_required_signers(public.hr_default_legal_act_type('potvrzeni
 
 -- ---------- verzovanie: zmena textu = nova verzia, stare podpisy ostavaju ----------
 select throws_ok($$update public.hr_legal_text_versions set body = 'zmena' where id = 'lt-s335-revocation-v1'$$, 'P0001', null, 'text verzie je nemenny');
-insert into public.hr_legal_text_versions (id, text_key, version_no, title, body, body_sha256)
-  values ('lt-s335-revocation-v2', 'S335_REVOCATION', 2, 'Odvolání souhlasu', 'KONCEPT – KE SCHVÁLENÍ PRÁVNIČKOU. Upravený text.', 'x');
+select is(public.hr_current_legal_text('S335_REVOCATION'), null, 'neschvaleny koncept sa nepouzije');
+update public.hr_legal_text_versions set status = 'SCHVALENO' where id = 'lt-s335-revocation-v1';
+insert into public.hr_legal_text_versions (id, text_key, version_no, title, body, body_sha256, status)
+  values ('lt-s335-revocation-v2', 'S335_REVOCATION', 2, 'Odvolání souhlasu', 'KONCEPT – KE SCHVÁLENÍ PRÁVNIČKOU. Upravený text.', 'x', 'SCHVALENO');
 select is((public.hr_current_legal_text('S335_REVOCATION')).id, 'lt-s335-revocation-v2', 'aktualna je nova verzia');
 update public.hr_legal_text_versions set status = 'VYRAZENO' where id = 'lt-s335-revocation-v2';
 select is((public.hr_current_legal_text('S335_REVOCATION')).id, 'lt-s335-revocation-v1', 'vyradenim sa vrati predchadzajuca verzia');

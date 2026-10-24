@@ -70,7 +70,7 @@ insert into public.hr_document_template_versions (id, template_id, version_numbe
   values ('tv-a1', 't-a1', 1, 'sablony/t-a1/v1.docx', 'K_MAPOVANI');
 select is((select count(*) from public.hr_notifications where kind = 'KE_SCHVALENI' and entity_id = 'tv-a1' and resolved_at is null)::int, 1,
   'nova verzia sablony caka na schvalenie');
-update public.hr_document_template_versions set mapping_status = 'SCHVALENA' where id = 'tv-a1';
+update public.hr_document_template_versions set approved_at = now() where id = 'tv-a1';
 select is((select count(*) from public.hr_notifications where kind = 'KE_SCHVALENI' and entity_id = 'tv-a1' and resolved_at is null)::int, 0,
   'po schvaleni uz necaka');
 
