@@ -23,6 +23,7 @@ import { verifyFinalPdf, buildFinalPdfUploadPath, TEXT_CHECK_REASON_LABELS } fro
 import { KIOSK_DRAFT_KEYS, KIOSK_DOCS } from "../lib/hr/kioskDocuments.js";
 import { documentRequiredSigners, defaultLegalActType, signingState, SIGNER_LABELS } from "../lib/hr/signingRules.js";
 import LegalTextsSection from "./LegalTexts.jsx";
+import KonatelPrehled from "./KonatelPrehled.jsx";
 import DeclarationsPanel from "./Declarations.jsx";
 import DocumentDetail, { fileToBase64 } from "./DocumentDetail.jsx";
 import { invokeSigning } from "./signing/TabletSigning.jsx";
@@ -131,6 +132,7 @@ function fullName(e) {
 
 const HR_SUB_TABS = [
   { key: "dashboard", label: "Přehled", icon: LayoutDashboard },
+  { key: "jednatel", label: "Pro jednatele", icon: ShieldAlert, adminOnly: true },
   { key: "zamestnanci", label: "Zaměstnanci", icon: Users2 },
   { key: "byvali", label: "Bývalí zaměstnanci", icon: Users2 },
   { key: "nastupy", label: "Nástupy", icon: UserPlus, editOnly: true },
@@ -219,6 +221,7 @@ export default function PersonalistikaModule() {
       {tab === "pozice" && <PositionsTab permissions={permissions} />}
       {tab === "sablony" && <TemplatesTab permissions={permissions} />}
       {tab === "nastaveni" && hasPerm(permissions, "HR_ADMIN") && <SettingsTab />}
+      {tab === "jednatel" && hasPerm(permissions, "HR_ADMIN") && <KonatelPrehled />}
     </div>
   );
 }

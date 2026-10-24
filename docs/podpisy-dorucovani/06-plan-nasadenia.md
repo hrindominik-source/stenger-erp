@@ -38,6 +38,7 @@ Stav k 23. 10. 2026. **Nič z tohto sa nespúšťa bez výslovného súhlasu pri
 | 62 | `20261024100000_anon_execute.sql` | `anon` a `PUBLIC` smú spúšťať len funkcie kiosku, plánovania smien a `current_role()`; ostatným (aj `hr_admin_delete_employee`) EXECUTE odobraté; nové funkcie bez `anon` / `PUBLIC` | – (pozor: anonymné čítanie HR tabuliek vráti zamietnutie namiesto prázdneho výsledku) |
 | 63 | `20261025100000_audit_vysoke_nalezy.sql` | Audit S-01: neznámy súbor v `hr-dokumenty` vidí len HR_ADMIN, prílohy zamestnanca len `HR_VIEW_PAYROLL`; S-02: token kiosku len ako SHA-256 (stĺpec `session_token` zrušený); S-03: `kiosk.device_unlock_required = true`; `plan_smien` zápis len cez `plan_smien_save` / `plan_smien_add_request` s PIN, obmedzenie chybných PIN | **Po nasadení:** kiosk vyžaduje kód (Nástupy → Odemknout tablet) – informovať personalistku; zmeniť predvolený admin PIN Plánu smien, ak je stále `1234`; nasadiť zároveň frontend a Edge Function `hr-kiosk` (hľadá reláciu podľa hashu) |
 | 64 | `20261025110000_roly_pristupy.sql` | Balík B: roly účtu `personalistika` a `ucetni_ext` (len Personalistika, nie zvyšok ERP), HR politiky/funkcie cez `hr_role_ok()`; `hr_permissions` s profilom, väzbou na účet (`user_id`) a platnosťou od–do; `HR_TEMPLATE_APPROVE` pre šablóny; trvalé mazanie HR riadkov len HR_ADMIN | **Po nasadení (konateľ):** v Nastavení → Oprávnenia skontrolovať riadky s profilom „Vlastní nastavení (převzato…)“ a priradiť profil; personalistke a účtovníčke nastaviť rolu účtu (`profiles.role`) – SQL v Editore, kým nie je správa účtov v aplikácii; účtovníčke dátum konca prístupu |
+| 65 | `20261025120000_dohlad_konatela.sql` | Balík A: audit nemenný (UPDATE/DELETE/TRUNCATE zakázané), autor aj pri zápisoch servera, audit oprávnení/účtov/kódov (bez hašov) a stavu nástupov; `hr_notifications` + záložka „Pro jednatele“ a `hr_konatel_summary()`; Audit log v ERP podľa HR_ADMIN namiesto pevného e-mailu | Nasadiť spolu s frontendom (App.jsx, KonatelPrehled.jsx). Po nasadení jednatel uvidí ako nové udalosti aj historické pridelenia z migrácie 64 – „Vše přečteno“. E-mailový súhrn ostáva vypnutý (`konatel_summary.email_enabled = false`) |
 
 Baseline `20261022120000_baseline.sql` sa v produkcii **nespúšťa** (produkcia ju má). Pri CLI by sa označila ako aplikovaná (`migration repair`), čo je zápis do produkcie a vyžaduje súhlas.
 
@@ -110,6 +111,7 @@ Poradie je vždy opačné: **frontend → Edge Functions (vypnúť) → rollback
 | 62 `…anon_execute_rollback.sql` | – |
 | 63 `…audit_vysoke_nalezy_rollback.sql` | rozpracované kioskové relácie prestanú platiť; S-01–S-03 a zápis do `plan_smien` opäť otvorené |
 | 64 `…roly_pristupy_rollback.sql` | najprv prestaviť účty s rolou `personalistika` / `ucetni_ext` (inak sa zastaví); práva opäť podľa e-mailu, profil a platnosť sa stratia |
+| 65 `…dohlad_konatela_rollback.sql` | upozornenia sa zmažú; auditné záznamy ostanú; audit opäť meniteľný |
 | 61 `…zneplatnenie_vyhlaseni_rollback.sql` | – |
 | 60 `…bezpecnostne_opravy_rollback.sql` | – (vrátiť spolu frontend a funkcie) |
 | 59 `…sablona_pracovnej_zmluvy_rollback.sql` | zmluvy vygenerované zo šablóny `tpl-ps*` |

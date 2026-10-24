@@ -742,12 +742,21 @@ export default function MiniERPRoot() {
   return <MiniERP />;
 }
 const HR_ONLY_ROLES = ["personalistika", "ucetni_ext"];
+const AUDIT_SOURCE_LABELS = { user: "Uživatel", automation: "Automatizace", server: "Server (za uživatele)", kiosk: "Kiosk", integration: "Integrace", ai: "AI" };
 const CENOTVORBA_ALLOWED_EMAILS = ["dh@stenger.eu"];
-const AUDIT_LOG_ALLOWED_EMAILS = ["dh@stenger.eu"];
 const RSPO_CERT_CODE = "BVC-RSPO-CZ009581, PALMÖL MB";
 
 function OfficeApp({ userFullName, userEmail, onSignOut }) {
   const [view, setView] = useState("dashboard"); // dashboard | register | carriers | customers | company | ...
+  // Audit log vidi jednatel (HR_ADMIN) - opravnenie z DB, nie pevny e-mail.
+  const [canAuditLog, setCanAuditLog] = useState(false);
+  useEffect(() => {
+    let cancelled = false;
+    supabase.rpc("hr_get_permissions").then(({ data }) => {
+      if (!cancelled) setCanAuditLog(Array.isArray(data) && data.includes("HR_ADMIN"));
+    });
+    return () => { cancelled = true; };
+  }, []);
   const [orders, setOrders] = useState([]);
   const [carriers, setCarriers] = useState([]);
   const [customers, setCustomers] = useState([]);
@@ -1906,7 +1915,7 @@ function OfficeApp({ userFullName, userEmail, onSignOut }) {
   return (
     <div className="min-h-screen bg-slate-50 text-slate-900" style={{ fontFamily: "system-ui, -apple-system, Segoe UI, sans-serif" }}>
       <PrintStyles />
-      <Header view={view} setView={setView} company={company} userFullName={userFullName} userEmail={userEmail} onSignOut={onSignOut} />
+      <Header view={view} setView={setView} company={company} userFullName={userFullName} userEmail={userEmail} canAuditLog={canAuditLog} onSignOut={onSignOut} />
       {toast && (
         <div className="fixed top-4 right-4 z-[60] bg-emerald-600 text-white text-sm font-medium px-4 py-2.5 rounded-md shadow-lg flex items-center gap-2">
           <CheckCircle2 size={16} /> {toast}
@@ -2035,7 +2044,7 @@ function OfficeApp({ userFullName, userEmail, onSignOut }) {
             )
         )}
         {view === "auditlog" && (
-          AUDIT_LOG_ALLOWED_EMAILS.includes(userEmail)
+          canAuditLog
             ? <AuditLogView />
             : (
               <div className="bg-white border border-slate-200 rounded-lg p-10 text-center text-slate-500">
@@ -2550,11 +2559,11 @@ function PlaceholderView({ title }) {
   );
 }
 
-function Header({ view, setView, company, userFullName, userEmail, onSignOut }) {
+function Header({ view, setView, company, userFullName, userEmail, canAuditLog, onSignOut }) {
   const [menuOpen, setMenuOpen] = useState(false);
   const menuItems = HEADER_MENU_ITEMS.filter((item) => {
     if (item.v === "cenotvorba" || item.v === "reporting") return CENOTVORBA_ALLOWED_EMAILS.includes(userEmail);
-    if (item.v === "auditlog") return AUDIT_LOG_ALLOWED_EMAILS.includes(userEmail);
+    if (item.v === "auditlog") return canAuditLog;
     return true;
   });
   const inMenu = menuItems.some((item) => item.v === view);
@@ -6179,7 +6188,7 @@ function AuditLogView() {
                       <td className="px-3 py-2"><span className={"text-xs font-bold px-2 py-0.5 rounded-full " + action.cls}>{action.text}</span></td>
                       <td className="px-3 py-2">{label || <span className="text-slate-400">{r.entity_id}</span>}</td>
                       <td className="px-3 py-2 whitespace-nowrap text-slate-500">{who}</td>
-                      <td className="px-3 py-2 whitespace-nowrap text-slate-500">{r.source === "automation" ? "Automatizace" : "Uživatel"}</td>
+                      <td className="px-3 py-2 whitespace-nowrap text-slate-500">{AUDIT_SOURCE_LABELS[r.source] || "Uživatel"}</td>
                       <td className="px-3 py-2 text-right text-slate-400">{expanded ? <ChevronUp size={16} /> : <ChevronDown size={16} />}</td>
                     </tr>
                     {expanded && (
