@@ -171,6 +171,10 @@ async function sign(service: SupabaseClient, body: any, req: Request) {
   const kind = kindOf(doc);
   const def = (KIOSK_DOCS as Record<string, any>)[kind];
   if (!def) throw new HttpError(400, "Tento dokument nelze v dotazniku podepsat.");
+  // texty prejavu vole schvaluje jednatel (migracia 66); dovtedy len papier
+  const cfg = await config(service);
+  const intent = cfg.texts[def.intentKey];
+  if (!intent) throw new HttpError(409, "Elektronický podpis čeká na schválení textů – použijte papírový postup.");
 
   // Podpis uz je ulozeny (dokument zamknuty) - dalsi podpis nie; original
   // dokonci samostatna akcia "complete".
@@ -187,9 +191,7 @@ async function sign(service: SupabaseClient, body: any, req: Request) {
   if (!pages || Array.from({ length: pages }, (_, i) => i + 1).some((p) => !viewed.has(p))) {
     throw new HttpError(422, "Před podpisem je nutné zobrazit všechny strany dokumentu.");
   }
-  const cfg = await config(service);
-  const intent = cfg.texts[def.intentKey];
-  if (!intent || body.intent_text_version_id !== intent.id) throw new HttpError(409, "Text prohlaseni byl zmenen - nactete dokument znovu.");
+  if (body.intent_text_version_id !== intent.id) throw new HttpError(409, "Text prohlaseni byl zmenen - nactete dokument znovu.");
 
   const png = fromB64(String(body.signature_png_base64 || ""));
   const isPng = png.length > 8 && png[0] === 0x89 && png[1] === 0x50 && png[2] === 0x4e && png[3] === 0x47;

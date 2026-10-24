@@ -209,16 +209,23 @@ export function KioskSigningStep({ session, onSubmit, onSignedChange, submitting
     </ol>
   );
 
+  // texty prejavu vole schvaluje jednatel (migracia 66); dovtedy len papier
+  const electronicAvailable = docs.every((d) => d.signed || d.intent);
   if (!mode) {
     return (
       <div>
         <p className="text-slate-600 mb-3">K podpisu jsou připraveny tyto dokumenty – každý se podepisuje zvlášť:</p>
         {list}
+        {!electronicAvailable && (
+          <div className="bg-amber-50 border border-amber-200 text-amber-900 rounded-lg px-4 py-3 mb-3 text-sm" data-testid="esign-unavailable">Elektronický podpis čeká na schválení textů – použijte papírový postup.</div>
+        )}
         <div className="grid sm:grid-cols-2 gap-3">
-          <button onClick={() => setMode("ELECTRONIC")} className="flex flex-col items-start gap-1 border-2 border-teal-600 rounded-xl p-4 text-left hover:bg-teal-50">
-            <span className="flex items-center gap-2 font-semibold text-teal-800"><FileSignature size={18} /> Podepsat na tabletu</span>
-            <span className="text-sm text-slate-500">Každý dokument si celý prohlédnete a podepíšete prstem.</span>
-          </button>
+          {electronicAvailable && (
+            <button onClick={() => setMode("ELECTRONIC")} className="flex flex-col items-start gap-1 border-2 border-teal-600 rounded-xl p-4 text-left hover:bg-teal-50">
+              <span className="flex items-center gap-2 font-semibold text-teal-800"><FileSignature size={18} /> Podepsat na tabletu</span>
+              <span className="text-sm text-slate-500">Každý dokument si celý prohlédnete a podepíšete prstem.</span>
+            </button>
+          )}
           <button onClick={() => setMode("PAPER")} className="flex flex-col items-start gap-1 border-2 border-slate-200 rounded-xl p-4 text-left hover:bg-slate-50">
             <span className="flex items-center gap-2 font-semibold text-slate-700"><Printer size={18} /> Podepíšu na papíře</span>
             <span className="text-sm text-slate-500">Personální oddělení vám dotazník i prohlášení vytiskne k podpisu.</span>

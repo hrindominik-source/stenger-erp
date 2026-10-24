@@ -52,7 +52,8 @@ const today = () => new Date().toISOString().slice(0, 10);
 async function currentText(service: SupabaseClient, key: string) {
   const { data, error } = await service.rpc("hr_current_legal_text", { p_key: key });
   if (error) throw new HttpError(500, error.message);
-  if (!data?.id) throw new HttpError(409, `Text ${key} není schválený jednatelem (nebo je po termínu revize) – podpis nelze provést.`);
+  // texty prejavu vole schvaluje jednatel (migracia 66); dovtedy len papier
+  if (!data?.id) throw new HttpError(409, `Elektronický podpis čeká na schválení textů – použijte papírový postup. (Text ${key} není schválený.)`);
   return data;
 }
 
@@ -206,6 +207,8 @@ async function issue(req: Request, body: any) {
   const doc = await loadVisibleDocument(userClient, service, String(body.document_id || ""));
   await signable(service, doc, "EMPLOYEE");
   if (!EMPLOYEE_INTENT_KEY[legalAct(doc) as keyof typeof EMPLOYEE_INTENT_KEY]) throw new HttpError(409, "Tento dokument zaměstnanec nepodepisuje.");
+  // bez schvaleneho textu prejavu vole sa kod na tablet ani nevyda
+  await currentText(service, EMPLOYEE_INTENT_KEY[legalAct(doc) as keyof typeof EMPLOYEE_INTENT_KEY]);
   await training(service, doc);
   await electronicContractGate(service, doc);
   const idDoc = String(body.identity?.document_type || "");

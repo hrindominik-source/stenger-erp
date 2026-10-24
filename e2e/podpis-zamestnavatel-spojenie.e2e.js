@@ -10,12 +10,20 @@ import fs from "node:fs";
 import path from "node:path";
 import crypto from "node:crypto";
 import { createClient } from "@supabase/supabase-js";
+import { approveTextsForTest, ESIGN_TEXT_KEYS } from "../src/lib/hr/itApprovedTexts.js";
 import { PDFDocument, StandardFonts } from "pdf-lib";
 
 const URL_ = process.env.LOCAL_SUPABASE_URL;
 const SERVICE = process.env.LOCAL_SUPABASE_SERVICE_KEY;
 const enabled = !!(URL_ && SERVICE && /^http:\/\/(127\.0\.0\.1|localhost)/.test(URL_ || ""));
 const run = Date.now().toString(36);
+
+// texty prejavu vole su od migracie 66 koncept - docasne schvalenie len pre test
+let approvedTexts;
+test.beforeAll(async () => {
+  if (enabled) approvedTexts = await approveTextsForTest(createClient(URL_, SERVICE, { auth: { persistSession: false } }), ESIGN_TEXT_KEYS, run);
+});
+test.afterAll(async () => { await approvedTexts?.cleanup(); });
 const SIGNATORY = "Mgr. Jana Zkušební";
 
 test.skip(!enabled, "chyba lokalny Supabase (scripts/test-local-e2e.sh)");

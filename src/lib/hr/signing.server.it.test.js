@@ -1,7 +1,8 @@
 // Integracny test fazy F (+ doplnky pred G) proti LOKALNEMU Supabase (Edge
 // Function hr-signing + DB triggre). Vymyslene udaje. Spustenie:
 // scripts/test-local-it.sh.
-import { describe, it, expect, beforeAll } from "vitest";
+import { describe, it, expect, beforeAll, afterAll } from "vitest";
+import { approveTextsForTest } from "./itApprovedTexts.js";
 import fs from "node:fs";
 import path from "node:path";
 import { createClient } from "@supabase/supabase-js";
@@ -38,6 +39,9 @@ function fakePades(finalBytes) {
 
 describe.skipIf(!enabled)("faza F - podpis na tablete pri osobnej pritomnosti (lokalny Supabase)", { timeout: 120000 }, () => {
   let service, hr, signerHr, tablet, hrCreds;
+  let approved;
+  // texty prejavu vole su od migracie 66 koncept - docasne schvalenie len pre test
+  afterAll(async () => { await approved?.cleanup(); });
   const run = Date.now().toString(36);
   const empId = `emp-f-${run}`;
   let finalBytes;
@@ -70,6 +74,7 @@ describe.skipIf(!enabled)("faza F - podpis na tablete pri osobnej pritomnosti (l
 
   beforeAll(async () => {
     service = createClient(URL_, SERVICE, { auth: { persistSession: false } });
+    approved = await approveTextsForTest(service);
     const seed = fs.readFileSync(path.join(root, "supabase/seed.sql"), "utf8");
     const [, email, password] = seed.match(/(personalista@test\.local) \/ (\S+)/);
     hrCreds = { email, password };

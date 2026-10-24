@@ -3,6 +3,8 @@
 begin;
 create extension if not exists pgtap with schema extensions;
 select no_plan();
+-- texty prejavu vole su od migracie 66 koncept; elektronicky podpis len po schvaleni (tu v ramci testu)
+update public.hr_legal_text_versions set status = 'SCHVALENO' where text_key like 'INTENT\_%' and status = 'KONCEPT';
 
 -- Kolko riadkov tabulky vidi aktualna rola; zamietnutie (42501 - napr. RLS
 -- politika vola funkciu, ktoru anon nesmie spustit, migracia 62) = 0.

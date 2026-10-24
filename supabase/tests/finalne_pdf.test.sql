@@ -3,6 +3,8 @@
 begin;
 create extension if not exists pgtap with schema extensions;
 select no_plan();
+-- texty prejavu vole su od migracie 66 koncept; elektronicky podpis len po schvaleni (tu v ramci testu)
+update public.hr_legal_text_versions set status = 'SCHVALENO' where text_key like 'INTENT\_%' and status = 'KONCEPT';
 
 insert into auth.users (id, email) values ('00000000-0000-0000-0000-0000000000e1', 'hr2@test.local');
 insert into public.profiles (id, full_name, role) values ('00000000-0000-0000-0000-0000000000e1', 'Test HR', 'office');
@@ -47,6 +49,7 @@ reset role;
 insert into public.hr_signature_images (id, png, png_sha256) values ('img-c', decode(repeat('ab', 200), 'hex'), 'x');
 insert into public.hr_legal_text_versions (id, text_key, version_no, title, body, body_sha256)
   values ('lt-c', 'INTENT_BILATERAL_CONTRACT', 9, 'x', 'KONCEPT', 'x');
+update public.hr_legal_text_versions set status = 'SCHVALENO' where id = 'lt-c';
 select throws_ok($$insert into public.hr_document_signatures (id, hr_document_id, method, signer_type, signed_content_sha256, signature_image_id, intent_text_version_id, intent_text_sha256)
   values ('s-c', 'doc-c', 'ELECTRONIC_TABLET', 'EMPLOYEE', repeat('a',64), 'img-c', 'lt-c', 'h')$$, 'P0001', null, 'podpis starej verzie finalneho PDF odmietnuty');
 select lives_ok($$insert into public.hr_document_signatures (id, hr_document_id, method, signer_type, signed_content_sha256, signature_image_id, intent_text_version_id, intent_text_sha256)

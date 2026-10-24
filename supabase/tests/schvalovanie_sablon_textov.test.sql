@@ -18,7 +18,10 @@ insert into public.employees (id, first_name, last_name) values ('emp-c1', 'Cyri
 
 -- ---------- jednorazove schvalenie (migracia 66) ----------
 select ok((select approved_at is not null from public.hr_document_template_versions where id = 'tpl-ps-v1'), 'existujuca sablona PS jednorazovo schvalena');
-select is((select status from public.hr_legal_text_versions where text_key = 'INTENT_BILATERAL_CONTRACT' and version_no = 1), 'SCHVALENO', 'pouzivany text prejavu vule schvaleny');
+select is((select status from public.hr_legal_text_versions where text_key = 'RECEIPT_CONFIRMATION' and version_no = 1), 'SCHVALENO', 'text potvrdenia o prevzati jednorazovo schvaleny');
+select is((select count(*)::int from public.hr_legal_text_versions where text_key like 'INTENT\_%' and status <> 'KONCEPT' and version_no = 1), 0,
+  'texty prejavu vule ostavaju koncept (rozhodnutie jednatela)');
+select is(public.hr_esign_ready_keys(), '{}'::text[], 'ziadny text prejavu vule nie je pripraveny na elektronicky podpis');
 select is((select count(*)::int from public.hr_legal_text_versions where text_key in ('S21_ADDRESS_NOTICE', 'S335_NOTICE', 'S335_CONSENT', 'S335_REVOCATION') and status = 'KONCEPT'), 4,
   '§ 21 a § 335 ostavaju koncept');
 select is(public.hr_current_legal_text('S21_ADDRESS_NOTICE'), null, 'koncept § 21 sa nepouzije');
@@ -75,9 +78,22 @@ set local request.jwt.claims = '{"sub": "00000000-0000-0000-0000-0000000000d1", 
 select lives_ok($$select public.hr_approve_legal_text('lt-c2', 'po kontrole', null, '§ 103 ZP')$$, 'jednatel schvali text');
 reset role;
 select is((public.hr_current_legal_text('INTENT_TRAINING_RECORD')).id, 'lt-c2', 'pouzije sa novo schvaleny text');
-select is((select status from public.hr_legal_text_versions where text_key = 'INTENT_TRAINING_RECORD' and version_no = 1), 'VYRAZENO', 'predchadzajuca verzia vyradena');
+select is((select status from public.hr_legal_text_versions where text_key = 'INTENT_TRAINING_RECORD' and version_no = 1), 'KONCEPT', 'starsi koncept ostava (nepouziva sa)');
+select is(public.hr_esign_ready_keys(), array['INTENT_TRAINING_RECORD'], 'po schvaleni je text pripraveny na elektronicky podpis');
 update public.hr_legal_text_versions set next_review_date = current_date - 1 where id = 'lt-c2';
 select is(public.hr_current_legal_text('INTENT_TRAINING_RECORD'), null, 'text po termine revizie sa nepouzije');
+
+-- ---------- bez schvaleneho textu prejavu vole: elektronicky podpis nie, papier ano ----------
+insert into public.hr_documents (id, employee_id, doc_type, origin, status, legal_act_type, file_path,
+    final_pdf_path, final_pdf_sha256, final_pdf_text_check, finalized_at) values
+  ('d-c-sign', 'emp-c1', 'pracovni_smlouva', 'UPLOADED', 'READY_FOR_SIGNATURE', 'BILATERAL_CONTRACT', 'zamestnanci/emp-c1/d.docx',
+   'zamestnanci/emp-c1/d.pdf', repeat('a', 64), '{"ok": true, "server_verified": true}', now());
+select throws_like($$insert into public.hr_document_signatures (id, hr_document_id, method, signer_type, signed_content_sha256, signature_image_id, intent_text_version_id, intent_text_sha256)
+  values ('s-c-e', 'd-c-sign', 'ELECTRONIC_TABLET', 'EMPLOYEE', repeat('a', 64), 'img-c', 'lt-intent-bilateral-contract-v1', 'h')$$,
+  '%schválení textů%', 'neschvaleny text prejavu vule: elektronicky podpis sa neda vytvorit (ani serverom)');
+select lives_ok($$insert into public.hr_document_signatures (id, hr_document_id, method, signer_type, signed_by_name, document_hash, file_path)
+  values ('s-c-p', 'd-c-sign', 'PAPER', 'EMPLOYEE', 'Cyril Schvalovany', repeat('a', 64), 'zamestnanci/emp-c1/sken.pdf')$$,
+  'papierovy podpis funguje aj bez schvalenych textov');
 
 select * from finish();
 rollback;

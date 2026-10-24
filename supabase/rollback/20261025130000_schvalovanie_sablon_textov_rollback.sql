@@ -5,6 +5,9 @@
 --   - stlpce metadat (pravny zaklad, revizia, poznamka) sa zmazu.
 begin;
 
+drop trigger if exists hr_signatures_intent_approved on public.hr_document_signatures;
+drop function if exists public.hr_signatures_intent_approved();
+drop function if exists public.hr_esign_ready_keys();
 drop trigger if exists hr_documents_template_approved on public.hr_documents;
 drop function if exists public.hr_documents_template_approved();
 drop trigger if exists hr_templates_approval_guard on public.hr_document_templates;

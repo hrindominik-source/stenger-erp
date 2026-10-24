@@ -6,7 +6,7 @@ import { test, expect } from "@playwright/test";
 import fs from "node:fs";
 import path from "node:path";
 import { createClient } from "@supabase/supabase-js";
-import { approveTextsForTest } from "../src/lib/hr/itApprovedTexts.js";
+import { approveTextsForTest, ESIGN_TEXT_KEYS } from "../src/lib/hr/itApprovedTexts.js";
 
 const URL_ = process.env.LOCAL_SUPABASE_URL;
 const ANON = process.env.LOCAL_SUPABASE_ANON_KEY;
@@ -55,7 +55,7 @@ test.describe("podpis na tablete – vykreslenie a prezretie stran", () => {
     const { error } = await hr.auth.signInWithPassword({ email, password });
     if (error) throw error;
     // § 21 je od migracie 66 neschvaleny - docasne schvalenie len pre test
-    approved = await approveTextsForTest(service, ["S21_ADDRESS_NOTICE"], run);
+    approved = await approveTextsForTest(service, ["S21_ADDRESS_NOTICE", ...ESIGN_TEXT_KEYS], run);
   });
   test.afterAll(async () => { await approved?.cleanup(); });
 

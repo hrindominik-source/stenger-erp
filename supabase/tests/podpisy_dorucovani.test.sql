@@ -4,6 +4,8 @@
 begin;
 create extension if not exists pgtap with schema extensions;
 select no_plan();
+-- texty prejavu vole su od migracie 66 koncept; elektronicky podpis len po schvaleni (tu v ramci testu)
+update public.hr_legal_text_versions set status = 'SCHVALENO' where text_key like 'INTENT\_%' and status = 'KONCEPT';
 
 -- Kolko riadkov tabulky vidi aktualna rola; zamietnutie (42501 - napr. RLS
 -- politika vola funkciu, ktoru anon nesmie spustit, migracia 62) = 0.
@@ -39,6 +41,7 @@ insert into public.employees (id, first_name, last_name, private_email) values
 insert into public.hr_legal_text_versions (id, text_key, version_no, title, body, body_sha256) values
   ('lt-intent', 'INTENT_BILATERAL_CONTRACT', 91, 'Prejav vule', 'KONCEPT – KE SCHVÁLENÍ PRÁVNIČKOU. Seznámil/a jsem se s celým obsahem a uzavírám tuto smlouvu.', 'x'),
   ('lt-335', 'S335_NOTICE', 91, 'Pouceni § 335', 'KONCEPT – KE SCHVÁLENÍ PRÁVNIČKOU. Poučení…', 'x');
+update public.hr_legal_text_versions set status = 'SCHVALENO' where id in ('lt-intent', 'lt-335');
 insert into public.hr_documents (id, employee_id, doc_type, origin, status, legal_act_type, file_path,
     final_pdf_path, final_pdf_sha256, final_pdf_text_check, finalized_at) values
   ('doc-ps', 'emp-1', 'pracovni_smlouva', 'GENERATED', 'READY_FOR_SIGNATURE', 'BILATERAL_CONTRACT', 'zamestnanci/emp-1/doc-ps.docx',
@@ -68,7 +71,7 @@ select throws_ok($$insert into public.hr_documents (id, employee_id, doc_type, o
 select throws_ok($$insert into public.hr_document_signatures (id, hr_document_id, method, signer_type, signed_content_sha256, signature_image_id, intent_text_version_id, intent_text_sha256)
   values ('s-x', 'doc-ps', 'ELECTRONIC_TABLET', 'EMPLOYEE', repeat('c',64), 'img-1', 'lt-intent', 'h')$$, 'P0001', null, 'hash podpisaneho obsahu musi sediet s finalnym PDF');
 select throws_ok($$insert into public.hr_document_signatures (id, hr_document_id, method, signer_type, signed_content_sha256)
-  values ('s-x', 'doc-ps', 'ELECTRONIC_TABLET', 'EMPLOYEE', repeat('a',64))$$, '23514', null, 'tabletovy podpis bez obrazka/prejavu vule odmietnuty');
+  values ('s-x', 'doc-ps', 'ELECTRONIC_TABLET', 'EMPLOYEE', repeat('a',64))$$, null, null, 'tabletovy podpis bez obrazka/prejavu vule odmietnuty');
 select lives_ok($$insert into public.hr_document_signatures (id, hr_document_id, method, signer_type, signed_at, signed_by_name, signed_content_sha256, signature_image_id, intent_text_version_id, intent_text_sha256, evidence)
   values ('s-1', 'doc-ps', 'ELECTRONIC_TABLET', 'EMPLOYEE', '2000-01-01', 'Jan Testovaci', repeat('a',64), 'img-1', 'lt-intent', 'h', '{"all_pages_viewed": true}')$$, 'platny tabletovy podpis');
 select isnt((select signed_at from public.hr_document_signatures where id = 's-1'), '2000-01-01'::timestamptz, 'cas podpisu je serverovy, nie z klienta');

@@ -61,6 +61,8 @@ function ActionButton({ icon: Icon, children, onClick, disabled, reason, tone = 
   );
 }
 
+const ESIGN_PENDING = "Elektronický podpis čeká na schválení textů – použijte papírový postup.";
+
 export default function DocumentDetail({ doc, signatures = [], previousSignatures = [], documents = [], employee, employment, docLabel, openFile, can, onChanged }) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -114,6 +116,13 @@ export default function DocumentDetail({ doc, signatures = [], previousSignature
     setLoading(false);
   }, [doc.id, doc.template_id, textVersionId, doc.generated_by, doc.finalized_by, signatureUsers, qualifiedIds]);
   useEffect(() => { load(); }, [load]);
+  // schvalene texty prejavu vole (migracia 66) - bez nich len papierovy postup
+  const [esignReady, setEsignReady] = useState(null);
+  useEffect(() => {
+    let cancelled = false;
+    supabase.rpc("hr_esign_ready_keys").then(({ data }) => { if (!cancelled) setEsignReady(data || []); });
+    return () => { cancelled = true; };
+  }, []);
 
   async function completeSigning() {
     setCompletion({ busy: true, error: "" });
@@ -166,10 +175,12 @@ export default function DocumentDetail({ doc, signatures = [], previousSignature
     : fullySigned ? "Dokument je už podepsán všemi stranami." : !serverPdf ? "Nejdřív nahrajte finální PDF (ověřené serverem)." : "";
   const signBase = !can.sign ? "Chybí oprávnění k podpisu dokumentů." : signState;
   const tabletReason = (!required.includes("EMPLOYEE") ? "Podpis zaměstnance se u tohoto dokumentu nevyžaduje." : "") || signBase || (!missing.includes("EMPLOYEE") ? "Zaměstnanec už podepsal."
-    : isTraining && !doc.training_record_id ? "Nejdřív doplňte evidenci školení a ověření znalostí." : "");
+    : isTraining && !doc.training_record_id ? "Nejdřív doplňte evidenci školení a ověření znalostí."
+    : esignReady && !esignReady.includes(`INTENT_${legalAct}`) ? ESIGN_PENDING : "");
   const employerReason = (!required.includes("EMPLOYER") ? "Podpis zaměstnavatele se u tohoto dokumentu nevyžaduje." : "")
     || (!can.signEmployer ? "Chybí oprávnění podepisovat za zaměstnavatele (HR_SIGN_FOR_EMPLOYER)." : signState) || (!missing.includes("EMPLOYER") ? "Zaměstnavatel už podepsal."
-    : s334 ? "Písemnost § 334 podepisuje zaměstnavatel uznávaným el. podpisem – nahrajte podepsané PDF." : "");
+    : s334 ? "Písemnost § 334 podepisuje zaměstnavatel uznávaným el. podpisem – nahrajte podepsané PDF."
+    : esignReady && !esignReady.includes("INTENT_EMPLOYER_SIGNATURE") ? ESIGN_PENDING : "");
   const qualifiedReason = signBase || (!missing.length ? "Nikdo další už podepsat nemusí." : "");
   const emailChannels = [
     legalAct === "BILATERAL_CONTRACT" && "EMAIL_S21",

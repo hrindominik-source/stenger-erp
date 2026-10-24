@@ -10,7 +10,11 @@
 --     schvalena verzia sablony (trigger na hr_documents), obe nie po revizii.
 --     Koncepty textov sa nepouzivaju (rozhodnutie jednatela 2026-10-24).
 --   - Jednorazove schvalenie existujucich pouzivanych sablon a textov
---     (okrem § 21 a § 335, tie ostavaju koncept) so zaznamom v audite.
+--     so zaznamom v audite - okrem § 21, § 335 a textov prejavu vole
+--     (INTENT_*), tie ostavaju koncept (rozhodnutie jednatela 2026-10-24).
+--   - Kym nie su texty prejavu vole schvalene, elektronicky podpis (tablet,
+--     kiosk) nejde - DB odmietne podpis ELECTRONIC_TABLET bez schvaleneho
+--     textu; papierovy postup funguje.
 -- ============================================================
 
 -- ---------- metadata ----------
@@ -293,11 +297,12 @@ begin
     set approved_by = coalesce(approved_by, v_konatel), approved_at = coalesce(approved_at, now())
     where status = 'SCHVALENA';
 
-  -- texty v pouziti; § 21 a § 335 ostavaju koncept (nepouzitelne)
+  -- texty v pouziti; § 21, § 335 a prejavy vole (INTENT_*) ostavaju koncept
   update public.hr_legal_text_versions x
     set status = 'SCHVALENO', approved_by = v_konatel, approval_note = v_note
     where x.status = 'KONCEPT'
       and x.text_key not in ('S21_ADDRESS_NOTICE', 'S335_NOTICE', 'S335_CONSENT', 'S335_REVOCATION')
+      and x.text_key not like 'INTENT\_%'
       and x.version_no = (select max(version_no) from public.hr_legal_text_versions y
                           where y.text_key = x.text_key and y.status <> 'VYRAZENO');
   get diagnostics n_txt = row_count;
@@ -305,9 +310,36 @@ begin
   insert into public.audit_log (entity, entity_id, action, old_value, new_value, changed_by, changed_by_role, source)
   values ('hr_approval_bootstrap', 'migrace-66', 'update', null,
     jsonb_build_object('note', v_note, 'template_versions', n_tpl, 'legal_texts', n_txt,
-      'unapproved_texts', array['S21_ADDRESS_NOTICE', 'S335_NOTICE', 'S335_CONSENT', 'S335_REVOCATION']),
+      'unapproved_texts', array['S21_ADDRESS_NOTICE', 'S335_NOTICE', 'S335_CONSENT', 'S335_REVOCATION', 'INTENT_*']),
     v_konatel, null, 'automation');
   perform public.hr_notify('APPROVAL_BOOTSTRAP', 'NA_VEDOMI',
-    'Zavedeno schvalování: dosavadní šablony (' || n_tpl || ') a texty (' || n_txt || ') označeny jako schválené; § 21 a § 335 zůstávají koncept',
+    'Zavedeno schvalování: dosavadní šablony (' || n_tpl || ') a texty (' || n_txt || ') označeny jako schválené; § 21, § 335 a prejavy vůle zůstávají koncept – elektronický podpis je vypnutý',
     'hr_approval_bootstrap', 'migrace-66', null, '{}'::jsonb, v_konatel);
 end $$;
+
+-- ---------- elektronicky podpis len so schvalenym textom prejavu vole ----------
+create or replace function public.hr_signatures_intent_approved()
+returns trigger language plpgsql security definer set search_path = public as $$
+begin
+  if new.method = 'ELECTRONIC_TABLET' and not exists (
+      select 1 from public.hr_legal_text_versions t
+      where t.id = new.intent_text_version_id and t.status = 'SCHVALENO'
+        and (t.next_review_date is null or t.next_review_date >= current_date)) then
+    raise exception 'Elektronický podpis čeká na schválení textů – použijte papírový postup.';
+  end if;
+  return new;
+end;
+$$;
+drop trigger if exists hr_signatures_intent_approved on public.hr_document_signatures;
+create trigger hr_signatures_intent_approved before insert on public.hr_document_signatures
+  for each row execute function public.hr_signatures_intent_approved();
+
+-- Ktore texty prejavu vole su schvalene (UI: tlacidla podpisu na tablete).
+create or replace function public.hr_esign_ready_keys()
+returns text[] language sql stable security definer set search_path = public as $$
+  select coalesce(array_agg(k order by k), '{}') from unnest(array['INTENT_BILATERAL_CONTRACT', 'INTENT_RECEIPT_ACKNOWLEDGEMENT',
+    'INTENT_TRAINING_RECORD', 'INTENT_EMPLOYEE_DECLARATION', 'INTENT_EMPLOYER_SIGNATURE', 'INTENT_QUESTIONNAIRE']) k
+  where (public.hr_current_legal_text(k)).id is not null;
+$$;
+revoke execute on function public.hr_esign_ready_keys() from public, anon;
+grant execute on function public.hr_esign_ready_keys() to authenticated, service_role;

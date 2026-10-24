@@ -2,7 +2,8 @@
 // hr-finalize-pdf a hr-signed-original + DB triggre). Vymyslene udaje.
 // Spustenie: scripts/test-local-it.sh (nastavi LOCAL_SUPABASE_* zo
 // `supabase status`). Bez tychto premennych sa test preskoci.
-import { describe, it, expect, beforeAll } from "vitest";
+import { describe, it, expect, beforeAll, afterAll } from "vitest";
+import { approveTextsForTest } from "./itApprovedTexts.js";
 import fs from "node:fs";
 import path from "node:path";
 import { signaturePng } from "./__fixtures__/signaturePng.js";
@@ -24,6 +25,9 @@ const PNG = signaturePng();
 // Edge Functions pri prvom volani stahuju npm zavislosti (cold start).
 describe.skipIf(!enabled)("faza C - overenie na serveri (lokalny Supabase)", { timeout: 120000 }, () => {
   let service, user, SNAPSHOT;
+  let approved;
+  // texty prejavu vole su od migracie 66 koncept - docasne schvalenie len pre test
+  afterAll(async () => { await approved?.cleanup(); });
   const run = Date.now().toString(36);
   const empId = `emp-it-${run}`;
 
@@ -50,6 +54,7 @@ describe.skipIf(!enabled)("faza C - overenie na serveri (lokalny Supabase)", { t
   beforeAll(async () => {
     ({ SNAPSHOT } = await import("./__fixtures__/word_final_pdf/make_docx.mjs"));
     service = createClient(URL_, SERVICE, { auth: { persistSession: false } });
+    approved = await approveTextsForTest(service);
     user = createClient(URL_, ANON, { auth: { persistSession: false } });
     // testovacie prihlasenie z projektoveho seedu (supabase/seed.sql)
     const seed = fs.readFileSync(path.join(root, "supabase/seed.sql"), "utf8");
@@ -101,7 +106,7 @@ describe.skipIf(!enabled)("faza C - overenie na serveri (lokalny Supabase)", { t
     const id = await newDoc("partial");
     expect((await finalize(id, "zmluva.pdf")).ok).toBe(true);
     const d = await row(id);
-    const { data: lt } = await service.from("hr_legal_text_versions").select("id, body_sha256").eq("id", "lt-intent-bilateral-contract-v1").single();
+    const { data: lt } = await service.from("hr_legal_text_versions").select("id, body_sha256").eq("id", approved.ids.find((i) => i.includes("intent-bilateral-contract"))).single();
     const imgId = `img-it-${run}-p`;
     await service.from("hr_signature_images").insert({ id: imgId, png: `\\x${Buffer.from(signaturePng(3)).toString("hex")}`, png_sha256: "x" });
     const { error: sErr } = await service.from("hr_document_signatures").insert({
@@ -122,11 +127,9 @@ describe.skipIf(!enabled)("faza C - overenie na serveri (lokalny Supabase)", { t
     const id = await newDoc("sign");
     expect((await finalize(id, "zmluva.pdf")).ok).toBe(true);
     const d = await row(id);
-    const { data: lt } = await service.from("hr_legal_text_versions").insert({
-      // VYRAZENO: testovaci text sa nesmie stat aktualnym prejavom vole v lokalnej DB
-      id: `lt-it-${run}`, text_key: "INTENT_BILATERAL_CONTRACT", version_no: Number(Date.now() % 100000), title: "Projev vůle", status: "VYRAZENO",
-      body: "KONCEPT – KE SCHVÁLENÍ PRÁVNIČKOU. Seznámil/a jsem se s celým obsahem a uzavírám tuto smlouvu.", body_sha256: "x",
-    }).select().single();
+    // docasne schvaleny text prejavu vole (od migracie 66 DB neprijme podpis s neschvalenym textom)
+    const { data: lt } = await service.from("hr_legal_text_versions").select("id, body_sha256")
+      .eq("id", approved.ids.find((i) => i.includes("intent-bilateral-contract"))).single();
     for (const [i, signer] of ["EMPLOYEE", "EMPLOYER"].entries()) {
       const imgId = `img-it-${run}-${i}`;
       const { error: iErr } = await service.from("hr_signature_images").insert({ id: imgId, png: `\\x${Buffer.from(PNG).toString("hex")}`, png_sha256: "x" });
