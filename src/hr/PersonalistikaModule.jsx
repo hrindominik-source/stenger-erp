@@ -3743,7 +3743,7 @@ function DokumentyTab({ employee, sensitive, payroll, currentEmployment, permiss
             const genName = hrFileName(docLabel, employee, d.created_at, fileExt(d.file_path) || "docx");
             const signedName = latestSignature?.file_path ? hrFileName(`${docLabel} – podepsáno`, employee, latestSignature.created_at, fileExt(latestSignature.file_path)) : "";
             return (
-              <div key={d.id} className="bg-white border border-slate-200 rounded-lg p-4">
+              <div key={d.id} data-doc-id={d.id} className="bg-white border border-slate-200 rounded-lg p-4">
                 <div className="flex justify-between items-start flex-wrap gap-2">
                   <div>
                     <div className="font-medium">{docLabel}</div>

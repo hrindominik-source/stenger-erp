@@ -106,4 +106,8 @@ test("strata spojenia pri podpise za zamestnavatela: klient ukaze pravdu a dokum
   const { data: d } = await service.from("hr_documents").select("status, signed_pdf_path").eq("id", docId).single();
   expect(d.status).toBe("SIGNED");
   expect(d.signed_pdf_path).toBeTruthy();
+  // detail rozlisuje sposob: prihlaseny pouzivatel na svojej obrazovke, nie tablet
+  await page.getByRole("button", { name: "Hotovo" }).click();
+  await expect(page.getByText(/elektronicky – přihlášený uživatel/)).toBeVisible({ timeout: 30000 });
+  await expect(page.getByText(/papír \(sken\)/)).toBeVisible();
 });

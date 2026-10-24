@@ -5,7 +5,7 @@ import { uid } from "../lib/utils.js";
 import { hrFileName } from "../lib/hr/fileNames.js";
 import {
   documentRequiredSigners, defaultLegalActType, signatureCounts, isS334Document, missingSigners,
-  SIGNER_LABELS, LEGAL_ACT_LABELS, SIGNATURE_METHOD_LABELS,
+  SIGNER_LABELS, LEGAL_ACT_LABELS, signatureMethodLabel,
 } from "../lib/hr/signingRules.js";
 import TabletSigning, { invokeSigning } from "./signing/TabletSigning.jsx";
 import { invokeDeclarations } from "./Declarations.jsx";
@@ -257,7 +257,7 @@ export default function DocumentDetail({ doc, signatures = [], previousSignature
                   </div>
                   {mine.map((s) => (
                     <div key={s.id} className={"ml-5 text-xs " + (signatureCounts(doc, s) && !closed ? "text-slate-600" : "text-red-700")}>
-                      {s.signed_by_name || "—"} · {fmtTs(s.signed_at || s.created_at)} · {SIGNATURE_METHOD_LABELS[s.method] || s.method}
+                      {s.signed_by_name || "—"} · {fmtTs(s.signed_at || s.created_at)} · {signatureMethodLabel(s)}
                       {" · "}
                       {s.method === "PAPER"
                         ? <>sken <code className="font-mono">{short(s.document_hash)}</code>{s.signed_content_sha256 ? <> k verzi <code className="font-mono">{short(s.signed_content_sha256)}</code></> : " (bez finálního PDF)"}{s.scan_matches_original_confirmed_by ? `, shodu ověřil(a) ${who(s.scan_matches_original_confirmed_by)}` : ""}</>

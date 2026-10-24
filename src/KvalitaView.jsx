@@ -136,8 +136,19 @@ function KvalitaTabButton({ active, onClick, color, icon, label }) {
   );
 }
 
+// Zvolena zalozka prezije opatovne pripojenie komponentu (obnova relacie /
+// profilu pocas nacitania) - inak sa prve kliknutie na zalozku stratilo.
+const KVALITA_TAB_KEY = "stenger.kvalita.tab";
+const KVALITA_TABS = ["prehlad", "checklisty", "terminy", "personalistika"];
+
 export default function KvalitaView({ fullName, onSignOut, onBack }) {
-  const [tab, setTab] = useState("prehlad");
+  const [tab, setTabState] = useState(() => {
+    try { const t = sessionStorage.getItem(KVALITA_TAB_KEY); return KVALITA_TABS.includes(t) ? t : "prehlad"; } catch { return "prehlad"; }
+  });
+  const setTab = (t) => {
+    setTabState(t);
+    try { sessionStorage.setItem(KVALITA_TAB_KEY, t); } catch { /* ulozisko nedostupne - len v pamati */ }
+  };
   const [templates, setTemplates] = useState([]);
   const [submissions, setSubmissions] = useState([]);
   const [terminy, setTerminy] = useState([]);

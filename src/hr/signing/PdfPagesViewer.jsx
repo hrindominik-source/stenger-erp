@@ -20,16 +20,16 @@ export default function PdfPagesViewer({ bytes, onViewedChange }) {
     let cancelled = false;
     let doc = null;
     const scroller = box.current;
-    // viditelna cast = prienik prehliadaca PDF a okna prehliadaca
+    // Strana je prezreta, ked ju posun presiel: jej spodny okraj sa dostal nad
+    // spodok viditelnej casti (prienik prehliadaca PDF a okna) - aj ked sa pri
+    // rychlom posune / svihnuti v okne nezastavila.
     const check = () => {
       if (cancelled || !holder.current) return;
       const b = scroller.getBoundingClientRect();
-      const top = Math.max(b.top, 0);
       const bottom = Math.min(b.bottom, window.innerHeight || document.documentElement.clientHeight);
       const hit = [];
       for (const wrap of holder.current.querySelectorAll("[data-page][data-rendered=true]")) {
-        const end = wrap.getBoundingClientRect().bottom;
-        if (end <= bottom + 2 && end >= top - 2) hit.push(Number(wrap.dataset.page));
+        if (wrap.getBoundingClientRect().bottom <= bottom + 2) hit.push(Number(wrap.dataset.page));
       }
       if (hit.length) setViewed((prev) => (hit.every((p) => prev.has(p)) ? prev : new Set([...prev, ...hit])));
     };

@@ -63,7 +63,7 @@ export async function createSignedOriginal(service: SupabaseClient, doc: Record<
     const t = textById.get(s.intent_text_version_id);
     const iv = s.identity_verification || {};
     return {
-      signer_type: s.signer_type, signed_by_name: s.signed_by_name, signed_at: s.signed_at, method: s.method,
+      signer_type: s.signer_type, signed_by_name: s.signed_by_name, signed_at: s.signed_at, method: s.method, channel: s.evidence?.channel,
       intent_text: t?.body, intent_text_version: t?.version_no, intent_text_sha256: s.intent_text_sha256,
       identity_verification_label: iv.label || (iv.method ? `${iv.method}${iv.verified_by_name ? `, ověřil(a) ${iv.verified_by_name}` : ""}` : null),
       evidence_sha256: s.evidence_sha256, signature_png: imgById.get(s.signature_image_id) || null,

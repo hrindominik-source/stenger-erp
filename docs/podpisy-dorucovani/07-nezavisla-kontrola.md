@@ -49,3 +49,11 @@ Oprava:
 - počet strán sa berie z overenia finálneho PDF, nie z opätovnej extrakcie textu.
 
 Testy: IT (idempotencia, jeden e-mail) a e2e (strata spojenia pred serverom a po uložení podpisu).
+
+## Doplnok 24. 10. 2026 – nálezy z ručného testu zmluvy
+
+- Rýchly posun: strana sa počíta ako prezretá, keď ju posun prešiel (spodný okraj nad spodkom viditeľnej časti), aj bez zastavenia. E2e `rychly-posun.e2e.js` (veľké kroky kolieskom – so starým kódom zlyhá na „1 z 4“; švihnutie prstom).
+- Spôsob podpisu podľa kanála v dôkazoch: „tablet (zaměstnanec)“, „tablet – nástupní kiosk (zaměstnanec)“, „elektronicky – přihlášený uživatel“; rovnako na dôkaznom liste podpísaného originálu (nové originály).
+- Záložka Personalistika: chybu sa nepodarilo zopakovať (ani pri pomalej sieti); pravdepodobná príčina je obnovenie stránky dev serverom počas úprav kódu. Zvolená záložka sa teraz pamätá (sessionStorage), test `personalistika-zalozka.e2e.js`.
+- Príloha e-mailu § 21: IT overuje, že príloha = uložený podpísaný originál (rovnaký SHA-256), obsahuje dôkazný list s otlačkom finálneho PDF a oboma podpismi.
+- Časti K a L ručného testu: e2e `papier-prevzeti.e2e.js` cez UI (sken, chybný typ súboru, potvrdenie o prevzatí + sken, mzdový výmer § 334 – predanie len proti skenu potvrdenia).

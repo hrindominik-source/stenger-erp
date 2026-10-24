@@ -8,6 +8,7 @@ import { createClient } from "@supabase/supabase-js";
 import { PDFDocument, StandardFonts } from "pdf-lib";
 import { sha256Hex } from "../../../supabase/functions/_shared/pdfTextCheck.js";
 import { signaturePng } from "./__fixtures__/signaturePng.js";
+import { extractPdfPages } from "./finalPdf.js";
 
 const URL_ = process.env.LOCAL_SUPABASE_URL;
 const ANON = process.env.LOCAL_SUPABASE_ANON_KEY;
@@ -166,6 +167,21 @@ describe.skipIf(!enabled)("faza F - podpis na tablete pri osobnej pritomnosti (l
     const found = await (await fetch(`${MAILPIT}/api/v1/search?query=${encodeURIComponent(`to:${EMP_EMAIL}`)}`)).json();
     expect(found.messages?.length).toBeGreaterThan(0);
     expect(found.messages[0].Attachments).toBe(1);
+    // priloha = ulozeny podpisany original (rovnaky hash) s dokaznym listom
+    const msg = await (await fetch(`${MAILPIT}/api/v1/message/${found.messages[0].ID}`)).json();
+    expect(msg.Attachments).toHaveLength(1);
+    expect(msg.Attachments[0].ContentType).toBe("application/pdf");
+    const att = new Uint8Array(await (await fetch(`${MAILPIT}/api/v1/message/${found.messages[0].ID}/part/${msg.Attachments[0].PartID}`)).arrayBuffer());
+    expect(await sha256Hex(att)).toBe(done.signed_pdf_sha256);
+    const { data: storedSigned } = await service.storage.from("hr-dokumenty").download(done.signed_pdf_path);
+    expect(await sha256Hex(new Uint8Array(await storedSigned.arrayBuffer()))).toBe(done.signed_pdf_sha256);
+    const attPages = await extractPdfPages(att);
+    expect(attPages.length).toBeGreaterThan(3); // 3 strany finalneho PDF + dokazny list
+    const evidence = attPages.slice(3).join(" ").replace(/\s+/g, " ");
+    expect(evidence).toContain("DŮKAZNÍ LIST K ELEKTRONICKY PODEPSANÉMU DOKUMENTU");
+    expect(evidence).toContain(`SHA-256 finálního PDF (podepsaný obsah): ${await sha256Hex(finalBytes)}`);
+    expect(evidence).toContain("na tabletu za přítomnosti HR"); // zamestnanec
+    expect(evidence).toContain("přihlášeného uživatele na jeho obrazovce"); // za zamestnavatela
     const { data: emp } = await service.from("hr_document_signatures").select("evidence").eq("hr_document_id", id).eq("signer_type", "EMPLOYER").single();
     expect(emp.evidence.signatory_id).toBe(`sig-${run}`);
   });

@@ -13,6 +13,12 @@ export const METHOD_LABELS = {
   ELECTRONIC_QUALIFIED: "Uznávaný elektronický podpis (externě podepsané PDF)",
   PAPER: "Podpis na papíře (sken)",
 };
+// Podpis rukou na obrazovke - kto a kde (kanal z dokazov podpisu)
+export const CHANNEL_LABELS = {
+  HR_TABLET_IN_PERSON: "Vlastnoruční podpis zaměstnance na tabletu za přítomnosti HR (jednoduchý elektronický podpis)",
+  KIOSK_TABLET: "Vlastnoruční podpis zaměstnance na tabletu v nástupním kiosku (jednoduchý elektronický podpis)",
+  HR_TABLET_EMPLOYER: "Vlastnoruční podpis přihlášeného uživatele na jeho obrazovce (jednoduchý elektronický podpis)",
+};
 
 const PAGE = [595.28, 841.89]; // A4
 const MARGIN = 50;
@@ -102,7 +108,7 @@ export async function buildSignedOriginal({ originalPdfBytes, expectedSha256, fo
     newPageIfNeeded(150);
     text(`${i + 1}. ${SIGNER_LABELS[s.signer_type] || s.signer_type}: ${s.signed_by_name || ""}`, { size: 11, f: bold });
     text(`Čas podpisu (serverový): ${s.signed_at ? formatPragueDateTime(s.signed_at) : "—"}`);
-    text(`Způsob: ${METHOD_LABELS[s.method] || s.method}`);
+    text(`Způsob: ${CHANNEL_LABELS[s.channel] || METHOD_LABELS[s.method] || s.method}`);
     if (s.identity_verification_label) text(`Ověření totožnosti: ${s.identity_verification_label}`);
     if (s.intent_text) {
       text(`Prohlášení podepisujícího${s.intent_text_version ? ` (verze ${s.intent_text_version})` : ""}: „${s.intent_text}“`);

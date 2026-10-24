@@ -139,6 +139,8 @@ Každý scenár = nový dotazník (na konci „Začít nový dotazník“ alebo 
 - [ ] Voliteľne: v Mailpite stiahnuť správu ako `.eml` → v detaile pri zásielke „Zaznamenat písemné potvrzení“ nahrať `.eml` → stav doručené potvrdením, lehota 7 dní.
 - [ ] Odhlásiť sa, prihlásiť ako `personalista@test.local` → „Podepsat za zaměstnavatele“ je neaktívne s vysvetlením (nie je osoba s plnou mocou).
 
+> K a L pokrýva automaticky `e2e/papier-prevzeti.e2e.js` (`npm run test:e2e`) – ručne ich netreba pripravovať.
+
 **K. Papierový podpis (sken nahrá server)**
 - [ ] Iný dokument → „Nahrát podepsaný sken“ → PDF/JPG → označiť strany a mená → potvrdiť zhodu s originálom → uložiť.
 - [ ] Súbor iného typu (napr. .txt premenovaný na .pdf) → chyba „Sken musí být PDF, PNG nebo JPG“.

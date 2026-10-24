@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { defaultLegalActType, documentRequiredSigners, missingSigners, signingState } from "./signingRules.js";
+import { defaultLegalActType, documentRequiredSigners, missingSigners, signingState, signatureMethodLabel } from "./signingRules.js";
 
 const H = "a".repeat(64);
 const tablet = (signer_type, sha = H) => ({ signer_type, method: "ELECTRONIC_TABLET", signed_content_sha256: sha });
@@ -45,5 +45,15 @@ describe("pisomnost § 334", async () => {
     expect(isS334Document({ doc_type: "zruseni_ve_zkusebni_dobe" })).toBe(true);
     expect(isS334Document({ doc_type: "pracovni_smlouva" })).toBe(false);
     expect(isS334Document({ doc_type: "other", legal_act_type: "EMPLOYER_UNILATERAL" })).toBe(true);
+  });
+});
+
+describe("signatureMethodLabel", () => {
+  it("rozlisi tablet zamestnanca a prihlaseneho pouzivatela", () => {
+    expect(signatureMethodLabel({ method: "ELECTRONIC_TABLET", evidence: { channel: "HR_TABLET_IN_PERSON" } })).toBe("tablet (zaměstnanec)");
+    expect(signatureMethodLabel({ method: "ELECTRONIC_TABLET", evidence: { channel: "KIOSK_TABLET" } })).toBe("tablet – nástupní kiosk (zaměstnanec)");
+    expect(signatureMethodLabel({ method: "ELECTRONIC_TABLET", evidence: { channel: "HR_TABLET_EMPLOYER" } })).toBe("elektronicky – přihlášený uživatel");
+    expect(signatureMethodLabel({ method: "ELECTRONIC_TABLET" })).toBe("tablet");
+    expect(signatureMethodLabel({ method: "PAPER" })).toBe("papír (sken)");
   });
 });

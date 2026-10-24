@@ -61,6 +61,19 @@ export const SIGNATURE_METHOD_LABELS = {
   ELECTRONIC_QUALIFIED: "kvalifikovaný el. podpis",
 };
 
+// Elektronicky podpis rukou na obrazovke - rozlisenie podla kanala v dokazoch
+// (zamestnanec na tablete vs. prihlaseny pouzivatel na svojej obrazovke).
+export const SIGNATURE_CHANNEL_LABELS = {
+  HR_TABLET_IN_PERSON: "tablet (zaměstnanec)",
+  KIOSK_TABLET: "tablet – nástupní kiosk (zaměstnanec)",
+  HR_TABLET_EMPLOYER: "elektronicky – přihlášený uživatel",
+};
+
+export function signatureMethodLabel(s) {
+  if (s?.method === "ELECTRONIC_TABLET") return SIGNATURE_CHANNEL_LABELS[s.evidence?.channel] || SIGNATURE_METHOD_LABELS.ELECTRONIC_TABLET;
+  return SIGNATURE_METHOD_LABELS[s?.method] || s?.method || "—";
+}
+
 // Pocita sa podpis k aktualnej verzii? (rovnake pravidlo ako missingSigners)
 export function signatureCounts(doc, s) {
   return s.method === "PAPER" || (ELECTRONIC.includes(s.method) && !!doc?.final_pdf_sha256 && s.signed_content_sha256 === doc.final_pdf_sha256);
