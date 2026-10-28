@@ -43,6 +43,7 @@ Stav k 23. 10. 2026. **Nič z tohto sa nespúšťa bez výslovného súhlasu pri
 | 67 | `20261025140000_mfa.sql` | Dvojfázové prihlásenie (TOTP z autentifikačnej aplikácie, zadarmo) povinné pre profily Jednatel a Personalista (`hr_settings.mfa`); bez overenia kódom (aal2) DB nevráti žiadne HR oprávnenia | **Pred nasadením:** v Supabase → Authentication → Multi-Factor overiť, že TOTP (App Authenticator) je zapnuté (lokálne `config.toml [auth.mfa.totp]`). **Po nasadení:** jednatel a personalistka si pri prvom vstupe do Personalistiky zaregistrujú aplikáciu (QR kód). **Strata telefónu:** správca zmaže faktor v Supabase → Authentication → Users → používateľ → MFA factors; pri ďalšom prihlásení nová registrácia. Nasadiť spolu s frontendom (MfaGate) |
 | – | (len frontend, bez migrácie) | Odhlásenie pri nečinnosti: Personalistika 15 min (odhlásenie, na prihlasovacej obrazovke vysvetlenie), kiosk 5 min (údaje zmiznú z obrazovky, tablet sa zamkne, ďalej len s novým kódom od HR), podpis na tablete 5 min (odkaz sa ukončí). Minútu vopred upozornenie | Nasadiť s frontendom; žiadny krok v Supabase |
 | 68 | `20261025150000_citanie_citlivych.sql` | Záznam o čítaní citlivých a mzdových údajov: priame čítanie `employee_sensitive_data` / `employee_payroll_data` prihláseným používateľom zakázané, čítanie len cez `hr_read_sensitive` / `hr_read_payroll` / `hr_read_payroll_overview`, každé sa zapíše do nemenného `audit_log` (akcia `read`: kto, koho, účel). Zápis cez update/insert (bez upsertu) | **Nasadiť súčasne s frontendom** – starý frontend by po migrácii nevedel načítať kartu zamestnanca. Po nasadení: otvoriť kartu zamestnanca a v Historii zmien overiť riadok „Zobrazeno“ |
+| 69 | `20261025160000_mfa_obnova.sql` + Edge Function `hr-mfa` | MFA povinné aj pre externú účtovníčku. Záložné kódy (10, jednorazové, zobrazia sa raz pri registrácii; v DB len otlačky). Reset MFA personalistky a účtovníčky robí jednatel v „Pro jednatele“ (s dôvodom); MFA jednatela len serverovo (IT). Každý reset ide do auditu (`auth_mfa`) a do upozornení jednatelovi | Nasadiť migráciu, funkciu `hr-mfa` (`verify_jwt = true`) a frontend naraz. **Po nasadení:** externá účtovníčka si pri ďalšom vstupe zaregistruje aplikáciu. Kto sa už zaregistroval pred migráciou 69, záložné kódy nemá – vygeneruje ich až nová registrácia (jednatel mu zruší overenie, jednatelovi IT podľa postupu nižšie) |
 
 Baseline `20261022120000_baseline.sql` sa v produkcii **nespúšťa** (produkcia ju má). Pri CLI by sa označila ako aplikovaná (`migration repair`), čo je zápis do produkcie a vyžaduje súhlas.
 
@@ -119,6 +120,7 @@ Poradie je vždy opačné: **frontend → Edge Functions (vypnúť) → rollback
 | 66 `…schvalovanie_sablon_textov_rollback.sql` | koncepty (aj § 21 / § 335) sa opäť používajú; jednorazové schválenie ostane zapísané |
 | 67 `…mfa_rollback.sql` | HR opäť len s heslom; zaregistrované faktory ostanú |
 | 68 `…citanie_citlivych_rollback.sql` | priame čítanie späť (len authenticated), záznamy `read` ostanú; vrátiť aj frontend |
+| 69 `…mfa_obnova_rollback.sql` | účtovníčka opäť bez MFA, záložné kódy zmazané; vrátiť aj `hr-mfa` a frontend |
 | 61 `…zneplatnenie_vyhlaseni_rollback.sql` | – |
 | 60 `…bezpecnostne_opravy_rollback.sql` | – (vrátiť spolu frontend a funkcie) |
 | 59 `…sablona_pracovnej_zmluvy_rollback.sql` | zmluvy vygenerované zo šablóny `tpl-ps*` |
@@ -177,3 +179,16 @@ Ak sa rollback zastaví, ostrý systém už má právne relevantné dáta. Vtedy
 - Word šablóna dodatku – dodatok sa zatiaľ pripravuje mimo systému.
 - Anonymizácia po lehotách uchovávania – čaká na odpoveď právničky.
 - Ručný test na reálnom tablete.
+
+## Postup pre IT: zrušenie dvojfázového overenia jednatela (migrácia 69)
+
+Jednatelovi sa overenie v aplikácii zrušiť nedá (ani sám sebe). Keď stratí telefón aj záložné kódy:
+
+1. Totožnosť jednatela overiť osobne alebo telefonicky na známom čísle. Nikdy len podľa e-mailu.
+2. V Supabase → SQL Editor (rola postgres) spustiť:
+   `select public.hr_mfa_server_reset('<e-mail jednatela>', '<dôvod a spôsob overenia totožnosti>');`
+   Funkcia zmaže faktory a záložné kódy, zapíše audit (`auth_mfa`, spôsob SERVER) a upozornenie. Vráti počet zmazaných faktorov.
+3. Ak SQL Editor zmazanie faktora odmietne (práva na schému `auth`), zmazať faktor v Authentication → Users → používateľ → MFA factors. Potom spustiť
+   `select public.hr_mfa_server_reset('<e-mail>', '<dôvod>', true);` – funkcia už len zapíše audit a upozornenie.
+4. Jednatel sa prihlási heslom, zaregistruje novú aplikáciu a uloží si nové záložné kódy.
+

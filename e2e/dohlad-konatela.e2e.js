@@ -13,7 +13,7 @@ const seed = () => fs.readFileSync(path.resolve("supabase/seed.sql"), "utf8");
 async function login(page, email) {
   const [, password] = seed().match(new RegExp(`${email.replace(".", "\\.")} / (\\S+)`));
   // jednatel a personalistka maju povinne dvojfazove prihlasenie (migracia 67)
-  const mfa = ["personalistka@test.local", "hr.admin@test.local"].includes(email);
+  const mfa = ["personalistka@test.local", "hr.admin@test.local", "ucetni@test.local"].includes(email);
   if (mfa) await prepareMfa(email);
   await page.goto("/");
   await page.evaluate(() => { localStorage.clear(); sessionStorage.clear(); });

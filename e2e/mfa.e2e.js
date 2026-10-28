@@ -33,7 +33,8 @@ test("personalistka: bez kodu nic, zly kod odmietnuty, dalsie prihlasenie len ko
   await page.getByRole("button", { name: "Ověřit" }).click();
   await expect(page.getByText(/Kód nesouhlasí/)).toBeVisible();
 
-  const secret = await completeMfa(page);
+  const { secret, codes } = await completeMfa(page);
+  expect(codes).toHaveLength(10);
   await expect(page.getByRole("button", { name: "Zaměstnanci", exact: true })).toBeVisible({ timeout: 30000 });
 
   // nove prihlasenie (iny prehliadac): uz bez QR, len kod

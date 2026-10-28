@@ -39,17 +39,19 @@ select throws_like($$select public.hr_konatel_summary(7)$$, '%Neopravneno%', 'je
 set local request.jwt.claims = '{"sub": "00000000-0000-0000-0000-0000000000f1", "email": "konatel.f@test.local", "role": "authenticated", "aal": "aal2"}';
 select ok(public.hr_has_permission('HR_ADMIN'), 'jednatel s druhym faktorom ma HR_ADMIN');
 
--- ---------- externa uctovnicka: podla rozhodnutia nepovinne ----------
+-- ---------- externa uctovnicka: povinne (migracia 69) ----------
 set local request.jwt.claims = '{"sub": "00000000-0000-0000-0000-0000000000f3", "email": "ucetni.f@test.local", "role": "authenticated", "aal": "aal1"}';
-select is(public.hr_mfa_status()->>'required', 'false', 'uctovnicka: druhy faktor nie je povinny');
-select ok('HR_VIEW_PAYROLL' = any(public.hr_get_permissions()), 'uctovnicka ma opravnenia aj bez druheho faktora');
+select is(public.hr_mfa_status()->>'required', 'true', 'uctovnicka: druhy faktor je povinny');
+select is(public.hr_get_permissions(), '{}'::text[], 'uctovnicka bez druheho faktora nema opravnenia');
+set local request.jwt.claims = '{"sub": "00000000-0000-0000-0000-0000000000f3", "email": "ucetni.f@test.local", "role": "authenticated", "aal": "aal2"}';
+select ok('HR_VIEW_PAYROLL' = any(public.hr_get_permissions()), 'uctovnicka s druhym faktorom ma opravnenia');
 reset role;
 
 -- ---------- zoznam profilov sa da zmenit nastavenim ----------
-update public.hr_settings set value = '{"required_profiles": ["KONATEL", "PERSONALISTA", "UCTOVNIK_EXT"]}' where key = 'mfa';
+update public.hr_settings set value = '{"required_profiles": ["KONATEL", "PERSONALISTA"]}' where key = 'mfa';
 set local role authenticated;
 set local request.jwt.claims = '{"sub": "00000000-0000-0000-0000-0000000000f3", "email": "ucetni.f@test.local", "role": "authenticated", "aal": "aal1"}';
-select is(public.hr_get_permissions(), '{}'::text[], 'po zapnuti pre uctovnicku bez druheho faktora nic');
+select ok('HR_VIEW_PAYROLL' = any(public.hr_get_permissions()), 'po vyradeni profilu zo zoznamu staci heslo');
 reset role;
 
 select * from finish();

@@ -8,13 +8,18 @@ export async function prepareMfa(email) {
   await resetMfa(createClient(process.env.LOCAL_SUPABASE_URL, process.env.LOCAL_SUPABASE_SERVICE_KEY, { auth: { persistSession: false } }), email);
 }
 
-// Registracia aplikacie na obrazovke MFA; vrati tajny kluc (pre dalsie prihlasenie).
+// Registracia aplikacie na obrazovke MFA a potvrdenie zaloznych kodov;
+// vrati { secret, codes } (pre dalsie prihlasenie).
 export async function completeMfa(page) {
   const secretEl = page.getByTestId("mfa-secret");
   await expect(secretEl).toBeVisible({ timeout: 30000 });
   const secret = (await secretEl.textContent()).trim();
   await page.getByLabel("Kód z aplikace").fill(totp(secret));
   await page.getByRole("button", { name: "Ověřit" }).click();
-  await expect(page.getByTestId("mfa-gate")).toBeHidden({ timeout: 30000 });
-  return secret;
+  await expect(page.getByTestId("mfa-recovery-codes")).toBeVisible({ timeout: 30000 });
+  const codes = (await page.getByTestId("mfa-recovery-code").allTextContents()).map((c) => c.trim());
+  await page.getByLabel(/Záložní kódy jsem si/).check();
+  await page.getByRole("button", { name: "Pokračovat" }).click();
+  await expect(page.getByTestId("mfa-recovery-codes")).toBeHidden({ timeout: 30000 });
+  return { secret, codes };
 }

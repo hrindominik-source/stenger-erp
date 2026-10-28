@@ -9,6 +9,7 @@ export const EVENT_LABELS = {
   DOC_SIGNED: "Podepsané smlouvy a úkony",
   DOC_VOIDED: "Zneplatněné dokumenty",
   WAGE_CHANGED: "Změny mzdy",
+  MFA_RESET: "Zrušená či obnovená dvoufázová ověření",
   TEMPLATE_PENDING: "Šablony ke schválení",
   TEMPLATE_APPROVED: "Schválené šablony",
   LEGAL_TEXT_PENDING: "Texty ke schválení",
@@ -21,6 +22,8 @@ export const EVENT_LABELS = {
   DELIVERY_INEFFECTIVE: "Neúčinné doručení",
 };
 const PROFILE_LABELS = { KONATEL: "Jednatel", PERSONALISTA: "Personalista", UCTOVNIK_EXT: "Externí účetní", VLASTNI: "Vlastní nastavení" };
+// ostatnym (jednatel) rusi overenie len IT serverovo - zhodne s hr-mfa
+const MFA_RESETTABLE = ["PERSONALISTA", "UCTOVNIK_EXT"];
 
 const fmtDateTime = (iso) => (iso ? new Date(iso).toLocaleString("cs-CZ", { day: "numeric", month: "numeric", year: "numeric", hour: "2-digit", minute: "2-digit" }) : "—");
 const fmtDate = (iso) => (iso ? String(iso).slice(0, 10).split("-").reverse().join(".") : "—");
@@ -58,14 +61,17 @@ export default function KonatelPrehled() {
   const [unread, setUnread] = useState([]);
   const [access, setAccess] = useState([]);
   const [names, setNames] = useState({});
+  const [mfa, setMfa] = useState({}); // email -> { mfa_active, recovery_left }
+  const [resetting, setResetting] = useState(null); // { email, reason, busy, error }
 
   const load = useCallback(async () => {
-    const [sumRes, pendRes, unreadRes, accRes, profRes] = await Promise.all([
+    const [sumRes, pendRes, unreadRes, accRes, profRes, mfaRes] = await Promise.all([
       supabase.rpc("hr_konatel_summary", { p_days: 7 }),
       supabase.from("hr_notifications").select("*").eq("kind", "KE_SCHVALENI").is("resolved_at", null).order("created_at", { ascending: false }),
       supabase.from("hr_notifications").select("*").eq("kind", "NA_VEDOMI").is("read_at", null).order("created_at", { ascending: false }).limit(200),
       supabase.from("hr_permissions").select("id, user_email, user_id, profile, valid_from, valid_until, granted_by, granted_at").order("user_email"),
       supabase.from("profiles").select("id, full_name"),
+      supabase.rpc("hr_mfa_overview"),
     ]);
     const err = sumRes.error || pendRes.error || unreadRes.error || accRes.error;
     if (err) { setError("Nepodařilo se načíst přehled."); setLoading(false); return; }
@@ -74,11 +80,28 @@ export default function KonatelPrehled() {
     setUnread(unreadRes.data || []);
     setAccess(accRes.data || []);
     setNames(Object.fromEntries((profRes.data || []).map((p) => [p.id, p.full_name])));
+    setMfa(Object.fromEntries((mfaRes.data || []).map((m) => [String(m.email).toLowerCase(), m])));
     setError("");
     setLoading(false);
   }, []);
 
   useEffect(() => { load(); }, [load]);
+
+  // Zrusenie dvojfazoveho overenia (strata telefonu) - len personalistke a
+  // externej uctovnicke; jednatela rusi IT serverovo (migracia 69).
+  async function resetMfa(e) {
+    e.preventDefault();
+    setResetting((r) => ({ ...r, busy: true, error: "" }));
+    const { error: fnErr } = await supabase.functions.invoke("hr-mfa", { body: { action: "reset_user", user_email: resetting.email, reason: resetting.reason } });
+    if (fnErr) {
+      let message = "Zrušení ověření se nezdařilo.";
+      try { message = (await fnErr.context.json()).error || message; } catch { /* bez JSON */ }
+      setResetting((r) => ({ ...r, busy: false, error: message }));
+      return;
+    }
+    setResetting(null);
+    load();
+  }
 
   async function markRead(ids) {
     if (ids.length === 0) return;
@@ -153,18 +176,41 @@ export default function KonatelPrehled() {
         <div className="px-4 py-2.5 border-b border-slate-100 font-semibold text-sm">Kdo má přístup do Personalistiky</div>
         <table className="w-full text-sm">
           <thead className="text-xs text-slate-500 text-left">
-            <tr><th className="px-4 py-1.5">Uživatel</th><th className="px-4 py-1.5">Profil</th><th className="px-4 py-1.5">Platnost</th><th className="px-4 py-1.5">Naposledy změnil</th></tr>
+            <tr><th className="px-4 py-1.5">Uživatel</th><th className="px-4 py-1.5">Profil</th><th className="px-4 py-1.5">Platnost</th><th className="px-4 py-1.5">Naposledy změnil</th><th className="px-4 py-1.5">Dvoufázové ověření</th></tr>
           </thead>
           <tbody className="divide-y divide-slate-100">
             {access.map((a) => {
               const expired = (a.valid_until && a.valid_until < today) || (a.valid_from && a.valid_from > today);
+              const m = mfa[String(a.user_email).toLowerCase()];
+              const canReset = MFA_RESETTABLE.includes(a.profile) && m?.mfa_active;
               return (
-                <tr key={a.id} className={expired ? "text-slate-400" : ""} data-testid="konatel-access-row">
+                <React.Fragment key={a.id}>
+                <tr className={expired ? "text-slate-400" : ""} data-testid="konatel-access-row">
                   <td className="px-4 py-1.5">{names[a.user_id] || a.user_email}</td>
                   <td className="px-4 py-1.5">{PROFILE_LABELS[a.profile] || a.profile}</td>
                   <td className="px-4 py-1.5">{a.valid_from || a.valid_until ? `${fmtDate(a.valid_from)} – ${fmtDate(a.valid_until)}` : "bez omezení"}{expired ? " (neplatí)" : ""}</td>
                   <td className="px-4 py-1.5">{fmtDateTime(a.granted_at)}{a.granted_by ? ` · ${names[a.granted_by] || "uživatel"}` : ""}</td>
+                  <td className="px-4 py-1.5" data-testid="konatel-mfa-cell">
+                    {m?.mfa_active ? `aktivní · záložních kódů ${m.recovery_left}` : "neregistrováno"}
+                    {canReset && (
+                      <button type="button" onClick={() => setResetting({ email: a.user_email, reason: "", busy: false, error: "" })}
+                        className="ml-2 text-xs text-red-700 hover:text-red-900 underline">Zrušit ověření</button>
+                    )}
+                  </td>
                 </tr>
+                {resetting?.email === a.user_email && (
+                  <tr><td colSpan={5} className="px-4 py-2 bg-red-50">
+                    <form onSubmit={resetMfa} className="flex flex-wrap items-center gap-2 text-sm" data-testid="konatel-mfa-reset-form">
+                      <span>Zrušit dvoufázové ověření ({a.user_email}) – po přihlášení si zaregistruje novou aplikaci.</span>
+                      <input aria-label="Důvod zrušení ověření" value={resetting.reason} onChange={(e) => setResetting((r) => ({ ...r, reason: e.target.value }))}
+                        placeholder="Důvod (např. ztracený telefon)" className="border border-slate-300 rounded-md px-2 py-1 flex-1 min-w-48" />
+                      <button type="submit" disabled={resetting.busy || !resetting.reason.trim()} className="bg-red-700 hover:bg-red-800 disabled:opacity-50 text-white text-xs font-medium px-3 py-1.5 rounded-md">Zrušit ověření</button>
+                      <button type="button" onClick={() => setResetting(null)} className="text-xs text-slate-500">Zpět</button>
+                      {resetting.error && <span className="w-full text-red-700 text-xs">{resetting.error}</span>}
+                    </form>
+                  </td></tr>
+                )}
+                </React.Fragment>
               );
             })}
           </tbody>
