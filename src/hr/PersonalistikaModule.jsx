@@ -10,6 +10,7 @@ import { KNOWN_TEMPLATE_KEYS, TEMPLATE_REQUIRED_KEYS, buildDocumentData, formatA
 import { convertFilledDocxToPdf } from "../lib/hr/docxToPdf.js";
 import { extractJmhzFields, detectJmhzVersionCandidates, knownJmhzVersions } from "../lib/hr/jmhzPdf.js";
 import { buildComparisonRows } from "../lib/hr/jmhzImport.js";
+import { saveEmployeeRow } from "../lib/hr/saveEmployeeRow.js";
 import { sha256Hex } from "../lib/hr/documentHash.js";
 import { EMPLOYEE_SECTIONS, emptyEmployeeValues, normalizeLegacyDraft, valuesFromRecords, buildRecordPatches, patchHasContent, maritalStatusText, normalizeGender, HEALTH_INSURANCE_OPTIONS, optionLabel, normalizeHealthInsurance, POSITION_CATEGORIES, positionNameOptions, positionRecordLabel, wageHistory, currentWage, upcomingWages, wageStepHint, valuesToWage } from "../lib/hr/employeeFields.js";
 import EmployeeFieldsForm, { EmployeeFieldsView, applyFieldChange } from "./EmployeeFieldsForm.jsx";
@@ -286,7 +287,8 @@ function DashboardTab({ permissions, onOpenEmployee }) {
       setMedicalExams(medRes.data || []);
       setOnboardingPendingCount(onbRes.count || 0);
       if (canPayrollDash && emps.length > 0) {
-        const { data: pays } = await supabase.from("employee_payroll_data").select("employee_id, dependents, tax_declaration, data").in("employee_id", emps.map((e) => e.id));
+        // citanie mzdovych udajov sa zapisuje do auditu (migracia 68)
+        const { data: pays } = await supabase.rpc("hr_read_payroll_overview", { p_employee_ids: emps.map((e) => e.id) });
         if (!cancelled) setPayrolls(pays || []);
       }
       setLoading(false);
@@ -1037,11 +1039,11 @@ function EmployeeDetail({ id, permissions, onBack }) {
       setContractEvents([]);
     }
     if (canSensitive) {
-      const { data } = await supabase.from("employee_sensitive_data").select("*").eq("employee_id", id).maybeSingle();
+      const { data } = await supabase.rpc("hr_read_sensitive", { p_employee_id: id, p_purpose: "detail" });
       setSensitive(data || null);
     }
     if (canPayroll) {
-      const { data } = await supabase.from("employee_payroll_data").select("*").eq("employee_id", id).maybeSingle();
+      const { data } = await supabase.rpc("hr_read_payroll", { p_employee_id: id, p_purpose: "detail" });
       setPayroll(data || null);
     }
     if (canMedical) {
@@ -1456,11 +1458,11 @@ function OsobniUdajeTab({ employee, sensitive, payroll, currentEmployment, posit
         });
       }
       if (canSensitive && p.sensitive && (sensitive || patchHasContent(p.sensitive))) {
-        const { error: sensErr } = await supabase.from("employee_sensitive_data").upsert({ employee_id: employee.id, ...p.sensitive, updated_at: now }, { onConflict: "employee_id" });
+        const { error: sensErr } = await saveEmployeeRow(supabase, "employee_sensitive_data", employee.id, { ...p.sensitive, updated_at: now });
         if (sensErr) throw sensErr;
       }
       if (canPayroll && p.payroll && (payroll || patchHasContent(p.payroll))) {
-        const { error: payErr } = await supabase.from("employee_payroll_data").upsert({ employee_id: employee.id, ...p.payroll, updated_at: now }, { onConflict: "employee_id" });
+        const { error: payErr } = await saveEmployeeRow(supabase, "employee_payroll_data", employee.id, { ...p.payroll, updated_at: now });
         if (payErr) throw payErr;
       }
       // Udaje o pozicii pre ČSSZ/JMHZ (profese, postaveni, rezim...) idu k
@@ -2358,10 +2360,10 @@ function NepritomnostiSection({ employee, payroll, currentEmployment, canEdit, c
     run(async () => {
       const uploaded = [];
       for (const file of files) uploaded.push({ ...(await uploadHrFile(employee.id, "nepritomnost", file)), absence_id: absenceId, typ: docType });
-      const { data: fresh } = await supabase.from("employee_payroll_data").select("data").eq("employee_id", employee.id).maybeSingle();
+      const { data: fresh } = await supabase.rpc("hr_read_payroll", { p_employee_id: employee.id, p_purpose: "edit" });
       const base = fresh?.data || payroll?.data || {};
       const nextData = { ...base, nepritomnosti_doklady: [...(base.nepritomnosti_doklady || []), ...uploaded] };
-      const { error: upErr } = await supabase.from("employee_payroll_data").upsert({ employee_id: employee.id, data: nextData, updated_at: new Date().toISOString() }, { onConflict: "employee_id" });
+      const { error: upErr } = await saveEmployeeRow(supabase, "employee_payroll_data", employee.id, { data: nextData, updated_at: new Date().toISOString() });
       if (upErr) throw upErr;
       await timeline(`Nahrán doklad k nepřítomnosti: ${docType}`, files.map((x) => x.name).join(", "));
       setDocFor(null);
@@ -2370,10 +2372,10 @@ function NepritomnostiSection({ employee, payroll, currentEmployment, canEdit, c
 
   function unlinkDoc(d) {
     run(async () => {
-      const { data: fresh } = await supabase.from("employee_payroll_data").select("data").eq("employee_id", employee.id).maybeSingle();
+      const { data: fresh } = await supabase.rpc("hr_read_payroll", { p_employee_id: employee.id, p_purpose: "edit" });
       const base = fresh?.data || payroll?.data || {};
       const nextData = { ...base, nepritomnosti_doklady: (base.nepritomnosti_doklady || []).filter((x) => x.id !== d.id) };
-      const { error: upErr } = await supabase.from("employee_payroll_data").upsert({ employee_id: employee.id, data: nextData, updated_at: new Date().toISOString() }, { onConflict: "employee_id" });
+      const { error: upErr } = await saveEmployeeRow(supabase, "employee_payroll_data", employee.id, { data: nextData, updated_at: new Date().toISOString() });
       if (upErr) throw upErr;
       await timeline(`Odebrán doklad k nepřítomnosti: ${d.typ || ""}`, d.name);
     });
@@ -2531,12 +2533,12 @@ function daneYearDefault() {
 }
 
 async function updateTaxYear(employeeId, year, mutate) {
-  const { data: fresh, error: rdErr } = await supabase.from("employee_payroll_data").select("data").eq("employee_id", employeeId).maybeSingle();
+  const { data: fresh, error: rdErr } = await supabase.rpc("hr_read_payroll", { p_employee_id: employeeId, p_purpose: "edit" });
   if (rdErr) throw rdErr;
   const data = { ...(fresh?.data || {}) };
   const dane = { ...(data.dane || {}) };
   dane[String(year)] = mutate({ ...(dane[String(year)] || {}) });
-  const { error } = await supabase.from("employee_payroll_data").upsert({ employee_id: employeeId, data: { ...data, dane }, updated_at: new Date().toISOString() }, { onConflict: "employee_id" });
+  const { error } = await saveEmployeeRow(supabase, "employee_payroll_data", employeeId, { data: { ...data, dane }, updated_at: new Date().toISOString() });
   if (error) throw error;
 }
 
@@ -3012,9 +3014,9 @@ function ProhlaseniPoplatnikaSection({ employee, sensitive, payroll, canEdit, on
   }
 
   async function writePayroll(mutate) {
-    const { data: fresh } = await supabase.from("employee_payroll_data").select("data").eq("employee_id", employee.id).maybeSingle();
+    const { data: fresh } = await supabase.rpc("hr_read_payroll", { p_employee_id: employee.id, p_purpose: "edit" });
     const nextData = mutate({ ...(fresh?.data || payroll?.data || {}) });
-    const { error: upErr } = await supabase.from("employee_payroll_data").upsert({ employee_id: employee.id, data: nextData, updated_at: new Date().toISOString() }, { onConflict: "employee_id" });
+    const { error: upErr } = await saveEmployeeRow(supabase, "employee_payroll_data", employee.id, { data: nextData, updated_at: new Date().toISOString() });
     if (upErr) throw upErr;
   }
 
@@ -4506,7 +4508,7 @@ function JmhzImportTab({ employee, sensitive, payroll, currentEmployment, positi
         if (err) throw err;
       }
       if (Object.keys(sensitiveDirect).length || Object.keys(sensitiveJsonb).length) {
-        const { error: err } = await supabase.from("employee_sensitive_data").upsert({ employee_id: employee.id, ...sensitiveDirect, ...sensitiveJsonb, updated_at: new Date().toISOString() }, { onConflict: "employee_id" });
+        const { error: err } = await saveEmployeeRow(supabase, "employee_sensitive_data", employee.id, { ...sensitiveDirect, ...sensitiveJsonb, updated_at: new Date().toISOString() });
         if (err) throw err;
       }
       if (currentEmployment && Object.keys(employmentPatch).length) {
@@ -4514,7 +4516,7 @@ function JmhzImportTab({ employee, sensitive, payroll, currentEmployment, positi
         if (err) throw err;
       }
       if (Object.keys(payrollBucket).length || selected.some((r) => r.target.table === "employee_payroll_data" && r.target.bucket === "dependents")) {
-        const { error: err } = await supabase.from("employee_payroll_data").upsert({ employee_id: employee.id, ...payrollBucket, dependents: dependentsWorking, updated_at: new Date().toISOString() }, { onConflict: "employee_id" });
+        const { error: err } = await saveEmployeeRow(supabase, "employee_payroll_data", employee.id, { ...payrollBucket, dependents: dependentsWorking, updated_at: new Date().toISOString() });
         if (err) throw err;
       }
 

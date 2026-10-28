@@ -43,7 +43,7 @@ set local role authenticated;
 set local request.jwt.claims = '{"sub": "00000000-0000-0000-0000-0000000000b2", "email": "personalistka.b@test.local", "role": "authenticated", "aal": "aal2"}';
 select ok(public.hr_role_ok(), 'rola personalistika je HR rola');
 select is((select count(*) from public.employees where id = 'emp-b1')::int, 1, 'personalistka vidi zamestnancov');
-select is((select birth_number from public.employee_sensitive_data where employee_id = 'emp-b1'), '900101/0000', 'personalistka vidi citlive udaje');
+select is(public.hr_read_sensitive('emp-b1')->>'birth_number', '900101/0000', 'personalistka vidi citlive udaje');
 select is((select count(*) from public.orders)::int, 0, 'personalistka nevidi objednavky');
 select is((select count(*) from public.customers)::int, 0, 'personalistka nevidi zakaznikov');
 select throws_ok($$insert into public.customers (id, data) values ('c-b', '{}')$$, '42501', null, 'personalistka nezapise zakaznika');
@@ -69,7 +69,7 @@ select is((select profile from public.hr_permissions where id = 'p-b2'), 'PERSON
 -- ---------- externa uctovnicka ----------
 set local role authenticated;
 set local request.jwt.claims = '{"sub": "00000000-0000-0000-0000-0000000000b3", "email": "ucetni.b@test.local", "role": "authenticated", "aal": "aal2"}';
-select is((select data->>'mzda_castka' from public.employee_payroll_data where employee_id = 'emp-b1'), '30000', 'uctovnicka vidi mzdu');
+select is(public.hr_read_payroll('emp-b1')->'data'->>'mzda_castka', '30000', 'uctovnicka vidi mzdu');
 select is((select count(*) from public.orders)::int, 0, 'uctovnicka nevidi objednavky');
 select throws_ok($$insert into public.employees (id, first_name, last_name) values ('emp-b2', 'X', 'Y')$$, '42501', null, 'uctovnicka nezaklada zamestnancov');
 select is((select count(*) from public.hr_document_templates)::int, (select count(*) from public.hr_document_templates)::int, 'uctovnicka moze citat sablony (BASIC)');

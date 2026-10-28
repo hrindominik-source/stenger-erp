@@ -70,8 +70,8 @@ test("kiosk: po 5 min necinnosti udaje zmiznu a tablet sa zamkne", async ({ page
 test("tablet: podpisovy odkaz sa po 5 min necinnosti ukonci", async ({ page }) => {
   await page.clock.install();
   await page.goto("/?podpis=neplatny-test-token");
-  await expect(page.getByText("Načítám dokument…")).toHaveCount(0, { timeout: 30000 });
-  await expect(page.locator("body")).not.toHaveText(/^\s*$/);
+  // stranka nacitana (kod z obrazovky HR alebo chyba odkazu), az potom posun casu
+  await expect(page.getByRole("button").first()).toBeVisible({ timeout: 30000 });
   await page.clock.fastForward("05:05");
   await expect(page.getByText(/Podpis byl ukončen pro nečinnost/)).toBeVisible({ timeout: 15000 });
   await expect(page.getByRole("button", { name: "Zkusit znovu" })).toHaveCount(0);

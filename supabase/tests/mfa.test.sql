@@ -30,7 +30,7 @@ select throws_ok($$select public.hr_kiosk_issue_unlock()$$, 'P0001', null, 'bez 
 set local request.jwt.claims = '{"sub": "00000000-0000-0000-0000-0000000000f2", "email": "personalistka.f@test.local", "role": "authenticated", "aal": "aal2"}';
 select ok((public.hr_mfa_status()->>'ok')::boolean, 'po overeni kodom je stav OK');
 select ok('HR_VIEW_SENSITIVE' = any(public.hr_get_permissions()), 's druhym faktorom ma opravnenia profilu');
-select is((select birth_number from public.employee_sensitive_data where employee_id = 'emp-f1'), '900101/0000', 's druhym faktorom vidi citlive udaje');
+select is(public.hr_read_sensitive('emp-f1')->>'birth_number', '900101/0000', 's druhym faktorom vidi citlive udaje');
 
 -- ---------- jednatel ----------
 set local request.jwt.claims = '{"sub": "00000000-0000-0000-0000-0000000000f1", "email": "konatel.f@test.local", "role": "authenticated", "aal": "aal1"}';

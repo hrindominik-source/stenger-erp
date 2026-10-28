@@ -57,7 +57,9 @@ export default function TabletSigning({ mode = "employee", token, documentId, on
   const employer = mode === "employer";
   // Tablet v rukach zamestnanca: 5 min necinnosti dokument zatvori (za
   // zamestnavatela bezi v Personalistike, tam plati jej 15 min).
+  const idleEnded = useRef(false);
   const idleWarning = useIdleTimeout(IDLE_DEVICE_MS, () => {
+    idleEnded.current = true; // neskora odpoved servera uz nic neotvori
     setDoc(null); setNeedCode(false); setCode(""); setFatal(true);
     setError("Podpis byl ukončen pro nečinnost. Požádejte personální oddělení o nový odkaz.");
   }, { enabled: !employer && !result && !fatal });
@@ -68,9 +70,11 @@ export default function TabletSigning({ mode = "employee", token, documentId, on
       const r = await invokeSigning(employer
         ? { action: "employer_load", document_id: documentId }
         : { action: "load", token, device_id: deviceId(), code: withCode || undefined });
+      if (idleEnded.current) return;
       setNeedCode(false);
       setDoc({ ...r, bytes: fromB64(r.pdf_base64) });
     } catch (e) {
+      if (idleEnded.current) return;
       // 428 = chyba kod z obrazovky HR, 403 = zly kod (zostavaju pokusy)
       if (!employer && (e.status === 428 || (e.status === 403 && /kód/i.test(e.message)))) {
         setNeedCode(true);

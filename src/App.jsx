@@ -6085,7 +6085,9 @@ const AUDIT_ACTION_LABELS = {
   insert: { text: "Vytvořeno", cls: "bg-emerald-100 text-emerald-700" },
   update: { text: "Upraveno", cls: "bg-amber-100 text-amber-800" },
   delete: { text: "Smazáno", cls: "bg-red-100 text-red-700" },
+  read: { text: "Zobrazeno", cls: "bg-sky-100 text-sky-700" },
 };
+const AUDIT_READ_PURPOSES = { detail: "karta zaměstnance", edit: "načtení před úpravou", overview: "přehled (více zaměstnanců)" };
 
 function auditRecordLabel(val) {
   if (!val || !val.data) return "";
@@ -6208,7 +6210,9 @@ function AuditLogView() {
                             )
                           ) : (
                             <div className="text-xs text-slate-500 py-1">
-                              {r.action === "insert" ? "Vytvořený záznam" : "Smazaný záznam"}: <span className="font-mono">{r.entity_id}</span>
+                              {r.action === "read"
+                                ? <>Zobrazení údajů – {AUDIT_READ_PURPOSES[r.new_value?.purpose] || r.new_value?.purpose}: <span className="font-mono">{r.entity_id === "*" ? (r.new_value?.employee_ids || []).join(", ") : r.entity_id}</span></>
+                                : <>{r.action === "insert" ? "Vytvořený záznam" : "Smazaný záznam"}: <span className="font-mono">{r.entity_id}</span></>}
                             </div>
                           )}
                         </td>
