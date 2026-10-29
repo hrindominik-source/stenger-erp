@@ -41,6 +41,8 @@ select is((select count(*) from public.hr_read_payroll_overview(array['emp-c1', 
 select throws_ok($$select public.hr_read_sensitive('emp-c1', 'export')$$, 'P0001', 'Neznamy ucel citania.', 'neznamy ucel odmietnuty');
 select throws_ok($$select public.hr_log_read('employee_sensitive_data', 'emp-c1', 'detail')$$, '42501', null, 'zaznam o citani sa neda vlozit priamo');
 -- zapis ostava (update podla kluca / insert noveho), len upsert by potreboval pravo citat
+-- zmena RC vyzaduje dovod zmeny (migracia 77)
+select public.hr_change_reason_begin('emp-c1', 'Oprava rodného čísla podle dokladu');
 select lives_ok($$update public.employee_sensitive_data set birth_number = '850505/9999', updated_at = now() where employee_id = 'emp-c1'$$, 'zmena citlivych udajov funguje');
 select lives_ok($$update public.employee_payroll_data set data = '{"mzda_castka": "42000"}' where employee_id = 'emp-c1'$$, 'zmena mzdovych udajov funguje');
 select lives_ok($$insert into public.employee_sensitive_data (employee_id, birth_number) values ('emp-c2', '860606/0000')$$, 'novy zaznam citlivych udajov funguje');

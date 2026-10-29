@@ -68,10 +68,11 @@ select ok(exists (select 1 from public.audit_log where entity = 'hr_legislation_
 select is(public.hr_legislation_record('ZP_262_2006', 'odtlacok-1', 'v1', null), 'FIRST', 'prvy odtlacok sa len ulozi');
 select is(public.hr_legislation_record('ZP_262_2006', 'odtlacok-1', 'v1', null), 'SAME', 'bez zmeny');
 select ok(not exists (select 1 from public.hr_notifications where event_type = 'LEGISLATION_CHANGED'), 'bez upozornenia');
+create temp table params_before as select md5(coalesce(string_agg(to_jsonb(p)::text, '' order by p.id), '')) as h from public.hr_legal_parameters p;
 select is(public.hr_legislation_record('ZP_262_2006', 'odtlacok-2', 'v2', null), 'CHANGED', 'zmena');
 select ok(exists (select 1 from public.hr_notifications where event_type = 'LEGISLATION_CHANGED' and kind = 'KE_SCHVALENI' and title like '%nic se nezměnilo automaticky%'),
   'jednatel upozorneny, nic sa nemeni');
-select is((select count(*) from public.hr_legal_parameters where entered_at > now() - interval '1 minute')::int, 0, 'parametre sa nezmenili');
+select is((select md5(coalesce(string_agg(to_jsonb(p)::text, '' order by p.id), '')) from public.hr_legal_parameters p), (select h from params_before), 'parametre sa nezmenili');
 select public.hr_legislation_record('ZP_262_2006', null, null, 'HTTP 503') from generate_series(1, 2);
 select ok(not exists (select 1 from public.hr_notifications where event_type = 'LEGISLATION_CHECK_FAILED'), '2 chyby bez upozornenia');
 select public.hr_legislation_record('ZP_262_2006', null, null, 'HTTP 503') from generate_series(1, 2);

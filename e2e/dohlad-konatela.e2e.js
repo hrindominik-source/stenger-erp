@@ -36,7 +36,8 @@ test("personalistka nema prehlad pre jednatela", async ({ page }) => {
 test("jednatel: udalosti, vsetko precitane, pristupy", async ({ page }) => {
   // vlastna udalost - test nezavisi od poradia (iny beh mohol vsetko precitat)
   const service = createClient(process.env.LOCAL_SUPABASE_URL, process.env.LOCAL_SUPABASE_SERVICE_KEY, { auth: { persistSession: false } });
-  const { error } = await service.rpc("hr_notify", { p_event: "PERMISSIONS_CHANGED", p_kind: "NA_VEDOMI", p_title: "Test e2e – změna přístupu",
+  const title = `Test e2e – změna přístupu ${Date.now()}`;
+  const { error } = await service.rpc("hr_notify", { p_event: "PERMISSIONS_CHANGED", p_kind: "NA_VEDOMI", p_title: title,
     p_entity: "hr_permissions", p_entity_id: `e2e-${Date.now()}`, p_employee_id: null, p_data: {}, p_actor: null });
   if (error) throw error;
   await login(page, "hr.admin@test.local");
@@ -44,8 +45,11 @@ test("jednatel: udalosti, vsetko precitane, pristupy", async ({ page }) => {
   await expect(page.getByText("Čeká na schválení", { exact: true }).first()).toBeVisible({ timeout: 30000 });
   await expect(page.getByTestId("konatel-access-row").filter({ hasText: "Externí účetní" }).first()).toBeVisible();
   // seed (pridelenie pristupov) vytvoril nove udalosti
-  await expect(page.getByTestId("konatel-notification").first()).toBeVisible();
+  await expect(page.getByTestId("konatel-notification").filter({ hasText: title })).toBeVisible();
   await page.getByRole("button", { name: /Vše přečteno/ }).click();
-  await expect(page.getByText("Žádné nové události.")).toBeVisible();
+  // paralelne testy mozu medzitym vytvorit nove udalosti - kontroluje sa vlastna
+  await expect(page.getByTestId("konatel-notification").filter({ hasText: title })).toHaveCount(0);
+  const { data: n } = await service.from("hr_notifications").select("read_at").eq("title", title).single();
+  expect(n.read_at).not.toBeNull();
   await expect(page.getByText(/Změny přístupů/)).toBeVisible();
 });

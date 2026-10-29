@@ -20,3 +20,16 @@ export function reasonRequiredChanges(before = {}, after = {}) {
   return REASON_REQUIRED_KEYS.filter((k) => k in after && norm(after[k]) !== norm(before[k]))
     .map((k) => ({ key: k, label: (labels[k] || k).replace(/\s*\*$/, "") }));
 }
+
+// DB (migracia 77) odmietne zmenu vybranych poli bez dovodu: dovod sa zapise
+// PRED ulozenim (hr_change_reason_begin), po ulozeni sa naviazu zmeny z auditu.
+export async function withChangeReason(supabase, employeeId, reason, fields, save) {
+  const text = String(reason || "").trim();
+  if (!text) return save();
+  const { data: id, error } = await supabase.rpc("hr_change_reason_begin", { p_employee_id: employeeId, p_reason: text, p_fields: fields || [] });
+  if (error) throw error;
+  const result = await save();
+  const { error: fErr } = await supabase.rpc("hr_change_reason_finish", { p_id: id });
+  if (fErr) throw fErr;
+  return result;
+}

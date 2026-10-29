@@ -22,13 +22,13 @@ Stav 29. 10. 2026, vetva `feature/podpisy-dorucovani`. Všetko je zatiaľ len lo
 ## 2. Poradie nasadenia
 
 1. **Záloha** DB a samostatná kópia úložiska. Overiť obnovu.
-2. **Migrácie** v poradí podľa čísla. Tabuľka v `06-plan-nasadenia.md`, kap. 1, obsahuje čísla 48–76.
+2. **Migrácie** v poradí podľa čísla. Tabuľka v `06-plan-nasadenia.md`, kap. 1, obsahuje čísla 48–77.
    - Baseline `20261022120000` sa na existujúcej databáze **nespúšťa**.
    - Každá migrácia beží v transakcii. Ku každej je rollback v `supabase/rollback/`.
 3. **Edge Functions**, všetky s `verify_jwt = true`:
    - `hr-finalize-pdf`, `hr-signed-original`, `hr-kiosk`, `hr-signing`, `hr-delivery`, `hr-declarations`;
    - `hr-mfa` (od migrácie 69), `hr-ucty` (73), `hr-legislativa` (74).
-4. **Frontend** z tej istej vetvy, spolu s migráciami. Niektoré migrácie menia volania (48, 55, 75, 76).
+4. **Frontend** z tej istej vetvy, spolu s migráciami. Niektoré migrácie menia volania (48, 55, 75, 76, 77). Pri 77 je to nutné: bez nového frontendu sa zmena mzdy, pozície, zmluvy, RČ, účtu či ZP neuloží.
 5. **Kontrola po nasadení:**
    - prihlásenie s MFA;
    - kiosk;
@@ -81,4 +81,4 @@ Všetky právne texty sú označené „KONCEPT – KE SCHVÁLENÍ PRÁVNIČKOU�
 - **Plán směn:** PINy sú v DB čitateľné a predvolený admin PIN je 1234. Hashovanie PINov odporúčam.
 - **MFA:** kto sa zaregistroval pred migráciou 69, nemá záložné kódy. Rozhodnúť, či vynútiť novú registráciu.
 - **Ručný test:** test na reálnom tablete ešte chýba.
-- **Povinný dôvod zmeny v Karte** kontroluje aplikácia, nie databáza. Zmena cez priame API bez dôvodu je však v audite.
+- **Povinný dôvod zmeny** (mzda, pozícia, zmluva, nástup a skončenie, RČ, účet, ZP) vynucuje databáza. Zapísaný dôvod platí 5 minút pre daného používateľa a zamestnanca.

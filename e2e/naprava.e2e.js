@@ -40,7 +40,7 @@ test("zamietnuty nudzovy postup: oznacenie dokumentu a uloha napravy", async ({ 
     status: "READY_FOR_SIGNATURE", final_pdf_sha256: "d".repeat(64), final_pdf_text_check: { ok: true, server_verified: true },
     final_pdf_path: `zamestnanci/${empId}/${docId}.pdf`, finalized_at: new Date().toISOString() });
   if (dErr) throw dErr;
-  const { data: users } = await s.auth.admin.listUsers();
+  const { data: users } = await s.auth.admin.listUsers({ perPage: 1000 });
   const requester = users.users.find((u) => u.email === "personalistka@test.local");
   const { error: aErr } = await s.from("hr_approval_requests").insert({ kind: "EMPLOYER_SIGN", entity: "hr_documents", entity_id: docId, employee_id: empId,
     reason: "Výpověď nesnese odklad", emergency: true, emergency_info: "Telefonát s jednatelem", status: "EMERGENCY", requested_by: requester.id,

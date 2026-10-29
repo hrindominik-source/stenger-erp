@@ -33,7 +33,7 @@ import DeclarationsPanel from "./Declarations.jsx";
 import DocumentDetail, { fileToBase64 } from "./DocumentDetail.jsx";
 import { invokeSigning } from "./signing/TabletSigning.jsx";
 import { ABSENCE_TYPES, ABSENCE_DOC_TYPES, absenceType, absenceList, isAbsenceActive, activeAbsence, absenceStatusText, probationOverlapDays, absenceInProbation, addDaysIso } from "../lib/hr/absences.js";
-import { reasonRequiredChanges } from "../lib/hr/changeReason.js";
+import { reasonRequiredChanges, withChangeReason } from "../lib/hr/changeReason.js";
 
 const HR_DOKUMENTY_BUCKET = "hr-dokumenty";
 const DOCX_MIME = "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
@@ -1451,7 +1451,7 @@ function OsobniUdajeTab({ employee, sensitive, payroll, currentEmployment, posit
   async function save() {
     if (!f.first_name.trim() || !f.last_name.trim()) { setError("Vyplňte jméno a příjmení."); return; }
     if (jobChanged && !ucinnost) { setError("Vyplňte, od kdy změna pracovních podmínek platí."); return; }
-    if (reasonChanges.length && changeReason.trim().length < 5) {
+    if ((reasonChanges.length || changeReason.trim()) && changeReason.trim().length < 5) {
       setError(`Uveďte důvod změny (alespoň 5 znaků) – mění se: ${reasonChanges.map((c) => c.label).join(", ")}.`);
       return;
     }
@@ -1463,6 +1463,13 @@ function OsobniUdajeTab({ employee, sensitive, payroll, currentEmployment, posit
     setError("");
     try {
       const now = new Date().toISOString();
+      // dovod sa zapise PRED ulozenim - DB odmietne vybrane zmeny bez neho (migracia 77)
+      let reasonId = null;
+      if (changeReason.trim()) {
+        const { data: rid, error: bErr } = await supabase.rpc("hr_change_reason_begin", { p_employee_id: employee.id, p_reason: changeReason.trim(), p_fields: reasonChanges.map((c) => c.label) });
+        if (bErr) throw bErr;
+        reasonId = rid;
+      }
       const withFiles = canPayroll ? await uploadPendingAttachments(f, employee.id) : f;
       const p = buildRecordPatches(withFiles, records, { mode: "edit", canSensitive, canPayroll });
       const { error: empErr } = await supabase.from("employees").update({ ...p.employees, updated_at: now }).eq("id", employee.id);
@@ -1520,8 +1527,8 @@ function OsobniUdajeTab({ employee, sensitive, payroll, currentEmployment, posit
         });
       }
       // dovod zmeny sa naviaze na prave ulozene zmeny (historia v karte)
-      if (changeReason.trim()) {
-        const { error: rErr } = await supabase.rpc("hr_record_correction", { p_employee_id: employee.id, p_reason: changeReason.trim(), p_fields: reasonChanges.map((c) => c.label) });
+      if (reasonId) {
+        const { error: rErr } = await supabase.rpc("hr_change_reason_finish", { p_id: reasonId });
         if (rErr) throw rErr;
         setChangeReason("");
       }
@@ -1874,14 +1881,22 @@ function ManualHistoricalEntryForm({ employeeId, employee, employments, position
   const [examType, setExamType] = useState("");
   const [examDate, setExamDate] = useState("");
   const [examValidUntil, setExamValidUntil] = useState("");
+  const [reason, setReason] = useState(""); // povinny pri zmene nastupu, typu/doby, pozicie (migracia 77)
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
+  const jobChanges = currentEmployment ? [
+    (startDate || "") !== (currentEmployment.start_date || "") && "datum nástupu",
+    (employmentType !== currentEmployment.employment_type
+      || (employmentType === "doba_urcita" ? fixedTermEndDate || "" : "") !== (currentEmployment.fixed_term_end_date || "")) && "typ a doba smlouvy",
+    choice !== positionChoiceValue(currentEmployment, positions) && "pozice",
+  ].filter(Boolean) : [];
 
   function addExtensionRow() { setExtensions((prev) => [...prev, { date: "", newEndDate: "", note: "" }]); }
   function updateExtensionRow(i, patch) { setExtensions((prev) => prev.map((r, idx) => (idx === i ? { ...r, ...patch } : r))); }
   function removeExtensionRow(i) { setExtensions((prev) => prev.filter((_, idx) => idx !== i)); }
 
   async function submit() {
+    if (jobChanges.length && reason.trim().length < 5) { setError(`Uveďte důvod změny (alespoň 5 znaků) – mění se: ${jobChanges.join(", ")}.`); return; }
     setSaving(true);
     setError("");
     try {
@@ -1891,12 +1906,14 @@ function ManualHistoricalEntryForm({ employeeId, employee, employments, position
       if (currentEmployment) {
         const { data: fresh } = await supabase.from("employment_relationships").select("data").eq("id", currentEmployment.id).single();
         const positionPatch = await resolvePositionChoice(choice, currentEmployment, fresh?.data || currentEmployment.data || {});
-        const { error: updErr } = await supabase.from("employment_relationships").update({
-          start_date: startDate || null, employment_type: employmentType,
-          fixed_term_end_date: employmentType === "doba_urcita" ? (fixedTermEndDate || null) : null,
-          ...positionPatch, updated_at: new Date().toISOString(), updated_by: uidVal,
-        }).eq("id", currentEmployment.id);
-        if (updErr) throw updErr;
+        await withChangeReason(supabase, employeeId, jobChanges.length ? reason : "", jobChanges, async () => {
+          const { error: updErr } = await supabase.from("employment_relationships").update({
+            start_date: startDate || null, employment_type: employmentType,
+            fixed_term_end_date: employmentType === "doba_urcita" ? (fixedTermEndDate || null) : null,
+            ...positionPatch, updated_at: new Date().toISOString(), updated_by: uidVal,
+          }).eq("id", currentEmployment.id);
+          if (updErr) throw updErr;
+        });
 
         for (const row of extensions) {
           if (!row.date || !row.newEndDate) continue;
@@ -1967,6 +1984,12 @@ function ManualHistoricalEntryForm({ employeeId, employee, employments, position
       </div>
 
       <p className="text-xs text-slate-400 mt-2">Existující dokumenty (smlouva, dodatky, prohlídky) nahrajte v záložce Dokumenty.</p>
+      {jobChanges.length > 0 && (
+        <label className="block text-xs text-amber-800 mt-2">Důvod změny (povinný – mění se: {jobChanges.join(", ")})
+          <input aria-label="Důvod změny pracovního poměru" value={reason} onChange={(e) => setReason(e.target.value)}
+            className="mt-0.5 w-full border border-amber-400 bg-amber-50 rounded-md px-2.5 py-1.5 text-sm text-slate-800" />
+        </label>
+      )}
       {error && <div className="bg-red-50 text-red-700 text-sm px-3 py-2 rounded-md mt-2 mb-2">{error}</div>}
       <div className="flex justify-end gap-2 mt-3">
         <button onClick={onCancel} className="text-sm text-slate-500 px-3 py-2">Zrušit</button>
@@ -2147,11 +2170,15 @@ function EndEmploymentForm({ employment, onCancel, onSaved }) {
         ukonceno_umrtim: f.umrti,
         prilohy_ukonceni: [...(employment.data?.prilohy_ukonceni || []), ...uploaded],
       };
-      const { error: emErr } = await supabase.from("employment_relationships").update({
-        status: "ENDED", termination_date: f.termination_date, termination_type: f.termination_type, termination_reason: f.termination_reason.trim() || null,
-        data: nextData, updated_at: new Date().toISOString(), updated_by: userData?.user?.id || null,
-      }).eq("id", employment.id);
-      if (emErr) throw emErr;
+      // dovod zmeny (datum skoncenia) = zvoleny sposob ukoncenia a dovod z formulara
+      const endReason = `Ukončení pracovního poměru – ${TERMINATION_TYPE_LABEL[f.termination_type] || f.termination_type}${f.termination_reason.trim() ? `: ${f.termination_reason.trim()}` : ""}`;
+      await withChangeReason(supabase, employment.employee_id, endReason, ["datum skončení"], async () => {
+        const { error: emErr } = await supabase.from("employment_relationships").update({
+          status: "ENDED", termination_date: f.termination_date, termination_type: f.termination_type, termination_reason: f.termination_reason.trim() || null,
+          data: nextData, updated_at: new Date().toISOString(), updated_by: userData?.user?.id || null,
+        }).eq("id", employment.id);
+        if (emErr) throw emErr;
+      });
       await supabase.from("employment_contract_events").insert({
         id: uid(), employment_id: employment.id, event_type: "ENDED", event_date: f.termination_date, valid_to: f.termination_date,
         old_value: EMPLOYMENT_STATUS_LABEL[employment.status], new_value: TERMINATION_TYPE_LABEL[f.termination_type] || f.termination_type,
@@ -4544,6 +4571,11 @@ function JmhzImportTab({ employee, sensitive, payroll, currentEmployment, positi
         }
       }
 
+      // dovod zmeny = zdroj udajov (dotaznik zamestnanca, po rucnej kontrole); DB ho vyzaduje (migracia 77)
+      const importReason = `Import z osobního dotazníku zaměstnance (verze ${version}) po ruční kontrole`;
+      const { data: reasonId, error: bErr } = await supabase.rpc("hr_change_reason_begin", { p_employee_id: employee.id, p_reason: importReason,
+        p_fields: selected.map((r) => r.label).filter(Boolean) });
+      if (bErr) throw bErr;
       if (Object.keys(employeesDirect).length || Object.keys(employeesJsonb).length) {
         const { error: err } = await supabase.from("employees").update({ ...employeesDirect, ...employeesJsonb, updated_at: new Date().toISOString() }).eq("id", employee.id);
         if (err) throw err;
@@ -4561,6 +4593,7 @@ function JmhzImportTab({ employee, sensitive, payroll, currentEmployment, positi
         if (err) throw err;
       }
 
+      await supabase.rpc("hr_change_reason_finish", { p_id: reasonId });
       await supabase.from("employee_timeline_events").insert({
         id: uid(), employee_id: employee.id, event_date: new Date().toISOString().slice(0, 10), event_type: "JMHZ_IMPORT",
         title: `Import z osobního dotazníku zaměstnance (verze ${version})`, description: `Zapsáno ${selected.length} polí po ruční kontrole.`, source: "MANUAL",
