@@ -1383,7 +1383,8 @@ function OsobniUdajeTab({ employee, sensitive, payroll, currentEmployment, posit
         </div>
         <div className="text-xs text-slate-400 mb-3">Všechny změny a opravy se zadávají zde. Historie změn je v blocích Pracovní poměr, Mzdové podmínky a Agenda ZP / ČSSZ.</div>
         {!currentEmployment && <div className="text-xs text-slate-400 mb-3">Údaje o pozici (profese, režim…) lze doplnit až po založení pracovního poměru.</div>}
-        <EmployeeFieldsView values={loadValues()} mode="edit" canSensitive={canSensitive} canPayroll={canPayroll} positions={positions} />
+        <EmployeeFieldsView values={loadValues()} mode="edit" canSensitive={canSensitive} canPayroll={canPayroll} positions={positions}
+          onOpenFile={openHrFile} fileName={(p, field) => hrDocName(field.label, employee, p)} />
         {loadValues().exekuce === true && (
           <div className="mt-3">
             <GarnishmentDocs employee={employee} employeeId={employee.id} canFull={canGarnishment} canUpload={canEdit}

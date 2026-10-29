@@ -194,6 +194,9 @@ function FieldInput({ field, value, values = {}, onChange, big, positions, hint 
   const wide = field.wide || field.type === "textarea" || (field.type === "select" && options?.some((o) => o.label.length > 60));
 
   if (field.type === "hidden") return null;
+  if (field.type === "heading") {
+    return <div className={(big ? "text-sm" : "text-xs") + " font-semibold text-slate-700 uppercase tracking-wide border-t border-slate-100 pt-3 mb-2 sm:col-span-2 lg:col-span-3 sm:col-start-1"}>{field.label}</div>;
+  }
   if (field.type === "readonly") {
     const text = field.valueFn ? field.valueFn(values) : value;
     return (
@@ -312,7 +315,7 @@ export function formatFieldValue(field, value, positions = [], values = {}) {
     const [y, m, d] = String(value).split("-");
     return d ? `${Number(d)}.${Number(m)}.${y}` : value;
   }
-  if (field.type === "hidden" || field.type === "custom") return null;
+  if (field.type === "hidden" || field.type === "custom" || field.type === "heading") return null;
   if (field.type === "readonly") return field.valueFn ? field.valueFn(values) || null : null;
   if (field.type === "select") {
     const opts = field.optionsFn ? field.optionsFn(values) : field.options;
@@ -324,7 +327,7 @@ export function formatFieldValue(field, value, positions = [], values = {}) {
   return String(value);
 }
 
-export function EmployeeFieldsView({ values, mode = "edit", canSensitive, canPayroll, positions = [] }) {
+export function EmployeeFieldsView({ values, mode = "edit", canSensitive, canPayroll, positions = [], onOpenFile, fileName }) {
   const sections = visibleSections({ mode, canSensitive, canPayroll, values })
     .map(({ section, fields }) => ({ section, rows: fields.map((f) => ({ f, text: formatFieldValue(f, values[f.key], positions, values) })).filter((r) => r.text) }))
     // Nadpis "L. Daně" len ak je pod nim vyplneny niektory danovy oddil.
@@ -350,7 +353,18 @@ export function EmployeeFieldsView({ values, mode = "edit", canSensitive, canPay
                     {f.tier === "sensitive" && !sensitiveSection && <ShieldAlert size={12} className="text-amber-600" />}
                     {(f.labelFn ? f.labelFn(values) : f.label).replace(/ \*$/, "")}
                   </dt>
-                  <dd className="text-slate-900 font-medium text-right whitespace-pre-wrap">{text}</dd>
+                  <dd className="text-slate-900 font-medium text-right whitespace-pre-wrap">
+                    {f.type === "file" && onOpenFile ? (
+                      // Nahrane prilohy (PDF / sken) - otvorit priamo z karty.
+                      <span className="flex flex-col items-end gap-0.5">
+                        {(values.prilohy || []).filter((p) => p.kind === f.kind && p.path).map((p) => (
+                          <button key={p.id || p.path} type="button" onClick={() => onOpenFile(p.path)} className="flex items-center gap-1 text-teal-700 hover:underline">
+                            <Paperclip size={12} /> {fileName ? fileName(p, f) : p.name}
+                          </button>
+                        ))}
+                      </span>
+                    ) : text}
+                  </dd>
                 </div>
               ))}
             </dl>
