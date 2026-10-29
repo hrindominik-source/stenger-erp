@@ -33,6 +33,7 @@ import DeclarationsPanel from "./Declarations.jsx";
 import DocumentDetail, { fileToBase64 } from "./DocumentDetail.jsx";
 import { invokeSigning } from "./signing/TabletSigning.jsx";
 import { ABSENCE_TYPES, ABSENCE_DOC_TYPES, absenceType, absenceList, isAbsenceActive, activeAbsence, absenceStatusText, probationOverlapDays, absenceInProbation, addDaysIso } from "../lib/hr/absences.js";
+import { reasonRequiredChanges } from "../lib/hr/changeReason.js";
 
 const HR_DOKUMENTY_BUCKET = "hr-dokumenty";
 const DOCX_MIME = "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
@@ -1444,10 +1445,16 @@ function OsobniUdajeTab({ employee, sensitive, payroll, currentEmployment, posit
     ? canProposeExtension({ startDate: currentEmployment.start_date, proposedEndDate: f.fixed_term_end_date, events: contractEvents.filter((e) => e.employment_id === currentEmployment.id) })
     : null;
   const needsOverride = !!(extension && !extension.withinLimits);
+  // dovod je povinny len pri vybranych poliach (mzda, pozicia, zmluva, nastup, RC, ucet, ZP)
+  const reasonChanges = editing && initial ? reasonRequiredChanges(initial, f) : [];
 
   async function save() {
     if (!f.first_name.trim() || !f.last_name.trim()) { setError("Vyplňte jméno a příjmení."); return; }
     if (jobChanged && !ucinnost) { setError("Vyplňte, od kdy změna pracovních podmínek platí."); return; }
+    if (reasonChanges.length && changeReason.trim().length < 5) {
+      setError(`Uveďte důvod změny (alespoň 5 znaků) – mění se: ${reasonChanges.map((c) => c.label).join(", ")}.`);
+      return;
+    }
     if (needsOverride && !(canOverride && overrideOk && overrideReason.trim())) {
       setError(canOverride ? "Prodloužení přesahuje zákonný limit doby určité – potvrďte výjimku s důvodem, nebo zvolte dřívější datum." : "Prodloužení přesahuje zákonný limit doby určité – může ho potvrdit jen administrátor.");
       return;
@@ -1514,7 +1521,7 @@ function OsobniUdajeTab({ employee, sensitive, payroll, currentEmployment, posit
       }
       // dovod zmeny sa naviaze na prave ulozene zmeny (historia v karte)
       if (changeReason.trim()) {
-        const { error: rErr } = await supabase.rpc("hr_record_correction", { p_employee_id: employee.id, p_reason: changeReason.trim() });
+        const { error: rErr } = await supabase.rpc("hr_record_correction", { p_employee_id: employee.id, p_reason: changeReason.trim(), p_fields: reasonChanges.map((c) => c.label) });
         if (rErr) throw rErr;
         setChangeReason("");
       }
@@ -1591,7 +1598,9 @@ function OsobniUdajeTab({ employee, sensitive, payroll, currentEmployment, posit
       {error && <div className="bg-red-50 text-red-700 text-sm px-3 py-2 rounded-md mt-2 mb-2">{error}</div>}
       <div className="flex justify-end items-center gap-2 mt-3 pb-4 flex-wrap">
         <input aria-label="Důvod změny" value={changeReason} onChange={(e) => setChangeReason(e.target.value)}
-          placeholder="Důvod změny / opravy (zapíše se do historie)" className="border border-slate-300 rounded-md px-2.5 py-1.5 text-sm flex-1 min-w-64 max-w-md" />
+          placeholder={reasonChanges.length ? "Důvod změny (povinný)" : "Důvod změny / opravy (nepovinný, zapíše se do historie)"}
+          className={"border rounded-md px-2.5 py-1.5 text-sm flex-1 min-w-64 max-w-md " + (reasonChanges.length ? "border-amber-400 bg-amber-50" : "border-slate-300")} />
+        {reasonChanges.length > 0 && <div className="w-full text-right text-xs text-amber-800" data-testid="reason-required">Důvod je povinný – mění se: {reasonChanges.map((c) => c.label).join(", ")}</div>}
         <button onClick={() => { setEditing(false); onCancelEdit?.(); }} className="text-sm text-slate-500 px-3 py-2">Zrušit</button>
         <button onClick={save} disabled={saving} className="bg-teal-700 hover:bg-teal-800 disabled:opacity-50 text-white text-sm font-medium px-4 py-2 rounded-md">
           {saving ? "Ukládám..." : "Uložit"}
@@ -3709,6 +3718,7 @@ function DokumentyTab({ employee, sensitive, payroll, currentEmployment, permiss
   const [error, setError] = useState("");
   const [documents, setDocuments] = useState([]);
   const [signaturesByDoc, setSignaturesByDoc] = useState(new Map()); // hr_document_id -> hr_document_signatures[]
+  const [remediation, setRemediation] = useState({}); // hr_document_id -> uloha napravy (migracia 76)
   const [templates, setTemplates] = useState([]);
   const [pendingTemplates, setPendingTemplates] = useState([]);
   const [creating, setCreating] = useState(false);
@@ -3745,8 +3755,11 @@ function DokumentyTab({ employee, sensitive, payroll, currentEmployment, permiss
       const map = new Map();
       (sigs || []).forEach((s) => { const arr = map.get(s.hr_document_id) || []; arr.push(s); map.set(s.hr_document_id, arr); });
       setSignaturesByDoc(map);
+      const { data: tasks } = await supabase.from("hr_remediation_tasks").select("*").in("document_id", docs.map((d) => d.id)).order("created_at");
+      setRemediation(Object.fromEntries((tasks || []).map((t) => [t.document_id, t])));
     } else {
       setSignaturesByDoc(new Map());
+      setRemediation({});
     }
     setLoading(false);
     onDocsChanged?.();
@@ -3832,6 +3845,10 @@ function DokumentyTab({ employee, sensitive, payroll, currentEmployment, permiss
                     <div className="text-xs text-slate-500">
                       {d.origin === "GENERATED" ? "Vygenerováno" : "Nahráno ručně"} · {fmtDate(d.created_at?.slice(0, 10))}
                     </div>
+                    {remediation[d.id] && (remediation[d.id].status === "OPEN"
+                      ? <div className="mt-1 inline-block px-2 py-0.5 rounded-md text-xs font-semibold bg-red-600 text-white" data-testid="doc-remediation">
+                          Zamítnuto jednatelem – vyžaduje nápravu (do {fmtDate(remediation[d.id].due_date)}): {remediation[d.id].rejection_reason}</div>
+                      : <div className="mt-1 text-xs text-slate-500" data-testid="doc-remediation">Zamítnuto jednatelem – náprava provedena: {remediation[d.id].resolution}</div>)}
                   </div>
                   {(() => {
                     // Zamknuty prvym podpisom != podpisany (vsetky pozadovane podpisy).
@@ -4770,7 +4787,9 @@ function CorrectionsList({ employeeId }) {
       {rows.map((r) => (
         <div key={r.id} className="px-4 py-2 text-sm flex gap-3 border-b border-slate-50 last:border-0">
           <div className="text-xs text-slate-400 whitespace-nowrap w-32 pt-0.5">{new Date(r.created_at).toLocaleString("cs-CZ")}</div>
-          <div className="flex-1">{r.reason}<div className="text-xs text-slate-400">{names[r.created_by] || "—"} · změněných záznamů: {r.audit_ids?.length || 0}</div></div>
+          <div className="flex-1">{r.reason}
+            {r.fields?.length > 0 && <div className="text-xs text-slate-600">Změněno: {r.fields.join(", ")}</div>}
+            <div className="text-xs text-slate-400">{names[r.created_by] || "—"} · změněných záznamů: {r.audit_ids?.length || 0}</div></div>
         </div>
       ))}
     </div>

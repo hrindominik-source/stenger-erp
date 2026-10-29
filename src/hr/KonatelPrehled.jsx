@@ -25,6 +25,7 @@ export const EVENT_LABELS = {
   HR_ACCESS_ENDED: "Ukončené přístupy do HR",
   NEW_DEVICE: "Přihlášení z nového zařízení",
   REVISION_DUE: "Revize šablon a parametrů",
+  REMEDIATION_REQUIRED: "Náprava po zamítnutém nouzovém postupu",
   LEGISLATION_CHANGED: "Možné změny zákoníku práce",
   LEGISLATION_CHECK_FAILED: "Selhávající kontrola změn zákona",
   TEMPLATE_PENDING: "Šablony ke schválení",
@@ -45,6 +46,8 @@ const MFA_RESETTABLE = ["PERSONALISTA", "UCTOVNIK_EXT"];
 
 const fmtDateTime = (iso) => (iso ? new Date(iso).toLocaleString("cs-CZ", { day: "numeric", month: "numeric", year: "numeric", hour: "2-digit", minute: "2-digit" }) : "—");
 const fmtDate = (iso) => (iso ? String(iso).slice(0, 10).split("-").reverse().join(".") : "—");
+
+const plusDays = (n) => new Date(Date.now() + n * 86400000).toISOString().slice(0, 10);
 
 function Stat({ label, value, alert }) {
   return (
@@ -85,6 +88,8 @@ export default function KonatelPrehled() {
   const [employeeNames, setEmployeeNames] = useState({});
   const [deciding, setDeciding] = useState(null); // { id, approve, note, busy, error }
   const [security, setSecurity] = useState({}); // email -> relacie, neuspesne prihlasenia (migracia 73)
+  const [remedies, setRemedies] = useState([]); // otvorene ulohy napravy (migracia 76)
+  const [closing, setClosing] = useState(null); // { id, resolution, busy, error }
   const [offboarding, setOffboarding] = useState(null); // { email, mode: "ACCOUNT"|"HR", reason, busy, error }
 
   const load = useCallback(async () => {
@@ -98,15 +103,18 @@ export default function KonatelPrehled() {
       supabase.rpc("hr_open_approvals"),
       supabase.rpc("hr_account_security_overview"),
     ]);
+    const { data: rem } = await supabase.from("hr_remediation_tasks").select("*").eq("status", "OPEN").order("due_date");
+    setRemedies(rem || []);
     const err = sumRes.error || pendRes.error || unreadRes.error || accRes.error;
     if (err) { setError("Nepodařilo se načíst přehled."); setLoading(false); return; }
     setSummary(sumRes.data);
     // ziadosti styroch oci sa vybavuju rozhodnutim nizsie, nie "Vyřízeno";
     // revizie sa vybavuju potvrdenim / novym terminom v sekcii Revize
-    setPending((pendRes.data || []).filter((n) => n.entity !== "hr_approval_requests" && n.event_type !== "REVISION_DUE"));
+    // ulohy napravy sa uzatvaraju popisom napravy v sekcii Nápravy
+    setPending((pendRes.data || []).filter((n) => !["hr_approval_requests", "hr_remediation_tasks"].includes(n.entity) && n.event_type !== "REVISION_DUE"));
     const appr = apprRes.data || [];
     setApprovals(appr);
-    const empIds = [...new Set(appr.map((a) => a.employee_id).filter(Boolean))];
+    const empIds = [...new Set([...appr, ...(rem || [])].map((a) => a.employee_id).filter(Boolean))];
     if (empIds.length) {
       const { data: emps } = await supabase.from("employees").select("id, first_name, last_name").in("id", empIds);
       setEmployeeNames(Object.fromEntries((emps || []).map((e) => [e.id, `${e.first_name} ${e.last_name}`])));
@@ -141,9 +149,19 @@ export default function KonatelPrehled() {
   async function decide(e) {
     e.preventDefault();
     setDeciding((d) => ({ ...d, busy: true, error: "" }));
-    const { error: err } = await supabase.rpc("hr_decide_approval", { p_id: deciding.id, p_approve: deciding.approve, p_note: deciding.note || null });
+    const { error: err } = await supabase.rpc("hr_decide_approval", { p_id: deciding.id, p_approve: deciding.approve, p_note: deciding.note || null,
+      p_remedy_due: deciding.due || null });
     if (err) { setDeciding((d) => ({ ...d, busy: false, error: err.message })); return; }
     setDeciding(null);
+    load();
+  }
+
+  async function closeRemedy(e) {
+    e.preventDefault();
+    setClosing((c) => ({ ...c, busy: true, error: "" }));
+    const { error: err } = await supabase.rpc("hr_remediation_close", { p_id: closing.id, p_resolution: closing.resolution });
+    if (err) { setClosing((c) => ({ ...c, busy: false, error: err.message })); return; }
+    setClosing(null);
     load();
   }
 
@@ -214,13 +232,18 @@ export default function KonatelPrehled() {
                     <button className="text-xs bg-teal-700 hover:bg-teal-800 text-white px-2.5 py-1 rounded-md"
                       onClick={() => setDeciding({ id: a.id, approve: true, note: "", busy: false, error: "" })}>{a.emergency ? "Potvrdit" : "Schválit"}</button>
                     <button className="text-xs border border-red-300 text-red-700 px-2.5 py-1 rounded-md"
-                      onClick={() => setDeciding({ id: a.id, approve: false, note: "", busy: false, error: "" })}>{a.emergency ? "Odmítnout" : "Zamítnout"}</button>
+                      onClick={() => setDeciding({ id: a.id, approve: false, note: "", due: a.emergency ? plusDays(14) : "", emergency: a.emergency, busy: false, error: "" })}>{a.emergency ? "Odmítnout" : "Zamítnout"}</button>
                   </div>
                 </div>
                 {deciding?.id === a.id && (
                   <form onSubmit={decide} className="mt-2 flex flex-wrap items-center gap-2" data-testid="konatel-approval-form">
                     <input aria-label="Poznámka k rozhodnutí" value={deciding.note} onChange={(e) => setDeciding((d) => ({ ...d, note: e.target.value }))}
                       placeholder={deciding.approve ? "Poznámka (nepovinná)" : "Důvod zamítnutí (povinný)"} className="border border-slate-300 rounded-md px-2 py-1 text-sm flex-1 min-w-48" />
+                    {!deciding.approve && deciding.emergency && (
+                      <label className="text-xs text-slate-600 flex items-center gap-1">Náprava do
+                        <input type="date" aria-label="Termín nápravy" value={deciding.due} onChange={(e) => setDeciding((d) => ({ ...d, due: e.target.value }))}
+                          className="border border-slate-300 rounded-md px-2 py-1 text-sm" /></label>
+                    )}
                     <button type="submit" disabled={deciding.busy} className="text-xs bg-slate-800 text-white px-3 py-1.5 rounded-md disabled:opacity-50">
                       {deciding.approve ? "Potvrdit schválení" : "Potvrdit zamítnutí"}</button>
                     <button type="button" onClick={() => setDeciding(null)} className="text-xs text-slate-500">Zpět</button>
@@ -230,8 +253,39 @@ export default function KonatelPrehled() {
               </div>
             ))}</div>}
         {approvals.some((a) => a.emergency && a.status === "EMERGENCY") && (
-          <div className="px-4 pb-2.5 text-xs text-red-700">Odmítnutí nouzového postupu krok nevrací – zapíše se a je třeba ho napravit (např. novým dokumentem).</div>
+          <div className="px-4 pb-2.5 text-xs text-red-700">Odmítnutí nouzového postupu krok nevrací – dokument zůstává platný, dostane označení „Zamítnuto jednatelem – vyžaduje nápravu“ a vznikne úkol nápravy s termínem.</div>
         )}
+      </section>
+
+      <section className="bg-white border border-slate-200 rounded-lg overflow-hidden" data-testid="konatel-remedies">
+        <div className="px-4 py-2.5 border-b border-slate-100 font-semibold text-sm">Nápravy po zamítnutém nouzovém postupu</div>
+        {remedies.length === 0
+          ? <div className="px-4 py-3 text-sm text-slate-400">Žádná otevřená náprava.</div>
+          : <div className="divide-y divide-slate-100">{remedies.map((t) => {
+              const overdue = t.due_date < new Date().toISOString().slice(0, 10);
+              return (
+                <div key={t.id} className={"px-4 py-2 text-sm " + (overdue ? "bg-red-50" : "")} data-testid="konatel-remedy-row">
+                  <div className="flex flex-wrap items-start gap-x-3 gap-y-1">
+                    <div className="flex-1 min-w-60">
+                      <div className="font-medium">{t.title}{t.employee_id ? ` – ${employeeNames[t.employee_id] || t.employee_id}` : ""}</div>
+                      <div className="text-slate-600">Důvod zamítnutí: {t.rejection_reason}</div>
+                      <div className={"text-xs " + (overdue ? "text-red-700 font-semibold" : "text-slate-500")}>Termín: {t.due_date.split("-").reverse().join(".")}{overdue ? " – po termínu" : ""}</div>
+                    </div>
+                    <button className="text-xs bg-teal-700 hover:bg-teal-800 text-white px-2.5 py-1 rounded-md shrink-0"
+                      onClick={() => setClosing({ id: t.id, resolution: "", busy: false, error: "" })}>Uzavřít nápravu</button>
+                  </div>
+                  {closing?.id === t.id && (
+                    <form onSubmit={closeRemedy} className="mt-2 flex flex-wrap items-center gap-2" data-testid="konatel-remedy-form">
+                      <input aria-label="Popis nápravy" value={closing.resolution} onChange={(e) => setClosing((c) => ({ ...c, resolution: e.target.value }))}
+                        placeholder="Jak byla náprava provedena (povinné)" className="border border-slate-300 rounded-md px-2 py-1 text-sm flex-1 min-w-48" />
+                      <button type="submit" disabled={closing.busy} className="text-xs bg-slate-800 text-white px-3 py-1.5 rounded-md disabled:opacity-50">Uzavřít</button>
+                      <button type="button" onClick={() => setClosing(null)} className="text-xs text-slate-500">Zpět</button>
+                      {closing.error && <span className="text-xs text-red-700 w-full">{closing.error}</span>}
+                    </form>
+                  )}
+                </div>
+              );
+            })}</div>}
       </section>
 
       <section className="bg-white border border-slate-200 rounded-lg overflow-hidden">
