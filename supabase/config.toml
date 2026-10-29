@@ -455,6 +455,9 @@ verify_jwt = true
 [functions.hr-ucty]
 verify_jwt = true
 
+[functions.hr-legislativa]
+verify_jwt = true
+
 # Kiosk vstupneho dotaznika (anon kluc + session_token relacie).
 [functions.hr-kiosk]
 verify_jwt = true

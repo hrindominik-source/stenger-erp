@@ -9,4 +9,4 @@ case "$API_URL" in
   *) echo "API_URL nie je lokalne ($API_URL) - koniec." >&2; exit 1 ;;
 esac
 LOCAL_SUPABASE_URL="$API_URL" LOCAL_SUPABASE_ANON_KEY="$ANON_KEY" LOCAL_SUPABASE_SERVICE_KEY="$SERVICE_ROLE_KEY" \
-  npx vitest run --pool=forks --no-file-parallelism src/lib/hr/finalPdf.server.it.test.js src/lib/hr/kiosk.server.it.test.js src/lib/hr/signing.server.it.test.js src/lib/hr/delivery.server.it.test.js src/lib/hr/email.server.it.test.js src/lib/hr/declarations.server.it.test.js src/lib/hr/psTemplate.server.it.test.js src/lib/hr/esignGate.server.it.test.js src/lib/hr/mfaRecovery.server.it.test.js src/lib/hr/ucty.server.it.test.js "$@"
+  npx vitest run --pool=forks --no-file-parallelism src/lib/hr/finalPdf.server.it.test.js src/lib/hr/kiosk.server.it.test.js src/lib/hr/signing.server.it.test.js src/lib/hr/delivery.server.it.test.js src/lib/hr/email.server.it.test.js src/lib/hr/declarations.server.it.test.js src/lib/hr/psTemplate.server.it.test.js src/lib/hr/esignGate.server.it.test.js src/lib/hr/mfaRecovery.server.it.test.js src/lib/hr/ucty.server.it.test.js src/lib/hr/legislativa.server.it.test.js "$@"

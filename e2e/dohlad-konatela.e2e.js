@@ -5,6 +5,7 @@ import { test, expect } from "@playwright/test";
 import fs from "node:fs";
 import path from "node:path";
 import { prepareMfa, completeMfa } from "./mfa.js";
+import { createClient } from "@supabase/supabase-js";
 
 const enabled = !!process.env.LOCAL_SUPABASE_URL;
 test.skip(!enabled, "chyba lokalny Supabase (scripts/test-local-e2e.sh)");
@@ -33,6 +34,11 @@ test("personalistka nema prehlad pre jednatela", async ({ page }) => {
 });
 
 test("jednatel: udalosti, vsetko precitane, pristupy", async ({ page }) => {
+  // vlastna udalost - test nezavisi od poradia (iny beh mohol vsetko precitat)
+  const service = createClient(process.env.LOCAL_SUPABASE_URL, process.env.LOCAL_SUPABASE_SERVICE_KEY, { auth: { persistSession: false } });
+  const { error } = await service.rpc("hr_notify", { p_event: "PERMISSIONS_CHANGED", p_kind: "NA_VEDOMI", p_title: "Test e2e – změna přístupu",
+    p_entity: "hr_permissions", p_entity_id: `e2e-${Date.now()}`, p_employee_id: null, p_data: {}, p_actor: null });
+  if (error) throw error;
   await login(page, "hr.admin@test.local");
   await page.getByRole("button", { name: "Pro jednatele", exact: true }).click();
   await expect(page.getByText("Čeká na schválení", { exact: true }).first()).toBeVisible({ timeout: 30000 });

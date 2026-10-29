@@ -7,6 +7,7 @@ import { supabase } from "../supabaseClient.js";
 import LegalParameters from "./LegalParameters.jsx";
 import { APPROVAL_STATUS_LABELS } from "./ApprovalRequest.jsx";
 import { RetentionRules, RetentionDue, Processors } from "./Gdpr.jsx";
+import Legislativa from "./Legislativa.jsx";
 
 export const EVENT_LABELS = {
   DOC_SIGNED: "Podepsané smlouvy a úkony",
@@ -23,6 +24,9 @@ export const EVENT_LABELS = {
   USER_OFFBOARDED: "Zablokované účty (odchod z firmy)",
   HR_ACCESS_ENDED: "Ukončené přístupy do HR",
   NEW_DEVICE: "Přihlášení z nového zařízení",
+  REVISION_DUE: "Revize šablon a parametrů",
+  LEGISLATION_CHANGED: "Možné změny zákoníku práce",
+  LEGISLATION_CHECK_FAILED: "Selhávající kontrola změn zákona",
   TEMPLATE_PENDING: "Šablony ke schválení",
   TEMPLATE_APPROVED: "Schválené šablony",
   LEGAL_TEXT_PENDING: "Texty ke schválení",
@@ -97,8 +101,9 @@ export default function KonatelPrehled() {
     const err = sumRes.error || pendRes.error || unreadRes.error || accRes.error;
     if (err) { setError("Nepodařilo se načíst přehled."); setLoading(false); return; }
     setSummary(sumRes.data);
-    // ziadosti styroch oci sa vybavuju rozhodnutim nizsie, nie "Vyřízeno"
-    setPending((pendRes.data || []).filter((n) => n.entity !== "hr_approval_requests"));
+    // ziadosti styroch oci sa vybavuju rozhodnutim nizsie, nie "Vyřízeno";
+    // revizie sa vybavuju potvrdenim / novym terminom v sekcii Revize
+    setPending((pendRes.data || []).filter((n) => n.entity !== "hr_approval_requests" && n.event_type !== "REVISION_DUE"));
     const appr = apprRes.data || [];
     setApprovals(appr);
     const empIds = [...new Set(appr.map((a) => a.employee_id).filter(Boolean))];
@@ -267,6 +272,8 @@ export default function KonatelPrehled() {
       </section>
 
       <RetentionDue />
+
+      <Legislativa />
 
       <LegalParameters canEdit />
 
