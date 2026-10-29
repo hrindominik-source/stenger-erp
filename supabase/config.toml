@@ -286,6 +286,15 @@ max_frequency = "5s"
 # enabled = true
 # uri = "pg-functions://<database>/<schema>/<hook_name>"
 
+# Neuspesne prihlasenia do HR (migracia 73) - zapis serverom, rozhodnutie nemeni.
+[auth.hook.password_verification_attempt]
+enabled = true
+uri = "pg-functions://postgres/public/hook_password_verification_attempt"
+
+[auth.hook.mfa_verification_attempt]
+enabled = true
+uri = "pg-functions://postgres/public/hook_mfa_verification_attempt"
+
 # Configure one of the supported SMS providers: `twilio`, `twilio_verify`, `messagebird`, `textlocal`, `vonage`.
 [auth.sms.twilio]
 enabled = false
@@ -441,6 +450,9 @@ static_files = ["./functions/_shared/fonts/*.ttf"]
 
 # Obnova dvojfazoveho prihlasenia: zalozny kod, reset jednatelom (migracia 69).
 [functions.hr-mfa]
+verify_jwt = true
+
+[functions.hr-ucty]
 verify_jwt = true
 
 # Kiosk vstupneho dotaznika (anon kluc + session_token relacie).

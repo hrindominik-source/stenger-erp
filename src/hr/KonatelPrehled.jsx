@@ -19,6 +19,8 @@ export const EVENT_LABELS = {
   RETENTION_CHANGED: "Změny lhůt uchovávání",
   EMPLOYEE_EXPORTED: "Exporty údajů zaměstnance",
   EMPLOYEE_ANONYMIZED: "Anonymizace",
+  LOGIN_FAILURES: "Opakovaná neúspěšná přihlášení",
+  USER_OFFBOARDED: "Ukončené přístupy (odchod)",
   TEMPLATE_PENDING: "Šablony ke schválení",
   TEMPLATE_APPROVED: "Schválené šablony",
   LEGAL_TEXT_PENDING: "Texty ke schválení",
@@ -76,9 +78,11 @@ export default function KonatelPrehled() {
   const [approvals, setApprovals] = useState([]);
   const [employeeNames, setEmployeeNames] = useState({});
   const [deciding, setDeciding] = useState(null); // { id, approve, note, busy, error }
+  const [security, setSecurity] = useState({}); // email -> relacie, neuspesne prihlasenia (migracia 73)
+  const [offboarding, setOffboarding] = useState(null); // { email, reason, busy, error }
 
   const load = useCallback(async () => {
-    const [sumRes, pendRes, unreadRes, accRes, profRes, mfaRes, apprRes] = await Promise.all([
+    const [sumRes, pendRes, unreadRes, accRes, profRes, mfaRes, apprRes, secRes] = await Promise.all([
       supabase.rpc("hr_konatel_summary", { p_days: 7 }),
       supabase.from("hr_notifications").select("*").eq("kind", "KE_SCHVALENI").is("resolved_at", null).order("created_at", { ascending: false }),
       supabase.from("hr_notifications").select("*").eq("kind", "NA_VEDOMI").is("read_at", null).order("created_at", { ascending: false }).limit(200),
@@ -86,6 +90,7 @@ export default function KonatelPrehled() {
       supabase.from("profiles").select("id, full_name"),
       supabase.rpc("hr_mfa_overview"),
       supabase.rpc("hr_open_approvals"),
+      supabase.rpc("hr_account_security_overview"),
     ]);
     const err = sumRes.error || pendRes.error || unreadRes.error || accRes.error;
     if (err) { setError("Nepodařilo se načíst přehled."); setLoading(false); return; }
@@ -102,6 +107,7 @@ export default function KonatelPrehled() {
     setUnread(unreadRes.data || []);
     setAccess(accRes.data || []);
     setNames(Object.fromEntries((profRes.data || []).map((p) => [p.id, p.full_name])));
+    setSecurity(Object.fromEntries((secRes.data || []).map((x) => [String(x.email).toLowerCase(), x])));
     setMfa(Object.fromEntries((mfaRes.data || []).map((m) => [String(m.email).toLowerCase(), m])));
     setError("");
     setLoading(false);
@@ -131,6 +137,21 @@ export default function KonatelPrehled() {
     const { error: err } = await supabase.rpc("hr_decide_approval", { p_id: deciding.id, p_approve: deciding.approve, p_note: deciding.note || null });
     if (err) { setDeciding((d) => ({ ...d, busy: false, error: err.message })); return; }
     setDeciding(null);
+    load();
+  }
+
+  // Odchod pouzivatela: koniec pristupu do HR, zrusenie relacii, blokacia uctu.
+  async function offboard(e) {
+    e.preventDefault();
+    setOffboarding((o) => ({ ...o, busy: true, error: "" }));
+    const { error: fnErr } = await supabase.functions.invoke("hr-ucty", { body: { action: "offboard_user", user_email: offboarding.email, reason: offboarding.reason } });
+    if (fnErr) {
+      let message = "Ukončení přístupu se nezdařilo.";
+      try { message = (await fnErr.context.json()).error || message; } catch { /* bez JSON */ }
+      setOffboarding((o) => ({ ...o, busy: false, error: message }));
+      return;
+    }
+    setOffboarding(null);
     load();
   }
 
@@ -252,15 +273,18 @@ export default function KonatelPrehled() {
 
       <section className="bg-white border border-slate-200 rounded-lg overflow-x-auto">
         <div className="px-4 py-2.5 border-b border-slate-100 font-semibold text-sm">Kdo má přístup do Personalistiky</div>
+        <div className="px-4 py-1.5 text-xs text-slate-500 border-b border-slate-100">Účty jsou osobní – jeden e-mail patří jedné osobě, sdílené účty nejsou dovolené. Přihlášení na více zařízeních současně může znamenat sdílený účet.</div>
         <table className="w-full text-sm">
           <thead className="text-xs text-slate-500 text-left">
-            <tr><th className="px-4 py-1.5">Uživatel</th><th className="px-4 py-1.5">Profil</th><th className="px-4 py-1.5">Platnost</th><th className="px-4 py-1.5">Naposledy změnil</th><th className="px-4 py-1.5">Dvoufázové ověření</th></tr>
+            <tr><th className="px-4 py-1.5">Uživatel</th><th className="px-4 py-1.5">Profil</th><th className="px-4 py-1.5">Platnost</th><th className="px-4 py-1.5">Naposledy změnil</th><th className="px-4 py-1.5">Dvoufázové ověření</th><th className="px-4 py-1.5">Přihlášení</th></tr>
           </thead>
           <tbody className="divide-y divide-slate-100">
             {access.map((a) => {
               const expired = (a.valid_until && a.valid_until < today) || (a.valid_from && a.valid_from > today);
               const m = mfa[String(a.user_email).toLowerCase()];
               const canReset = MFA_RESETTABLE.includes(a.profile) && m?.mfa_active;
+              const sec = security[String(a.user_email).toLowerCase()];
+              const canOffboard = a.profile !== "KONATEL" && sec?.user_id && !sec.banned_until;
               return (
                 <React.Fragment key={a.id}>
                 <tr className={expired ? "text-slate-400" : ""} data-testid="konatel-access-row">
@@ -275,9 +299,31 @@ export default function KonatelPrehled() {
                         className="ml-2 text-xs text-red-700 hover:text-red-900 underline">Zrušit ověření</button>
                     )}
                   </td>
+                  <td className="px-4 py-1.5 text-xs" data-testid="konatel-login-cell">
+                    {sec?.banned_until ? <span className="text-red-700">účet zablokován</span>
+                      : <>{sec?.active_sessions ? `aktivní relace: ${sec.active_sessions}` : "nepřihlášen"}
+                        {sec?.active_sessions > 1 && <span className="ml-1 text-amber-700 font-medium" data-testid="konatel-multi-device">· více zařízení současně</span>}</>}
+                    {sec?.failed_7d > 0 && <div className="text-red-700">neúspěšná přihlášení (7 dní): {sec.failed_7d}, naposledy {fmtDateTime(sec.last_failed_at)}</div>}
+                    {canOffboard && (
+                      <button type="button" onClick={() => setOffboarding({ email: a.user_email, reason: "", busy: false, error: "" })}
+                        className="block text-red-700 hover:text-red-900 underline mt-0.5">Ukončit přístup (odchod)</button>
+                    )}
+                  </td>
                 </tr>
+                {offboarding?.email === a.user_email && (
+                  <tr><td colSpan={6} className="px-4 py-2 bg-red-50">
+                    <form onSubmit={offboard} className="flex flex-wrap items-center gap-2 text-sm" data-testid="konatel-offboard-form">
+                      <span>Ukončit přístup ({a.user_email}): přístup do HR skončí, všechna přihlášení se zruší a účet se zablokuje. Odblokuje jen IT.</span>
+                      <input aria-label="Důvod ukončení přístupu" value={offboarding.reason} onChange={(e) => setOffboarding((o) => ({ ...o, reason: e.target.value }))}
+                        placeholder="Důvod (např. skončení spolupráce)" className="border border-slate-300 rounded-md px-2 py-1 flex-1 min-w-48" />
+                      <button type="submit" disabled={offboarding.busy || offboarding.reason.trim().length < 5} className="bg-red-700 hover:bg-red-800 disabled:opacity-50 text-white text-xs font-medium px-3 py-1.5 rounded-md">Ukončit přístup</button>
+                      <button type="button" onClick={() => setOffboarding(null)} className="text-xs text-slate-500">Zpět</button>
+                      {offboarding.error && <span className="w-full text-red-700 text-xs">{offboarding.error}</span>}
+                    </form>
+                  </td></tr>
+                )}
                 {resetting?.email === a.user_email && (
-                  <tr><td colSpan={5} className="px-4 py-2 bg-red-50">
+                  <tr><td colSpan={6} className="px-4 py-2 bg-red-50">
                     <form onSubmit={resetMfa} className="flex flex-wrap items-center gap-2 text-sm" data-testid="konatel-mfa-reset-form">
                       <span>Zrušit dvoufázové ověření ({a.user_email}) – po přihlášení si zaregistruje novou aplikaci.</span>
                       <input aria-label="Důvod zrušení ověření" value={resetting.reason} onChange={(e) => setResetting((r) => ({ ...r, reason: e.target.value }))}
