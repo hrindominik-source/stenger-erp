@@ -26,6 +26,7 @@ import { documentRequiredSigners, defaultLegalActType, signingState, SIGNER_LABE
 import LegalTextsSection from "./LegalTexts.jsx";
 import KonatelPrehled from "./KonatelPrehled.jsx";
 import MfaGate from "./MfaGate.jsx";
+import { LegalCheckPanel, assertNoLegalBlocks, LEGAL_CHECKED_DOC_TYPES } from "./LegalCheck.jsx";
 import { useIdleTimeout, IdleWarning, IDLE_HR_MS, IDLE_LOGOUT_FLAG } from "../lib/useIdleTimeout.jsx";
 import DeclarationsPanel from "./Declarations.jsx";
 import DocumentDetail, { fileToBase64 } from "./DocumentDetail.jsx";
@@ -1270,6 +1271,9 @@ function PrehledDetailTab({ employee, payroll, currentEmployment, contractEvents
         <div className="text-sm text-slate-500">{currentEmployment ? positionLabel(currentEmployment) : "Bez aktivního pracovního poměru"} · {employee.active ? "AKTIVNÍ" : "BÝVALÝ ZAMĚSTNANEC"}</div>
       </div>
       {nastupItems && <NastupniBalicekCard items={nastupItems} onAction={onNastupAction} />}
+      {currentEmployment && currentEmployment.status !== "ENDED" && (
+        <LegalCheckPanel employmentId={currentEmployment.id} refreshKey={`${currentEmployment.updated_at}|${payroll?.updated_at}`} />
+      )}
       {warnings.length > 0 && (
         <div className="mb-4 space-y-1.5">
           {warnings.map((w, i) => (
@@ -3573,6 +3577,7 @@ function PracovniSmlouvaForm({ employee, sensitive, payroll, currentEmployment, 
 
   const data = buildPsData(values, { podepisujici: signatories.find((x) => x.id === podepisujici) || null, datumPodpisu, povinnosti });
   const missing = psMissing(data, variant);
+  const [legalBlocks, setLegalBlocks] = useState([]);
   const fields = psFieldsFor(variant).filter((f) => f.karta);
   const tpl = PS_TEMPLATES[variant];
   const fileBase = hrFileName(tpl.nazev, employee, datumPodpisu);
@@ -3591,6 +3596,7 @@ function PracovniSmlouvaForm({ employee, sensitive, payroll, currentEmployment, 
   const downloadPdf = () => run(async () => convertFilledDocxToPdf(`NAHLED - ${fileBase}.pdf`, (await filled()).filledBytes));
   const save = () => run(async () => {
     if (missing.length) throw new Error("Doplňte: " + missing.join(", "));
+    await assertNoLegalBlocks(currentEmployment?.id); // zakonne limity (balik D) - DB to vynuti aj tak
     const { filledBytes, template, version } = await filled();
     const { data: userData } = await supabase.auth.getUser();
     await savePsDocument(supabase, {
@@ -3639,12 +3645,13 @@ function PracovniSmlouvaForm({ employee, sensitive, payroll, currentEmployment, 
         </dl>
       </div>
       {missing.length > 0 && <div className="text-xs text-amber-700 bg-amber-50 px-3 py-2 rounded-md mb-2">Chybí: {missing.join(", ")}</div>}
+      <LegalCheckPanel employmentId={currentEmployment?.id} onBlocks={setLegalBlocks} />
       {error && <div className="bg-red-50 text-red-700 text-sm px-3 py-2 rounded-md mb-2">{error}</div>}
       <div className="flex justify-end gap-2 flex-wrap">
         <button onClick={onCancel} className="text-sm text-slate-500 px-3 py-2">Zrušit</button>
         <button onClick={downloadDocx} disabled={busy} className="text-sm text-slate-600 hover:text-slate-900 px-3 py-2 border border-slate-200 rounded-md">Stáhnout .docx</button>
         <button onClick={downloadPdf} disabled={busy} className="text-sm text-slate-600 hover:text-slate-900 px-3 py-2 border border-slate-200 rounded-md">PDF náhled</button>
-        <button onClick={save} disabled={busy || missing.length > 0} className="flex items-center gap-1.5 bg-teal-700 hover:bg-teal-800 disabled:opacity-50 disabled:cursor-not-allowed text-white text-sm font-medium px-4 py-2 rounded-md">
+        <button onClick={save} disabled={busy || missing.length > 0 || legalBlocks.length > 0} className="flex items-center gap-1.5 bg-teal-700 hover:bg-teal-800 disabled:opacity-50 disabled:cursor-not-allowed text-white text-sm font-medium px-4 py-2 rounded-md">
           {busy ? <Loader2 size={16} className="animate-spin" /> : <CheckCircle2 size={16} />} Vygenerovat a uložit k podpisu
         </button>
       </div>
@@ -4012,6 +4019,7 @@ function GenerateDocumentForm({ employee, sensitive, payroll, currentEmployment,
     setSaving(true);
     setError("");
     try {
+      if (LEGAL_CHECKED_DOC_TYPES.includes(template.doc_type)) await assertNoLegalBlocks(currentEmployment?.id);
       const filled = await loadFilledArrayBuffer();
       const { data: userData } = await supabase.auth.getUser();
       const docId = uid();

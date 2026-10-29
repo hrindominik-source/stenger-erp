@@ -4,12 +4,14 @@
 import React, { useState, useEffect, useCallback } from "react";
 import { Loader2, CheckCircle2 } from "lucide-react";
 import { supabase } from "../supabaseClient.js";
+import LegalParameters from "./LegalParameters.jsx";
 
 export const EVENT_LABELS = {
   DOC_SIGNED: "Podepsané smlouvy a úkony",
   DOC_VOIDED: "Zneplatněné dokumenty",
   WAGE_CHANGED: "Změny mzdy",
   MFA_RESET: "Zrušená či obnovená dvoufázová ověření",
+  LEGAL_PARAM_CHANGED: "Změny zákonných parametrů",
   TEMPLATE_PENDING: "Šablony ke schválení",
   TEMPLATE_APPROVED: "Schválené šablony",
   LEGAL_TEXT_PENDING: "Texty ke schválení",
@@ -171,6 +173,8 @@ export default function KonatelPrehled() {
             ))}</ul>}
         <div className="px-4 pb-2.5 text-xs text-slate-400">Zasílání souhrnu e-mailem se zapne až po výběru poskytovatele e-mailů.</div>
       </section>
+
+      <LegalParameters canEdit />
 
       <section className="bg-white border border-slate-200 rounded-lg overflow-x-auto">
         <div className="px-4 py-2.5 border-b border-slate-100 font-semibold text-sm">Kdo má přístup do Personalistiky</div>
