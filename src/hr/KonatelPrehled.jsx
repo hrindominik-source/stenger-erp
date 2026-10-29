@@ -6,6 +6,7 @@ import { Loader2, CheckCircle2 } from "lucide-react";
 import { supabase } from "../supabaseClient.js";
 import LegalParameters from "./LegalParameters.jsx";
 import { APPROVAL_STATUS_LABELS } from "./ApprovalRequest.jsx";
+import { RetentionRules, RetentionDue, Processors } from "./Gdpr.jsx";
 
 export const EVENT_LABELS = {
   DOC_SIGNED: "Podepsané smlouvy a úkony",
@@ -15,6 +16,9 @@ export const EVENT_LABELS = {
   LEGAL_PARAM_CHANGED: "Změny zákonných parametrů",
   APPROVAL_REQUESTED: "Žádosti o schválení",
   EMERGENCY_STEP: "Nouzové postupy",
+  RETENTION_CHANGED: "Změny lhůt uchovávání",
+  EMPLOYEE_EXPORTED: "Exporty údajů zaměstnance",
+  EMPLOYEE_ANONYMIZED: "Anonymizace",
   TEMPLATE_PENDING: "Šablony ke schválení",
   TEMPLATE_APPROVED: "Schválené šablony",
   LEGAL_TEXT_PENDING: "Texty ke schválení",
@@ -26,7 +30,7 @@ export const EVENT_LABELS = {
   DELIVERY_FAILED: "Nezdařené doručení",
   DELIVERY_INEFFECTIVE: "Neúčinné doručení",
 };
-const APPROVAL_KIND_LABELS = { EMPLOYER_SIGN: "Podpis za zaměstnavatele", VOID_DOCUMENT: "Zneplatnění podepsaného dokumentu", LEGAL_EXCEPTION: "Výjimka ze zákonného limitu" };
+const APPROVAL_KIND_LABELS = { EMPLOYER_SIGN: "Podpis za zaměstnavatele", VOID_DOCUMENT: "Zneplatnění podepsaného dokumentu", LEGAL_EXCEPTION: "Výjimka ze zákonného limitu", ANONYMIZE: "Anonymizace zaměstnance" };
 const PROFILE_LABELS = { KONATEL: "Jednatel", PERSONALISTA: "Personalista", UCTOVNIK_EXT: "Externí účetní", VLASTNI: "Vlastní nastavení" };
 // ostatnym (jednatel) rusi overenie len IT serverovo - zhodne s hr-mfa
 const MFA_RESETTABLE = ["PERSONALISTA", "UCTOVNIK_EXT"];
@@ -238,7 +242,13 @@ export default function KonatelPrehled() {
         <div className="px-4 pb-2.5 text-xs text-slate-400">Zasílání souhrnu e-mailem se zapne až po výběru poskytovatele e-mailů.</div>
       </section>
 
+      <RetentionDue />
+
       <LegalParameters canEdit />
+
+      <RetentionRules canEdit />
+
+      <Processors />
 
       <section className="bg-white border border-slate-200 rounded-lg overflow-x-auto">
         <div className="px-4 py-2.5 border-b border-slate-100 font-semibold text-sm">Kdo má přístup do Personalistiky</div>

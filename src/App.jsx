@@ -6087,7 +6087,7 @@ const AUDIT_ACTION_LABELS = {
   delete: { text: "Smazáno", cls: "bg-red-100 text-red-700" },
   read: { text: "Zobrazeno", cls: "bg-sky-100 text-sky-700" },
 };
-const AUDIT_READ_PURPOSES = { detail: "karta zaměstnance", edit: "načtení před úpravou", overview: "přehled (více zaměstnanců)" };
+const AUDIT_READ_PURPOSES = { detail: "karta zaměstnance", edit: "načtení před úpravou", overview: "přehled (více zaměstnanců)", export: "export údajů (ZIP)" };
 
 function auditRecordLabel(val) {
   if (!val || !val.data) return "";

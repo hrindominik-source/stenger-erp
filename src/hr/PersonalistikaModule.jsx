@@ -27,6 +27,7 @@ import LegalTextsSection from "./LegalTexts.jsx";
 import KonatelPrehled from "./KonatelPrehled.jsx";
 import MfaGate from "./MfaGate.jsx";
 import { LegalCheckPanel, assertNoLegalBlocks, LEGAL_CHECKED_DOC_TYPES } from "./LegalCheck.jsx";
+import { EmployeeExportButton, AnonymizePanel } from "./Gdpr.jsx";
 import { useIdleTimeout, IdleWarning, IDLE_HR_MS, IDLE_LOGOUT_FLAG } from "../lib/useIdleTimeout.jsx";
 import DeclarationsPanel from "./Declarations.jsx";
 import DocumentDetail, { fileToBase64 } from "./DocumentDetail.jsx";
@@ -1134,6 +1135,7 @@ function EmployeeDetail({ id, permissions, onBack }) {
           <span className={"px-2.5 py-1 rounded-full text-xs font-medium " + (employee.active ? "bg-emerald-100 text-emerald-700" : "bg-slate-200 text-slate-500")}>
             {employee.active ? "Aktivní" : "Bývalý zaměstnanec"}
           </span>
+          {canSensitive && canPayroll && <EmployeeExportButton employee={employee} />}
           {canDelete && (
             <button onClick={() => setConfirmingDelete(true)} className="text-xs text-red-500 hover:text-red-700 underline underline-offset-2">
               Trvale smazat
@@ -1141,6 +1143,10 @@ function EmployeeDetail({ id, permissions, onBack }) {
           )}
         </div>
       </div>
+
+      {!employee.active && canEdit && (
+        <div className="mb-4"><AnonymizePanel employee={employee} isAdmin={canDelete} onDone={load} /></div>
+      )}
 
       {canPayroll && taxWarningsFor(employee, payroll).length > 0 && (
         <div className="mb-3 space-y-1">
@@ -1246,7 +1252,7 @@ function EmployeeDetail({ id, permissions, onBack }) {
       {detailTab === "lekarske" && canMedical && (
         <MedicalExamsTab employeeId={id} medicalExams={medicalExams} canEdit={canEdit} onChanged={load} />
       )}
-      {detailTab === "historie" && <HistorieTab timeline={timeline} />}
+      {detailTab === "historie" && <HistorieTab timeline={timeline} employeeId={id} />}
       {detailTab === "audit" && canAudit && <AuditTab employee={employee} employments={employments} contractEvents={contractEvents} medicalExams={medicalExams} positions={positions} />}
     </div>
   );
@@ -1404,6 +1410,7 @@ function OsobniUdajeTab({ employee, sensitive, payroll, currentEmployment, posit
   const [ucinnost, setUcinnost] = useState(new Date().toISOString().slice(0, 10));
   const [overrideOk, setOverrideOk] = useState(false);
   const [overrideReason, setOverrideReason] = useState("");
+  const [changeReason, setChangeReason] = useState(""); // dovod opravy (GDPR, migracia 72)
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
   const records = { employee, sensitive, payroll, employment: currentEmployment };
@@ -1505,6 +1512,12 @@ function OsobniUdajeTab({ employee, sensitive, payroll, currentEmployment, posit
           description: formatWageAmount(valuesToWage(f)), source: "MANUAL",
         });
       }
+      // dovod zmeny sa naviaze na prave ulozene zmeny (historia v karte)
+      if (changeReason.trim()) {
+        const { error: rErr } = await supabase.rpc("hr_record_correction", { p_employee_id: employee.id, p_reason: changeReason.trim() });
+        if (rErr) throw rErr;
+        setChangeReason("");
+      }
       setEditing(false);
       onSaved();
     } catch (e) {
@@ -1576,7 +1589,9 @@ function OsobniUdajeTab({ employee, sensitive, payroll, currentEmployment, posit
         </div>
       )}
       {error && <div className="bg-red-50 text-red-700 text-sm px-3 py-2 rounded-md mt-2 mb-2">{error}</div>}
-      <div className="flex justify-end gap-2 mt-3 pb-4">
+      <div className="flex justify-end items-center gap-2 mt-3 pb-4 flex-wrap">
+        <input aria-label="Důvod změny" value={changeReason} onChange={(e) => setChangeReason(e.target.value)}
+          placeholder="Důvod změny / opravy (zapíše se do historie)" className="border border-slate-300 rounded-md px-2.5 py-1.5 text-sm flex-1 min-w-64 max-w-md" />
         <button onClick={() => { setEditing(false); onCancelEdit?.(); }} className="text-sm text-slate-500 px-3 py-2">Zrušit</button>
         <button onClick={save} disabled={saving} className="bg-teal-700 hover:bg-teal-800 disabled:opacity-50 text-white text-sm font-medium px-4 py-2 rounded-md">
           {saving ? "Ukládám..." : "Uložit"}
@@ -4732,9 +4747,41 @@ function AddMedicalExamForm({ employeeId, onCancel, onSaved }) {
   );
 }
 
-function HistorieTab({ timeline }) {
-  if (timeline.length === 0) return <div className="text-sm text-slate-400">Zatím žádné události.</div>;
+// Dovody oprav udajov (GDPR cl. 16, migracia 72) - kto, kedy, preco.
+function CorrectionsList({ employeeId }) {
+  const [rows, setRows] = useState([]);
+  const [names, setNames] = useState({});
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      const { data } = await supabase.from("hr_corrections").select("*").eq("employee_id", employeeId).order("created_at", { ascending: false });
+      const ids = [...new Set((data || []).map((r) => r.created_by).filter(Boolean))];
+      const { data: profs } = ids.length ? await supabase.from("profiles").select("id, full_name").in("id", ids) : { data: [] };
+      if (cancelled) return;
+      setRows(data || []);
+      setNames(Object.fromEntries((profs || []).map((p) => [p.id, p.full_name])));
+    })();
+    return () => { cancelled = true; };
+  }, [employeeId]);
+  if (rows.length === 0) return null;
   return (
+    <div className="bg-white border border-slate-200 rounded-lg mb-3" data-testid="corrections">
+      <div className="px-4 py-2 border-b border-slate-100 text-sm font-semibold">Opravy údajů</div>
+      {rows.map((r) => (
+        <div key={r.id} className="px-4 py-2 text-sm flex gap-3 border-b border-slate-50 last:border-0">
+          <div className="text-xs text-slate-400 whitespace-nowrap w-32 pt-0.5">{new Date(r.created_at).toLocaleString("cs-CZ")}</div>
+          <div className="flex-1">{r.reason}<div className="text-xs text-slate-400">{names[r.created_by] || "—"} · změněných záznamů: {r.audit_ids?.length || 0}</div></div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function HistorieTab({ timeline, employeeId }) {
+  if (timeline.length === 0) return <>{employeeId && <CorrectionsList employeeId={employeeId} />}<div className="text-sm text-slate-400">Zatím žádné události.</div></>;
+  return (
+    <>
+    {employeeId && <CorrectionsList employeeId={employeeId} />}
     <div className="bg-white border border-slate-200 rounded-lg divide-y divide-slate-100">
       {timeline.map((t) => (
         <div key={t.id} className="px-4 py-3 flex gap-3">
@@ -4749,6 +4796,7 @@ function HistorieTab({ timeline }) {
         </div>
       ))}
     </div>
+    </>
   );
 }
 

@@ -55,7 +55,7 @@ select ok(exists (select 1 from public.audit_log where action = 'read' and entit
 select ok(exists (select 1 from public.audit_log where action = 'read' and entity = 'employee_payroll_data' and entity_id = 'emp-c1' and new_value->>'purpose' = 'edit'),
   'citanie pred upravou ma ucel edit');
 select is((select new_value->'employee_ids' from public.audit_log where action = 'read' and entity_id = '*' and changed_by = '00000000-0000-0000-0000-0000000000c2'), '["emp-c1", "emp-c2"]'::jsonb, 'prehlad: jeden zaznam so zoznamom');
-select is((select count(*) from public.audit_log where action = 'read' and new_value->>'purpose' = 'export')::int, 0, 'odmietnute citanie sa nezapise');
+select is((select count(*) from public.audit_log where action = 'read' and entity_id = 'emp-c1' and new_value->>'purpose' = 'export')::int, 0, 'odmietnute citanie sa nezapise');
 
 -- ---------- profil len so mzdami: mzdy ano, citlive nie ----------
 set local role authenticated;
