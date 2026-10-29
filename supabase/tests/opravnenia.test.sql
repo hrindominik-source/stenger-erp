@@ -5,6 +5,9 @@
 begin;
 create extension if not exists pgtap with schema extensions;
 select no_plan();
+-- balik E (migracia 71): krok, ktory schvaluje jednatel, ma schvalenu ziadost
+-- (samotne pravidlo styroch oci testuje styri_oci.test.sql)
+insert into public.hr_approval_requests (kind, entity, entity_id, reason, status) values ('EMPLOYER_SIGN', 'hr_documents', 'h-ps2', 'test – schváleno jednatelem', 'APPROVED');
 -- texty prejavu vole su od migracie 66 koncept; elektronicky podpis len po schvaleni (tu v ramci testu)
 update public.hr_legal_text_versions set status = 'SCHVALENO' where text_key like 'INTENT\_%' and status = 'KONCEPT';
 

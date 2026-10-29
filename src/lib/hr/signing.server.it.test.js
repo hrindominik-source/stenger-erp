@@ -62,6 +62,11 @@ describe.skipIf(!enabled)("faza F - podpis na tablete pri osobnej pritomnosti (l
       final_pdf_text_check: { ok: true, server_verified: true, method: "it-test" }, variables_snapshot: { zastupce: SIGNATORY }, ...extra,
     });
     if (error) throw error;
+    // balik E (migracia 71): podpis za zamestnavatela schvaluje jednatel - tu schvalene
+    // (samotne pravidlo styroch oci testuje styri_oci.test.sql)
+    const { error: aErr } = await service.from("hr_approval_requests").insert({ kind: "EMPLOYER_SIGN", entity: "hr_documents", entity_id: id,
+      reason: "IT test – schváleno jednatelem", status: "APPROVED" });
+    if (aErr) throw aErr;
     return id;
   }
   const row = async (id) => (await service.from("hr_documents").select("*").eq("id", id).single()).data;

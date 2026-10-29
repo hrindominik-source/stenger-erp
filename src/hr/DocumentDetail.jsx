@@ -9,6 +9,7 @@ import {
 } from "../lib/hr/signingRules.js";
 import TabletSigning, { invokeSigning } from "./signing/TabletSigning.jsx";
 import { invokeDeclarations } from "./Declarations.jsx";
+import { useApprovalState, ApprovalBox } from "./ApprovalRequest.jsx";
 import { IDENTITY_DOCUMENTS, CERTIFICATE_STATUS_LABELS } from "../../supabase/functions/_shared/hr/tabletSigning.js";
 import QRCode from "qrcode";
 import { deliveryState, deliveryDeadlines, documentDeliveryState, czDate, DELIVERY_CHANNEL_LABELS, MAX_SEND_ATTEMPTS } from "../lib/hr/deliveryStatus.js";
@@ -124,6 +125,11 @@ export default function DocumentDetail({ doc, signatures = [], previousSignature
     return () => { cancelled = true; };
   }, []);
 
+  // styri oci (migracia 71): podpis za zamestnavatela / zneplatnenie podpisaneho
+  const [employerApproval, reloadEmployerApproval] = useApprovalState("EMPLOYER_SIGN", doc.id, doc.status);
+  const [voidApproval, reloadVoidApproval] = useApprovalState("VOID_DOCUMENT", doc.id, doc.status);
+  const approvalChanged = () => { reloadEmployerApproval(); reloadVoidApproval(); };
+
   async function completeSigning() {
     setCompletion({ busy: true, error: "" });
     try {
@@ -167,9 +173,11 @@ export default function DocumentDetail({ doc, signatures = [], previousSignature
   const needsCompletion = serverMissing !== null && !serverMissing.length && !fullySigned && !closed && !!doc.locked_at;
   // podpisane vyhlasenie zamestnanca (§ 21 / § 335) - len HR_ADMIN (migracia 61)
   const signedDeclaration = SIGNED_DECLARATION_TYPES.includes(doc.doc_type) && ["SIGNED", "ARCHIVED"].includes(doc.status);
+  const voidNeedsApproval = !!voidApproval?.needed && !voidApproval.usable;
   const voidReason = signedDeclaration
     ? (can.admin ? "" : "Podepsané prohlášení zaměstnance smí zneplatnit jen administrátor HR (HR_ADMIN). Změna adresy se řeší novým oznámením, souhlas podle § 335 odvoláním.")
-    : (can.void ? "" : "Zneplatnit smí jen uživatel s oprávněním HR_DOCUMENT_VOID.");
+    : !can.void ? "Zneplatnit smí jen uživatel s oprávněním HR_DOCUMENT_VOID."
+    : voidNeedsApproval ? "Zneplatnění dokumentu s podpisem schvaluje jednatel – požádejte o schválení níže." : "";
   const serverPdf = !!doc.final_pdf_path && !!doc.final_pdf_text_check?.ok && !!doc.final_pdf_text_check?.server_verified;
   const signState = closed ? "Dokument je zneplatněn / nahrazen."
     : fullySigned ? "Dokument je už podepsán všemi stranami." : !serverPdf ? "Nejdřív nahrajte finální PDF (ověřené serverem)." : "";
@@ -180,7 +188,10 @@ export default function DocumentDetail({ doc, signatures = [], previousSignature
   const employerReason = (!required.includes("EMPLOYER") ? "Podpis zaměstnavatele se u tohoto dokumentu nevyžaduje." : "")
     || (!can.signEmployer ? "Chybí oprávnění podepisovat za zaměstnavatele (HR_SIGN_FOR_EMPLOYER)." : signState) || (!missing.includes("EMPLOYER") ? "Zaměstnavatel už podepsal."
     : s334 ? "Písemnost § 334 podepisuje zaměstnavatel uznávaným el. podpisem – nahrajte podepsané PDF."
-    : esignReady && !esignReady.includes("INTENT_EMPLOYER_SIGNATURE") ? ESIGN_PENDING : "");
+    : esignReady && !esignReady.includes("INTENT_EMPLOYER_SIGNATURE") ? ESIGN_PENDING : "")
+    || (employerApproval?.needed && !employerApproval.usable ? "Podpis za zaměstnavatele u tohoto dokumentu schvaluje jednatel – požádejte o schválení níže." : "");
+  // zadost ma zmysel, len ked jedinou prekazkou je schvalenie (aj § 334 - uznavany podpis nahrava personalistka)
+  const showEmployerApproval = required.includes("EMPLOYER") && missing.includes("EMPLOYER") && can.signEmployer && !signState;
   const qualifiedReason = signBase || (!missing.length ? "Nikdo další už podepsat nemusí." : "");
   const emailChannels = [
     legalAct === "BILATERAL_CONTRACT" && "EMAIL_S21",
@@ -373,8 +384,9 @@ export default function DocumentDetail({ doc, signatures = [], previousSignature
                 <ActionButton icon={Ban} tone="red" onClick={() => setForm("void")} disabled={!!voidReason} reason={voidReason}>Zneplatnit</ActionButton>
               )}
               {can.generate && !closed && !fullySigned && (
-                <ActionButton icon={FilePlus2} onClick={() => setForm("version")} disabled={lockedPartial && !can.void}
-                  reason={lockedPartial && !can.void ? "Zamčený dokument zneplatní jen uživatel s oprávněním HR_DOCUMENT_VOID." : ""}>
+                <ActionButton icon={FilePlus2} onClick={() => setForm("version")} disabled={lockedPartial && (!can.void || voidNeedsApproval)}
+                  reason={lockedPartial && !can.void ? "Zamčený dokument zneplatní jen uživatel s oprávněním HR_DOCUMENT_VOID."
+                    : lockedPartial && voidNeedsApproval ? "Zneplatnění dokumentu s podpisem schvaluje jednatel – požádejte o schválení níže." : ""}>
                   {lockedPartial ? "Zneplatnit a vytvořit novou verzi" : "Vytvořit novou verzi"}
                 </ActionButton>
               )}
@@ -382,6 +394,14 @@ export default function DocumentDetail({ doc, signatures = [], previousSignature
                 <ActionButton icon={FileSignature} onClick={() => setForm("amendment")}>Vytvořit dodatek</ActionButton>
               )}
             </div>
+            {showEmployerApproval && (
+              <ApprovalBox kind="EMPLOYER_SIGN" entityId={doc.id} state={employerApproval} onChanged={approvalChanged}
+                title="Podpis za zaměstnavatele u tohoto dokumentu schvaluje jednatel (výpověď, skončení, změna mzdy, dodatek, upravený dokument)." />
+            )}
+            {!closed && can.void && !signedDeclaration && (
+              <ApprovalBox kind="VOID_DOCUMENT" entityId={doc.id} state={voidApproval} onChanged={approvalChanged}
+                title="Zneplatnění dokumentu, který už má podpis, schvaluje jednatel." />
+            )}
             {form === "tablet" && (
               <TabletIssueForm doc={doc} onCancel={() => setForm(null)} onDone={() => { setForm(null); load(); onChanged?.(); }} />
             )}

@@ -5,6 +5,7 @@ import React, { useState, useEffect, useCallback } from "react";
 import { Loader2, CheckCircle2 } from "lucide-react";
 import { supabase } from "../supabaseClient.js";
 import LegalParameters from "./LegalParameters.jsx";
+import { APPROVAL_STATUS_LABELS } from "./ApprovalRequest.jsx";
 
 export const EVENT_LABELS = {
   DOC_SIGNED: "Podepsané smlouvy a úkony",
@@ -12,6 +13,8 @@ export const EVENT_LABELS = {
   WAGE_CHANGED: "Změny mzdy",
   MFA_RESET: "Zrušená či obnovená dvoufázová ověření",
   LEGAL_PARAM_CHANGED: "Změny zákonných parametrů",
+  APPROVAL_REQUESTED: "Žádosti o schválení",
+  EMERGENCY_STEP: "Nouzové postupy",
   TEMPLATE_PENDING: "Šablony ke schválení",
   TEMPLATE_APPROVED: "Schválené šablony",
   LEGAL_TEXT_PENDING: "Texty ke schválení",
@@ -23,6 +26,7 @@ export const EVENT_LABELS = {
   DELIVERY_FAILED: "Nezdařené doručení",
   DELIVERY_INEFFECTIVE: "Neúčinné doručení",
 };
+const APPROVAL_KIND_LABELS = { EMPLOYER_SIGN: "Podpis za zaměstnavatele", VOID_DOCUMENT: "Zneplatnění podepsaného dokumentu", LEGAL_EXCEPTION: "Výjimka ze zákonného limitu" };
 const PROFILE_LABELS = { KONATEL: "Jednatel", PERSONALISTA: "Personalista", UCTOVNIK_EXT: "Externí účetní", VLASTNI: "Vlastní nastavení" };
 // ostatnym (jednatel) rusi overenie len IT serverovo - zhodne s hr-mfa
 const MFA_RESETTABLE = ["PERSONALISTA", "UCTOVNIK_EXT"];
@@ -65,20 +69,32 @@ export default function KonatelPrehled() {
   const [names, setNames] = useState({});
   const [mfa, setMfa] = useState({}); // email -> { mfa_active, recovery_left }
   const [resetting, setResetting] = useState(null); // { email, reason, busy, error }
+  const [approvals, setApprovals] = useState([]);
+  const [employeeNames, setEmployeeNames] = useState({});
+  const [deciding, setDeciding] = useState(null); // { id, approve, note, busy, error }
 
   const load = useCallback(async () => {
-    const [sumRes, pendRes, unreadRes, accRes, profRes, mfaRes] = await Promise.all([
+    const [sumRes, pendRes, unreadRes, accRes, profRes, mfaRes, apprRes] = await Promise.all([
       supabase.rpc("hr_konatel_summary", { p_days: 7 }),
       supabase.from("hr_notifications").select("*").eq("kind", "KE_SCHVALENI").is("resolved_at", null).order("created_at", { ascending: false }),
       supabase.from("hr_notifications").select("*").eq("kind", "NA_VEDOMI").is("read_at", null).order("created_at", { ascending: false }).limit(200),
       supabase.from("hr_permissions").select("id, user_email, user_id, profile, valid_from, valid_until, granted_by, granted_at").order("user_email"),
       supabase.from("profiles").select("id, full_name"),
       supabase.rpc("hr_mfa_overview"),
+      supabase.rpc("hr_open_approvals"),
     ]);
     const err = sumRes.error || pendRes.error || unreadRes.error || accRes.error;
     if (err) { setError("Nepodařilo se načíst přehled."); setLoading(false); return; }
     setSummary(sumRes.data);
-    setPending(pendRes.data || []);
+    // ziadosti styroch oci sa vybavuju rozhodnutim nizsie, nie "Vyřízeno"
+    setPending((pendRes.data || []).filter((n) => n.entity !== "hr_approval_requests"));
+    const appr = apprRes.data || [];
+    setApprovals(appr);
+    const empIds = [...new Set(appr.map((a) => a.employee_id).filter(Boolean))];
+    if (empIds.length) {
+      const { data: emps } = await supabase.from("employees").select("id, first_name, last_name").in("id", empIds);
+      setEmployeeNames(Object.fromEntries((emps || []).map((e) => [e.id, `${e.first_name} ${e.last_name}`])));
+    }
     setUnread(unreadRes.data || []);
     setAccess(accRes.data || []);
     setNames(Object.fromEntries((profRes.data || []).map((p) => [p.id, p.full_name])));
@@ -102,6 +118,15 @@ export default function KonatelPrehled() {
       return;
     }
     setResetting(null);
+    load();
+  }
+
+  async function decide(e) {
+    e.preventDefault();
+    setDeciding((d) => ({ ...d, busy: true, error: "" }));
+    const { error: err } = await supabase.rpc("hr_decide_approval", { p_id: deciding.id, p_approve: deciding.approve, p_note: deciding.note || null });
+    if (err) { setDeciding((d) => ({ ...d, busy: false, error: err.message })); return; }
+    setDeciding(null);
     load();
   }
 
@@ -136,6 +161,45 @@ export default function KonatelPrehled() {
         <Stat label="Platné přístupy do HR" value={summary?.pristupy} />
         <Stat label="Přístupy končí do 14 dnů" value={summary?.pristupy_konci_14_dni} />
       </div>
+
+      <section className="bg-white border border-slate-200 rounded-lg overflow-hidden" data-testid="konatel-approvals">
+        <div className="px-4 py-2.5 border-b border-slate-100 font-semibold text-sm">Žádosti o schválení a nouzové postupy (čtyři oči)</div>
+        {approvals.length === 0
+          ? <div className="px-4 py-3 text-sm text-slate-400">Nic nečeká.</div>
+          : <div className="divide-y divide-slate-100">{approvals.map((a) => (
+              <div key={a.id} className={"px-4 py-2 text-sm " + (a.emergency ? "bg-red-50" : "")} data-testid="konatel-approval-row">
+                <div className="flex flex-wrap items-start gap-x-3 gap-y-1">
+                  <div className="flex-1 min-w-60">
+                    <div className="font-medium">{APPROVAL_KIND_LABELS[a.kind] || a.kind}{a.employee_id ? ` – ${employeeNames[a.employee_id] || a.employee_id}` : ""}
+                      {a.emergency && <span className="ml-2 text-xs text-red-700 font-semibold">NOUZOVÝ POSTUP – už provedeno</span>}</div>
+                    <div className="text-slate-600">Důvod: {a.reason}</div>
+                    {a.emergency && <div className="text-slate-600">Jak byl jednatel informován: {a.emergency_info}</div>}
+                    {a.kind === "LEGAL_EXCEPTION" && <div className="text-xs text-slate-500">Limity: {(a.payload?.codes || []).join(", ")}</div>}
+                    <div className="text-xs text-slate-400">{names[a.requested_by] || "—"} · {fmtDateTime(a.requested_at)} · {APPROVAL_STATUS_LABELS[a.status]}</div>
+                  </div>
+                  <div className="flex gap-2 shrink-0">
+                    <button className="text-xs bg-teal-700 hover:bg-teal-800 text-white px-2.5 py-1 rounded-md"
+                      onClick={() => setDeciding({ id: a.id, approve: true, note: "", busy: false, error: "" })}>{a.emergency ? "Potvrdit" : "Schválit"}</button>
+                    <button className="text-xs border border-red-300 text-red-700 px-2.5 py-1 rounded-md"
+                      onClick={() => setDeciding({ id: a.id, approve: false, note: "", busy: false, error: "" })}>{a.emergency ? "Odmítnout" : "Zamítnout"}</button>
+                  </div>
+                </div>
+                {deciding?.id === a.id && (
+                  <form onSubmit={decide} className="mt-2 flex flex-wrap items-center gap-2" data-testid="konatel-approval-form">
+                    <input aria-label="Poznámka k rozhodnutí" value={deciding.note} onChange={(e) => setDeciding((d) => ({ ...d, note: e.target.value }))}
+                      placeholder={deciding.approve ? "Poznámka (nepovinná)" : "Důvod zamítnutí (povinný)"} className="border border-slate-300 rounded-md px-2 py-1 text-sm flex-1 min-w-48" />
+                    <button type="submit" disabled={deciding.busy} className="text-xs bg-slate-800 text-white px-3 py-1.5 rounded-md disabled:opacity-50">
+                      {deciding.approve ? "Potvrdit schválení" : "Potvrdit zamítnutí"}</button>
+                    <button type="button" onClick={() => setDeciding(null)} className="text-xs text-slate-500">Zpět</button>
+                    {deciding.error && <span className="text-xs text-red-700 w-full">{deciding.error}</span>}
+                  </form>
+                )}
+              </div>
+            ))}</div>}
+        {approvals.some((a) => a.emergency && a.status === "EMERGENCY") && (
+          <div className="px-4 pb-2.5 text-xs text-red-700">Odmítnutí nouzového postupu krok nevrací – zapíše se a je třeba ho napravit (např. novým dokumentem).</div>
+        )}
+      </section>
 
       <section className="bg-white border border-slate-200 rounded-lg overflow-hidden">
         <div className="px-4 py-2.5 border-b border-slate-100 font-semibold text-sm">Čeká na schválení</div>

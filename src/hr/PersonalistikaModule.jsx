@@ -1195,6 +1195,7 @@ function EmployeeDetail({ id, permissions, onBack }) {
 
       {detailTab === "prehled" && (
         <PrehledDetailTab
+          canEdit={canEdit}
           employee={employee} payroll={payroll} currentEmployment={currentEmployment} contractEvents={contractEvents}
           positionLabel={positionLabel} medicalExams={medicalExams} canMedical={canMedical}
           employments={employments} nastupItems={nastupItems} onNastupAction={onNastupAction}
@@ -1251,7 +1252,7 @@ function EmployeeDetail({ id, permissions, onBack }) {
   );
 }
 
-function PrehledDetailTab({ employee, payroll, currentEmployment, contractEvents, positionLabel, medicalExams, canMedical, employments, nastupItems, onNastupAction }) {
+function PrehledDetailTab({ canEdit, employee, payroll, currentEmployment, contractEvents, positionLabel, medicalExams, canMedical, employments, nastupItems, onNastupAction }) {
   const endDays = currentEmployment ? daysUntilIso(currentEmployment.fixed_term_end_date) : null;
   const fixedTermStatus = currentEmployment && currentEmployment.employment_type === "doba_urcita"
     ? computeFixedTermStatus({ startDate: currentEmployment.start_date, currentEndDate: currentEmployment.fixed_term_end_date, events: contractEvents.filter((e) => e.employment_id === currentEmployment.id) })
@@ -1272,7 +1273,7 @@ function PrehledDetailTab({ employee, payroll, currentEmployment, contractEvents
       </div>
       {nastupItems && <NastupniBalicekCard items={nastupItems} onAction={onNastupAction} />}
       {currentEmployment && currentEmployment.status !== "ENDED" && (
-        <LegalCheckPanel employmentId={currentEmployment.id} refreshKey={`${currentEmployment.updated_at}|${payroll?.updated_at}`} />
+        <LegalCheckPanel employmentId={currentEmployment.id} refreshKey={`${currentEmployment.updated_at}|${payroll?.updated_at}`} canRequestException={canEdit} />
       )}
       {warnings.length > 0 && (
         <div className="mb-4 space-y-1.5">

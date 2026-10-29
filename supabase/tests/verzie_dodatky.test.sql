@@ -4,6 +4,9 @@
 begin;
 create extension if not exists pgtap with schema extensions;
 select no_plan();
+-- balik E (migracia 71): krok, ktory schvaluje jednatel, ma schvalenu ziadost
+-- (samotne pravidlo styroch oci testuje styri_oci.test.sql)
+insert into public.hr_approval_requests (kind, entity, entity_id, reason, status) values ('VOID_DOCUMENT', 'hr_documents', 'f-ps', 'test – schváleno jednatelem', 'APPROVED');
 
 insert into auth.users (id, email) values
   ('00000000-0000-0000-0000-0000000000f1', 'hr.f@test.local'),

@@ -4,6 +4,7 @@
 import React, { useState, useEffect } from "react";
 import { AlertTriangle, Ban, Loader2 } from "lucide-react";
 import { supabase } from "../supabaseClient.js";
+import { useApprovalState, ApprovalBox } from "./ApprovalRequest.jsx";
 
 // Typy dokumentov, ktore DB pri generovani kontroluje (zhodne s triggerom).
 export const LEGAL_CHECKED_DOC_TYPES = ["pracovni_smlouva", "pracovni_smlouva_cizinec", "mzdovy_vymer", "dodatek"];
@@ -21,9 +22,12 @@ export async function assertNoLegalBlocks(employmentId) {
   if (blocks.length) throw new Error("Zákonný limit – dokument nelze vytvořit: " + blocks.map((b) => b.message).join(" "));
 }
 
-export function LegalCheckPanel({ employmentId, refreshKey, onBlocks, title = "Kontrola podle zákonných parametrů" }) {
+// canRequestException: pri bloku ukaze ziadost jednatelovi o vynimku (balik E)
+export function LegalCheckPanel({ employmentId, refreshKey, onBlocks, canRequestException, title = "Kontrola podle zákonných parametrů" }) {
   const [result, setResult] = useState(null);
   const [error, setError] = useState("");
+  const [approvalKey, setApprovalKey] = useState(0);
+  const [approval, reloadApproval] = useApprovalState("LEGAL_EXCEPTION", employmentId, approvalKey);
 
   useEffect(() => {
     let cancelled = false;
@@ -38,12 +42,13 @@ export function LegalCheckPanel({ employmentId, refreshKey, onBlocks, title = "K
       .catch((e) => { if (!cancelled) setError(e.message); });
     return () => { cancelled = true; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [employmentId, refreshKey]);
+  }, [employmentId, refreshKey, approvalKey]);
 
   if (!employmentId) return null;
   if (error) return <div className="text-xs text-red-700 bg-red-50 px-3 py-2 rounded-md mb-2">{error}</div>;
   if (!result) return <div className="text-xs text-slate-400 mb-2 flex items-center gap-1"><Loader2 size={12} className="animate-spin" /> Kontroluji zákonné limity…</div>;
   const issues = result.issues || [];
+  const blocks = issues.filter((i) => i.level === "BLOCK");
   if (issues.length === 0) return <div className="text-xs text-emerald-700 bg-emerald-50 px-3 py-2 rounded-md mb-2" data-testid="legal-check-ok">{title}: bez nálezů.</div>;
   return (
     <div className="mb-2 space-y-1" data-testid="legal-check">
@@ -54,8 +59,14 @@ export function LegalCheckPanel({ employmentId, refreshKey, onBlocks, title = "K
           <span>{i.level === "BLOCK" ? "Zákonný limit: " : ""}{i.message}</span>
         </div>
       ))}
-      {issues.some((i) => i.level === "BLOCK") && (
+      {blocks.length > 0 && (
         <div className="text-xs text-slate-500">Dokument nelze vygenerovat ani podepsat, dokud se údaje v kartě neopraví. Výjimku může schválit jen jednatel.</div>
+      )}
+      {blocks.length > 0 && canRequestException && (
+        // vynimka sa ziada na konkretne limity; schvalena zmeni blok na upozornenie
+        <ApprovalBox kind="LEGAL_EXCEPTION" entityId={employmentId} payload={{ codes: [...new Set(blocks.map((b) => b.code))] }}
+          state={{ needed: true, usable: false, last: approval?.last }} title="Výjimka ze zákonného limitu (rozhoduje jednatel)"
+          onChanged={() => { reloadApproval(); setApprovalKey((k) => k + 1); }} />
       )}
     </div>
   );
