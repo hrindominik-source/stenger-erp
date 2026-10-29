@@ -60,11 +60,15 @@ returns boolean language sql stable security definer set search_path = public as
 $$;
 revoke all on function public.hr_user_is_admin(uuid) from public, anon, authenticated;
 
--- Dokumenty, ktore personalistka podpise za zamestnavatela sama.
+-- Dokumenty, ktore personalistka podpise za zamestnavatela sama (rozhodnutie
+-- jednatela): PS (aj DPP/DPC), napln prace a zaznam o skoleni zo schvalenej
+-- sablony v povodnej verzii; potvrdenie o prevzati zo schvaleneho textu.
 create or replace function public.hr_doc_self_signable(d public.hr_documents)
 returns boolean language sql stable set search_path = public as $$
-  select d.origin = 'GENERATED' and coalesce(d.version_no, 1) = 1 and d.template_version_id is not null
-    and d.doc_type in ('pracovni_smlouva', 'pracovni_smlouva_cizinec', 'popis_pracovniho_mista', 'hi001_naplen_prace_delnice', 'vstupni_skoleni');
+  select d.origin = 'GENERATED' and coalesce(d.version_no, 1) = 1 and (
+    (d.template_version_id is not null
+      and d.doc_type in ('pracovni_smlouva', 'pracovni_smlouva_cizinec', 'popis_pracovniho_mista', 'hi001_naplen_prace_delnice', 'vstupni_skoleni'))
+    or d.doc_type = 'potvrzeni_prevzeti');
 $$;
 
 create or replace function public.hr_approval_kind_label(p_kind text)

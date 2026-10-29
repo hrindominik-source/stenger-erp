@@ -33,6 +33,10 @@ $$;
 -- ---------- podpis za zamestnavatela ----------
 select ok(public.hr_doc_self_signable((select d from public.hr_documents d where id = 'o-ps')), 'PS zo schvalenej sablony podpise personalistka sama');
 select lives_ok($$select pg_temp.employer_sign('o-ps', '00000000-0000-0000-0000-0000000000a2')$$, 'PS: personalistka bez schvalenia');
+select ok(public.hr_doc_self_signable(jsonb_populate_record(null::public.hr_documents, '{"origin": "GENERATED", "doc_type": "potvrzeni_prevzeti"}')),
+  'potvrdenie o prevzati: sama');
+select ok(not public.hr_doc_self_signable(jsonb_populate_record(null::public.hr_documents, '{"origin": "GENERATED", "doc_type": "pracovni_smlouva", "version_no": 2, "template_version_id": "x"}')),
+  'PS vo verzii 2 (upravena): schvaluje jednatel');
 select throws_like($$select pg_temp.employer_sign('o-mv', '00000000-0000-0000-0000-0000000000a2')$$, '%schvaluje jednatel%', 'mzdovy vymer (zmena mzdy): bez schvalenia nie');
 select throws_like($$select pg_temp.employer_sign('o-up', '00000000-0000-0000-0000-0000000000a2')$$, '%schvaluje jednatel%', 'nahraty dokument (odchylka od sablony): nie');
 select throws_like($$select pg_temp.employer_sign('o-vyp', '00000000-0000-0000-0000-0000000000a2')$$, '%schvaluje jednatel%', 'vypoved: nie');
