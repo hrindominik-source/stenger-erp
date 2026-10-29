@@ -26,6 +26,7 @@ export const EVENT_LABELS = {
   NEW_DEVICE: "Přihlášení z nového zařízení",
   REVISION_DUE: "Revize šablon a parametrů",
   REMEDIATION_REQUIRED: "Náprava po zamítnutém nouzovém postupu",
+  BANK_ACCOUNT_CHANGED: "Změna čísla účtu zaměstnance",
   LEGISLATION_CHANGED: "Možné změny zákoníku práce",
   LEGISLATION_CHECK_FAILED: "Selhávající kontrola změn zákona",
   TEMPLATE_PENDING: "Šablony ke schválení",

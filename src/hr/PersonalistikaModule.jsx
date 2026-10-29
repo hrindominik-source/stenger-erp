@@ -34,6 +34,7 @@ import DocumentDetail, { fileToBase64 } from "./DocumentDetail.jsx";
 import { invokeSigning } from "./signing/TabletSigning.jsx";
 import { ABSENCE_TYPES, ABSENCE_DOC_TYPES, absenceType, absenceList, isAbsenceActive, activeAbsence, absenceStatusText, probationOverlapDays, absenceInProbation, addDaysIso } from "../lib/hr/absences.js";
 import { reasonRequiredChanges, withChangeReason } from "../lib/hr/changeReason.js";
+import BankAccountCheck, { BANK_ACCOUNT_CHANGED_LABEL } from "./BankAccountCheck.jsx";
 
 const HR_DOKUMENTY_BUCKET = "hr-dokumenty";
 const DOCX_MIME = "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
@@ -256,6 +257,7 @@ function DashboardTab({ permissions, onOpenEmployee }) {
   const [medicalExams, setMedicalExams] = useState([]);
   const [onboardingPendingCount, setOnboardingPendingCount] = useState(0);
   const [payrolls, setPayrolls] = useState([]);
+  const [accountChecks, setAccountChecks] = useState([]); // nepotvrdene zmeny uctu (migracia 78)
   const canMedical = hasPerm(permissions, "HR_VIEW_MEDICAL_ADMIN");
   const canPayrollDash = hasPerm(permissions, "HR_VIEW_PAYROLL");
   const canReviewOnboarding = hasPerm(permissions, "HR_EDIT");
@@ -293,6 +295,8 @@ function DashboardTab({ permissions, onOpenEmployee }) {
         // citanie mzdovych udajov sa zapisuje do auditu (migracia 68)
         const { data: pays } = await supabase.rpc("hr_read_payroll_overview", { p_employee_ids: emps.map((e) => e.id) });
         if (!cancelled) setPayrolls(pays || []);
+        const { data: checks } = await supabase.from("hr_bank_account_checks").select("employee_id, last4").is("confirmed_at", null);
+        if (!cancelled) setAccountChecks(checks || []);
       }
       setLoading(false);
     })();
@@ -318,6 +322,12 @@ function DashboardTab({ permissions, onOpenEmployee }) {
     ...computeHrWarnings({ employments, medicalExams: [...latestExamByEmployee.values()], employees }),
     // dane: deti 26 let / studium, chybejici prohlaseni poplatnika
     ...employees.flatMap((e) => taxWarningsFor(e, payrolls.find((p) => p.employee_id === e.id)).map((w) => ({ ...w, employeeId: e.id, employeeName: fullName(e) }))),
+    // zmena cisla uctu - overit pred vyplatou (migracia 78)
+    ...accountChecks.map((c) => {
+      const e = employees.find((x) => x.id === c.employee_id);
+      return e && { level: "red", employeeId: e.id, employeeName: fullName(e),
+        message: `${BANK_ACCOUNT_CHANGED_LABEL}${c.last4 ? ` (nový účet končí …${c.last4})` : ""}` };
+    }).filter(Boolean),
   ];
 
   const positionLabel = (em) => employmentPositionText(em, positions);
@@ -1222,6 +1232,7 @@ function EmployeeDetail({ id, permissions, onBack }) {
           onChanged={load} onEditInKarta={() => openKarta()}
         />
       )}
+      {detailTab === "mzda" && canPayroll && <BankAccountCheck employeeId={id} permissions={permissions} />}
       {detailTab === "mzda" && canPayroll && (
         <MzdovePodminkyTab
           employee={employee} payroll={payroll} currentEmployment={currentEmployment} canEdit={canEdit}
