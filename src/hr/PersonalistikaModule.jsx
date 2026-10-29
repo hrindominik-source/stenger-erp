@@ -67,6 +67,13 @@ const DOC_TYPE_LABELS = {
 // nie z Word sablon - preto nie su v ponuke typov sablony.
 const TEXT_DOC_TYPES = ["osobni_dotaznik", "s21_oznameni_adresy", "s335_pouceni", "s335_souhlas", "s335_odvolani", "potvrzeni_prevzeti"];
 const DOC_TYPE_OPTIONS = Object.keys(DOC_TYPE_LABELS).filter((v) => !TEXT_DOC_TYPES.includes(v)).map((v) => ({ value: v, label: DOC_TYPE_LABELS[v] }));
+// Typ lekarskej prehliadky - potravinarstvo: len vstupna a periodicka
+// (mimoriadnu, vystupnu a nasledne firma nerobi). Starsie zaznamy maju volny text.
+const MEDICAL_EXAM_TYPE_OPTIONS = [
+  { value: "", label: "— vyberte —" },
+  { value: "Vstupní", label: "Vstupní" },
+  { value: "Periodická", label: "Periodická" },
+];
 
 const HR_DOCUMENT_STATUS_LABEL = {
   DRAFT: "Koncept", READY_FOR_REVIEW: "Ke kontrole", APPROVED: "Schváleno",
@@ -1988,7 +1995,7 @@ function ManualHistoricalEntryForm({ employeeId, employee, employments, position
       <div className="mt-3 pt-3 border-t border-slate-100">
         <div className="text-xs font-medium text-slate-500 mb-1.5">Poslední/platná lékařská prohlídka (nepovinné)</div>
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-x-4">
-          <TextField label="Typ prohlídky" value={examType} onChange={setExamType} />
+          <SelectFieldLocal label="Typ prohlídky" value={examType} onChange={setExamType} options={MEDICAL_EXAM_TYPE_OPTIONS} />
           <DateFieldLocal label="Datum prohlídky" value={examDate} onChange={setExamDate} />
           <DateFieldLocal label="Platnost do" value={examValidUntil} onChange={setExamValidUntil} />
         </div>
@@ -4793,7 +4800,7 @@ function AddMedicalExamForm({ employeeId, onCancel, onSaved }) {
   return (
     <div className="bg-white border border-slate-200 rounded-lg p-4 mb-3">
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-x-4">
-        <TextField label="Typ prohlídky" value={f.exam_type} onChange={(v) => setF({ ...f, exam_type: v })} />
+        <SelectFieldLocal label="Typ prohlídky" value={f.exam_type} onChange={(v) => setF({ ...f, exam_type: v })} options={MEDICAL_EXAM_TYPE_OPTIONS} />
         <DateFieldLocal label="Datum prohlídky" value={f.exam_date} onChange={(v) => setF({ ...f, exam_date: v })} />
         <DateFieldLocal label="Platnost do / další termín" value={f.valid_until} onChange={(v) => setF({ ...f, valid_until: v })} />
         <TextField label="Poskytovatel" value={f.provider} onChange={(v) => setF({ ...f, provider: v })} />
