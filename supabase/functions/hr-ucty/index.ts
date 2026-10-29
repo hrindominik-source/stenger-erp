@@ -1,13 +1,15 @@
-// Odchod pouzivatela (migracia 73, balik G).
-// { action: "offboard_user", user_email, reason } - len jednatel (HR_ADMIN, aal2):
-//   koniec pristupu do HR, zrusenie relacii (hr_offboard_user) a zablokovanie
-//   uctu (admin API). Jednatela a seba nie - tych riesi IT serverovo.
+// Odchod pouzivatela (migracia 73, balik G). Len jednatel (HR_ADMIN, aal2):
+// { action: "end_hr_access", user_email, reason } - koniec pristupu do HR,
+//   ucet v ERP ostava;
+// { action: "offboard_user", user_email, reason } - odchod z firmy: koniec HR,
+//   zrusenie relacii (hr_offboard_user) a zablokovanie uctu (admin API).
+// Jednatela a seba nie - tych riesi IT serverovo.
 import { json, handle, HttpError, authorize } from "../_shared/hrServer.ts";
 
 // ~100 rokov: Auth nema "navzdy"; odblokovanie = IT (ban_duration "none")
 const BAN = "876000h";
 
-async function offboardUser(req: Request, body: any) {
+async function offboardUser(req: Request, body: any, mode: "HR" | "ACCOUNT") {
   const { user, service } = await authorize(req, []);
   const email = String(body.user_email || "").trim().toLowerCase();
   const reason = String(body.reason || "").trim();
@@ -17,8 +19,9 @@ async function offboardUser(req: Request, body: any) {
   if (lErr) throw new HttpError(500, "Uživatele nelze načíst.");
   const target = list.users.find((x: any) => String(x.email || "").toLowerCase() === email);
   if (!target) throw new HttpError(404, "Uživatel nemá účet.");
-  const { error: oErr } = await service.rpc("hr_offboard_user", { p_user_id: target.id, p_actor: user.id, p_reason: reason });
+  const { error: oErr } = await service.rpc("hr_offboard_user", { p_user_id: target.id, p_actor: user.id, p_reason: reason, p_mode: mode });
   if (oErr) throw new HttpError(403, oErr.message);
+  if (mode === "HR") return json({ ok: true });
   const { error: bErr } = await service.auth.admin.updateUserById(target.id, { ban_duration: BAN });
   if (bErr) throw new HttpError(500, "Přístup do HR ukončen, ale účet se nepodařilo zablokovat – kontaktujte IT.");
   return json({ ok: true });
@@ -27,7 +30,8 @@ async function offboardUser(req: Request, body: any) {
 Deno.serve(handle(async (req) => {
   const body = await req.json().catch(() => ({}));
   switch (body.action) {
-    case "offboard_user": return offboardUser(req, body);
+    case "end_hr_access": return offboardUser(req, body, "HR");
+    case "offboard_user": return offboardUser(req, body, "ACCOUNT");
     default: throw new HttpError(400, "Neznama akce.");
   }
 }));

@@ -5,6 +5,11 @@
 -- uctov ostavaju (odblokovanie: IT, ban_duration "none"). Vratit aj frontend
 -- a funkciu hr-ucty.
 begin;
+drop trigger if exists hr_sessions_new_device on auth.sessions;
+drop function if exists public.hr_sessions_new_device();
+drop function if exists public.hr_device_key(text);
+drop table if exists public.hr_known_devices;
+drop function if exists public.hr_offboard_user(uuid, uuid, text, text);
 drop function if exists public.hr_offboard_user(uuid, uuid, text);
 drop function if exists public.hr_account_security_overview();
 drop function if exists public.hook_password_verification_attempt(jsonb);

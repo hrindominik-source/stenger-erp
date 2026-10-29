@@ -50,6 +50,23 @@ describe.skipIf(!enabled)("ucty: neuspesne prihlasenia a odchod (lokalny Supabas
     expect(data).toEqual([{ kind: "PASSWORD" }]);
   });
 
+  it("ukoncenie pristupu do HR: ucet v ERP ostava", async () => {
+    const hrEmail = `konec.hr.${run}@test.local`;
+    const { data: c } = await service.auth.admin.createUser({ email: hrEmail, password: userPass, email_confirm: true });
+    await service.from("hr_permissions").insert({ id: `p-konec-${run}`, user_email: hrEmail, profile: "VLASTNI", permissions: ["HR_VIEW_BASIC"], note: "IT test" });
+    const admin = client();
+    await signInAal2(admin, service, "hr.admin@test.local", password);
+    expect(await invoke(admin, { action: "end_hr_access", user_email: hrEmail, reason: "Konec spolupráce v HR" })).toMatchObject({ ok: true });
+    const { data: perm } = await service.from("hr_permissions").select("note").eq("id", `p-konec-${run}`).single();
+    expect(perm.note).toMatch(/^Konec přístupu do HR:/);
+    const u = client();
+    expect((await u.auth.signInWithPassword({ email: hrEmail, password: userPass })).error).toBeNull();
+    const { data: perms } = await u.rpc("hr_get_permissions");
+    expect(perms || []).toEqual([]);
+    const { data: got } = await service.auth.admin.getUserById(c.user.id);
+    expect(got.user.banned_until || null).toBeNull();
+  });
+
   it("odchod: len jednatel; koniec HR, zrusene relacie, zablokovany ucet, audit", async () => {
     const user = client();
     expect((await user.auth.signInWithPassword({ email, password: userPass })).error).toBeNull();

@@ -20,7 +20,9 @@ export const EVENT_LABELS = {
   EMPLOYEE_EXPORTED: "Exporty údajů zaměstnance",
   EMPLOYEE_ANONYMIZED: "Anonymizace",
   LOGIN_FAILURES: "Opakovaná neúspěšná přihlášení",
-  USER_OFFBOARDED: "Ukončené přístupy (odchod)",
+  USER_OFFBOARDED: "Zablokované účty (odchod z firmy)",
+  HR_ACCESS_ENDED: "Ukončené přístupy do HR",
+  NEW_DEVICE: "Přihlášení z nového zařízení",
   TEMPLATE_PENDING: "Šablony ke schválení",
   TEMPLATE_APPROVED: "Schválené šablony",
   LEGAL_TEXT_PENDING: "Texty ke schválení",
@@ -79,7 +81,7 @@ export default function KonatelPrehled() {
   const [employeeNames, setEmployeeNames] = useState({});
   const [deciding, setDeciding] = useState(null); // { id, approve, note, busy, error }
   const [security, setSecurity] = useState({}); // email -> relacie, neuspesne prihlasenia (migracia 73)
-  const [offboarding, setOffboarding] = useState(null); // { email, reason, busy, error }
+  const [offboarding, setOffboarding] = useState(null); // { email, mode: "ACCOUNT"|"HR", reason, busy, error }
 
   const load = useCallback(async () => {
     const [sumRes, pendRes, unreadRes, accRes, profRes, mfaRes, apprRes, secRes] = await Promise.all([
@@ -144,7 +146,8 @@ export default function KonatelPrehled() {
   async function offboard(e) {
     e.preventDefault();
     setOffboarding((o) => ({ ...o, busy: true, error: "" }));
-    const { error: fnErr } = await supabase.functions.invoke("hr-ucty", { body: { action: "offboard_user", user_email: offboarding.email, reason: offboarding.reason } });
+    const action = offboarding.mode === "HR" ? "end_hr_access" : "offboard_user";
+    const { error: fnErr } = await supabase.functions.invoke("hr-ucty", { body: { action, user_email: offboarding.email, reason: offboarding.reason } });
     if (fnErr) {
       let message = "Ukončení přístupu se nezdařilo.";
       try { message = (await fnErr.context.json()).error || message; } catch { /* bez JSON */ }
@@ -285,6 +288,7 @@ export default function KonatelPrehled() {
               const canReset = MFA_RESETTABLE.includes(a.profile) && m?.mfa_active;
               const sec = security[String(a.user_email).toLowerCase()];
               const canOffboard = a.profile !== "KONATEL" && sec?.user_id && !sec.banned_until;
+              const canEndHr = canOffboard && !expired;
               return (
                 <React.Fragment key={a.id}>
                 <tr className={expired ? "text-slate-400" : ""} data-testid="konatel-access-row">
@@ -305,18 +309,24 @@ export default function KonatelPrehled() {
                         {sec?.active_sessions > 1 && <span className="ml-1 text-amber-700 font-medium" data-testid="konatel-multi-device">· více zařízení současně</span>}</>}
                     {sec?.failed_7d > 0 && <div className="text-red-700">neúspěšná přihlášení (7 dní): {sec.failed_7d}, naposledy {fmtDateTime(sec.last_failed_at)}</div>}
                     {canOffboard && (
-                      <button type="button" onClick={() => setOffboarding({ email: a.user_email, reason: "", busy: false, error: "" })}
-                        className="block text-red-700 hover:text-red-900 underline mt-0.5">Ukončit přístup (odchod)</button>
+                      <button type="button" onClick={() => setOffboarding({ email: a.user_email, mode: "ACCOUNT", reason: "", busy: false, error: "" })}
+                        className="block text-red-700 hover:text-red-900 underline mt-0.5">Zablokovat účet – odchod z firmy</button>
+                    )}
+                    {canEndHr && (
+                      <button type="button" onClick={() => setOffboarding({ email: a.user_email, mode: "HR", reason: "", busy: false, error: "" })}
+                        className="block text-slate-600 hover:text-slate-900 underline mt-0.5">Ukončit přístup do HR</button>
                     )}
                   </td>
                 </tr>
                 {offboarding?.email === a.user_email && (
                   <tr><td colSpan={6} className="px-4 py-2 bg-red-50">
                     <form onSubmit={offboard} className="flex flex-wrap items-center gap-2 text-sm" data-testid="konatel-offboard-form">
-                      <span>Ukončit přístup ({a.user_email}): přístup do HR skončí, všechna přihlášení se zruší a účet se zablokuje. Odblokuje jen IT.</span>
+                      <span>{offboarding.mode === "HR"
+                        ? `Ukončit přístup do HR (${a.user_email}): přístup do Personalistiky skončí, účet v ERP zůstává.`
+                        : `Zablokovat účet (${a.user_email}): přístup do HR skončí, všechna přihlášení se zruší a účet se zablokuje v celém ERP. Odblokuje jen IT.`}</span>
                       <input aria-label="Důvod ukončení přístupu" value={offboarding.reason} onChange={(e) => setOffboarding((o) => ({ ...o, reason: e.target.value }))}
                         placeholder="Důvod (např. skončení spolupráce)" className="border border-slate-300 rounded-md px-2 py-1 flex-1 min-w-48" />
-                      <button type="submit" disabled={offboarding.busy || offboarding.reason.trim().length < 5} className="bg-red-700 hover:bg-red-800 disabled:opacity-50 text-white text-xs font-medium px-3 py-1.5 rounded-md">Ukončit přístup</button>
+                      <button type="submit" disabled={offboarding.busy || offboarding.reason.trim().length < 5} className="bg-red-700 hover:bg-red-800 disabled:opacity-50 text-white text-xs font-medium px-3 py-1.5 rounded-md">{offboarding.mode === "HR" ? "Ukončit přístup do HR" : "Zablokovat účet"}</button>
                       <button type="button" onClick={() => setOffboarding(null)} className="text-xs text-slate-500">Zpět</button>
                       {offboarding.error && <span className="w-full text-red-700 text-xs">{offboarding.error}</span>}
                     </form>

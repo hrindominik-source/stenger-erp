@@ -49,7 +49,17 @@ select is((select array[active_sessions, failed_7d, jsonb_array_length(devices)]
 
 -- ---------- odchod ----------
 reset role;
-select ok(not has_function_privilege('authenticated', 'public.hr_offboard_user(uuid, uuid, text)', 'EXECUTE'), 'odchod len server');
+select ok(not has_function_privilege('authenticated', 'public.hr_offboard_user(uuid, uuid, text, text)', 'EXECUTE'), 'odchod len server');
+-- ukoncenie pristupu do HR: ucet a relacie ostavaju
+insert into auth.users (id, email) values ('00000000-0000-0000-0000-0000000000d4', 'ucetni.ucty@test.local');
+insert into public.hr_permissions (id, user_email, profile, valid_until) values ('p-d4', 'ucetni.ucty@test.local', 'UCTOVNIK_EXT', current_date + 30);
+insert into auth.sessions (id, user_id, created_at, updated_at) values ('00000000-0000-0000-0000-00000000d401', '00000000-0000-0000-0000-0000000000d4', now(), now());
+select lives_ok($$select public.hr_offboard_user('00000000-0000-0000-0000-0000000000d4', '00000000-0000-0000-0000-0000000000d1', 'Konec spolupráce v HR', 'HR')$$, 'koniec pristupu do HR');
+select is((select valid_until from public.hr_permissions where id = 'p-d4'), current_date - 1, 'HR skoncilo');
+select is((select count(*) from auth.sessions where user_id = '00000000-0000-0000-0000-0000000000d4')::int, 1, 'relacie v ERP ostavaju');
+select ok(exists (select 1 from public.hr_notifications where event_type = 'HR_ACCESS_ENDED'), 'upozornenie: koniec HR');
+select ok(exists (select 1 from public.audit_log where entity = 'auth_user' and entity_id = '00000000-0000-0000-0000-0000000000d4' and new_value->>'hr_access_ended' = 'true'), 'audit: koniec HR');
+select throws_like($$select public.hr_offboard_user('00000000-0000-0000-0000-0000000000d4', '00000000-0000-0000-0000-0000000000d1', 'Neznama akce', 'X')$$, '%Neznámá%', 'neznama akcia nie');
 select throws_like($$select public.hr_offboard_user('00000000-0000-0000-0000-0000000000d2', '00000000-0000-0000-0000-0000000000d1', 'x')$$, '%důvod%', 'bez dovodu nie');
 select throws_like($$select public.hr_offboard_user('00000000-0000-0000-0000-0000000000d1', '00000000-0000-0000-0000-0000000000d2', 'Odchod jednatele')$$, '%IT serverově%', 'jednatela nie');
 select throws_like($$select public.hr_offboard_user('00000000-0000-0000-0000-0000000000d2', '00000000-0000-0000-0000-0000000000d2', 'Sám sebe')$$, '%Vlastní%', 'seba nie');
@@ -64,6 +74,26 @@ select ok(exists (select 1 from public.hr_notifications where event_type = 'USER
 set local role authenticated;
 set local request.jwt.claims = '{"sub": "00000000-0000-0000-0000-0000000000d2", "email": "personalistka.ucty@test.local", "role": "authenticated", "aal": "aal2"}';
 select ok(not public.hr_has_permission('HR_VIEW_BASIC'), 'po odchode ziadne opravnenie v HR');
+
+
+-- ---------- nove zariadenie ----------
+reset role;
+delete from public.hr_known_devices where user_id = '00000000-0000-0000-0000-0000000000d1';
+insert into auth.sessions (id, user_id, created_at, updated_at, user_agent) values
+  ('00000000-0000-0000-0000-00000000d101', '00000000-0000-0000-0000-0000000000d1', now(), now(), 'Mozilla/5.0 (Windows NT 10.0) Chrome/130.0.1');
+select ok(not exists (select 1 from public.hr_notifications where event_type = 'NEW_DEVICE' and entity_id = '00000000-0000-0000-0000-0000000000d1'),
+  'prve zariadenie sa len zapise');
+insert into auth.sessions (id, user_id, created_at, updated_at, user_agent) values
+  ('00000000-0000-0000-0000-00000000d102', '00000000-0000-0000-0000-0000000000d1', now(), now(), 'Mozilla/5.0 (Windows NT 10.0) Chrome/131.5.2');
+select ok(not exists (select 1 from public.hr_notifications where event_type = 'NEW_DEVICE' and entity_id = '00000000-0000-0000-0000-0000000000d1'),
+  'nova verzia prehliadaca nie je nove zariadenie');
+insert into auth.sessions (id, user_id, created_at, updated_at, user_agent) values
+  ('00000000-0000-0000-0000-00000000d103', '00000000-0000-0000-0000-0000000000d1', now(), now(), 'Mozilla/5.0 (iPad; CPU OS 17_0) Safari/604.1');
+select is((select count(*) from public.hr_notifications where event_type = 'NEW_DEVICE' and entity_id = '00000000-0000-0000-0000-0000000000d1')::int, 1,
+  'nove zariadenie -> upozornenie jednatelovi');
+insert into auth.sessions (id, user_id, created_at, updated_at, user_agent) values
+  ('00000000-0000-0000-0000-00000000d301', '00000000-0000-0000-0000-0000000000d3', now(), now(), 'Iny');
+select ok(not exists (select 1 from public.hr_known_devices where user_id = '00000000-0000-0000-0000-0000000000d3'), 'ucet mimo HR sa nesleduje');
 
 select * from finish();
 rollback;

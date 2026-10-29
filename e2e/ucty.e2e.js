@@ -16,7 +16,7 @@ const password = () => fs.readFileSync(path.resolve("supabase/seed.sql"), "utf8"
 test.skip(!enabled, "chyba lokalny Supabase (scripts/test-local-e2e.sh)");
 test.use({ actionTimeout: 20000 });
 
-test("jednatel vidi neuspesne prihlasenia a ukonci pristup", async ({ page }) => {
+test("jednatel vidi neuspesne prihlasenia a zablokuje ucet pri odchode", async ({ page }) => {
   test.setTimeout(120000);
   const s = createClient(URL_, SERVICE, { auth: { persistSession: false } });
   const email = `odchod.e2e.${run}@test.local`;
@@ -41,14 +41,14 @@ test("jednatel vidi neuspesne prihlasenia a ukonci pristup", async ({ page }) =>
 
     const row = page.getByTestId("konatel-access-row").filter({ hasText: email });
     await expect(row.getByTestId("konatel-login-cell")).toContainText("neúspěšná přihlášení (7 dní): 1");
-    await row.getByRole("button", { name: "Ukončit přístup (odchod)" }).click();
+    await row.getByRole("button", { name: "Zablokovat účet – odchod z firmy" }).click();
     const form = page.getByTestId("konatel-offboard-form");
     await form.getByLabel("Důvod ukončení přístupu").fill("Skončení spolupráce – e2e");
-    await form.getByRole("button", { name: "Ukončit přístup" }).click();
+    await form.getByRole("button", { name: "Zablokovat účet" }).click();
     await expect(row.getByTestId("konatel-login-cell")).toContainText("účet zablokován", { timeout: 15000 });
     await expect(row).toContainText("(neplatí)");
     // vlastny riadok jednatela tlacidlo nema
-    await expect(page.getByTestId("konatel-access-row").filter({ hasText: "hr.admin@test.local" }).getByRole("button", { name: "Ukončit přístup (odchod)" })).toHaveCount(0);
+    await expect(page.getByTestId("konatel-access-row").filter({ hasText: "hr.admin@test.local" }).getByRole("button", { name: "Zablokovat účet – odchod z firmy" })).toHaveCount(0);
   } finally {
     await s.auth.admin.updateUserById(created.user.id, { ban_duration: "none" });
   }
