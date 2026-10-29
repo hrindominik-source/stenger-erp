@@ -8,7 +8,7 @@ import { PDFDocument, PDFName, PDFBool, rgb } from "pdf-lib";
 import fontkit from "@pdf-lib/fontkit";
 import { JMHZ_FIELD_MAPS, buildDecodedFieldIndex } from "./jmhzPdf.js";
 import {
-  CZ, EDUCATION_OPTIONS, STATE_OPTIONS, optionLabel, formatStreetLine, formatCityLine, isValuesForeigner,
+  CZ, EDUCATION_OPTIONS, STATE_OPTIONS, optionLabel, formatStreetLine, formatCityLine, isValuesForeigner, childBirthText,
 } from "./employeeFields.js";
 
 export const JMHZ_FILL_VERSION = "20.3.2026 C";
@@ -163,7 +163,7 @@ export function buildJmhzFillValues(v, extra = {}) {
 
     ...Object.fromEntries(["dite1", "dite2", "dite3", "dite4"].flatMap((s) => [
       [`${s}_jmeno`, v[`${s}_jmeno`]],
-      [`${s}_datum_rc`, v[`${s}_datum_rc`]],
+      [`${s}_datum_rc`, childBirthText(v, s)],
       [`${s}_narok`, v[`${s}_jmeno`] ? yn(v[`${s}_narok`]) : null],
       [`${s}_studium`, v[`${s}_jmeno`] ? yn(v[`${s}_studium`]) : null],
       [`${s}_neuplatneni`, v[`${s}_jmeno`] ? yn(v[`${s}_neuplatneni`]) : null],
