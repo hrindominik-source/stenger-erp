@@ -55,6 +55,7 @@ export function ApprovalBox({ kind, entityId, state, payload, title, onChanged }
       {last && !last.consumed && (
         <div className="text-xs text-amber-900" data-testid="approval-status">
           Poslední žádost: {APPROVAL_STATUS_LABELS[last.status] || last.status}{last.decision_note ? ` – ${last.decision_note}` : ""}
+          {last.outdated && <span className="ml-1 text-red-700">(dokument se od schválení změnil – schválení neplatí)</span>}
           {waiting && last.mine && <button type="button" onClick={cancel} className="ml-2 underline text-slate-600">Stáhnout žádost</button>}
         </div>
       )}
@@ -68,10 +69,10 @@ export function ApprovalBox({ kind, entityId, state, payload, title, onChanged }
             <textarea aria-label="Důvod žádosti" value={form.reason} onChange={(e) => setForm((f) => ({ ...f, reason: e.target.value }))}
               className="mt-0.5 w-full border border-slate-300 rounded-md px-2 py-1 text-sm" rows={2} />
           </label>
-          <label className="flex items-start gap-2 text-xs text-slate-700">
+          {kind !== "LEGAL_EXCEPTION" && <label className="flex items-start gap-2 text-xs text-slate-700">
             <input type="checkbox" checked={form.emergency} onChange={(e) => setForm((f) => ({ ...f, emergency: e.target.checked }))} className="mt-0.5" />
             <span>Nouzový postup – krok nesnese odklad; provede se hned a jednatel ho musí dodatečně potvrdit.</span>
-          </label>
+          </label>}
           {form.emergency && (
             <label className="block text-xs text-slate-600">Jak a kdy jste jednatele informovali
               <input aria-label="Jak byl jednatel informován" value={form.info} onChange={(e) => setForm((f) => ({ ...f, info: e.target.value }))}

@@ -24,6 +24,7 @@ select is(public.hr_revision_period('2026-10-29'), '2026-07-01'::date, 'v oktobr
 update public.hr_document_templates set next_review_date = null;
 update public.hr_legal_text_versions set next_review_date = null;
 delete from public.hr_revision_reviews;
+update public.hr_notifications set resolved_at = now() where event_type = 'REVISION_DUE' and resolved_at is null; -- z predoslych behov IT
 update public.hr_document_templates set next_review_date = current_date + 10 where id = (select id from public.hr_document_templates order by id limit 1);
 
 set local role authenticated;

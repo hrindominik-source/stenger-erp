@@ -33,6 +33,7 @@ async function check(req: Request) {
     try {
       const res = await fetch(w.source_url, { redirect: "error", signal: AbortSignal.timeout(20000) });
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      if (Number(res.headers.get("content-length") || 0) > MAX_BYTES) throw new Error("Odpověď je příliš velká.");
       const text = await res.text();
       if (text.length > MAX_BYTES) throw new Error("Odpověď je příliš velká.");
       if (!text.trim()) throw new Error("Prázdná odpověď.");

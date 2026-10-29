@@ -15,14 +15,18 @@ insert into public.hr_permissions (id, user_email, profile) values
   ('p-o1', 'konatel.oci@test.local', 'KONATEL'),
   ('p-o2', 'personalistka.oci@test.local', 'PERSONALISTA');
 insert into public.employees (id, first_name, last_name) values ('emp-o', 'Oto', 'Ocisty');
-insert into public.hr_documents (id, employee_id, doc_type, origin, status, template_version_id) values
-  ('o-mv', 'emp-o', 'mzdovy_vymer', 'GENERATED', 'READY_FOR_SIGNATURE', null),
-  ('o-mv2', 'emp-o', 'mzdovy_vymer', 'GENERATED', 'READY_FOR_SIGNATURE', null),
-  ('o-ps', 'emp-o', 'pracovni_smlouva', 'GENERATED', 'READY_FOR_SIGNATURE', (select current_version_id from public.hr_document_templates where id = 'tpl-ps')),
-  ('o-up', 'emp-o', 'pracovni_smlouva', 'UPLOADED', 'READY_FOR_SIGNATURE', null),
-  ('o-vyp', 'emp-o', 'vypoved_zamestnavatele', 'GENERATED', 'READY_FOR_SIGNATURE', null),
-  ('o-void', 'emp-o', 'other', 'GENERATED', 'READY_FOR_SIGNATURE', null),
-  ('o-void2', 'emp-o', 'other', 'GENERATED', 'READY_FOR_SIGNATURE', null);
+insert into public.employment_relationships (id, employee_id, status, employment_type, start_date, weekly_hours, data)
+  values ('er-o-ok', 'emp-o', 'PLANNED', 'doba_neurcita', '2026-12-01', 40, '{"zkusebni_doba_mesice": "3"}');
+-- schvaluje sa konkretne znenie -> dokumenty maju finalne PDF
+insert into public.hr_documents (id, employee_id, employment_id, doc_type, origin, status, template_version_id, final_pdf_sha256, final_pdf_text_check, final_pdf_path, finalized_at) values
+  ('o-mv', 'emp-o', null, 'mzdovy_vymer', 'GENERATED', 'READY_FOR_SIGNATURE', null, repeat('1', 64), '{"ok": true, "server_verified": true}', 'zamestnanci/emp-o/o-mv.pdf', now()),
+  ('o-mv2', 'emp-o', null, 'mzdovy_vymer', 'GENERATED', 'READY_FOR_SIGNATURE', null, repeat('2', 64), '{"ok": true, "server_verified": true}', 'zamestnanci/emp-o/o-mv2.pdf', now()),
+  ('o-ps', 'emp-o', 'er-o-ok', 'pracovni_smlouva', 'GENERATED', 'READY_FOR_SIGNATURE', (select current_version_id from public.hr_document_templates where id = 'tpl-ps'), repeat('3', 64), '{"ok": true, "server_verified": true}', 'zamestnanci/emp-o/o-ps.pdf', now()),
+  ('o-up', 'emp-o', null, 'pracovni_smlouva', 'UPLOADED', 'READY_FOR_SIGNATURE', null, repeat('4', 64), '{"ok": true, "server_verified": true}', 'zamestnanci/emp-o/o-up.pdf', now()),
+  ('o-vyp', 'emp-o', null, 'vypoved_zamestnavatele', 'GENERATED', 'READY_FOR_SIGNATURE', null, repeat('5', 64), '{"ok": true, "server_verified": true}', 'zamestnanci/emp-o/o-vyp.pdf', now()),
+  ('o-void', 'emp-o', null, 'other', 'GENERATED', 'READY_FOR_SIGNATURE', null, repeat('6', 64), '{"ok": true, "server_verified": true}', 'zamestnanci/emp-o/o-void.pdf', now()),
+  ('o-void2', 'emp-o', null, 'other', 'GENERATED', 'READY_FOR_SIGNATURE', null, repeat('7', 64), '{"ok": true, "server_verified": true}', 'zamestnanci/emp-o/o-void2.pdf', now()),
+  ('o-rej', 'emp-o', null, 'dodatek', 'GENERATED', 'READY_FOR_SIGNATURE', null, repeat('8', 64), '{"ok": true, "server_verified": true}', 'zamestnanci/emp-o/o-rej.pdf', now());
 
 -- podpis za zamestnavatela (papier) nahraty pouzivatelom p_user
 create function pg_temp.employer_sign(p_doc text, p_user uuid) returns void language sql as $$
@@ -70,12 +74,12 @@ select ok(exists (select 1 from public.audit_log where entity = 'hr_approval_req
 -- zamietnutie
 set local role authenticated;
 set local request.jwt.claims = '{"sub": "00000000-0000-0000-0000-0000000000a2", "email": "personalistka.oci@test.local", "role": "authenticated", "aal": "aal2"}';
-create temp table req2 as select public.hr_request_approval('EMPLOYER_SIGN', 'o-up', 'Upravená smlouva podle dohody') as id;
+create temp table req2 as select public.hr_request_approval('EMPLOYER_SIGN', 'o-rej', 'Upravená smlouva podle dohody') as id;
 set local request.jwt.claims = '{"sub": "00000000-0000-0000-0000-0000000000a1", "email": "konatel.oci@test.local", "role": "authenticated", "aal": "aal2"}';
 select throws_like($$select public.hr_decide_approval((select id from req2), false, '')$$, '%důvod zamítnutí%', 'zamietnutie s dovodom');
 select lives_ok($$select public.hr_decide_approval((select id from req2), false, 'Nesouhlasím se změnou čl. 3')$$, 'jednatel zamietne');
 reset role;
-select throws_like($$select pg_temp.employer_sign('o-up', '00000000-0000-0000-0000-0000000000a2')$$, '%schvaluje jednatel%', 'zamietnute -> podpis nie');
+select throws_like($$select pg_temp.employer_sign('o-rej', '00000000-0000-0000-0000-0000000000a2')$$, '%schvaluje jednatel%', 'zamietnute -> podpis nie');
 
 -- jednatel vlastnu ziadost neschvali
 set local role authenticated;
