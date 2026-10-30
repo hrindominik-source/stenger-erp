@@ -15,6 +15,7 @@ import { sha256Hex } from "../lib/hr/documentHash.js";
 import { EMPLOYEE_SECTIONS, emptyEmployeeValues, normalizeLegacyDraft, valuesFromRecords, buildRecordPatches, patchHasContent, maritalStatusText, normalizeGender, HEALTH_INSURANCE_OPTIONS, optionLabel, normalizeHealthInsurance, POSITION_CATEGORIES, positionNameOptions, positionRecordLabel, wageHistory, currentWage, upcomingWages, wageStepHint, valuesToWage } from "../lib/hr/employeeFields.js";
 import EmployeeFieldsForm, { EmployeeFieldsView, applyFieldChange } from "./EmployeeFieldsForm.jsx";
 import PracovniOdevTab from "./PracovniOdevTab.jsx";
+import PokynyProhlidka from "./PokynyProhlidka.jsx";
 import { childTaxWarnings } from "../lib/hr/taxChildren.js";
 import { RZ_POLOZKY, RZ_SLEVY, VYUCTOVANI, VYUCTOVANI_STAV, taxYearRecord, taxYearStatus, childMonthsForYear, childrenUnder3, rzWarnings, settlementWarning } from "../lib/hr/taxYear.js";
 import { PS_TEMPLATES, PS_TEMPLATE_KEYS, psVariant, buildPsData, psMissing, psFieldsFor, defaultPovinnosti, isPovinnostiNavrh } from "../lib/hr/pracovniSmlouva.js";
@@ -1272,7 +1273,9 @@ function EmployeeDetail({ id, permissions, onBack }) {
         />
       )}
       {detailTab === "lekarske" && canMedical && (
-        <MedicalExamsTab employeeId={id} medicalExams={medicalExams} canEdit={canEdit} onChanged={load} />
+        <MedicalExamsTab employeeId={id} medicalExams={medicalExams} canEdit={canEdit} onChanged={load}
+          pokyny={<PokynyProhlidka zamestnanec={fullName(employee)} canEdit={canEdit}
+            fileName={(label) => hrFileName(label, employee, new Date().toISOString())} saveFile={(bytes, name) => downloadArrayBufferAsFile(bytes, name, "application/pdf")} />} />
       )}
       {detailTab === "odev" && (
         <PracovniOdevTab employee={employee} pozice={currentEmployment ? positionLabel(currentEmployment) : ""} canEdit={canEdit} predal={me.name}
@@ -4733,10 +4736,11 @@ function JmhzImportTab({ employee, sensitive, payroll, currentEmployment, positi
 /* ---------------- Lékařské prohlídky ---------------- */
 /* Administrativne udaje - ZIADNA diagnoza (bod 4 zadania). Stav (VALID/
    EXPIRING/EXPIRED/UNKNOWN) sa POCITA (hrMedicalStatus.js), nikdy neuklada. */
-function MedicalExamsTab({ employeeId, medicalExams, canEdit, onChanged }) {
+function MedicalExamsTab({ employeeId, medicalExams, canEdit, onChanged, pokyny }) {
   const [adding, setAdding] = useState(false);
   return (
     <div>
+      {pokyny}
       {canEdit && !adding && (
         <div className="flex justify-end mb-3">
           <button onClick={() => setAdding(true)} className="flex items-center gap-1.5 bg-teal-700 hover:bg-teal-800 text-white text-sm font-medium px-3 py-2 rounded-md">
