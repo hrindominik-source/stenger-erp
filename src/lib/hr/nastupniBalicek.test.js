@@ -14,8 +14,8 @@ describe("nástupní balíček", () => {
   it("prázdný balíček - vše chybí, přihlášky po lhůtě", () => {
     const items = nastupChecklist({ employment: emp, canPayroll: true, today: "2026-10-14" });
     const s = nastupSummary(items);
-    expect(items.map((i) => i.key)).toEqual(["ps", "vymer", "napln", "skoleni", "dotaznik", "prohlaseni", "cssz", "zp"]);
-    expect(s.missing).toBe(8);
+    expect(items.map((i) => i.key)).toEqual(["ps", "vymer", "napln", "skoleni", "odev", "dotaznik", "prohlaseni", "cssz", "zp"]);
+    expect(s.missing).toBe(9);
     expect(s.overdue).toBe(true);
     expect(byKey(items).cssz.detail).toBe("podat do 09.10.2026");
   });
@@ -41,7 +41,7 @@ describe("nástupní balíček", () => {
     expect(k.cssz.state).toBe("done");
     expect(k.zp.state).toBe("missing");
     expect(k.zp.overdue).toBe(false);
-    expect(nastupSummary(items)).toMatchObject({ missing: 3, toSign: 1, notHanded: 1, done: false });
+    expect(nastupSummary(items)).toMatchObject({ missing: 4, toSign: 1, notHanded: 1, done: false });
   });
   it("chybí / k podpisu / podepsáno – nepředáno / hotovo", () => {
     const docs = [
@@ -65,7 +65,7 @@ describe("nástupní balíček", () => {
     expect(zrusena.ps.state).toBe("missing");
   });
   it("bez mzdových práv bez výměru a prohlášení; nepodepisuje = hotovo", () => {
-    expect(nastupChecklist({ employment: emp, canPayroll: false, today: "2026-10-05" }).map((i) => i.key)).toEqual(["ps", "napln", "skoleni", "dotaznik", "cssz", "zp"]);
+    expect(nastupChecklist({ employment: emp, canPayroll: false, today: "2026-10-05" }).map((i) => i.key)).toEqual(["ps", "napln", "skoleni", "odev", "dotaznik", "cssz", "zp"]);
     const k = byKey(nastupChecklist({ employment: emp, canPayroll: true, uplatnujeSlevy: false, today: "2026-10-05" }));
     expect(k.prohlaseni.state).toBe("done");
   });

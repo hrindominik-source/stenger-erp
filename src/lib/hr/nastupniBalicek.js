@@ -2,6 +2,8 @@
 // Stav se pocita z existujicich zaznamu (hr_documents, agenda uradu,
 // prohlaseni poplatnika, timeline) - balicek sam nic neuklada.
 
+import { odevChecklistItem } from "./pracovniOdev.js";
+
 // Jak dlouho po nastupu se balicek zobrazuje (pak uz nestraši u starsich zamestnancu).
 export const NASTUP_DNY = 90;
 // Prihlaska CSSZ / ZP do 8 dnu od nastupu.
@@ -71,6 +73,8 @@ export function nastupChecklist({ employee, employment, documents = [], deliveri
       action: { tab: "dokumenty", preset: def.preset },
     });
   }
+  // Predavaci protokol - pracovni odev a obuv (zalozka Pracovni odev).
+  items.push({ key: "odev", label: "Předávací protokol – pracovní oděv a obuv", ...odevChecklistItem(employee), action: { tab: "odev" } });
   const dotaznik = timeline.find((t) => t.event_type === "JMHZ_EXPORT" && String(t.event_date || "") >= addDays(start, -60));
   const dotaznikPodepsan = documents.some((d) => d.doc_type === "osobni_dotaznik" && d.status === "SIGNED");
   items.push({

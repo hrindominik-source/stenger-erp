@@ -14,6 +14,7 @@ import { saveEmployeeRow } from "../lib/hr/saveEmployeeRow.js";
 import { sha256Hex } from "../lib/hr/documentHash.js";
 import { EMPLOYEE_SECTIONS, emptyEmployeeValues, normalizeLegacyDraft, valuesFromRecords, buildRecordPatches, patchHasContent, maritalStatusText, normalizeGender, HEALTH_INSURANCE_OPTIONS, optionLabel, normalizeHealthInsurance, POSITION_CATEGORIES, positionNameOptions, positionRecordLabel, wageHistory, currentWage, upcomingWages, wageStepHint, valuesToWage } from "../lib/hr/employeeFields.js";
 import EmployeeFieldsForm, { EmployeeFieldsView, applyFieldChange } from "./EmployeeFieldsForm.jsx";
+import PracovniOdevTab from "./PracovniOdevTab.jsx";
 import { childTaxWarnings } from "../lib/hr/taxChildren.js";
 import { RZ_POLOZKY, RZ_SLEVY, VYUCTOVANI, VYUCTOVANI_STAV, taxYearRecord, taxYearStatus, childMonthsForYear, childrenUnder3, rzWarnings, settlementWarning } from "../lib/hr/taxYear.js";
 import { PS_TEMPLATES, PS_TEMPLATE_KEYS, psVariant, buildPsData, psMissing, psFieldsFor, defaultPovinnosti, isPovinnostiNavrh } from "../lib/hr/pracovniSmlouva.js";
@@ -1000,6 +1001,7 @@ const DETAIL_TABS = [
   { key: "dokumenty", label: "Dokumenty" },
   { key: "jmhz", label: "Agenda ZP / ČSSZ" },
   { key: "lekarske", label: "Lékařské prohlídky", medicalOnly: true },
+  { key: "odev", label: "Pracovní oděv" },
   { key: "historie", label: "Historie" },
   { key: "audit", label: "Audit", auditOnly: true },
 ];
@@ -1031,6 +1033,7 @@ function EmployeeDetail({ id, permissions, onBack }) {
   const [deleteFlag, setDeleteFlag] = useState("");
 
   const canEdit = hasPerm(permissions, "HR_EDIT");
+  const me = useCurrentUserContact();
   const canSensitive = hasPerm(permissions, "HR_VIEW_SENSITIVE");
   const canPayroll = hasPerm(permissions, "HR_VIEW_PAYROLL");
   const canMedical = hasPerm(permissions, "HR_VIEW_MEDICAL_ADMIN");
@@ -1270,6 +1273,11 @@ function EmployeeDetail({ id, permissions, onBack }) {
       )}
       {detailTab === "lekarske" && canMedical && (
         <MedicalExamsTab employeeId={id} medicalExams={medicalExams} canEdit={canEdit} onChanged={load} />
+      )}
+      {detailTab === "odev" && (
+        <PracovniOdevTab employee={employee} pozice={currentEmployment ? positionLabel(currentEmployment) : ""} canEdit={canEdit} predal={me.name}
+          onSaved={load} uploadFile={(kind, file) => uploadHrFile(employee.id, kind, file)} openFile={openHrFile}
+          fileName={(label, date) => hrFileName(label, employee, date)} saveFile={(bytes, name) => downloadArrayBufferAsFile(bytes, name, "application/pdf")} />
       )}
       {detailTab === "historie" && <HistorieTab timeline={timeline} employeeId={id} />}
       {detailTab === "audit" && canAudit && <AuditTab employee={employee} employments={employments} contractEvents={contractEvents} medicalExams={medicalExams} positions={positions} />}
