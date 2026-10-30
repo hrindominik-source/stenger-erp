@@ -22,7 +22,7 @@ Stav 29. 10. 2026, vetva `feature/podpisy-dorucovani`. Všetko je zatiaľ len lo
 ## 2. Poradie nasadenia
 
 1. **Záloha** DB a samostatná kópia úložiska. Overiť obnovu.
-2. **Migrácie** v poradí podľa čísla. Tabuľka v `06-plan-nasadenia.md`, kap. 1, obsahuje čísla 48–78.
+2. **Migrácie** v poradí podľa čísla. Tabuľka v `06-plan-nasadenia.md`, kap. 1, obsahuje čísla 48–81.
    - Baseline `20261022120000` sa na existujúcej databáze **nespúšťa**.
    - Každá migrácia beží v transakcii. Ku každej je rollback v `supabase/rollback/`.
 3. **Edge Functions**, všetky s `verify_jwt = true`:

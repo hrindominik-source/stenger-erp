@@ -17,6 +17,7 @@
 // Papierovy sken: { action: "paper_upload", document_id, scan_base64, signers: [{ signer_type, name }], signed_date, confirmed }
 //   sken ulozi a zahashuje server (podpisy zapisuje len server - migracia 60)
 // Plna moc (HR_ADMIN): { action: "signatory_scan", signatory_id, scan_base64 }
+// Kopia pre zamestnancov (HR_ADMIN): { action: "signatory_copy", signatory_id, scan_base64 }
 // Dokoncenie po podpise - samostatne, opakovatelne kroky (limit CPU Edge
 // Function; podpis nikdy nezostane v polovicnom stave):
 //   { action: "signing_status", document_id | token, signer_type? }  lahke: je podpis ulozeny?
@@ -557,21 +558,28 @@ async function qualifiedVerify(req: Request, body: any) {
   return json({ ok: true, verification: row, label: CERTIFICATE_STATUS_LABELS[result as keyof typeof CERTIFICATE_STATUS_LABELS], completion });
 }
 
-// ---------- HR_ADMIN: sken plnej moci ----------
-async function signatoryScan(req: Request, body: any) {
+// ---------- HR_ADMIN: sken plnej moci a zaciernena kopia pre zamestnancov ----------
+// kind "scan" = original (poa_scan_*), "copy" = kopia bez datumu narodenia
+// a bydliska, ktoru server pripaja k dokumentom (migracia 81).
+async function signatoryScan(req: Request, body: any, kind: "scan" | "copy" = "scan") {
   const { service } = await authorize(req, ["HR_ADMIN"]);
   const { data: s } = await service.from("hr_signatories").select("*").eq("id", String(body.signatory_id || "")).maybeSingle();
   if (!s) throw new HttpError(404, "Osoba s plnou mocí nenalezena.");
-  if (s.poa_scan_path) throw new HttpError(409, "Sken plné moci je už uložen (nemění se) – pro novou plnou moc založte nový záznam.");
+  const col = kind === "copy" ? "poa_copy" : "poa_scan";
+  if (s[`${col}_path`]) {
+    throw new HttpError(409, kind === "copy"
+      ? "Kopie plné moci pro zaměstnance je už uložena (nemění se) – pro novou plnou moc založte nový záznam."
+      : "Sken plné moci je už uložen (nemění se) – pro novou plnou moc založte nový záznam.");
+  }
   const bytes = fromBase64(String(body.scan_base64 || ""));
   if (!bytes.length || bytes.length > MAX_SCAN_BYTES) throw new HttpError(422, "Nahrajte sken plné moci (max. 15 MB).");
   const type = scanType(bytes);
   if (!type) throw new HttpError(422, "Sken musí být PDF, PNG nebo JPG.");
   const sha = await sha256Hex(bytes);
-  const path = `plne-moci/${s.id}-${sha.slice(0, 16)}.${type.ext}`;
+  const path = `plne-moci/${s.id}-${kind === "copy" ? "kopie-" : ""}${sha.slice(0, 16)}.${type.ext}`;
   const { error: upErr } = await service.storage.from(BUCKET).upload(path, new Blob([bytes], { type: type.mime }), { contentType: type.mime, upsert: false });
   if (upErr) throw new HttpError(409, upErr.message);
-  const { error } = await service.from("hr_signatories").update({ poa_scan_path: path, poa_scan_sha256: sha }).eq("id", s.id);
+  const { error } = await service.from("hr_signatories").update({ [`${col}_path`]: path, [`${col}_sha256`]: sha }).eq("id", s.id);
   if (error) throw new HttpError(409, error.message);
   return json({ ok: true, path, sha256: sha });
 }
@@ -593,6 +601,7 @@ Deno.serve(handle(async (req) => {
     case "qualified_verify": return qualifiedVerify(req, body);
     case "paper_upload": return paperUpload(req, body);
     case "signatory_scan": return signatoryScan(req, body);
+    case "signatory_copy": return signatoryScan(req, body, "copy");
     default: throw new HttpError(400, "Neznama akce.");
   }
 }));

@@ -3973,6 +3973,7 @@ function DokumentyTab({ employee, sensitive, payroll, currentEmployment, permiss
                     {" "}{d.final_pdf_text_check?.ok
                       ? <span className="text-emerald-700">ověřeno serverem ({d.final_pdf_text_check.checked_keys?.length || 0} polí)</span>
                       : <span className="text-red-700">kontrola textu neprošla – elektronický podpis zablokován</span>}
+                    {d.final_pdf_text_check?.poa_attached && <> · <span className="text-slate-700" data-testid="poa-attached">přiložena kopie plné moci ({d.final_pdf_text_check.poa_attached.signatory_name})</span></>}
                     {d.locked_at && <> · <span className="text-slate-700">zamčeno {new Date(d.locked_at).toLocaleString("cs-CZ")}</span></>}
                   </div>
                 )}
@@ -5599,13 +5600,14 @@ function SignatoriesSettings() {
     load();
   }
 
-  async function uploadScan(row, file) {
+  // kind "scan" = original plne moci, "copy" = zaciernena kopia pre zamestnancov (migracia 81)
+  async function uploadScan(row, file, kind = "scan") {
     setBusy(true); setError("");
     try {
       const bytes = new Uint8Array(await file.arrayBuffer());
       let bin = "";
       for (let i = 0; i < bytes.length; i += 0x8000) bin += String.fromCharCode.apply(null, bytes.subarray(i, i + 0x8000));
-      const { data, error: err } = await supabase.functions.invoke("hr-signing", { body: { action: "signatory_scan", signatory_id: row.id, scan_base64: btoa(bin) } });
+      const { data, error: err } = await supabase.functions.invoke("hr-signing", { body: { action: kind === "copy" ? "signatory_copy" : "signatory_scan", signatory_id: row.id, scan_base64: btoa(bin) } });
       if (!data) {
         const detail = err?.context ? await err.context.json().catch(() => null) : null;
         throw new Error(detail?.error || "Nahrání se nezdařilo.");
@@ -5616,8 +5618,8 @@ function SignatoriesSettings() {
     setBusy(false);
   }
 
-  async function openScan(row) {
-    const { data } = await supabase.storage.from("hr-dokumenty").createSignedUrl(row.poa_scan_path, 60);
+  async function openScan(row, path = row.poa_scan_path) {
+    const { data } = await supabase.storage.from("hr-dokumenty").createSignedUrl(path, 60);
     if (data?.signedUrl) window.open(data.signedUrl, "_blank", "noopener");
   }
 
@@ -5674,6 +5676,14 @@ function SignatoriesSettings() {
                   : scanFor === r.id
                     ? <input type="file" accept="application/pdf,image/png,image/jpeg" disabled={busy} onChange={(e) => e.target.files?.[0] && uploadScan(r, e.target.files[0])} />
                     : <>Sken plné moci chybí · <button onClick={() => setScanFor(r.id)} className="underline text-teal-700">nahrát</button></>}
+              </div>
+              <div className="text-xs text-slate-500 mt-1" data-testid="poa-copy">
+                {r.poa_copy_path
+                  ? <>Kopie pro zaměstnance: <button onClick={() => openScan(r, r.poa_copy_path)} className="underline">otevřít</button> · přikládá se k dokumentům, které tato osoba podepisuje</>
+                  : scanFor === `copy-${r.id}`
+                    ? <input type="file" aria-label="Kopie plné moci pro zaměstnance" accept="application/pdf,image/png,image/jpeg" disabled={busy}
+                        onChange={(e) => e.target.files?.[0] && uploadScan(r, e.target.files[0], "copy")} />
+                    : <>Kopie pro zaměstnance (bez data narození a bydliště) chybí – k dokumentům se nepřiloží · <button onClick={() => setScanFor(`copy-${r.id}`)} className="underline text-teal-700">nahrát</button></>}
               </div>
             </div>
           );

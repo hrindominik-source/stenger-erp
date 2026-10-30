@@ -55,6 +55,7 @@ Stav k 23. 10. 2026. **Nič z tohto sa nespúšťa bez výslovného súhlasu pri
 | 78 | `20261025250000_zmena_uctu.sql` | Zmena čísla bankového účtu (aj prvé zadanie, aj zo servera/kiosku): upozornenie jednatelovi len s poslednými 4 číslicami a tým, kto zmenil (`BANK_ACCOUNT_CHANGED`); označenie „Účet změněn od poslední výplaty – ověřte“ v Mzdových podmínkách a v upozorneniach (`hr_bank_account_checks`), kým ho nepotvrdí jednatel alebo účtovníčka (mzdový prístup bez práva upravovať); vlastnú zmenu nikto nepotvrdí; potvrdenie v audite | Pri nasadení vznikne označenie len pri ďalšej zmene (existujúce účty sa neoznačia) |
 | 79 | `20261025260000_hr_nastaveni.sql` | Nastavenia Personalistiky `hr_nastaveni` (kontakt na lekára pre pokyny k lekárskej prehliadke); čítanie HR_VIEW_BASIC, úprava HR_EDIT cez `hr_role_ok()` | Na produkcii už existuje z `main` (rola `office`) – migrácia len prepíše politiky, údaje ostanú |
 | 80 | `20261025270000_nahrane_dokumenty.sql` | Nahratie existujúcich podpísaných dokumentov (zmluvy, mzdové výmery, dodatky, výpovede, náplň práce …) aj personalistkou: len ako podpísaný a zamknutý ručný záznam, súbor v `zamestnanci/<id>/historie/`; jednatel dostane upozornenie `DOCUMENT_UPLOADED` (kto, čo, komu); prístup mzdový výmer = HR_VIEW_PAYROLL, ostatné = HR_VIEW_SENSITIVE | Bez schvaľovania (rozhodnutie 2026-10-30); predtým nahrané dokumenty ostanú len pre jednatela, ak nemajú `is_manual_history_entry` |
+| 81 | `20261025280000_kopia_plnej_moci.sql` | Začiernená kópia plnej moci pre zamestnancov pri osobe s plnou mocou (`hr_signatories.poa_copy_*`, ukladá len server – `hr-signing` akcia `signatory_copy`, nemenná); `hr-finalize-pdf` ju pripojí ako posledné strany finálneho PDF dokumentu, ktorý táto osoba podpisuje (`variables_snapshot.zastupce`), záznam v `final_pdf_text_check.poa_attached`; súbor kópie vidí HR_VIEW_BASIC | Nasadiť spolu s `hr-finalize-pdf` a `hr-signing` + `static_files` (písmo) pre `hr-finalize-pdf` v `config.toml`; po nasadení jednatel nahrá kópiu pri každej osobe s plnou mocou. Či a ako prikladať – Q-A15 právničke |
 
 Baseline `20261022120000_baseline.sql` sa v produkcii **nespúšťa** (produkcia ju má). Pri CLI by sa označila ako aplikovaná (`migration repair`), čo je zápis do produkcie a vyžaduje súhlas.
 
@@ -143,6 +144,7 @@ Poradie je vždy opačné: **frontend → Edge Functions (vypnúť) → rollback
 | 78 `…zmena_uctu_rollback.sql` | označenia preč (záznam v `audit_log` a v upozorneniach); vrátiť frontend |
 | 79 `…hr_nastaveni_rollback.sql` | tabuľka a kontakt na lekára preč (záznam v `audit_log`); vrátiť frontend |
 | 80 `…nahrane_dokumenty_rollback.sql` | nahrané dokumenty ostanú, ale vidí a zakladá ich znova len jednatel; vrátiť frontend |
+| 81 `…kopia_plnej_moci_rollback.sql` | už finalizované PDF s kópiou ostávajú (sú zamknuté hashom); stĺpce kópie preč; vrátiť frontend, `hr-finalize-pdf` a `hr-signing` |
 | 61 `…zneplatnenie_vyhlaseni_rollback.sql` | – |
 | 60 `…bezpecnostne_opravy_rollback.sql` | – (vrátiť spolu frontend a funkcie) |
 | 59 `…sablona_pracovnej_zmluvy_rollback.sql` | zmluvy vygenerované zo šablóny `tpl-ps*` |

@@ -427,6 +427,7 @@ enabled = true
 # (hr_get_permissions + RLS), fonty pre dokaznu stranu ako static files.
 [functions.hr-finalize-pdf]
 verify_jwt = true
+static_files = ["./functions/_shared/fonts/*.ttf"]
 
 [functions.hr-signed-original]
 verify_jwt = true
