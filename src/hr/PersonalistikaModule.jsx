@@ -3786,6 +3786,7 @@ function DokumentyTab({ employee, sensitive, payroll, currentEmployment, permiss
   const [activePreset, setActivePreset] = useState(null);
   const [creatingPs, setCreatingPs] = useState(false);
   const [declarations, setDeclarations] = useState(false);
+  const [uploading, setUploading] = useState(false);
   useEffect(() => {
     if (preset?.docType === "pracovni_smlouva") { setCreatingPs(true); setCreating(false); onPresetUsed?.(); return; }
     if (preset) { setActivePreset(preset); setCreating(true); setCreatingPs(false); onPresetUsed?.(); }
@@ -3843,6 +3844,11 @@ function DokumentyTab({ employee, sensitive, payroll, currentEmployment, permiss
   return (
     <div>
       <div className="flex justify-end gap-2 mb-3">
+        {canGenerate && !creating && !creatingPs && !uploading && (
+          <button onClick={() => setUploading(true)} className="flex items-center gap-1.5 border border-teal-700 text-teal-700 hover:bg-teal-50 text-sm font-medium px-3 py-2 rounded-md">
+            <Upload size={16} /> Nahrát podepsaný dokument
+          </button>
+        )}
         {canGenerate && !creating && !creatingPs && !declarations && (
           <button onClick={() => setDeclarations(true)} className="flex items-center gap-1.5 border border-teal-700 text-teal-700 hover:bg-teal-50 text-sm font-medium px-3 py-2 rounded-md">
             <FileText size={16} /> Prohlášení (§ 21 / § 335)
@@ -3859,6 +3865,10 @@ function DokumentyTab({ employee, sensitive, payroll, currentEmployment, permiss
           </button>
         )}
       </div>
+      {uploading && (
+        <UploadSignedDocumentForm employee={employee} currentEmployment={currentEmployment}
+          onCancel={() => setUploading(false)} onSaved={() => { setUploading(false); load(); }} />
+      )}
       {declarations && (
         <DeclarationsPanel employee={employee} onCancel={() => setDeclarations(false)}
           onCreated={(id) => { setDeclarations(false); load(); setDetailId(id); }} />
@@ -3901,6 +3911,7 @@ function DokumentyTab({ employee, sensitive, payroll, currentEmployment, permiss
                     )}
                     <div className="text-xs text-slate-500">
                       {d.origin === "GENERATED" ? "Vygenerováno" : "Nahráno ručně"} · {fmtDate(d.created_at?.slice(0, 10))}
+                      {d.is_manual_history_entry && d.variables_snapshot?.datum_podpisu && <> · podepsáno {fmtDate(d.variables_snapshot.datum_podpisu)}</>}
                     </div>
                     {remediation[d.id] && (remediation[d.id].status === "OPEN"
                       ? <div className="mt-1 inline-block px-2 py-0.5 rounded-md text-xs font-semibold bg-red-600 text-white" data-testid="doc-remediation">
@@ -3993,6 +4004,74 @@ function DokumentyTab({ employee, sensitive, payroll, currentEmployment, permiss
           })}
         </div>
       )}
+    </div>
+  );
+}
+
+// Existujuci podpisany dokument vzniknuty mimo systemu (migracia 80): ulozi sa
+// ako podpisany, oznaceny "nahrano rucne", jednatel dostane upozornenie.
+const UPLOAD_DOC_TYPES = ["pracovni_smlouva", "pracovni_smlouva_cizinec", "platovy_vymer", "mzdovy_vymer", "dodatek",
+  "dohoda_o_skonceni", "vypoved_zamestnance", "vypoved_zamestnavatele", "zruseni_ve_zkusebni_dobe",
+  "hi001_naplen_prace_delnice", "vstupni_skoleni", "popis_pracovniho_mista", "other"];
+
+function UploadSignedDocumentForm({ employee, currentEmployment, onCancel, onSaved }) {
+  const [docType, setDocType] = useState("pracovni_smlouva");
+  const [datum, setDatum] = useState("");
+  const [notes, setNotes] = useState("");
+  const [file, setFile] = useState(null);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState("");
+
+  async function submit() {
+    if (!datum) { setError("Vyplňte datum podpisu."); return; }
+    if (!file) { setError("Vyberte soubor (PDF nebo obrázek)."); return; }
+    setSaving(true);
+    setError("");
+    try {
+      const id = uid();
+      const ext = (file.name.match(/\.[a-z0-9]+$/i)?.[0] || "").toLowerCase();
+      const path = `zamestnanci/${employee.id}/historie/${id}${ext}`;
+      const sha256 = await sha256Hex(await file.arrayBuffer());
+      const { error: upErr } = await supabase.storage.from(HR_DOKUMENTY_BUCKET).upload(path, file, { contentType: file.type || "application/octet-stream" });
+      if (upErr) throw new Error(`Soubor "${file.name}" se nepodařilo nahrát: ${upErr.message}`);
+      const label = DOC_TYPE_LABELS[docType] || docType;
+      const { error: err } = await supabase.from("hr_documents").insert({
+        id, employee_id: employee.id, employment_id: currentEmployment?.id || null, doc_type: docType,
+        origin: "UPLOADED", status: "SIGNED", is_manual_history_entry: true, file_path: path, notes: notes.trim() || null,
+        variables_snapshot: { doc_label: label, datum_podpisu: datum, nazev_souboru: file.name, sha256 },
+      });
+      if (err) throw err;
+      await supabase.from("employee_timeline_events").insert({
+        id: uid(), employee_id: employee.id, event_date: datum, event_type: "DOCUMENT_UPLOADED",
+        title: `Nahrán podepsaný dokument – ${label}`, description: notes.trim() || undefined, source: "MANUAL_HISTORICAL_ENTRY",
+      });
+      onSaved();
+    } catch (e) {
+      console.error(e);
+      setError(e.message || "Uložení se nezdařilo.");
+    }
+    setSaving(false);
+  }
+
+  return (
+    <div className="bg-white border border-slate-200 rounded-lg p-4 mb-4">
+      <h2 className="font-semibold text-sm mb-1">Nahrát podepsaný dokument</h2>
+      <p className="text-xs text-slate-400 mb-3">Pro dokumenty podepsané mimo systém (např. starší smlouvy a mzdové výměry). Uloží se jako podepsané s označením „nahráno ručně“, jednatel dostane upozornění.</p>
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-x-4">
+        <SelectFieldLocal label="Typ dokumentu" value={docType} onChange={setDocType}
+          options={UPLOAD_DOC_TYPES.map((v) => ({ value: v, label: DOC_TYPE_LABELS[v] || v }))} />
+        <DateFieldLocal label="Datum podpisu" value={datum} onChange={setDatum} />
+        <label className="block text-xs text-slate-600 mb-3">
+          Soubor (PDF nebo obrázek)
+          <input type="file" aria-label="Soubor dokumentu" accept=".pdf,image/*" onChange={(e) => setFile(e.target.files?.[0] || null)} className="block mt-1 text-sm" />
+        </label>
+      </div>
+      <TextField label="Poznámka" value={notes} onChange={setNotes} />
+      {error && <div className="bg-red-50 text-red-700 text-sm px-3 py-2 rounded-md mb-2">{error}</div>}
+      <div className="flex justify-end gap-2">
+        <button onClick={onCancel} className="text-sm text-slate-500 px-3 py-2">Zrušit</button>
+        <button onClick={submit} disabled={saving} className="bg-teal-700 hover:bg-teal-800 disabled:opacity-50 text-white text-sm font-medium px-4 py-2 rounded-md">{saving ? "Nahrávám..." : "Nahrát"}</button>
+      </div>
     </div>
   );
 }
