@@ -46,15 +46,17 @@ describe("sekce D a J", () => {
     const starts = fields("kontakt").filter((f) => f.rowStart).map((f) => f.key);
     expect(starts).toEqual(["phone", "id_document_type", "bank_account", "heslo_pasky"]);
   });
-  it("J: místo průběhu práce 1–4, pevné místo / kód obce / obec, zvláštní odstavec do smlouvy", () => {
+  it("J: místo průběhu práce (ČSSZ) 1–4, místo výkonu – pracovní smlouva, kód obce, obec", () => {
     const keys = fields("pozice").map((f) => f.key);
-    const i = keys.indexOf("misto_cssz_nadpis");
-    expect(keys.slice(i)).toEqual(["misto_cssz_nadpis", "misto_prubehu", "workplace", "kod_obce", "obec_vykonu", "misto_smlouva_nadpis", "misto_vykonu_smlouva"]);
+    const i = keys.indexOf("misto_prubehu");
+    expect(keys.slice(i)).toEqual(["misto_prubehu", "workplace", "kod_obce", "obec_vykonu"]);
     const f = Object.fromEntries(fields("pozice").map((x) => [x.key, x]));
     expect(f.misto_prubehu.options.map((o) => o.value)).toEqual(["1", "2", "3", "4"]);
     expect([f.workplace.fixedValue, f.kod_obce.fixedValue, f.obec_vykonu.fixedValue]).toEqual(["Plynárenská 366, 261 01 Příbram", "539911", "Příbram"]);
     const p = buildRecordPatches({ ...emptyEmployeeValues(), misto_prubehu: "2" }, {}, { mode: "create" }).employment;
     expect(p.data.misto_prubehu_prace).toBe("2");
     expect(p.workplace).toBe("Plynárenská 366, 261 01 Příbram");
+    expect(f.misto_prubehu.label).toBe("Místo průběhu práce (ČSSZ)");
+    expect(f.workplace.label).toBe("Místo výkonu práce – pracovní smlouva");
   });
 });
