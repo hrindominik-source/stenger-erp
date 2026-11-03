@@ -3,7 +3,7 @@
 // {{tagmi}} skriptom, text zmluvy je inak nezmeneny. Udaje sa beru z karty
 // zamestnanca (valuesFromRecords), rucne sa vybera len podepisujici, datum
 // podpisu a pripadne text povinnosti.
-import { CZ, isValuesForeigner, maritalStatusText, optionLabel, HEALTH_INSURANCE_OPTIONS, formatStreetLine } from "./employeeFields.js";
+import { CZ, isValuesForeigner, maritalStatusText, optionLabel, HEALTH_INSURANCE_OPTIONS, formatStreetLine, FIXED_WORKPLACE } from "./employeeFields.js";
 import { formatDateForDoc } from "./docxMapping.js";
 
 const BASE = import.meta.env?.BASE_URL ?? "/";
@@ -118,7 +118,7 @@ export function buildPsData(v, opts = {}) {
     pojistovna: v.health_insurance_company ? optionLabel(HEALTH_INSURANCE_OPTIONS, v.health_insurance_company) : "",
     ucet: v.bank_account || "",
     povinnosti: opts.povinnosti ?? defaultPovinnosti(v),
-    misto_vykonu: v.misto_vykonu_smlouva || "Plynárenská 366, Příbram",
+    misto_vykonu: v.workplace || FIXED_WORKPLACE.adresa,
     datum_nastupu: formatDateForDoc(v.start_date),
     zkusebni_doba: probationText(v.zkusebni_doba_mesice),
     doba_trvani: v.employment_type === "doba_urcita"

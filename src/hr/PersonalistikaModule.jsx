@@ -1266,7 +1266,7 @@ async function logEmploymentChanges(before, patch, today, override = null) {
 
 // Polia pracovneho pomeru, ktorych zmena = zmena pracovnych podmienok
 // (udalost v bloku Pracovní poměr, datum ucinnosti, neskor dodatek).
-const JOB_CHANGE_KEYS = ["pozice_kategorie", "nazev_pozice", "employment_type", "fixed_term_end_date", "weekly_hours", "misto_vykonu_smlouva"];
+const JOB_CHANGE_KEYS = ["pozice_kategorie", "nazev_pozice", "employment_type", "fixed_term_end_date", "weekly_hours"];
 
 function OsobniUdajeTab({ employee, sensitive, payroll, currentEmployment, positions, contractEvents = [], canEdit, canSensitive, canPayroll, canGarnishment, canOverride, autoEdit, onSaved, onCancelEdit }) {
   const [editing, setEditing] = useState(false);

@@ -527,14 +527,11 @@ export const EMPLOYEE_SECTIONS = [
       { key: "vedouci", label: "Vedoucí zaměstnanec", type: "yesno", def: false, hr: true, store: { t: "job", col: "data", path: "vedouci" } },
       { key: "pracovni_rezim", label: "Pracovní režim", type: "select", options: REZIM_OPTIONS, def: "jednosmenny", hr: true, store: { t: "job", col: "data", path: "pracovni_rezim" } },
       { key: "nepretrzity_provoz", label: "Nepřetržitý provoz", type: "yesno", def: false, hr: true, store: { t: "job", col: "data", path: "nepretrzity_provoz" } },
-      // Misto vykonu prace pre CSSZ a znenie do zmluvy = dva samostatne odstavce.
-      { key: "misto_cssz_nadpis", label: "Místo výkonu práce pro ČSSZ", type: "heading", hr: true },
-      { key: "misto_prubehu", label: "Místo průběhu práce", type: "select", options: MISTO_PRUBEHU_OPTIONS, def: "1", noEmpty: true, hr: true, wide: true, store: { t: "job", col: "data", path: "misto_prubehu_prace" } },
-      { key: "workplace", label: "Místo výkonu práce", type: "fixed", fixedValue: FIXED_WORKPLACE.adresa, hr: true, rowStart: true, store: { t: "job", col: "workplace" } },
+      // Misto vykonu prace: misto prubehu pre CSSZ, adresa ide aj do pracovnej zmluvy.
+      { key: "misto_prubehu", label: "Místo průběhu práce (ČSSZ)", type: "select", options: MISTO_PRUBEHU_OPTIONS, def: "1", noEmpty: true, hr: true, wide: true, store: { t: "job", col: "data", path: "misto_prubehu_prace" } },
+      { key: "workplace", label: "Místo výkonu práce – pracovní smlouva", info: "Toto znění se vyplní do pracovní smlouvy.", type: "fixed", fixedValue: FIXED_WORKPLACE.adresa, hr: true, rowStart: true, store: { t: "job", col: "workplace" } },
       { key: "kod_obce", label: "Kód obce pracovního místa", type: "fixed", fixedValue: FIXED_WORKPLACE.kod_obce, hr: true, store: { t: "job", col: "data", path: "kod_obce" } },
       { key: "obec_vykonu", label: "Obec pracovního místa", type: "fixed", fixedValue: FIXED_WORKPLACE.obec, hr: true, store: { t: "job", col: "data", path: "obec_vykonu" } },
-      { key: "misto_smlouva_nadpis", label: "Místo výkonu práce do pracovní smlouvy", type: "heading", hr: true },
-      { key: "misto_vykonu_smlouva", label: "Znění do pracovní smlouvy", info: "Znění do smlouvy – doplnit podle doporučení právničky (např. sídlo zaměstnavatele / obec).", type: "text", hr: true, wide: true, store: { t: "job", col: "data", path: "misto_vykonu_smlouva" } },
     ],
   },
   {
