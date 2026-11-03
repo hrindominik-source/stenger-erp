@@ -30,7 +30,7 @@ const DOCX_MIME = "application/vnd.openxmlformats-officedocument.wordprocessingm
 // nemame (napr. pracovni_smlouva - user ho dodá neskôr, viz schema.sql 45.10).
 const DOC_TYPE_LABELS = {
   platovy_vymer: "Mzdový výměr",
-  hi001_naplen_prace_delnice: "HI-001 – Náplň práce (výroba)",
+  hi001_naplen_prace_delnice: "HI-001 – Náplň práce",
   vstupni_skoleni: "Vstupní školení",
   pracovni_smlouva: "Pracovní smlouva",
   pracovni_smlouva_cizinec: "Pracovní smlouva – cizinec",

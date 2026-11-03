@@ -15,8 +15,9 @@ export const KNOWN_TEMPLATE_KEYS = [
   "datum", "datum_dokumentu", "datum_skoleni", "zastupce", "zastupce_pad7",
   "predavajici", "skolitel",
   // Rodove tvary podla pohlavia zamestnanca (karta) - pracovník/pracovnice,
-  // 2. pad pracovníka/pracovnice, dělník/dělnice, zaměstnanec/zaměstnankyně.
-  "pracovnik", "pracovnika", "delnik", "zamestnanec",
+  // 2. pad pracovníka/pracovnice, dělník/dělnice, zaměstnanec/zaměstnankyně;
+  // rod_a = koncovka slovesa/pridavneho mena ("byl{{rod_a}} seznámen{{rod_a}}").
+  "pracovnik", "pracovnika", "delnik", "zamestnanec", "rod_a",
 ];
 
 // Rod podla pohlavia ("muz" / "zena"); bez pohlavia oba tvary.
@@ -28,6 +29,7 @@ export function genderForms(gender) {
     pracovnika: pick("pracovníka", "pracovnice"),
     delnik: pick("dělník", "dělnice"),
     zamestnanec: pick("zaměstnanec", "zaměstnankyně"),
+    rod_a: pick("", "a").replace(" / ", "/"),
   };
 }
 
