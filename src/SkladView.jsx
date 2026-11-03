@@ -1179,7 +1179,6 @@ function PrijemTab({ fullName }) {
       dodavatelId: keepSupplier ? prev.dodavatelId : "",
       dodavatel: keepSupplier ? prev.dodavatel : "",
     }));
-    setCustomMaterial(false);
     setShowDetails(false);
     setEditingId(null);
     setFormId(uid());
@@ -1755,7 +1754,6 @@ function ZasobyTab({ fullName }) {
       setFlash("Počáteční stav uložen");
       await fetchAll();
       setOf(emptyOpeningForm());
-      setCustomOpeningMaterial(false);
     } catch (e) {
       console.error(e);
       setOpeningError("Uložení se nezdařilo, zkuste to znovu.");
@@ -1839,7 +1837,6 @@ function ZasobyTab({ fullName }) {
       setFlash("Uloženo");
       await fetchAll();
       setF(emptyIssueForm());
-      setCustomMaterial(false);
       setPotvrdenyMinus(false);
     } catch (e) {
       console.error(e);
