@@ -96,5 +96,6 @@ describe("formatAddress – číslo popisné zvlášť", () => {
     const zena = buildDocumentData({ person: { gender: "zena" }, sensitive: {}, documentFields: {} });
     expect([zena.pracovnik, zena.pracovnika, zena.delnik, zena.zamestnanec]).toEqual(["pracovnice", "pracovnice", "dělnice", "zaměstnankyně"]);
     expect(buildDocumentData({ person: {}, sensitive: {}, documentFields: {} }).pracovnika).toBe("pracovníka / pracovnice");
+    expect([muz.rod_a, zena.rod_a, buildDocumentData({ person: {}, sensitive: {}, documentFields: {} }).rod_a]).toEqual(["", "a", "/a"]);
   });
 });
