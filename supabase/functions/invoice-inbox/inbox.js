@@ -1,9 +1,10 @@
 // Jadro citania schranky s fakturami (invoice@). Ciste JS bez Deno API, aby sa
-// dalo testovat aj v Node (vitest) - IMAP klient, ulozisko a AI sa podavaju zvonku.
+// dalo testovat aj v Node (vitest) - IMAP klient (imap.js), parser mailov,
+// ulozisko a AI sa podavaju zvonku.
 //
 // Schranka sa otvara LEN NA CITANIE (EXAMINE): nic sa nemaze, neoznacuje ako
 // precitane ani nepresuva, takze doterajsia praca s mailami ostava bez zmeny.
-// Kazde PDF z mailu sa spracuje raz - id zaznamu je hash z Message-ID a casti mailu.
+// Kazde PDF z mailu sa spracuje raz - id zaznamu je hash z Message-ID a poradia PDF v maile.
 
 import { INVOICE_EXTRACT_INSTRUCTIONS } from "./prompt.js";
 
@@ -17,20 +18,11 @@ export const PRIJATA_FAKTURA_STAV = {
 export const INBOX_EXTRA_INSTRUCTIONS =
   '\nAk dokument vobec nie je faktura ani danovy doklad od dodavatela (napr. dodaci list, objednavka, cenova ponuka, upomienka, reklama), vrat len {"jeFaktura": false}.';
 
-export const MAX_PDF_BYTES = 20 * 1024 * 1024;
+export const MAX_MAIL_BYTES = 25 * 1024 * 1024;
 
-// Najde v bodyStructure (format imapflow) vsetky casti, ktore su PDF prilohy.
-export function findPdfParts(node, out = []) {
-  if (!node) return out;
-  if (Array.isArray(node.childNodes) && node.childNodes.length > 0) {
-    for (const child of node.childNodes) findPdfParts(child, out);
-    return out;
-  }
-  const type = String(node.type || "").toLowerCase();
-  const filename = (node.dispositionParameters && node.dispositionParameters.filename) || (node.parameters && node.parameters.name) || "";
-  const isPdf = type === "application/pdf" || ((type === "application/octet-stream" || type === "application/x-pdf") && /\.pdf$/i.test(filename));
-  if (isPdf) out.push({ part: node.part || "1", filename: filename || "faktura.pdf", size: node.size || 0 });
-  return out;
+export function isPdfAttachment(att) {
+  const type = String(att.mimeType || "").toLowerCase();
+  return type === "application/pdf" || type === "application/x-pdf" || /\.pdf$/i.test(att.filename || "");
 }
 
 export function parseClaudeJson(text) {
@@ -83,70 +75,52 @@ export async function extractInvoice(bytes, apiKey, fetchImpl = fetch) {
   return parseClaudeJson((data.content || []).map((b) => b.text || "").join("\n"));
 }
 
-async function streamToBytes(stream) {
-  const chunks = [];
-  let len = 0;
-  for await (const c of stream) {
-    const u = c instanceof Uint8Array ? c : new Uint8Array(c);
-    chunks.push(u);
-    len += u.length;
-  }
-  const out = new Uint8Array(len);
-  let o = 0;
-  for (const c of chunks) {
-    out.set(c, o);
-    o += c.length;
-  }
-  return out;
-}
-
-// imap: pripojeny ImapFlow klient. store: { existingIds(ids) -> Set, uploadPdf(path, bytes), insert(row) }.
-// extract(bytes) -> data z faktury. Spracuje najviac maxNew novych PDF a nove PDF uz nezacne
-// po deadline (ms) - funkcia ma casovy limit, zvysok sa spracuje pri dalsom behu.
-export async function processInbox({ imap, store, extract, since, maxNew = 10, deadline = Infinity, now = () => new Date(), log = () => {} }) {
+// imap: MiniImap po LOGIN + EXAMINE. parseMail(bytes) -> { subject, from: { address }, date,
+// attachments: [{ filename, mimeType, content }] } (postal-mime). store: { existingIds(ids) -> Set,
+// uploadPdf(path, bytes), insert(row) }. extract(bytes) -> data z faktury.
+// Mail bez PDF v BODYSTRUCTURE sa vobec nestahuje. Po deadline (ms) sa dalsi mail nezacne -
+// funkcia ma casovy limit, zvysok sa spracuje pri dalsom behu.
+export async function processInbox({ imap, parseMail, store, extract, since, maxNew = 10, deadline = Infinity, now = () => new Date(), log = () => {} }) {
   const summary = { nove: 0, chyby: 0, zostava: 0 };
-  const lock = await imap.getMailboxLock("INBOX", { readOnly: true });
-  try {
-    const uids = (await imap.search({ since }, { uid: true })) || [];
-    log(`mailov od ${since.toISOString().slice(0, 10)}: ${uids.length}`);
-    if (uids.length === 0) return summary;
-    const kandidati = [];
-    for await (const msg of imap.fetch(uids.join(","), { uid: true, envelope: true, bodyStructure: true }, { uid: true })) {
-      const env = msg.envelope || {};
-      const messageKey = env.messageId || `uid:${imap.mailbox && imap.mailbox.uidValidity}:${msg.uid}`;
-      for (const p of findPdfParts(msg.bodyStructure)) {
-        kandidati.push({
-          id: await prijataFakturaId(messageKey, p.part),
-          uid: msg.uid,
-          part: p.part,
-          filename: p.filename,
-          size: p.size,
-          od: (env.from && env.from[0] && env.from[0].address) || "",
-          predmet: env.subject || "",
-          prijato: env.date ? new Date(env.date).toISOString() : "",
-        });
-      }
+  const uids = await imap.searchSince(since);
+  log(`mailov od ${since.toISOString().slice(0, 10)}: ${uids.length}`);
+  const prehlad = (await imap.overview(uids)).filter((m) => m.maPdf);
+  if (prehlad.length === 0) return summary;
+  for (const m of prehlad) {
+    m.key = m.messageId || `uid:${imap.uidValidity || ""}:${m.uid}`;
+    m.prveId = await prijataFakturaId(m.key, 0);
+  }
+  const existing = await store.existingIds(prehlad.map((m) => m.prveId));
+  const nove = prehlad.filter((m) => !existing.has(m.prveId));
+  log(`mailov s PDF: ${prehlad.length}, novych: ${nove.length}`);
+  summary.zostava = nove.length;
+  for (const m of nove) {
+    if (summary.nove >= maxNew || now().getTime() >= deadline) break;
+    const zaklad = { od: "", predmet: "", prijato: "", nacitanoAt: now().toISOString(), fakturaPath: "", extrakce: null, chyba: "" };
+    let pdfs = [];
+    try {
+      if (m.size > MAX_MAIL_BYTES) throw new Error("Mail je příliš velký, PDF otevřete přímo v pošte.");
+      const mail = await parseMail(await imap.message(m.uid));
+      zaklad.od = (mail.from && mail.from.address) || "";
+      zaklad.predmet = mail.subject || "";
+      zaklad.prijato = mail.date ? new Date(mail.date).toISOString() : "";
+      pdfs = (mail.attachments || []).filter(isPdfAttachment);
+    } catch (e) {
+      const row = { ...zaklad, id: m.prveId, nazovSuboru: "", chyba: String((e && e.message) || e), stav: "KE_KONTROLE" };
+      await store.insert(row);
+      summary.nove++;
+      summary.chyby++;
+      summary.zostava--;
+      log(`chyba mailu uid ${m.uid}: ${row.chyba.slice(0, 120)}`);
+      continue;
     }
-    if (kandidati.length === 0) return summary;
-    const existing = await store.existingIds(kandidati.map((k) => k.id));
-    const nove = kandidati.filter((k) => !existing.has(k.id));
-    log(`PDF priloh: ${kandidati.length}, novych: ${nove.length}`);
-    summary.zostava = nove.length;
-    for (const k of nove.slice(0, maxNew)) {
-      if (now().getTime() >= deadline) break;
-      const row = { id: k.id, od: k.od, predmet: k.predmet, prijato: k.prijato, nazovSuboru: k.filename, nacitanoAt: now().toISOString(), fakturaPath: "", extrakce: null, chyba: "" };
+    for (let i = 0; i < pdfs.length; i++) {
+      const bytes = pdfs[i].content instanceof Uint8Array ? pdfs[i].content : new Uint8Array(pdfs[i].content);
+      const id = i === 0 ? m.prveId : await prijataFakturaId(m.key, i);
+      const row = { ...zaklad, id, nazovSuboru: pdfs[i].filename || "faktura.pdf", fakturaPath: `${id}/faktura.pdf` };
       try {
-        if (k.size > MAX_PDF_BYTES) throw new Error("PDF je příliš velké pro AI, zpracujte ručně.");
-        const { content } = await imap.download(String(k.uid), k.part, { uid: true });
-        const bytes = await streamToBytes(content);
-        row.fakturaPath = `${k.id}/faktura.pdf`;
         await store.uploadPdf(row.fakturaPath, bytes);
-        try {
-          row.extrakce = await extract(bytes);
-        } catch (e) {
-          row.chyba = String((e && e.message) || e);
-          summary.chyby++;
-        }
+        row.extrakce = await extract(bytes);
       } catch (e) {
         row.chyba = String((e && e.message) || e);
         summary.chyby++;
@@ -155,11 +129,9 @@ export async function processInbox({ imap, store, extract, since, maxNew = 10, d
       if (row.extrakce && row.extrakce.mena) row.extrakce.mena = String(row.extrakce.mena).toUpperCase().trim();
       await store.insert(row);
       summary.nove++;
-      summary.zostava--;
-      log(`ulozene ${k.filename}: ${row.stav}${row.chyba ? " (" + row.chyba.slice(0, 120) + ")" : ""}`);
+      log(`ulozene ${row.nazovSuboru}: ${row.stav}${row.chyba ? " (" + row.chyba.slice(0, 120) + ")" : ""}`);
     }
-  } finally {
-    lock.release();
+    summary.zostava--;
   }
   return summary;
 }

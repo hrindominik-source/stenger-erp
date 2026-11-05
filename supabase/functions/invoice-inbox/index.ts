@@ -3,6 +3,8 @@
 // zaznam do public.prijate_faktury so stavom KE_KONTROLE. Kancelaria ho potom
 // v Prijme tovaru skontroluje a napáruje na prijmy (ceny do skladu a inventury).
 //
+// IMAP cez vlastny maly klient (imap.js) nad Deno.connectTls, maily parsuje postal-mime.
+//
 // Spusta ju pg_cron (hlavicka x-inbox-token, overi sa proti vault cez RPC)
 // alebo prihlaseny pouzivatel s rolou office (tlacidlo "Zkontrolovat poštu").
 // Nasadzuje sa s --no-verify-jwt (cron nema JWT), overenie je nizsie.
@@ -11,9 +13,10 @@
 // volitelne INBOX_IMAP_PORT (993), INBOX_OD (DD.MM.RRRR, inak posledne 7 dni).
 // API kluc Claude sa berie z Nastavenia firmy (company.data.apiKey).
 
-import { ImapFlow } from "npm:imapflow@1.7.8";
 import { createClient } from "npm:@supabase/supabase-js@2.111.0";
+import PostalMime from "npm:postal-mime@2.7.6";
 import { processInbox, extractInvoice, sinceFromEnv } from "./inbox.js";
+import { MiniImap } from "./imap.js";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -56,19 +59,25 @@ Deno.serve(async (req: Request) => {
   const apiKey = comp && comp.data && comp.data.apiKey;
   if (!apiKey) return json({ error: "Chybí Anthropic API klíč v Nastavení firmy." }, 500);
 
-  const port = Number(Deno.env.get("INBOX_IMAP_PORT") || 993);
-  // limit funkcie je 150 s; nove PDF sa po 90 s uz nezacne (AI citanie trva do ~30 s)
+  // limit funkcie je 150 s; dalsi mail sa po 90 s uz nezacne (AI citanie max 50 s)
   const deadline = Date.now() + 90_000;
   const log = (m: string) => console.log("[invoice-inbox] " + m);
-  const imap = new ImapFlow({ host, port, secure: port === 993, auth: { user, pass }, logger: false, connectionTimeout: 20_000, greetingTimeout: 15_000, socketTimeout: 60_000 });
+  const port = Number(Deno.env.get("INBOX_IMAP_PORT") || 993);
+  let conn: Deno.Conn | null = null;
+  let imap: MiniImap | null = null;
   try {
     log("pripajam " + host);
-    await imap.connect();
+    conn = port === 993 ? await Deno.connectTls({ hostname: host, port }) : await Deno.connect({ hostname: host, port });
+    imap = new MiniImap({ readable: conn.readable, writable: conn.writable, timeoutMs: 30_000 });
+    await imap.greeting();
+    await imap.login(user, pass);
+    await imap.examine("INBOX");
     log("pripojene");
     const summary = await processInbox({
       imap,
       deadline,
       log,
+      parseMail: (bytes: Uint8Array) => PostalMime.parse(bytes),
       since: sinceFromEnv(Deno.env.get("INBOX_OD")),
       extract: (bytes: Uint8Array) => extractInvoice(bytes, apiKey),
       store: {
@@ -93,8 +102,12 @@ Deno.serve(async (req: Request) => {
     console.error(e);
     return json({ error: "Čtení schránky selhalo: " + String((e && (e as Error).message) || e) }, 500);
   } finally {
-    try {
+    if (imap) {
+      imap.timeoutMs = 5_000;
       await imap.logout();
+    }
+    try {
+      conn?.close();
     } catch {
       // spojenie uz mohlo byt zavrete
     }
