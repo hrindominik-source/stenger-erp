@@ -12,6 +12,7 @@ import { supabase } from "./supabaseClient.js";
 import { useAuth } from "./lib/auth.js";
 import Login from "./Login.jsx";
 const SkladView = lazy(() => import("./SkladView.jsx"));
+const InventuraPocitanie = lazy(() => import("./InventuraPocitanie.jsx"));
 const VyrobaView = lazy(() => import("./VyrobaView.jsx"));
 const PlanSmienView = lazy(() => import("./PlanSmienView.jsx"));
 const KvalitaView = lazy(() => import("./KvalitaView.jsx"));
@@ -26,6 +27,8 @@ import { renderWorksheetToHtml } from "./lib/xlsxToHtml.js";
 import { parseSupplierCatalogFile, mergeSupplierCatalog } from "./lib/supplierCatalog.js";
 import { exportRowsToExcel, exportSheetsToExcel } from "./lib/exportExcel.js";
 import { computeStockLevels, computeProductionIssues, extraKnownMaterials, materialPicksForSupplier, allKnownMaterials, suggestReceiptMatches, UNIT_QUICK_PICKS } from "./lib/inventory.js";
+import { vyhodnotInventuru, inventuraOpravy, INVENTURA_STAV, INVENTURA_DOVOD, INVENTURA_PREBYTEK } from "./lib/inventura.js";
+import { INVOICE_EXTRACT_INSTRUCTIONS } from "../supabase/functions/invoice-inbox/prompt.js";
 import { diffProductionPlanFields, isPlanZmenaActive, formatZmenaText } from "./lib/planZmena.js";
 import { getCnbRate } from "./lib/exchangeRate.js";
 import { downloadTextAsPdf, renderContainerToPdf } from "./lib/textPdf.js";
@@ -428,7 +431,7 @@ async function callClaude(contentBlocks, apiKey) {
       "anthropic-dangerous-direct-browser-access": "true",
     },
     body: JSON.stringify({
-      model: "claude-sonnet-4-6",
+      model: "claude-sonnet-5-5",
       max_tokens: 1500,
       messages: [{ role: "user", content: contentBlocks }],
     }),
@@ -475,24 +478,6 @@ Dolezite rozlisenie cisiel:
 - "pocetPaliet" (Europaletten) a "pocetPaletovychMiest" (Stellplatze) su tiez dve rozdielne cisla z riadku 'Doppelstockpal. = Europaletten = Stellplatze' - pri dvojitom stohovani je pocet paliet dvojnasobny oproti poctu miest.
 - "pocetKartonov" je uplne iny, samostatny udaj - sucet vsetkych KRT mnozstiev z tabulky poloziek.
 Dolezite k "polozky": ak dokument obsahuje jasnu tabulku jednotlivych poloziek (stlpce typu Pos./Artikelnr./Bezeichnung/Menge), vytiahni KAZDU polozku ako samostatny zaznam v poli "polozky" - toto pole ma prednost pred "popisTovaru" pri zobrazovani na dodacom liste. Ak dokument nema ziadnu jasnu tabulku poloziek (len volny text bez struktury), nechaj "polozky" ako prazdne pole [].`;
-
-const INVOICE_EXTRACT_INSTRUCTIONS = `Si asistent, ktory z faktury od dodavatela (PDF dokument alebo obrazok) vytiahne strukturovane udaje pre sklad/ucstovnictvo.
-Odpovedz VYLUCNE JSON objektom v tomto presnom tvare (bez ciarok naviac, bez markdown, bez vysvetlenia):
-{
-  "dodavatel": "nazov dodavatelskej firmy (odosielatel/vystavovatel faktury)",
-  "cisloFaktury": "cislo faktury / invoice number",
-  "datumFaktury": "datum vystavenia faktury vo formate DD.MM.RRRR",
-  "mena": "trojpismenovy kod meny súm na fakture podla symbolu/skratky pri cenach, napr. EUR, CZK, USD",
-  "polozky": [
-    {
-      "popis": "nazov/popis polozky presne ako je uvedeny na fakture",
-      "mnozstvoCislo": cislo mnozstva danej polozky ako JSON cislo (nie retazec, bez jednotky),
-      "mnozstvoJednotka": "jednotka mnozstva presne ako na fakture (napr. kg, ks, m, l)",
-      "cenaJednotkova": jednotkova cena za jednu jednotku mnozstva ako JSON cislo (nie retazec, bez oznacenia meny)
-    }
-  ]
-}
-Vrat vsetky riadkove polozky z faktury v poli "polozky", nie len sucet. Ak nejaky udaj chyba, nechaj ho ako prazdny retazec "" (cisla necahaj ako 0, radsej vynechaj tu polozku). Neodhaduj veci, ktore na fakture nie su - citaj presne to, co je tam napisane.`;
 
 function buildItemsInstructions(katalog) {
   const list = katalog.map((k) => `- ${k.popis}${k.artikel ? " (artikel: " + k.artikel + ")" : ""}`).join("\n");
@@ -808,6 +793,7 @@ function OfficeApp({ userFullName, userEmail, onSignOut }) {
   const [showNewGoodsReceipt, setShowNewGoodsReceipt] = useState(false);
   const [editingGoodsReceipt, setEditingGoodsReceipt] = useState(null);
   const [showInvoiceUpload, setShowInvoiceUpload] = useState(false);
+  const [dosleFakturyReload, setDosleFakturyReload] = useState(0);
   const [showNewStockIssue, setShowNewStockIssue] = useState(false);
   const [showNewTestProductionIssue, setShowNewTestProductionIssue] = useState(false);
   const [editingStockIssue, setEditingStockIssue] = useState(null);
@@ -2083,12 +2069,21 @@ function OfficeApp({ userFullName, userEmail, onSignOut }) {
             onEdit={(r) => setEditingGoodsReceipt(r)}
             onDelete={deleteGoodsReceipt}
             onUploadInvoice={() => setShowInvoiceUpload(true)}
+            onProcessInboxInvoice={(pf) => setShowInvoiceUpload(pf)}
+            dosleFakturyReload={dosleFakturyReload}
           />
         )}
         {view === "stock" && (
           <StockView
             goodsReceipts={goodsReceipts}
             stockIssues={stockIssues}
+            currentUserName={userFullName}
+            onInventuraOpravy={(rec, iss) => {
+              const recIds = new Set(rec.map((r) => r.id));
+              const issIds = new Set(iss.map((i) => i.id));
+              setGoodsReceipts((prev) => [...rec, ...prev.filter((r) => !recIds.has(r.id))]);
+              setStockIssues((prev) => [...iss, ...prev.filter((i) => !issIds.has(i.id))]);
+            }}
             onNew={() => setShowNewStockIssue(true)}
             onNewTestProduction={() => setShowNewTestProductionIssue(true)}
             onEdit={(i) => setEditingStockIssue(i)}
@@ -2237,9 +2232,16 @@ function OfficeApp({ userFullName, userEmail, onSignOut }) {
           receipts={goodsReceipts}
           company={company}
           suppliers={suppliers}
+          prefill={typeof showInvoiceUpload === "object" ? showInvoiceUpload : null}
           onClose={() => setShowInvoiceUpload(false)}
           onApply={async (updates) => {
             await Promise.all(updates.map((u) => updateGoodsReceipt(u.receiptId, u.patch)));
+            if (typeof showInvoiceUpload === "object") {
+              const pf = showInvoiceUpload;
+              const { error: pfErr } = await supabase.from("prijate_faktury").update({ data: { ...pf, stav: "ZPRACOVANA", zpracoval: userFullName || "", zpracovanoAt: new Date().toISOString() } }).eq("id", pf.id);
+              if (pfErr) console.error(pfErr);
+              setDosleFakturyReload((n) => n + 1);
+            }
             setToast(`Cena doplněna k ${updates.length} příjmu(ům) zboží.`);
           }}
           onAddToSupplierCatalog={async (supplierId, popisList) => {
@@ -6726,7 +6728,9 @@ function MaterialSupplierOrderModal({ order, suppliers, company, currentUserName
 
 /* ---------------- Faktura - dodatocne ocenenie prijmov tovaru ---------------- */
 
-function InvoiceUploadModal({ receipts, company, suppliers, onClose, onApply, onAddToSupplierCatalog }) {
+// prefill = zaznam z prijate_faktury (faktura nacitana zo schranky): PDF uz je
+// v bucketu a AI vytazenie hotove, takze sa rovno ukaze parovanie na prijmy.
+function InvoiceUploadModal({ receipts, company, suppliers, prefill, onClose, onApply, onAddToSupplierCatalog }) {
   const [file, setFile] = useState(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
@@ -6755,38 +6759,68 @@ function InvoiceUploadModal({ receipts, company, suppliers, onClose, onApply, on
         { type: "text", text: INVOICE_EXTRACT_INSTRUCTIONS },
       ];
       const data = await callClaude(blocks, company.apiKey);
-      const mena = (data.mena || "CZK").toUpperCase().trim() || "CZK";
-      setExtracted({ ...data, mena });
-      // Kurz ČNB sa dohladava samostatne - jeho zlyhanie (napr. vikend/sviatok bez
-      // kurzu pre danu menu) nesmie zahodit uz uspesne extrahovane data z faktury.
-      try {
-        const rateInfo = await getCnbRate(data.datumFaktury, mena, import.meta.env.VITE_SUPABASE_URL, import.meta.env.VITE_SUPABASE_ANON_KEY);
-        setKurz(rateInfo);
-      } catch (rateErr) {
-        console.error(rateErr);
-        setKurz(null);
-        setError("Kurz ČNB se nepodařilo načíst, doplňte prosím ručně.");
-      }
-      setMatches(
-        (data.polozky || []).map((it) => {
-          const suggestions = suggestReceiptMatches(it, data.dodavatel, receipts);
-          return { item: it, receiptId: suggestions[0] ? suggestions[0].id : "", suggestions };
-        })
-      );
-      const dLower = (data.dodavatel || "").trim().toLowerCase();
-      const guessed = dLower
-        ? (suppliers || []).find((s) => {
-            const n = (s.nazov || "").trim().toLowerCase();
-            return n && (n.includes(dLower) || dLower.includes(n));
-          })
-        : null;
-      setCatalogSupplierId(guessed ? guessed.id : "");
-      setCatalogDone(false);
+      await applyExtracted(data);
     } catch (err) {
       console.error(err);
       setError(err.message || "Extrakce se nezdařila, zkuste to znovu.");
     }
     setBusy(false);
+  }
+
+  useEffect(() => {
+    if (!prefill) return;
+    let cancelled = false;
+    (async () => {
+      setBusy(true);
+      try {
+        if (prefill.extrakce && prefill.extrakce.jeFaktura !== false) {
+          await applyExtracted(prefill.extrakce);
+        } else if (prefill.fakturaPath) {
+          // AI pri nacitani zlyhala - PDF sa pripravi na rucne "Extrahovat"
+          const { data: blob, error: dlErr } = await supabase.storage.from(INVOICES_BUCKET).download(prefill.fakturaPath);
+          if (dlErr) throw dlErr;
+          if (!cancelled) setFile(new File([blob], prefill.nazovSuboru || "faktura.pdf", { type: "application/pdf" }));
+        }
+      } catch (err) {
+        console.error(err);
+        if (!cancelled) setError(err.message || "Fakturu se nepodařilo načíst.");
+      }
+      if (!cancelled) setBusy(false);
+    })();
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [prefill]);
+
+  async function applyExtracted(data) {
+    const mena = (data.mena || "CZK").toUpperCase().trim() || "CZK";
+    setExtracted({ ...data, mena });
+    // Kurz ČNB sa dohladava samostatne - jeho zlyhanie (napr. vikend/sviatok bez
+    // kurzu pre danu menu) nesmie zahodit uz uspesne extrahovane data z faktury.
+    try {
+      const rateInfo = await getCnbRate(data.datumFaktury, mena, import.meta.env.VITE_SUPABASE_URL, import.meta.env.VITE_SUPABASE_ANON_KEY);
+      setKurz(rateInfo);
+    } catch (rateErr) {
+      console.error(rateErr);
+      setKurz(null);
+      setError("Kurz ČNB se nepodařilo načíst, doplňte prosím ručně.");
+    }
+    setMatches(
+      (data.polozky || []).map((it) => {
+        const suggestions = suggestReceiptMatches(it, data.dodavatel, receipts);
+        return { item: it, receiptId: suggestions[0] ? suggestions[0].id : "", suggestions };
+      })
+    );
+    const dLower = (data.dodavatel || "").trim().toLowerCase();
+    const guessed = dLower
+      ? (suppliers || []).find((s) => {
+          const n = (s.nazov || "").trim().toLowerCase();
+          return n && (n.includes(dLower) || dLower.includes(n));
+        })
+      : null;
+    setCatalogSupplierId(guessed ? guessed.id : "");
+    setCatalogDone(false);
   }
 
   function setMatchReceipt(i, receiptId) {
@@ -6797,8 +6831,8 @@ function InvoiceUploadModal({ receipts, company, suppliers, onClose, onApply, on
     setBusy(true);
     setError("");
     try {
-      let fakturaPath = "";
-      if (file) {
+      let fakturaPath = prefill && prefill.fakturaPath ? prefill.fakturaPath : "";
+      if (file && !fakturaPath) {
         const ext = (file.name.split(".").pop() || "pdf").toLowerCase();
         const path = `${uid()}/faktura.${ext}`;
         const { error: uploadError } = await supabase.storage.from(INVOICES_BUCKET).upload(path, file, { contentType: file.type });
@@ -6835,7 +6869,18 @@ function InvoiceUploadModal({ receipts, company, suppliers, onClose, onApply, on
   }
 
   return (
-    <ModalShell title="Nahrát fakturu" onClose={onClose} extraWide>
+    <ModalShell title={prefill ? "Faktura z e-mailu" : "Nahrát fakturu"} onClose={onClose} extraWide>
+      {prefill && (
+        <div className="mb-3 bg-indigo-50 text-indigo-900 text-xs px-3 py-2 rounded-md flex items-center justify-between gap-2">
+          <span>Z e-mailu od {prefill.od || "-"}{prefill.predmet ? ` – ${prefill.predmet}` : ""}{prefill.prijato ? ` (${formatDateTime(prefill.prijato)})` : ""}</span>
+          {prefill.fakturaPath && (
+            <button onClick={() => openSignedFile(INVOICES_BUCKET, prefill.fakturaPath)} className="flex items-center gap-1 font-medium underline whitespace-nowrap"><FileText size={14} /> Otevřít PDF</button>
+          )}
+        </div>
+      )}
+      {prefill && prefill.chyba && !extracted && (
+        <div className="mb-3 bg-amber-50 text-amber-800 text-xs px-3 py-2 rounded-md">Automatické načtení selhalo ({prefill.chyba}). Zkuste „Extrahovat“ znovu.</div>
+      )}
       {!extracted ? (
         <>
           <p className="text-xs text-slate-500 mb-3">
@@ -6944,7 +6989,123 @@ function InvoiceUploadModal({ receipts, company, suppliers, onClose, onApply, on
 
 /* ---------------- Prijem tovaru (evidencia pre office) ---------------- */
 
-function GoodsReceiptsView({ receipts, suppliers, materialOrders, onNew, onEdit, onDelete, onUploadInvoice }) {
+// Faktury nacitane automaticky zo schranky (Edge Function invoice-inbox).
+// Kancelaria ich tu otvori, napáruje na prijmy (ceny) alebo oznaci ako nesuvisiace so skladom.
+function DosleFakturyPanel({ reload, onZpracovat }) {
+  const [rows, setRows] = useState(null);
+  const [error, setError] = useState("");
+  const [info, setInfo] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [showVyrizene, setShowVyrizene] = useState(false);
+
+  const load = useCallback(async () => {
+    const { data, error: err } = await supabase.from("prijate_faktury").select("*").order("created_at", { ascending: false }).limit(100);
+    if (err) {
+      // tabulka este nemusi existovat (SQL nespustene) - panel sa vtedy neukaze
+      console.error(err);
+      setRows(null);
+      return;
+    }
+    setRows((data || []).map((r) => r.data));
+  }, []);
+
+  useEffect(() => {
+    load();
+  }, [load, reload]);
+
+  async function zkontrolovat() {
+    setBusy(true);
+    setError("");
+    setInfo("");
+    const { data, error: err } = await supabase.functions.invoke("invoice-inbox", { body: {} });
+    if (err || (data && data.error)) {
+      let msg = (data && data.error) || "";
+      if (!msg && err && err.context && typeof err.context.json === "function") {
+        msg = await err.context.json().then((j) => j.error).catch(() => "");
+      }
+      setError(msg || "Kontrola pošty selhala.");
+    } else {
+      setInfo(data.nove ? `Načteno nových příloh: ${data.nove}${data.zostava ? `, zbývá ${data.zostava} (načtou se při další kontrole)` : ""}.` : "Žádné nové faktury.");
+    }
+    await load();
+    setBusy(false);
+  }
+
+  async function setStav(pf, stav) {
+    const { error: err } = await supabase.from("prijate_faktury").update({ data: { ...pf, stav } }).eq("id", pf.id);
+    if (err) setError("Uložení se nezdařilo.");
+    await load();
+  }
+
+  if (rows === null) return null;
+  const keKontrole = rows.filter((r) => r.stav === "KE_KONTROLE");
+  const vyrizene = rows.filter((r) => r.stav !== "KE_KONTROLE").slice(0, 30);
+  const stavBadge = { ZPRACOVANA: "bg-emerald-100 text-emerald-700", NESKLADOVA: "bg-slate-100 text-slate-600", NIE_JE_FAKTURA: "bg-slate-100 text-slate-600" };
+  const stavText = { ZPRACOVANA: "Zpracována", NESKLADOVA: "Není pro sklad", NIE_JE_FAKTURA: "Není faktura" };
+
+  const radek = (pf, akce) => {
+    const e = pf.extrakce || {};
+    return (
+      <tr key={pf.id} className="border-t border-slate-100 first:border-t-0">
+        <td className="px-3 py-2 whitespace-nowrap text-slate-500">{pf.prijato ? formatDateTime(pf.prijato) : ""}</td>
+        <td className="px-3 py-2">
+          <div className="font-medium">{e.dodavatel || pf.od || "-"}</div>
+          <div className="text-xs text-slate-500">{e.cisloFaktury ? `Faktura ${e.cisloFaktury}` : pf.predmet}{pf.chyba ? <span className="text-amber-700"> · nenačteno automaticky</span> : null}</div>
+        </td>
+        <td className="px-3 py-2 text-right whitespace-nowrap">{akce}</td>
+      </tr>
+    );
+  };
+
+  return (
+    <div className="bg-white border border-slate-200 rounded-lg mb-4" data-testid="dosle-faktury">
+      <div className="flex items-center justify-between px-3 py-2.5 bg-slate-50 border-b border-slate-200">
+        <span className="text-sm font-semibold text-slate-700 flex items-center gap-1.5"><Mail size={16} /> Faktury z e-mailu {keKontrole.length > 0 && <span className="text-xs font-medium bg-indigo-100 text-indigo-700 px-2 py-0.5 rounded-full">{keKontrole.length} ke kontrole</span>}</span>
+        <span className="flex items-center gap-3">
+          {vyrizene.length > 0 && <button onClick={() => setShowVyrizene((v) => !v)} className="text-xs text-slate-500 underline">{showVyrizene ? "Skrýt vyřízené" : "Vyřízené"}</button>}
+          <button onClick={zkontrolovat} disabled={busy} className="text-xs font-medium bg-white border border-slate-300 hover:bg-slate-100 disabled:opacity-50 px-2.5 py-1 rounded-md flex items-center gap-1">
+            {busy && <Loader2 size={12} className="animate-spin" />} Zkontrolovat poštu
+          </button>
+        </span>
+      </div>
+      {error && <div className="px-3 py-2 text-sm text-red-700 bg-red-50">{error}</div>}
+      {info && <div className="px-3 py-2 text-sm text-emerald-700 bg-emerald-50">{info}</div>}
+      {keKontrole.length === 0 ? (
+        <div className="px-3 py-3 text-sm text-slate-400">Žádná faktura nečeká na kontrolu. Pošta se kontroluje automaticky.</div>
+      ) : (
+        <table className="w-full text-sm">
+          <tbody>
+            {keKontrole.map((pf) =>
+              radek(pf, (
+                <span className="inline-flex gap-2">
+                  <button onClick={() => setStav(pf, "NESKLADOVA")} className="text-xs text-slate-500 hover:text-slate-800 px-2 py-1">Není pro sklad</button>
+                  <button onClick={() => onZpracovat(pf)} className="text-xs font-medium bg-teal-700 hover:bg-teal-800 text-white px-3 py-1 rounded-md">Zpracovat</button>
+                </span>
+              ))
+            )}
+          </tbody>
+        </table>
+      )}
+      {showVyrizene && vyrizene.length > 0 && (
+        <table className="w-full text-sm border-t border-slate-200">
+          <tbody>
+            {vyrizene.map((pf) =>
+              radek(pf, (
+                <span className="inline-flex items-center gap-2">
+                  <span className={"text-xs font-medium px-2 py-0.5 rounded-full " + (stavBadge[pf.stav] || "bg-slate-100 text-slate-600")}>{stavText[pf.stav] || pf.stav}</span>
+                  {pf.fakturaPath && <button onClick={() => openSignedFile(INVOICES_BUCKET, pf.fakturaPath)} title="Otevřít PDF" className="text-slate-400 hover:text-slate-700"><FileText size={14} /></button>}
+                  {pf.stav !== "ZPRACOVANA" && <button onClick={() => setStav(pf, "KE_KONTROLE")} className="text-xs text-slate-500 underline">Vrátit ke kontrole</button>}
+                </span>
+              ))
+            )}
+          </tbody>
+        </table>
+      )}
+    </div>
+  );
+}
+
+function GoodsReceiptsView({ receipts, suppliers, materialOrders, onNew, onEdit, onDelete, onUploadInvoice, onProcessInboxInvoice, dosleFakturyReload }) {
   const [confirmDelete, setConfirmDelete] = useState(null);
   async function exportToExcel() {
     const rows = receipts.map((r) => ({
@@ -6978,6 +7139,7 @@ function GoodsReceiptsView({ receipts, suppliers, materialOrders, onNew, onEdit,
           </button>
         </div>
       </div>
+      <DosleFakturyPanel reload={dosleFakturyReload} onZpracovat={onProcessInboxInvoice} />
       {receipts.length === 0 ? (
         <div className="bg-white border border-slate-200 rounded-lg p-10 text-center text-slate-500">
           <PackagePlus size={28} className="mx-auto mb-3 text-slate-300" />
@@ -7182,7 +7344,7 @@ function formatCzk(n) {
   return Math.round(n).toLocaleString("sk-SK") + " Kč";
 }
 
-function StockView({ goodsReceipts, stockIssues, onNew, onNewTestProduction, onEdit, onDelete }) {
+function StockView({ goodsReceipts, stockIssues, currentUserName, onInventuraOpravy, onNew, onNewTestProduction, onEdit, onDelete }) {
   const [confirmDelete, setConfirmDelete] = useState(null);
   const stock = computeStockLevels(goodsReceipts, stockIssues);
   const celkovaHodnota = stock.reduce((sum, row) => sum + (row.hodnota || 0), 0);
@@ -7233,6 +7395,8 @@ function StockView({ goodsReceipts, stockIssues, onNew, onNewTestProduction, onE
           </button>
         </div>
       </div>
+
+      <InventuryPanel goodsReceipts={goodsReceipts} stockIssues={stockIssues} currentUserName={currentUserName} onOpravy={onInventuraOpravy} />
 
       {stock.length === 0 ? (
         <div className="bg-white border border-slate-200 rounded-lg p-10 text-center text-slate-500 mb-6">
@@ -7324,6 +7488,245 @@ function StockView({ goodsReceipts, stockIssues, onNew, onNewTestProduction, onE
         </ModalShell>
       )}
     </div>
+  );
+}
+
+// Inventury v kancelarii: porovnanie so stavom k datumu inventury, ocenenie
+// vazenym priemerom a uzavretie (opravne pohyby + zmrazeny vysledok pre majitela).
+function InventuryPanel({ goodsReceipts, stockIssues, currentUserName, onOpravy }) {
+  const [inventury, setInventury] = useState([]);
+  const [error, setError] = useState("");
+  const [detail, setDetail] = useState(null);
+  const [pocitat, setPocitat] = useState(false);
+
+  const load = useCallback(async () => {
+    const { data, error: err } = await supabase.from("inventury").select("*").order("created_at", { ascending: false });
+    if (err) {
+      setError("Inventury se nepodařilo načíst.");
+      return;
+    }
+    setError("");
+    setInventury((data || []).map((row) => row.data));
+  }, []);
+
+  useEffect(() => {
+    load();
+  }, [load]);
+
+  const hodnotaInventury = (i) => (i.stav === "UZAVRENA" && i.vysledek ? i.vysledek.hodnotaSkutecna : null);
+
+  return (
+    <div className="bg-white border border-slate-200 rounded-lg mb-6" data-testid="inventury-panel">
+      <div className="flex items-center justify-between px-3 py-2.5 bg-slate-50 border-b border-slate-200">
+        <span className="text-sm font-semibold text-slate-700 flex items-center gap-1.5"><ClipboardCheck size={16} /> Inventury</span>
+        <span className="flex items-center gap-3">
+          <span className="text-xs text-slate-500 hidden sm:inline">Počítá sklad (Kontrola skladu) nebo kancelář, kancelář kontroluje a uzavírá.</span>
+          <button onClick={() => setPocitat(true)} className="text-xs font-medium bg-white border border-slate-300 hover:bg-slate-100 px-2.5 py-1 rounded-md">Spočítat inventuru</button>
+        </span>
+      </div>
+      {error && <div className="px-3 py-2 text-sm text-red-700 bg-red-50">{error}</div>}
+      {inventury.length === 0 ? (
+        <div className="px-3 py-4 text-sm text-slate-400">Zatím žádná inventura.</div>
+      ) : (
+        <table className="w-full text-sm">
+          <tbody>
+            {inventury.slice(0, 12).map((i) => (
+              <tr key={i.id} onClick={() => setDetail(i)} className="border-t border-slate-100 first:border-t-0 hover:bg-slate-50 cursor-pointer">
+                <td className="px-3 py-2 font-medium">Inventura k {i.datum}</td>
+                <td className="px-3 py-2">
+                  <span className={"text-xs font-medium px-2 py-0.5 rounded-full " + (i.stav === "UZAVRENA" ? "bg-emerald-100 text-emerald-700" : i.stav === "SPOCITANA" ? "bg-indigo-100 text-indigo-700" : "bg-slate-100 text-slate-600")}>{INVENTURA_STAV[i.stav] || i.stav}</span>
+                </td>
+                <td className="px-3 py-2 text-slate-500">{i.spocital || i.zahajil || ""}</td>
+                <td className="px-3 py-2 text-right font-semibold">{hodnotaInventury(i) !== null ? formatCzk(hodnotaInventury(i)) : ""}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      )}
+      {pocitat && (
+        <ModalShell title="Spočítat inventuru" onClose={() => { setPocitat(false); load(); }} wide>
+          <Suspense fallback={<div className="py-6 text-center text-slate-500 text-sm">Načítám...</div>}>
+            <InventuraPocitanie fullName={currentUserName} onChanged={load} />
+          </Suspense>
+        </ModalShell>
+      )}
+      {detail && (
+        <InventuraDetailModal
+          inventura={detail}
+          goodsReceipts={goodsReceipts}
+          stockIssues={stockIssues}
+          currentUserName={currentUserName}
+          onOpravy={onOpravy}
+          onClose={() => setDetail(null)}
+          onChanged={async () => {
+            setDetail(null);
+            await load();
+          }}
+        />
+      )}
+    </div>
+  );
+}
+
+function InventuraDetailModal({ inventura, goodsReceipts, stockIssues, currentUserName, onOpravy, onClose, onChanged }) {
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  const [confirmClose, setConfirmClose] = useState(false);
+  const uzavrena = inventura.stav === "UZAVRENA";
+  // uzavreta inventura sa zobrazuje zo zmrazeneho vysledku, nie z aktualnych dat
+  const v = uzavrena && inventura.vysledek ? inventura.vysledek : vyhodnotInventuru(inventura, goodsReceipts, stockIssues);
+  const fmtQ = (n) => (n === null || n === undefined ? "-" : String(n).replace(".", ","));
+  const fmtK = (n) => (n === null || n === undefined ? "-" : formatCzk(n));
+
+  async function uzavrit() {
+    setBusy(true);
+    setError("");
+    try {
+      const { issues, receipts } = inventuraOpravy(v, { inventuraId: inventura.id, datum: inventura.datum, cas: "23:59", kdo: currentUserName || "" });
+      // deterministicke id -> opakovane uzavretie po chybe nezapise opravy dvakrat
+      const rec = receipts.map((r, n) => ({ ...r, id: `${inventura.id}-p${n}` }));
+      const iss = issues.map((r, n) => ({ ...r, id: `${inventura.id}-m${n}` }));
+      if (rec.length) {
+        const { error: e1 } = await supabase.from("goods_receipts").upsert(rec.map((r) => ({ id: r.id, data: r })));
+        if (e1) throw e1;
+      }
+      if (iss.length) {
+        const { error: e2 } = await supabase.from("stock_issues").upsert(iss.map((r) => ({ id: r.id, data: r })));
+        if (e2) throw e2;
+      }
+      onOpravy(rec, iss);
+      const data = {
+        ...inventura,
+        stav: "UZAVRENA",
+        uzavrel: currentUserName || "",
+        uzavrenoAt: new Date().toISOString(),
+        vysledek: v,
+        opravy: [...rec.map((r) => r.id), ...iss.map((r) => r.id)],
+      };
+      const { error: e3 } = await supabase.from("inventury").update({ data }).eq("id", inventura.id);
+      if (e3) throw e3;
+      await onChanged();
+    } catch (e) {
+      console.error(e);
+      setError("Uzavření se nezdařilo, zkuste to znovu (opravy se nezapíší dvakrát).");
+    }
+    setBusy(false);
+  }
+
+  async function vratitSkladu() {
+    setBusy(true);
+    const { error: err } = await supabase.from("inventury").update({ data: { ...inventura, stav: "ROZPRACOVANA" } }).eq("id", inventura.id);
+    setBusy(false);
+    if (err) {
+      setError("Uložení se nezdařilo, zkuste to znovu.");
+      return;
+    }
+    await onChanged();
+  }
+
+  async function smazat() {
+    setBusy(true);
+    const { error: err } = await supabase.from("inventury").delete().eq("id", inventura.id);
+    setBusy(false);
+    if (err) {
+      setError("Smazání se nezdařilo, zkuste to znovu.");
+      return;
+    }
+    await onChanged();
+  }
+
+  async function exportToExcel() {
+    const rows = v.rows.map((r) => ({
+      "Materiál": r.material,
+      "Jednotka": r.unit,
+      "Evidováno": r.evidovane,
+      "Napočítáno": r.napocitane === null ? "nespočítáno" : r.napocitane,
+      "Rozdíl": r.rozdil === null ? "" : r.rozdil,
+      "Průměrná cena (Kč)": r.priemernaCena === null ? "bez ceny" : Math.round(r.priemernaCena * 100) / 100,
+      "Hodnota skutečná (Kč)": r.hodnotaSkutecna === null ? "" : Math.round(r.hodnotaSkutecna * 100) / 100,
+      "Hodnota rozdílu (Kč)": r.hodnotaRozdilu === null ? "" : Math.round(r.hodnotaRozdilu * 100) / 100,
+      "Poznámka": r.poznamka,
+    }));
+    const souhrn = [
+      { "Údaj": "Inventura k datu", "Hodnota": inventura.datum },
+      { "Údaj": "Stav", "Hodnota": INVENTURA_STAV[inventura.stav] || inventura.stav },
+      { "Údaj": "Spočítal(a)", "Hodnota": inventura.spocital || "" },
+      { "Údaj": "Uzavřel(a)", "Hodnota": inventura.uzavrel || "" },
+      { "Údaj": "Hodnota zásob podle evidence (Kč)", "Hodnota": Math.round(v.hodnotaEvidovana * 100) / 100 },
+      { "Údaj": "Hodnota zásob podle inventury (Kč)", "Hodnota": Math.round(v.hodnotaSkutecna * 100) / 100 },
+      { "Údaj": "Inventurní rozdíl (Kč)", "Hodnota": Math.round(v.hodnotaRozdilu * 100) / 100 },
+      { "Údaj": "Položky bez ceny (hodnota neúplná)", "Hodnota": v.bezCeny.map((r) => r.material).join(", ") },
+      { "Údaj": "Nespočítané položky", "Hodnota": v.nespocitane.map((r) => r.material).join(", ") },
+      { "Údaj": "Ocenění", "Hodnota": "vážený průměr cen ze všech oceněných příjmů do data inventury" },
+    ];
+    await exportSheetsToExcel([{ name: "Souhrn", rows: souhrn }, { name: "Položky", rows }], "Inventura_" + String(inventura.datum).replace(/\./g, "-"));
+  }
+
+  return (
+    <ModalShell title={`Inventura k ${inventura.datum} – ${INVENTURA_STAV[inventura.stav] || inventura.stav}`} onClose={onClose} extraWide>
+      {error && <div className="mb-3 bg-red-50 text-red-700 text-sm px-3 py-2 rounded-md flex items-center gap-2"><AlertCircle size={16} /> {error}</div>}
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 mb-3">
+        <div className="bg-slate-50 rounded-md px-3 py-2"><div className="text-xs text-slate-500">Podle evidence</div><div className="font-semibold">{fmtK(v.hodnotaEvidovana)}</div></div>
+        <div className="bg-slate-50 rounded-md px-3 py-2"><div className="text-xs text-slate-500">Podle inventury</div><div className="font-semibold">{fmtK(v.hodnotaSkutecna)}</div></div>
+        <div className="bg-slate-50 rounded-md px-3 py-2"><div className="text-xs text-slate-500">Inventurní rozdíl</div><div className={"font-semibold " + (v.hodnotaRozdilu < 0 ? "text-red-600" : "")}>{fmtK(v.hodnotaRozdilu)}</div></div>
+      </div>
+      {v.nespocitane.length > 0 && (
+        <div className="mb-2 text-xs text-amber-800 bg-amber-50 px-2 py-1.5 rounded-md">Nespočítáno (v evidenci, ale ne v inventuře – při uzavření se neopraví): {v.nespocitane.map((r) => r.material).join(", ")}</div>
+      )}
+      {v.bezCeny.length > 0 && (
+        <div className="mb-2 text-xs text-amber-800 bg-amber-50 px-2 py-1.5 rounded-md">Bez ceny (chybí faktura – hodnota je neúplná): {v.bezCeny.map((r) => r.material).join(", ")}</div>
+      )}
+      {inventura.stav === "ROZPRACOVANA" && <div className="mb-2 text-xs text-slate-600 bg-slate-50 px-2 py-1.5 rounded-md">Sklad ještě počítá – uzavřít lze až po odeslání ze skladu.</div>}
+      <div className="overflow-x-auto border border-slate-200 rounded-md mb-3">
+        <table className="w-full text-sm">
+          <thead>
+            <tr className="bg-slate-100 text-slate-600 text-left">
+              <th className="px-3 py-2 font-medium">Materiál</th>
+              <th className="px-3 py-2 font-medium text-right">Evidováno</th>
+              <th className="px-3 py-2 font-medium text-right">Napočítáno</th>
+              <th className="px-3 py-2 font-medium text-right">Rozdíl</th>
+              <th className="px-3 py-2 font-medium text-right">Prům. cena</th>
+              <th className="px-3 py-2 font-medium text-right">Hodnota</th>
+              <th className="px-3 py-2 font-medium text-right">Hodnota rozdílu</th>
+            </tr>
+          </thead>
+          <tbody>
+            {v.rows.map((r) => (
+              <tr key={r.material + "|" + r.unit} className="border-t border-slate-100">
+                <td className="px-3 py-2 font-medium">{r.material}{r.poznamka && <div className="text-xs text-slate-500 font-normal">{r.poznamka}</div>}</td>
+                <td className="px-3 py-2 text-right text-slate-500">{fmtQ(r.evidovane)} {r.unit}</td>
+                <td className="px-3 py-2 text-right">{r.napocitane === null ? <span className="text-amber-700">nespočítáno</span> : `${fmtQ(r.napocitane)} ${r.unit}`}</td>
+                <td className={"px-3 py-2 text-right font-semibold " + (r.rozdil < 0 ? "text-red-600" : r.rozdil > 0 ? "text-emerald-700" : "text-slate-400")}>{r.rozdil === null ? "-" : `${r.rozdil > 0 ? "+" : ""}${fmtQ(r.rozdil)}`}</td>
+                <td className="px-3 py-2 text-right text-slate-500">{r.priemernaCena === null ? "bez ceny" : formatCzk(r.priemernaCena)}</td>
+                <td className="px-3 py-2 text-right">{fmtK(r.hodnotaSkutecna)}</td>
+                <td className="px-3 py-2 text-right text-slate-500">{fmtK(r.hodnotaRozdilu)}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+      <div className="text-xs text-slate-500 mb-3">
+        Ocenění: vážený průměr cen ze všech oceněných příjmů do data inventury (stejně jako Stav zásob). Evidováno = příjmy minus výdeje do konce dne {inventura.datum}.
+        {uzavrena && ` Uzavřel(a) ${inventura.uzavrel || "-"} – hodnoty jsou zmrazené k uzavření.`}
+      </div>
+      <div className="flex flex-wrap justify-end gap-2">
+        <button onClick={exportToExcel} className="flex items-center gap-1.5 bg-white border border-slate-200 hover:bg-slate-50 text-slate-700 text-sm font-medium px-3 py-2 rounded-md"><Download size={16} /> Export do Excelu</button>
+        {!uzavrena && <button onClick={smazat} disabled={busy} className="text-sm text-red-600 hover:text-red-700 px-3 py-2 disabled:opacity-50">Smazat</button>}
+        {inventura.stav === "SPOCITANA" && <button onClick={vratitSkladu} disabled={busy} className="bg-white border border-slate-200 hover:bg-slate-50 text-slate-700 text-sm font-medium px-3 py-2 rounded-md disabled:opacity-50">Vrátit skladu k přepočítání</button>}
+        {inventura.stav === "SPOCITANA" && !confirmClose && <button onClick={() => setConfirmClose(true)} disabled={busy} className="bg-teal-700 hover:bg-teal-800 text-white text-sm font-medium px-4 py-2 rounded-md disabled:opacity-50">Uzavřít inventuru</button>}
+      </div>
+      {confirmClose && (
+        <div className="mt-3 border border-teal-200 bg-teal-50 rounded-md p-3 text-sm">
+          <div className="mb-2">Uzavřením se rozdíly zapíší do zásob (manko jako výdej „{INVENTURA_DOVOD}“, přebytek jako příjem „{INVENTURA_PREBYTEK}“) a hodnoty se zmrazí. Uzavřenou inventuru už nelze měnit.</div>
+          <div className="flex justify-end gap-2">
+            <button onClick={() => setConfirmClose(false)} className="text-sm text-slate-500 px-3 py-2">Zrušit</button>
+            <button onClick={uzavrit} disabled={busy} className="bg-teal-700 hover:bg-teal-800 text-white text-sm font-medium px-4 py-2 rounded-md flex items-center gap-1.5 disabled:opacity-50">
+              {busy ? <Loader2 size={16} className="animate-spin" /> : <CheckCircle2 size={16} />} Ano, uzavřít
+            </button>
+          </div>
+        </div>
+      )}
+    </ModalShell>
   );
 }
 

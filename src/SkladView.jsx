@@ -1,9 +1,10 @@
 import React, { useState, useEffect, useCallback, useRef } from "react";
-import { LogOut, LogIn, Loader2, AlertCircle, PackageCheck, PackageX, Check, TriangleAlert, XCircle, Trash2, CheckCircle2, Camera, X, ChevronRight, Truck, PackagePlus, Warehouse, LayoutDashboard, Coffee, Construction, ClipboardCheck } from "lucide-react";
+import { LogOut, LogIn, Loader2, AlertCircle, PackageCheck, PackageX, Check, TriangleAlert, XCircle, Trash2, CheckCircle2, Camera, X, ChevronRight, Truck, PackagePlus, Warehouse, LayoutDashboard, Coffee, ClipboardCheck } from "lucide-react";
 import { supabase } from "./supabaseClient.js";
 import { extractCityFromAddress, todayStr, nowTimeStr, formatDateTime, uid, parseSkDate, durationMinutes, formatMinutes } from "./lib/utils.js";
 import { computeStockLevels, computeFinishedGoodsStock, wouldExceed, materialPicksForSupplier, allKnownMaterials, UNIT_QUICK_PICKS } from "./lib/inventory.js";
 import { isPlanZmenaActive, formatZmenaText } from "./lib/planZmena.js";
+import InventuraPocitanie from "./InventuraPocitanie.jsx";
 
 const POLL_MS = 4000;
 const MATERIAL_QUICK_PICKS = ["Kukuřice Mushroom Yellow", "Cukr Tereos krystal", "Sůl SUPERFINE", "Tuk AKOSNAC NT MB", "Kartony", "Kbelíky", "Fólie", "Střešní fólie", "Pásky"];
@@ -137,7 +138,7 @@ export default function SkladView({ fullName, onSignOut }) {
       })()}
 
       <main className="max-w-4xl mx-auto px-4 py-6">
-        {tab === "prehlad" ? <PrehladTab /> : tab === "expedicia" ? <ExpediciaTab fullName={activeMeno} /> : tab === "prijem" ? <PrijemTab fullName={pracovnik} /> : tab === "zasoby" ? <ZasobySekce fullName={activeMeno} /> : tab === "dochazka" ? <DochazkaTab /> : <KontrolaSkladuTab />}
+        {tab === "prehlad" ? <PrehladTab /> : tab === "expedicia" ? <ExpediciaTab fullName={activeMeno} /> : tab === "prijem" ? <PrijemTab fullName={pracovnik} /> : tab === "zasoby" ? <ZasobySekce fullName={activeMeno} /> : tab === "dochazka" ? <DochazkaTab /> : <InventuraPocitanie fullName={activeMeno} extraMaterialy={MATERIAL_QUICK_PICKS} />}
       </main>
     </div>
   );
@@ -2805,13 +2806,3 @@ function PinPrompt({ worker, hasExisting, value, onChange, error, busy, onSubmit
   );
 }
 
-/* ---------------- Kontrola skladu ---------------- */
-
-function KontrolaSkladuTab() {
-  return (
-    <div className="bg-white border border-slate-200 rounded-lg p-10 text-center text-slate-500">
-      <Construction size={28} className="mx-auto mb-3 text-slate-300" />
-      Tato sekce se připravuje - obsah doplníme později.
-    </div>
-  );
-}
