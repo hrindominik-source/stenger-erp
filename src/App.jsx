@@ -233,6 +233,8 @@ const EMPTY_GOODS_RECEIPT = {
   cenaJednotkovaCzk: "",
   fakturaCislo: "",
   fakturaDatum: "",
+  sarza: "",
+  dmt: "",
   fakturaPath: "",
 };
 const GOODS_RECEIPT_PHOTOS_BUCKET = "goods-receipt-photos";
@@ -7078,6 +7080,9 @@ function GoodsReceiptsView({ receipts, suppliers, materialOrders, onNew, onEdit,
       "Číslo objednávky": r.materialObjednavkaCislo,
       "Materiál": r.material,
       "Množství": r.mnozstvo,
+      "Šarže": r.sarza || "",
+      "DMT": r.dmt || "",
+      "Palety (SSCC)": (r.palety || []).map((p) => p.sscc).filter(Boolean).join(", "),
       "Cena/j. (Kč)": r.cenaJednotkovaCzk || "",
       "Číslo faktury": r.fakturaCislo || "",
       "Stav": r.stavPrevzatia,
@@ -7135,7 +7140,11 @@ function GoodsReceiptsView({ receipts, suppliers, materialOrders, onNew, onEdit,
                   </td>
                   <td className="px-3 py-2">
                     <div>{r.material || <span className="text-slate-400">-</span>}</div>
-                    <div className="text-xs text-slate-400">{r.mnozstvo}</div>
+                    <div className="text-xs text-slate-400">{r.mnozstvo}{r.palety && r.palety.length > 0 ? ` · ${r.palety.length} pal.` : ""}</div>
+                    {(r.sarza || r.dmt) && <div className="text-xs text-slate-500">{[r.sarza && "šarže " + r.sarza, r.dmt && "DMT " + r.dmt].filter(Boolean).join(" · ")}</div>}
+                    {r.kontroly && r.kontroly.length > 0 && (
+                      <div className="text-xs text-amber-700" title={r.kontroly.join(" | ")}>{r.kontrolyPotvrdil ? `Uloženo přes chybu (${r.kontrolyPotvrdil})` : "Upozornění při příjmu"}: {r.kontroly[0]}{r.kontroly.length > 1 ? ` (+${r.kontroly.length - 1})` : ""}</div>
+                    )}
                   </td>
                   <td className="px-3 py-2"><Badge text={r.stavPrevzatia} map={STATUS_PREVZATIA} /></td>
                   <td className="px-3 py-2 text-slate-500">{r.prevzal}</td>
@@ -7270,6 +7279,15 @@ function GoodsReceiptFormModal({ receipt, suppliers, materialOrders, existingRec
         </div>
       </div>
       <Field label="Číslo dodacího listu / faktury od dodavatele" value={f.cisloDokladu} onChange={(v) => setF({ ...f, cisloDokladu: v })} />
+      <div className="grid grid-cols-2 gap-3">
+        <Field label="Šarže" value={f.sarza || ""} onChange={(v) => setF({ ...f, sarza: v })} />
+        <Field label="DMT (DD.MM.RRRR)" value={f.dmt || ""} onChange={(v) => setF({ ...f, dmt: v })} />
+      </div>
+      {f.palety && f.palety.length > 0 && (
+        <div className="mb-3 text-xs text-slate-500">
+          Palety ze skenu: {f.palety.map((p) => [p.sscc, p.sarza, p.dmt].filter(Boolean).join(" / ")).join("; ")}
+        </div>
+      )}
       <SelectField
         label="Stav při převzetí"
         value={f.stavPrevzatia}
