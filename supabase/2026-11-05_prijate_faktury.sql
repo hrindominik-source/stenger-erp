@@ -55,12 +55,15 @@ $$;
 revoke all on function public.invoice_inbox_token_ok(text) from public, anon, authenticated;
 grant execute on function public.invoice_inbox_token_ok(text) to service_role;
 
--- B. Automaticke spustanie kazdych 15 minut (az PO nasadeni funkcie) ---
+-- B. Automaticke spustanie raz denne rano (az PO nasadeni funkcie) -----
 --    <PROJEKT> nahradte adresou projektu (Settings -> API -> Project URL).
+--    Jeden beh spracuje najviac 4 nove PDF (casovy limit funkcie), preto sa
+--    rano spusti viackrat po 5 min: 5:00-6:55 UTC = 6:00-7:55 v zime,
+--    7:00-8:55 v lete (az ~96 faktur denne). Behy bez novej faktury AI nevolaju.
 --
 -- create extension if not exists pg_cron;
 -- create extension if not exists pg_net;
--- select cron.schedule('invoice-inbox', '*/15 * * * *', $cron$
+-- select cron.schedule('invoice-inbox', '*/5 5-6 * * *', $cron$
 --   select net.http_post(
 --     url := 'https://<PROJEKT>.supabase.co/functions/v1/invoice-inbox',
 --     headers := jsonb_build_object(
