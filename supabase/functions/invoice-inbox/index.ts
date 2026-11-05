@@ -57,11 +57,18 @@ Deno.serve(async (req: Request) => {
   if (!apiKey) return json({ error: "Chybí Anthropic API klíč v Nastavení firmy." }, 500);
 
   const port = Number(Deno.env.get("INBOX_IMAP_PORT") || 993);
-  const imap = new ImapFlow({ host, port, secure: port === 993, auth: { user, pass }, logger: false });
+  // limit funkcie je 150 s; nove PDF sa po 90 s uz nezacne (AI citanie trva do ~30 s)
+  const deadline = Date.now() + 90_000;
+  const log = (m: string) => console.log("[invoice-inbox] " + m);
+  const imap = new ImapFlow({ host, port, secure: port === 993, auth: { user, pass }, logger: false, connectionTimeout: 20_000, greetingTimeout: 15_000, socketTimeout: 60_000 });
   try {
+    log("pripajam " + host);
     await imap.connect();
+    log("pripojene");
     const summary = await processInbox({
       imap,
+      deadline,
+      log,
       since: sinceFromEnv(Deno.env.get("INBOX_OD")),
       extract: (bytes: Uint8Array) => extractInvoice(bytes, apiKey),
       store: {
@@ -80,6 +87,7 @@ Deno.serve(async (req: Request) => {
         },
       },
     });
+    log(`hotovo: ${JSON.stringify(summary)}`);
     return json({ ok: true, ...summary });
   } catch (e) {
     console.error(e);

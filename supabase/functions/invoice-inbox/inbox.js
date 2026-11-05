@@ -60,6 +60,7 @@ export async function extractInvoice(bytes, apiKey, fetchImpl = fetch) {
   const res = await fetchImpl("https://api.anthropic.com/v1/messages", {
     method: "POST",
     headers: { "Content-Type": "application/json", "x-api-key": apiKey, "anthropic-version": "2023-06-01" },
+    signal: AbortSignal.timeout(50_000),
     body: JSON.stringify({
       model: "claude-sonnet-5-5",
       max_tokens: 4000,
@@ -100,12 +101,14 @@ async function streamToBytes(stream) {
 }
 
 // imap: pripojeny ImapFlow klient. store: { existingIds(ids) -> Set, uploadPdf(path, bytes), insert(row) }.
-// extract(bytes) -> data z faktury. Spracuje najviac maxNew novych PDF (zvysok pri dalsom behu).
-export async function processInbox({ imap, store, extract, since, maxNew = 4, now = () => new Date() }) {
+// extract(bytes) -> data z faktury. Spracuje najviac maxNew novych PDF a nove PDF uz nezacne
+// po deadline (ms) - funkcia ma casovy limit, zvysok sa spracuje pri dalsom behu.
+export async function processInbox({ imap, store, extract, since, maxNew = 10, deadline = Infinity, now = () => new Date(), log = () => {} }) {
   const summary = { nove: 0, chyby: 0, zostava: 0 };
   const lock = await imap.getMailboxLock("INBOX", { readOnly: true });
   try {
     const uids = (await imap.search({ since }, { uid: true })) || [];
+    log(`mailov od ${since.toISOString().slice(0, 10)}: ${uids.length}`);
     if (uids.length === 0) return summary;
     const kandidati = [];
     for await (const msg of imap.fetch(uids.join(","), { uid: true, envelope: true, bodyStructure: true }, { uid: true })) {
@@ -127,8 +130,10 @@ export async function processInbox({ imap, store, extract, since, maxNew = 4, no
     if (kandidati.length === 0) return summary;
     const existing = await store.existingIds(kandidati.map((k) => k.id));
     const nove = kandidati.filter((k) => !existing.has(k.id));
-    summary.zostava = Math.max(0, nove.length - maxNew);
+    log(`PDF priloh: ${kandidati.length}, novych: ${nove.length}`);
+    summary.zostava = nove.length;
     for (const k of nove.slice(0, maxNew)) {
+      if (now().getTime() >= deadline) break;
       const row = { id: k.id, od: k.od, predmet: k.predmet, prijato: k.prijato, nazovSuboru: k.filename, nacitanoAt: now().toISOString(), fakturaPath: "", extrakce: null, chyba: "" };
       try {
         if (k.size > MAX_PDF_BYTES) throw new Error("PDF je příliš velké pro AI, zpracujte ručně.");
@@ -150,6 +155,8 @@ export async function processInbox({ imap, store, extract, since, maxNew = 4, no
       if (row.extrakce && row.extrakce.mena) row.extrakce.mena = String(row.extrakce.mena).toUpperCase().trim();
       await store.insert(row);
       summary.nove++;
+      summary.zostava--;
+      log(`ulozene ${k.filename}: ${row.stav}${row.chyba ? " (" + row.chyba.slice(0, 120) + ")" : ""}`);
     }
   } finally {
     lock.release();

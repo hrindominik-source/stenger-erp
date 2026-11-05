@@ -148,6 +148,19 @@ describe("processInbox", () => {
     expect(s2).toEqual({ nove: 1, chyby: 0, zostava: 0 });
   });
 
+  it("po deadline uz nove PDF nezacne", async () => {
+    const imap = fakeImap([pdfMsg(1), pdfMsg(2), pdfMsg(3)]);
+    const store = memStore();
+    let t = 0;
+    const now = () => new Date(t);
+    const extract = async () => {
+      t += 60_000;
+      return {};
+    };
+    const s = await processInbox({ imap, store, extract, since: new Date(), deadline: 90_000, now });
+    expect(s).toEqual({ nove: 2, chyby: 0, zostava: 1 });
+  });
+
   it("prilis velke PDF sa nestahuje", async () => {
     const big = pdfMsg(5);
     big.bodyStructure.childNodes[1].size = 30 * 1024 * 1024;
