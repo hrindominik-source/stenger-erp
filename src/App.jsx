@@ -2,7 +2,7 @@ import React, { useState, useEffect, useCallback, useRef, useMemo, Suspense, laz
 import { createPortal } from "react-dom";
 import {
   Truck, FileText, Plus, Trash2, Pencil, X, Upload,
-  Clipboard, CheckCircle2, Building2, Users, Loader2, AlertCircle,
+  Clipboard, Check, CheckCircle2, Building2, Users, Loader2, AlertCircle,
   ClipboardList, ArrowLeft, Download, Layers, FileSignature, Printer, Package,
   LogOut, PackageCheck, PackageX, Euro, Factory, Boxes, PackagePlus, Camera,
   LayoutDashboard, Warehouse, MinusCircle, FlaskConical, ClipboardCheck, UserCheck, Menu, Mail, Calendar, FileSpreadsheet, Receipt,
@@ -25,6 +25,7 @@ import { renderWorksheetToHtml } from "./lib/xlsxToHtml.js";
 import { parseSupplierCatalogFile, mergeSupplierCatalog } from "./lib/supplierCatalog.js";
 import { exportRowsToExcel, exportSheetsToExcel } from "./lib/exportExcel.js";
 import { computeStockLevels, computeProductionIssues, extraKnownMaterials, materialPicksForSupplier, allKnownMaterials, suggestReceiptMatches, UNIT_QUICK_PICKS } from "./lib/inventory.js";
+import { vyhodnotInventuru, inventuraOpravy, INVENTURA_STAV, INVENTURA_DOVOD, INVENTURA_PREBYTEK } from "./lib/inventura.js";
 import { diffProductionPlanFields, isPlanZmenaActive, formatZmenaText } from "./lib/planZmena.js";
 import { getCnbRate } from "./lib/exchangeRate.js";
 import { downloadTextAsPdf, renderContainerToPdf } from "./lib/textPdf.js";
@@ -2055,6 +2056,13 @@ function OfficeApp({ userFullName, userEmail, onSignOut }) {
           <StockView
             goodsReceipts={goodsReceipts}
             stockIssues={stockIssues}
+            currentUserName={userFullName}
+            onInventuraOpravy={(rec, iss) => {
+              const recIds = new Set(rec.map((r) => r.id));
+              const issIds = new Set(iss.map((i) => i.id));
+              setGoodsReceipts((prev) => [...rec, ...prev.filter((r) => !recIds.has(r.id))]);
+              setStockIssues((prev) => [...iss, ...prev.filter((i) => !issIds.has(i.id))]);
+            }}
             onNew={() => setShowNewStockIssue(true)}
             onNewTestProduction={() => setShowNewTestProductionIssue(true)}
             onEdit={(i) => setEditingStockIssue(i)}
@@ -7144,7 +7152,7 @@ function formatCzk(n) {
   return Math.round(n).toLocaleString("sk-SK") + " Kč";
 }
 
-function StockView({ goodsReceipts, stockIssues, onNew, onNewTestProduction, onEdit, onDelete }) {
+function StockView({ goodsReceipts, stockIssues, currentUserName, onInventuraOpravy, onNew, onNewTestProduction, onEdit, onDelete }) {
   const [confirmDelete, setConfirmDelete] = useState(null);
   const stock = computeStockLevels(goodsReceipts, stockIssues);
   const celkovaHodnota = stock.reduce((sum, row) => sum + (row.hodnota || 0), 0);
@@ -7195,6 +7203,8 @@ function StockView({ goodsReceipts, stockIssues, onNew, onNewTestProduction, onE
           </button>
         </div>
       </div>
+
+      <InventuryPanel goodsReceipts={goodsReceipts} stockIssues={stockIssues} currentUserName={currentUserName} onOpravy={onInventuraOpravy} />
 
       {stock.length === 0 ? (
         <div className="bg-white border border-slate-200 rounded-lg p-10 text-center text-slate-500 mb-6">
@@ -7286,6 +7296,234 @@ function StockView({ goodsReceipts, stockIssues, onNew, onNewTestProduction, onE
         </ModalShell>
       )}
     </div>
+  );
+}
+
+// Inventury v kancelarii: porovnanie so stavom k datumu inventury, ocenenie
+// vazenym priemerom a uzavretie (opravne pohyby + zmrazeny vysledok pre majitela).
+function InventuryPanel({ goodsReceipts, stockIssues, currentUserName, onOpravy }) {
+  const [inventury, setInventury] = useState([]);
+  const [error, setError] = useState("");
+  const [detail, setDetail] = useState(null);
+
+  const load = useCallback(async () => {
+    const { data, error: err } = await supabase.from("inventury").select("*").order("created_at", { ascending: false });
+    if (err) {
+      setError("Inventury se nepodařilo načíst.");
+      return;
+    }
+    setError("");
+    setInventury((data || []).map((row) => row.data));
+  }, []);
+
+  useEffect(() => {
+    load();
+  }, [load]);
+
+  const hodnotaInventury = (i) => (i.stav === "UZAVRENA" && i.vysledek ? i.vysledek.hodnotaSkutecna : null);
+
+  return (
+    <div className="bg-white border border-slate-200 rounded-lg mb-6" data-testid="inventury-panel">
+      <div className="flex items-center justify-between px-3 py-2.5 bg-slate-50 border-b border-slate-200">
+        <span className="text-sm font-semibold text-slate-700 flex items-center gap-1.5"><ClipboardCheck size={16} /> Inventury</span>
+        <span className="text-xs text-slate-500">Počítá sklad (Sklad → Kontrola skladu), kancelář kontroluje a uzavírá.</span>
+      </div>
+      {error && <div className="px-3 py-2 text-sm text-red-700 bg-red-50">{error}</div>}
+      {inventury.length === 0 ? (
+        <div className="px-3 py-4 text-sm text-slate-400">Zatím žádná inventura.</div>
+      ) : (
+        <table className="w-full text-sm">
+          <tbody>
+            {inventury.slice(0, 12).map((i) => (
+              <tr key={i.id} onClick={() => setDetail(i)} className="border-t border-slate-100 first:border-t-0 hover:bg-slate-50 cursor-pointer">
+                <td className="px-3 py-2 font-medium">Inventura k {i.datum}</td>
+                <td className="px-3 py-2">
+                  <span className={"text-xs font-medium px-2 py-0.5 rounded-full " + (i.stav === "UZAVRENA" ? "bg-emerald-100 text-emerald-700" : i.stav === "SPOCITANA" ? "bg-indigo-100 text-indigo-700" : "bg-slate-100 text-slate-600")}>{INVENTURA_STAV[i.stav] || i.stav}</span>
+                </td>
+                <td className="px-3 py-2 text-slate-500">{i.spocital || i.zahajil || ""}</td>
+                <td className="px-3 py-2 text-right font-semibold">{hodnotaInventury(i) !== null ? formatCzk(hodnotaInventury(i)) : ""}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      )}
+      {detail && (
+        <InventuraDetailModal
+          inventura={detail}
+          goodsReceipts={goodsReceipts}
+          stockIssues={stockIssues}
+          currentUserName={currentUserName}
+          onOpravy={onOpravy}
+          onClose={() => setDetail(null)}
+          onChanged={async () => {
+            setDetail(null);
+            await load();
+          }}
+        />
+      )}
+    </div>
+  );
+}
+
+function InventuraDetailModal({ inventura, goodsReceipts, stockIssues, currentUserName, onOpravy, onClose, onChanged }) {
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  const [confirmClose, setConfirmClose] = useState(false);
+  const uzavrena = inventura.stav === "UZAVRENA";
+  // uzavreta inventura sa zobrazuje zo zmrazeneho vysledku, nie z aktualnych dat
+  const v = uzavrena && inventura.vysledek ? inventura.vysledek : vyhodnotInventuru(inventura, goodsReceipts, stockIssues);
+  const fmtQ = (n) => (n === null || n === undefined ? "-" : String(n).replace(".", ","));
+  const fmtK = (n) => (n === null || n === undefined ? "-" : formatCzk(n));
+
+  async function uzavrit() {
+    setBusy(true);
+    setError("");
+    try {
+      const { issues, receipts } = inventuraOpravy(v, { inventuraId: inventura.id, datum: inventura.datum, cas: "23:59", kdo: currentUserName || "" });
+      // deterministicke id -> opakovane uzavretie po chybe nezapise opravy dvakrat
+      const rec = receipts.map((r, n) => ({ ...r, id: `${inventura.id}-p${n}` }));
+      const iss = issues.map((r, n) => ({ ...r, id: `${inventura.id}-m${n}` }));
+      if (rec.length) {
+        const { error: e1 } = await supabase.from("goods_receipts").upsert(rec.map((r) => ({ id: r.id, data: r })));
+        if (e1) throw e1;
+      }
+      if (iss.length) {
+        const { error: e2 } = await supabase.from("stock_issues").upsert(iss.map((r) => ({ id: r.id, data: r })));
+        if (e2) throw e2;
+      }
+      onOpravy(rec, iss);
+      const data = {
+        ...inventura,
+        stav: "UZAVRENA",
+        uzavrel: currentUserName || "",
+        uzavrenoAt: new Date().toISOString(),
+        vysledek: v,
+        opravy: [...rec.map((r) => r.id), ...iss.map((r) => r.id)],
+      };
+      const { error: e3 } = await supabase.from("inventury").update({ data }).eq("id", inventura.id);
+      if (e3) throw e3;
+      await onChanged();
+    } catch (e) {
+      console.error(e);
+      setError("Uzavření se nezdařilo, zkuste to znovu (opravy se nezapíší dvakrát).");
+    }
+    setBusy(false);
+  }
+
+  async function vratitSkladu() {
+    setBusy(true);
+    const { error: err } = await supabase.from("inventury").update({ data: { ...inventura, stav: "ROZPRACOVANA" } }).eq("id", inventura.id);
+    setBusy(false);
+    if (err) {
+      setError("Uložení se nezdařilo, zkuste to znovu.");
+      return;
+    }
+    await onChanged();
+  }
+
+  async function smazat() {
+    setBusy(true);
+    const { error: err } = await supabase.from("inventury").delete().eq("id", inventura.id);
+    setBusy(false);
+    if (err) {
+      setError("Smazání se nezdařilo, zkuste to znovu.");
+      return;
+    }
+    await onChanged();
+  }
+
+  async function exportToExcel() {
+    const rows = v.rows.map((r) => ({
+      "Materiál": r.material,
+      "Jednotka": r.unit,
+      "Evidováno": r.evidovane,
+      "Napočítáno": r.napocitane === null ? "nespočítáno" : r.napocitane,
+      "Rozdíl": r.rozdil === null ? "" : r.rozdil,
+      "Průměrná cena (Kč)": r.priemernaCena === null ? "bez ceny" : Math.round(r.priemernaCena * 100) / 100,
+      "Hodnota skutečná (Kč)": r.hodnotaSkutecna === null ? "" : Math.round(r.hodnotaSkutecna * 100) / 100,
+      "Hodnota rozdílu (Kč)": r.hodnotaRozdilu === null ? "" : Math.round(r.hodnotaRozdilu * 100) / 100,
+      "Poznámka": r.poznamka,
+    }));
+    const souhrn = [
+      { "Údaj": "Inventura k datu", "Hodnota": inventura.datum },
+      { "Údaj": "Stav", "Hodnota": INVENTURA_STAV[inventura.stav] || inventura.stav },
+      { "Údaj": "Spočítal(a)", "Hodnota": inventura.spocital || "" },
+      { "Údaj": "Uzavřel(a)", "Hodnota": inventura.uzavrel || "" },
+      { "Údaj": "Hodnota zásob podle evidence (Kč)", "Hodnota": Math.round(v.hodnotaEvidovana * 100) / 100 },
+      { "Údaj": "Hodnota zásob podle inventury (Kč)", "Hodnota": Math.round(v.hodnotaSkutecna * 100) / 100 },
+      { "Údaj": "Inventurní rozdíl (Kč)", "Hodnota": Math.round(v.hodnotaRozdilu * 100) / 100 },
+      { "Údaj": "Položky bez ceny (hodnota neúplná)", "Hodnota": v.bezCeny.map((r) => r.material).join(", ") },
+      { "Údaj": "Nespočítané položky", "Hodnota": v.nespocitane.map((r) => r.material).join(", ") },
+      { "Údaj": "Ocenění", "Hodnota": "vážený průměr cen ze všech oceněných příjmů do data inventury" },
+    ];
+    await exportSheetsToExcel([{ name: "Souhrn", rows: souhrn }, { name: "Položky", rows }], "Inventura_" + String(inventura.datum).replace(/\./g, "-"));
+  }
+
+  return (
+    <ModalShell title={`Inventura k ${inventura.datum} – ${INVENTURA_STAV[inventura.stav] || inventura.stav}`} onClose={onClose} extraWide>
+      {error && <div className="mb-3 bg-red-50 text-red-700 text-sm px-3 py-2 rounded-md flex items-center gap-2"><AlertCircle size={16} /> {error}</div>}
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 mb-3">
+        <div className="bg-slate-50 rounded-md px-3 py-2"><div className="text-xs text-slate-500">Podle evidence</div><div className="font-semibold">{fmtK(v.hodnotaEvidovana)}</div></div>
+        <div className="bg-slate-50 rounded-md px-3 py-2"><div className="text-xs text-slate-500">Podle inventury</div><div className="font-semibold">{fmtK(v.hodnotaSkutecna)}</div></div>
+        <div className="bg-slate-50 rounded-md px-3 py-2"><div className="text-xs text-slate-500">Inventurní rozdíl</div><div className={"font-semibold " + (v.hodnotaRozdilu < 0 ? "text-red-600" : "")}>{fmtK(v.hodnotaRozdilu)}</div></div>
+      </div>
+      {v.nespocitane.length > 0 && (
+        <div className="mb-2 text-xs text-amber-800 bg-amber-50 px-2 py-1.5 rounded-md">Nespočítáno (v evidenci, ale ne v inventuře – při uzavření se neopraví): {v.nespocitane.map((r) => r.material).join(", ")}</div>
+      )}
+      {v.bezCeny.length > 0 && (
+        <div className="mb-2 text-xs text-amber-800 bg-amber-50 px-2 py-1.5 rounded-md">Bez ceny (chybí faktura – hodnota je neúplná): {v.bezCeny.map((r) => r.material).join(", ")}</div>
+      )}
+      {inventura.stav === "ROZPRACOVANA" && <div className="mb-2 text-xs text-slate-600 bg-slate-50 px-2 py-1.5 rounded-md">Sklad ještě počítá – uzavřít lze až po odeslání ze skladu.</div>}
+      <div className="overflow-x-auto border border-slate-200 rounded-md mb-3">
+        <table className="w-full text-sm">
+          <thead>
+            <tr className="bg-slate-100 text-slate-600 text-left">
+              <th className="px-3 py-2 font-medium">Materiál</th>
+              <th className="px-3 py-2 font-medium text-right">Evidováno</th>
+              <th className="px-3 py-2 font-medium text-right">Napočítáno</th>
+              <th className="px-3 py-2 font-medium text-right">Rozdíl</th>
+              <th className="px-3 py-2 font-medium text-right">Prům. cena</th>
+              <th className="px-3 py-2 font-medium text-right">Hodnota</th>
+              <th className="px-3 py-2 font-medium text-right">Hodnota rozdílu</th>
+            </tr>
+          </thead>
+          <tbody>
+            {v.rows.map((r) => (
+              <tr key={r.material + "|" + r.unit} className="border-t border-slate-100">
+                <td className="px-3 py-2 font-medium">{r.material}{r.poznamka && <div className="text-xs text-slate-500 font-normal">{r.poznamka}</div>}</td>
+                <td className="px-3 py-2 text-right text-slate-500">{fmtQ(r.evidovane)} {r.unit}</td>
+                <td className="px-3 py-2 text-right">{r.napocitane === null ? <span className="text-amber-700">nespočítáno</span> : `${fmtQ(r.napocitane)} ${r.unit}`}</td>
+                <td className={"px-3 py-2 text-right font-semibold " + (r.rozdil < 0 ? "text-red-600" : r.rozdil > 0 ? "text-emerald-700" : "text-slate-400")}>{r.rozdil === null ? "-" : `${r.rozdil > 0 ? "+" : ""}${fmtQ(r.rozdil)}`}</td>
+                <td className="px-3 py-2 text-right text-slate-500">{r.priemernaCena === null ? "bez ceny" : formatCzk(r.priemernaCena)}</td>
+                <td className="px-3 py-2 text-right">{fmtK(r.hodnotaSkutecna)}</td>
+                <td className="px-3 py-2 text-right text-slate-500">{fmtK(r.hodnotaRozdilu)}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+      <div className="text-xs text-slate-500 mb-3">
+        Ocenění: vážený průměr cen ze všech oceněných příjmů do data inventury (stejně jako Stav zásob). Evidováno = příjmy minus výdeje do konce dne {inventura.datum}.
+        {uzavrena && ` Uzavřel(a) ${inventura.uzavrel || "-"} – hodnoty jsou zmrazené k uzavření.`}
+      </div>
+      <div className="flex flex-wrap justify-end gap-2">
+        <button onClick={exportToExcel} className="flex items-center gap-1.5 bg-white border border-slate-200 hover:bg-slate-50 text-slate-700 text-sm font-medium px-3 py-2 rounded-md"><Download size={16} /> Export do Excelu</button>
+        {!uzavrena && <button onClick={smazat} disabled={busy} className="text-sm text-red-600 hover:text-red-700 px-3 py-2 disabled:opacity-50">Smazat</button>}
+        {inventura.stav === "SPOCITANA" && <button onClick={vratitSkladu} disabled={busy} className="bg-white border border-slate-200 hover:bg-slate-50 text-slate-700 text-sm font-medium px-3 py-2 rounded-md disabled:opacity-50">Vrátit skladu k přepočítání</button>}
+        {inventura.stav === "SPOCITANA" && !confirmClose && <button onClick={() => setConfirmClose(true)} disabled={busy} className="bg-teal-700 hover:bg-teal-800 text-white text-sm font-medium px-4 py-2 rounded-md disabled:opacity-50">Uzavřít inventuru</button>}
+      </div>
+      {confirmClose && (
+        <div className="mt-3 border border-teal-200 bg-teal-50 rounded-md p-3 text-sm">
+          <div className="mb-2">Uzavřením se rozdíly zapíší do zásob (manko jako výdej „{INVENTURA_DOVOD}“, přebytek jako příjem „{INVENTURA_PREBYTEK}“) a hodnoty se zmrazí. Uzavřenou inventuru už nelze měnit.</div>
+          <div className="flex justify-end gap-2">
+            <button onClick={() => setConfirmClose(false)} className="text-sm text-slate-500 px-3 py-2">Zrušit</button>
+            <button onClick={uzavrit} disabled={busy} className="bg-teal-700 hover:bg-teal-800 text-white text-sm font-medium px-4 py-2 rounded-md flex items-center gap-1.5 disabled:opacity-50">
+              {busy ? <Loader2 size={16} className="animate-spin" /> : <CheckCircle2 size={16} />} Ano, uzavřít
+            </button>
+          </div>
+        </div>
+      )}
+    </ModalShell>
   );
 }
 
