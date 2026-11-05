@@ -7023,7 +7023,8 @@ function DosleFakturyPanel({ reload, onZpracovat }) {
       if (!msg && err && err.context && typeof err.context.json === "function") {
         msg = await err.context.json().then((j) => j.error).catch(() => "");
       }
-      setError(msg || "Kontrola pošty selhala.");
+      const status = err && err.context && err.context.status;
+      setError(msg || (status === 546 ? "Kontrola trvala příliš dlouho. Klikněte znovu, pokračuje tam, kde skončila." : `Kontrola pošty selhala${status ? ` (${status})` : ""}.`));
     } else {
       setInfo(data.nove ? `Načteno nových příloh: ${data.nove}${data.zostava ? `, zbývá ${data.zostava} (načtou se při další kontrole)` : ""}.` : "Žádné nové faktury.");
     }
