@@ -1,5 +1,5 @@
 import React, { useRef, useState } from "react";
-import { ScanLine, Trash2, AlertCircle, TriangleAlert } from "lucide-react";
+import { ScanLine, Trash2, AlertCircle, TriangleAlert, FileText, Camera, Loader2 } from "lucide-react";
 
 // Skenovanie paletovych etiket na prijme (PDA skener posiela kod ako text + Enter)
 // a zoznam palet. Ked etiketa GS1 nema, sarza a DMT sa zadaju rucne vo formulari.
@@ -90,6 +90,63 @@ export function KontrolyPrijmu({ kontroly }) {
           <span>{k.text}</span>
         </div>
       ))}
+    </div>
+  );
+}
+
+// Nacitanie dodacieho listu fotkou: AI vytiahne polozky, skladnik vyberie tu pravu.
+export function DodakNacitanie({ dodak, loading, error, vybranaIdx, onFile, onVyber, onZrusit }) {
+  const inputRef = useRef(null);
+  return (
+    <div className="border-2 border-slate-200 rounded-xl p-3 mb-3" data-testid="dodak">
+      <div className="flex items-center justify-between gap-2">
+        <div className="text-sm font-medium text-slate-500 flex items-center gap-1.5"><FileText size={16} /> Dodací list</div>
+        <div className="flex gap-2">
+          {dodak && !loading && <button onClick={onZrusit} className="text-sm text-slate-500 px-2">Zrušit</button>}
+          <button onClick={() => inputRef.current && inputRef.current.click()} disabled={loading} className="text-sm font-medium px-3 py-2 rounded-lg border-2 border-slate-200 text-slate-700 flex items-center gap-1.5 disabled:opacity-50">
+            {loading ? <Loader2 size={16} className="animate-spin" /> : <Camera size={16} />} {loading ? "Čtu doklad…" : dodak ? "Vyfotit znovu" : "Vyfotit / nahrát"}
+          </button>
+        </div>
+        <input
+          ref={inputRef}
+          type="file"
+          accept="image/*,application/pdf"
+          className="hidden"
+          onChange={(e) => {
+            const file = e.target.files && e.target.files[0];
+            e.target.value = "";
+            if (file) onFile(file);
+          }}
+        />
+      </div>
+      {!dodak && !loading && !error && <div className="text-xs text-slate-400 mt-1">Když etiketa palety nemá šarži nebo DMT, vyfoťte dodací list – údaje se doplní a porovnají s etiketou.</div>}
+      {error && (
+        <div className="mt-2 bg-amber-50 text-amber-800 text-sm px-3 py-2 rounded-lg flex items-start gap-2">
+          <AlertCircle size={16} className="mt-0.5 shrink-0" /> <span>{error}</span>
+        </div>
+      )}
+      {dodak && (
+        <div className="mt-2">
+          <div className="text-xs text-slate-500 mb-1.5">
+            {[dodak.dodavatelNas || dodak.dodavatel, dodak.cisloDokladu && "DL " + dodak.cisloDokladu, dodak.datum, dodak.cisloObjednavky && "obj. " + dodak.cisloObjednavky].filter(Boolean).join(" · ")}
+          </div>
+          {dodak.polozky.length === 0 && <div className="text-sm text-amber-800">Na dokladu se nepodařilo najít položky – zadejte údaje ručně.</div>}
+          {dodak.polozky.length > 1 && <div className="text-xs text-slate-500 mb-1">Vyberte položku, kterou přijímáte:</div>}
+          <div className="space-y-1.5">
+            {dodak.polozky.map((p, i) => (
+              <button key={i} onClick={() => onVyber(i)} className={"w-full text-left rounded-lg px-3 py-2 border-2 text-sm " + (vybranaIdx === i ? "border-teal-700 bg-teal-50" : "border-slate-200 bg-slate-50")}>
+                <div className="font-medium">
+                  {p.materialNas || p.nazov}
+                  {p.mnozstvo !== null ? ` – ${String(p.mnozstvo).replace(".", ",")} ${p.jednotka}` : ""}
+                </div>
+                <div className="text-xs text-slate-500">
+                  {[p.materialNas && p.nazov !== p.materialNas && p.nazov, p.sarza && "šarže " + p.sarza, p.dmt && "DMT " + p.dmt, p.pocetPaliet && p.pocetPaliet + " pal."].filter(Boolean).join(" · ") || "bez šarže a DMT"}
+                </div>
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
     </div>
   );
 }

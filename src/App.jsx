@@ -7189,6 +7189,7 @@ function GoodsReceiptsView({ receipts, suppliers, materialOrders, onNew, onEdit,
                   <td className="px-3 py-2 text-right" onClick={(e) => e.stopPropagation()}>
                     <div className="flex justify-end gap-1">
                       {r.photoPath && <IconButton title="Zobrazit fotku" onClick={() => openGoodsReceiptPhoto(r.photoPath)}><Camera size={16} /></IconButton>}
+                      {r.dodakPath && <IconButton title="Dodací list" onClick={() => openGoodsReceiptPhoto(r.dodakPath)}><FileText size={16} /></IconButton>}
                       {r.fakturaPath && (
                         <IconButton title={`Faktura ${r.fakturaCislo || ""} - cena ${r.cenaJednotkovaCzk} Kč/j.`} sent onClick={() => openInvoiceFile(r.fakturaPath)}>
                           <FileSpreadsheet size={16} />

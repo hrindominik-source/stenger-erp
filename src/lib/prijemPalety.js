@@ -67,7 +67,18 @@ function cislo(s) {
 
 // Krizove kontroly prijmu. Vrati [{ uroven: "chyba" | "upozornenie", text }].
 // chyba = nepustit ulozit bez opravy; upozornenie = skladnik vidi a rozhodne.
-export function kontrolaPrijmu({ material, mnozstvo, jednotka, sarza, dmt, palety = [], karty = [], prijateSscc = new Set(), objednavka = null, jeSurovina = false, dnes = new Date() }) {
+// Polozka dodacieho listu pre material prijmu (podla nasho nazvu, potom nazvu z dokladu).
+export function polozkaPreMaterial(dodak, material) {
+  const polozky = (dodak && dodak.polozky) || [];
+  const t = String(material || "").trim().toLowerCase();
+  if (!t) return polozky.length === 1 ? polozky[0] : null;
+  return polozky.find((p) => p.materialNas && p.materialNas.toLowerCase() === t) || polozky.find((p) => p.nazov.toLowerCase() === t) || null;
+}
+
+const sarzeSet = (s) => new Set(String(s || "").split(/[,;]/).map((x) => x.trim().toLowerCase()).filter(Boolean));
+
+// dodak = { polozka (vybrana polozka dodacieho listu alebo null), cisloObjednavky, maPolozky }
+export function kontrolaPrijmu({ material, mnozstvo, jednotka, sarza, dmt, palety = [], karty = [], prijateSscc = new Set(), objednavka = null, jeSurovina = false, dodak = null, dnes = new Date() }) {
   const out = [];
   const chyba = (text) => out.push({ uroven: "chyba", text });
   const pozor = (text) => out.push({ uroven: "upozornenie", text });
@@ -125,6 +136,30 @@ export function kontrolaPrijmu({ material, mnozstvo, jednotka, sarza, dmt, palet
     const v = p.datumVyroby && parseSkDate(p.datumVyroby);
     const d = p.dmt && parseSkDate(p.dmt);
     if (v && d && d <= v) pozor(`Paleta ${p.sscc || ""}: DMT ${p.dmt} není po datu výroby ${p.datumVyroby} – zkontrolujte etiketu.`);
+  }
+
+  if (dodak) {
+    const p = dodak.polozka;
+    if (!p && dodak.maPolozky && material) pozor(`Materiál „${material}“ na dodacím listu nenalezen – zkontrolujte, že jde o správný doklad.`);
+    if (p) {
+      const mn = cislo(mnozstvo);
+      if (p.mnozstvo !== null && mn !== null && (!p.jednotka || p.jednotka === jednotka) && p.mnozstvo !== mn) {
+        pozor(`Dodací list uvádí ${p.mnozstvo} ${p.jednotka || jednotka}, přijímáte ${mn} ${jednotka}.`);
+      }
+      const dlSarze = sarzeSet(p.sarza);
+      if (dlSarze.size) {
+        const mimo = Array.from(new Set(palety.map((x) => x.sarza).filter((x) => x && !dlSarze.has(x.toLowerCase()))));
+        if (mimo.length) pozor(`Šarže na etiketě (${mimo.join(", ")}) není na dodacím listu (${p.sarza}).`);
+      }
+      if (p.dmt) {
+        const ine = Array.from(new Set(palety.map((x) => x.dmt).filter((x) => x && x !== p.dmt)));
+        if (ine.length) pozor(`DMT na etiketě (${ine.join(", ")}) se liší od dodacího listu (${p.dmt}).`);
+      }
+      if (p.pocetPaliet && palety.length && p.pocetPaliet !== palety.length) pozor(`Dodací list uvádí ${p.pocetPaliet} palet, naskenováno ${palety.length}.`);
+    }
+    if (dodak.cisloObjednavky && objednavka && objednavka.cislo && dodak.cisloObjednavky.replace(/\s/g, "") !== String(objednavka.cislo).replace(/\s/g, "")) {
+      pozor(`Dodací list uvádí objednávku ${dodak.cisloObjednavky}, příjem je vázán na ${objednavka.cislo}.`);
+    }
   }
 
   if (jeSurovina) {
