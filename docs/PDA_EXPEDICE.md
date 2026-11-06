@@ -10,9 +10,27 @@ a **nemenia skladové zásoby** – vlastné tabuľky `pda_vydajky` a `pda_palet
 |---|---|---|---|
 | Kancelária | `…/stenger-erp/` → Stenger ONE → **PDA / Expedice** | office | Supabase |
 | PDA (ostro) | `…/stenger-erp/?pda=1` | účet Sklad | Supabase |
+| PDA – test skenera | `…/stenger-erp/?pda=test&skener=1` | žiadne | len v prehliadači |
 | **Testovací režim** | `…/stenger-erp/?pda=test` | žiadne | **len v prehliadači** |
 
 Produkcia: `https://hrindominik-source.github.io/stenger-erp/` (GitHub Pages, deploy pri pushi do `main`).
+
+## Príjem zboží na PDA
+
+Na domovskej obrazovke `?pda=1` je tlačidlo **Příjem zboží** – je to **ten istý príjem** ako v Stenger ONE
+(Sklad → Příjem zboží): sken paletových etikiet GS1, fotka dodacieho listu fotoaparátom Zebry
+(čítanie cez Claude, viac položiek naraz), krížové kontroly, ukladanie do `goods_receipts`.
+Pracovník = vybraný pracovník PDA. V testovacom režime (`?pda=test`) príjem nie je (pracuje priamo nad DB).
+
+Skener: pole „Sken nebo ručně opsaný kód“ prijíma znaky aj vtedy, keď fokus nie je v žiadnom textovom
+poli (znaky sa presmerujú do neho), GS poslaný ako `Ctrl+]` / keyCode 29 sa vloží ako oddeľovač.
+Ak je fokus v inom poli (napr. množstvo), sken ide tam – pred skenom ťuknúť do poľa skenu.
+
+## Ikona na ploche Zebry (PWA)
+
+`?pda=1` pridá do stránky manifest `public/pda.webmanifest` (názov „Stenger PDA“, ikona, štart `./?pda=1`,
+na výšku, bez adresného riadku). Na Zebre: Chrome → otvoriť `…/stenger-erp/?pda=1` → ⋮ → **Pridať na plochu**.
+Odkaz sa dá otvoriť aj naskenovaním QR kódu z návodu (fotoaparát / skener).
 
 ## Testovací režim (`?pda=test`)
 
@@ -153,7 +171,9 @@ Profil priradený aplikácii **Chrome** (`com.android.chrome`, všetky aktivity)
 9. Vypnúť Wi-Fi → sken → „Neuloženo“; zapnúť → „Zkusit znovu“ → „Uloženo“.
 10. Dokončiť → v kancelárii sa výdajka objaví bez obnovenia stránky; Excel export.
 11. Testovacie výdajky v kancelárii zmazať.
-12. Pridať `…/?pda=1` na plochu Zebry (Chrome ⋮ → *Pridať na plochu*).
+12. Pridať `…/?pda=1` na plochu Zebry (Chrome ⋮ → *Pridať na plochu*) – ikona „Stenger PDA“ otvorí PDA.
+13. **Príjem zboží**: naskenovať etiketu palety bez ťuknutia do poľa → paleta v zozname; odfotiť dodák
+    fotoaparátom Zebry → položky z dodáku; **neukladať** (alebo uložiť a v kancelárii zmazať).
 
 ## Otvorené body
 

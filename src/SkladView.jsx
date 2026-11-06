@@ -1082,7 +1082,7 @@ function PhotoControl({ photoPath, photoPreview, uploading, error, highlight, on
   );
 }
 
-function PrijemTab({ fullName }) {
+export function PrijemTab({ fullName }) {
   const [suppliers, setSuppliers] = useState([]);
   const [receipts, setReceipts] = useState([]);
   const [materialOrders, setMaterialOrders] = useState([]);

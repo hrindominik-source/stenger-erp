@@ -1,4 +1,4 @@
-import React, { useRef, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import { ScanLine, Trash2, AlertCircle, TriangleAlert, FileText, Camera, Loader2 } from "lucide-react";
 
 // Skenovanie paletovych etiket na prijme (PDA skener posiela kod ako text + Enter)
@@ -14,6 +14,24 @@ export function PaletySken({ palety, rozpracovana, onScan, onRemove, scanError, 
     if (inputRef.current) inputRef.current.focus();
   }
 
+  // Rucny skener (Zebra DataWedge, bluetooth) pise ako klavesnica: ked fokus
+  // prave nie je v ziadnom textovom poli, znaky sa presmeruju do pola skenu,
+  // aby sa nestratili a Enter nestlacil nahodne tlacidlo.
+  useEffect(() => {
+    function onDocKeyDown(e) {
+      const t = e.target;
+      const tag = t && t.tagName;
+      if (t === inputRef.current || tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT" || (t && t.isContentEditable)) return;
+      if (e.key && e.key.length === 1 && !e.ctrlKey && !e.altKey && !e.metaKey) {
+        e.preventDefault();
+        setText((prev) => prev + e.key);
+        if (inputRef.current) inputRef.current.focus();
+      }
+    }
+    document.addEventListener("keydown", onDocKeyDown, true);
+    return () => document.removeEventListener("keydown", onDocKeyDown, true);
+  }, []);
+
   return (
     <div className="border-2 border-slate-200 rounded-xl p-3 mb-3" data-testid="palety-sken">
       <div className="text-sm font-medium text-slate-500 mb-1.5 flex items-center gap-1.5"><ScanLine size={16} /> Naskenujte etiketu palety (všechny kódy na etiketě)</div>
@@ -26,6 +44,10 @@ export function PaletySken({ palety, rozpracovana, onScan, onRemove, scanError, 
             if (e.key === "Enter") {
               e.preventDefault();
               odoslat();
+            } else if (e.keyCode === 29 || (e.ctrlKey && (e.key === "]" || e.keyCode === 221))) {
+              // FNC1/GS poslany ako klavesa - Chrome ho do pola sam nevlozi
+              e.preventDefault();
+              setText((prev) => prev + "");
             }
           }}
           placeholder="Sken nebo ručně opsaný kód"

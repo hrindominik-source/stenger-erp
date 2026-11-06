@@ -261,14 +261,16 @@ function useOnline() {
 
 /* ---------------- Hlavny stav PDA ---------------- */
 
-export function PdaMain({ onSignOut, startScreen }) {
+// Prijem (volitelny): komponent prijmu tovaru zo Stenger ONE - len v ostrom
+// rezime (PdaApp), testovaci rezim ho nema (pracuje priamo nad Supabase).
+export function PdaMain({ onSignOut, startScreen, Prijem }) {
   const api = usePdaApi();
   const pracovnikKey = PRACOVNIK_KEY + (api.isDemo ? "_test" : "");
   const online = useOnline();
   const [pracovnik, setPracovnik] = useState(() => {
     try { return localStorage.getItem(pracovnikKey) || ""; } catch (e) { return ""; }
   });
-  const [screen, setScreen] = useState(startScreen || "domov"); // domov | pracovnik | nova | vydajka | test
+  const [screen, setScreen] = useState(startScreen || "domov"); // domov | pracovnik | nova | vydajka | test | prijem
   const [vydajka, setVydajka] = useState(null);
 
   function choosePracovnik(meno) {
@@ -288,6 +290,18 @@ export function PdaMain({ onSignOut, startScreen }) {
   if (screen === "vydajka" && vydajka) {
     return <VydajkaScreen {...common} vydajka={vydajka} onBack={() => { setVydajka(null); setScreen("domov"); }} />;
   }
+  if (screen === "prijem" && Prijem) {
+    return (
+      <div className="min-h-screen bg-slate-50 text-slate-900" style={FONT}>
+        <PdaHeader title="Příjem zboží" pracovnik={pracovnik} online={online} onBack={() => setScreen("domov")} />
+        <div className="p-2">
+          <React.Suspense fallback={<div className="flex items-center gap-2 text-slate-500 py-6 justify-center"><Loader2 size={18} className="animate-spin" /> Načítám...</div>}>
+            <Prijem fullName={pracovnik} />
+          </React.Suspense>
+        </div>
+      </div>
+    );
+  }
   if (screen === "test") {
     return <TestSkeneruScreen {...common} onBack={() => setScreen("domov")} />;
   }
@@ -298,6 +312,7 @@ export function PdaMain({ onSignOut, startScreen }) {
       onOpen={(v) => { setVydajka(v); setScreen("vydajka"); }}
       onZmenitPracovnika={() => setScreen("pracovnik")}
       onTest={() => setScreen("test")}
+      onPrijem={Prijem ? () => setScreen("prijem") : null}
     />
   );
 }
@@ -349,7 +364,7 @@ function PracovnikScreen({ online, onSignOut, onChoose, onBack }) {
 
 /* ---------------- Domov: rozpracovane vydajky ---------------- */
 
-function DomovScreen({ pracovnik, online, onSignOut, onNova, onOpen, onZmenitPracovnika, onTest }) {
+function DomovScreen({ pracovnik, online, onSignOut, onNova, onOpen, onZmenitPracovnika, onTest, onPrijem }) {
   const api = usePdaApi();
   const [list, setList] = useState(null);
   const [error, setError] = useState("");
@@ -365,11 +380,16 @@ function DomovScreen({ pracovnik, online, onSignOut, onNova, onOpen, onZmenitPra
 
   return (
     <div className="min-h-screen bg-slate-50 text-slate-900" style={FONT}>
-      <PdaHeader title="PDA / Expedice" pracovnik={pracovnik} online={online} onSignOut={onSignOut} />
+      <PdaHeader title={onPrijem ? "PDA / Sklad" : "PDA / Expedice"} pracovnik={pracovnik} online={online} onSignOut={onSignOut} />
       <div className="p-3 space-y-3">
         <button onClick={onNova} className="w-full flex items-center justify-center gap-2 bg-gradient-to-b from-teal-500 to-teal-700 text-white rounded-xl py-5 text-xl font-bold shadow-lg shadow-teal-500/30 active:translate-y-0.5">
           <Plus size={26} /> Nová výdejka
         </button>
+        {onPrijem && (
+          <button onClick={onPrijem} className="w-full flex items-center justify-center gap-2 bg-white border-2 border-teal-600 text-teal-800 rounded-xl py-4 text-lg font-bold active:bg-teal-50">
+            <PackageCheck size={22} /> Příjem zboží
+          </button>
+        )}
 
         <div>
           <div className="flex items-center justify-between mb-1.5">
