@@ -1203,7 +1203,7 @@ function PrijemTab({ fullName }) {
       dmt: r.dmt || "",
       dodakPath: r.dodakPath || "",
     });
-    setDodak(r.dodakPolozka ? { polozky: [r.dodakPolozka], cisloObjednavky: r.dodakObjednavka || "", cisloDokladu: r.cisloDokladu || "" } : null);
+    setDodak(r.dodakPolozka ? { polozky: [r.dodakPolozka], cisloObjednavky: r.dodakObjednavka || "", cisloDokladu: r.dodakCislo || r.cisloDokladu || "" } : null);
     setDodakIdx(r.dodakPolozka ? 0 : null);
     setDodakError("");
     setSkeny((r.palety || []).map((p) => ({ ...p, pocet: p.pocet ?? null, nettoKg: p.nettoKg ?? null })));
@@ -1332,7 +1332,7 @@ function PrijemTab({ fullName }) {
     if (!p) return;
     setRucne({ mnozstvo: p.mnozstvo !== null, sarza: !!p.sarza, dmt: !!p.dmt });
     const dod = d.dodavatelNas ? suppliers.find((x) => x.nazov === d.dodavatelNas) : null;
-    const obj = najdiObjednavku(d.cisloObjednavky);
+    const obj = najdiObjednavku(p.cisloObjednavky || d.cisloObjednavky);
     setF((prev) => {
       const next = { ...prev, material: p.materialNas || prev.material || p.nazov };
       if (p.mnozstvo !== null) next.mnozstvoNum = String(p.mnozstvo).replace(".", ",");
@@ -1472,7 +1472,8 @@ function PrijemTab({ fullName }) {
       kontrolyPotvrdil: maChyby ? fullName || "" : "",
       dodakPath: f.dodakPath || "",
       dodakPolozka: dodakPolozka || null,
-      dodakObjednavka: (dodak && dodak.cisloObjednavky) || "",
+      dodakObjednavka: (dodakPolozka && dodakPolozka.cisloObjednavky) || (dodak && dodak.cisloObjednavky) || "",
+      dodakCislo: (dodak && dodak.cisloDokladu) || "",
     };
     try {
       for (const p of neznameGtiny) {

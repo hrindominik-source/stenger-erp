@@ -140,7 +140,12 @@ export function DodakNacitanie({ dodak, loading, error, vybranaIdx, onFile, onVy
                   {p.mnozstvo !== null ? ` – ${String(p.mnozstvo).replace(".", ",")} ${p.jednotka}` : ""}
                 </div>
                 <div className="text-xs text-slate-500">
-                  {[p.materialNas && p.nazov !== p.materialNas && p.nazov, p.sarza && "šarže " + p.sarza, p.dmt && "DMT " + p.dmt, p.pocetPaliet && p.pocetPaliet + " pal."].filter(Boolean).join(" · ") || "bez šarže a DMT"}
+                  {[p.materialNas && p.nazov !== p.materialNas && p.nazov, p.cisloObjednavky && "obj. " + p.cisloObjednavky, p.pocetPaliet && p.pocetPaliet + " pal."].filter(Boolean).join(" · ")}
+                </div>
+                <div className="text-xs text-slate-500">
+                  {(p.sarze || []).length > 0
+                    ? p.sarze.map((x) => [x.sarza && "šarže " + x.sarza, x.dmt && "DMT " + x.dmt].filter(Boolean).join(" ")).join(" · ")
+                    : [p.sarza && "šarže " + p.sarza, p.dmt && "DMT " + p.dmt].filter(Boolean).join(" · ") || "bez šarže a DMT"}
                 </div>
               </button>
             ))}

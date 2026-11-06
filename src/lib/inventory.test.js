@@ -27,6 +27,17 @@ describe("suggestReceiptMatches", () => {
     expect(result.find((r) => r.id === "4")).toBeUndefined();
   });
 
+  it("cislo dodacieho listu alebo objednavky z faktury ma prednost pred nazvom", () => {
+    const rs = [
+      { id: "a", dodavatel: "Jokey", material: "Kbelíky", cisloDokladu: "", cenaJednotkovaCzk: "" },
+      { id: "b", dodavatel: "Jokey", material: "Kbelíky", cisloDokladu: "13150000 / 590000", cenaJednotkovaCzk: "" },
+      { id: "c", dodavatel: "Jokey", material: "Kbelíky", materialObjednavkaCislo: "451/0511", cenaJednotkovaCzk: "" },
+    ];
+    expect(suggestReceiptMatches({ popis: "JET 56P" }, "Jokey", rs, { cisloDodacihoListu: "13150000" })[0].id).toBe("b");
+    expect(suggestReceiptMatches({ popis: "JET 56P", cisloObjednavky: "451/0511" }, "Jokey", rs, {})[0].id).toBe("c");
+    expect(suggestReceiptMatches({ popis: "JET 56P" }, "Jokey", rs)).toHaveLength(3);
+  });
+
   it("vrati prazdny zoznam ked nic nezodpoveda", () => {
     const result = suggestReceiptMatches({ popis: "Uplne iny material" }, "Iny dodavatel", receipts);
     expect(result).toHaveLength(0);
