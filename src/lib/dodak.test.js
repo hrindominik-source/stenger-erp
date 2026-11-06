@@ -51,7 +51,7 @@ describe("extractDodak", () => {
     };
     const r = await extractDodak({ bytes: new Uint8Array([1, 2, 3]), mediaType: "image/jpeg", apiKey: "k", ...ZOZNAMY, fetchImpl });
     expect(poslane.messages[0].content[0]).toMatchObject({ type: "image", source: { media_type: "image/jpeg", data: "AQID" } });
-    expect(poslane.messages[0].content[1].text).toContain("- Cukr krystal");
+    expect(poslane.messages[0].content[1].text).toContain("VSEOBECNE MATERIALY:\n- Cukr krystal");
     expect(r.polozky[0]).toMatchObject({ materialNas: "Cukr krystal", mnozstvo: 840 });
   });
   it("PDF ako document, chyba API", async () => {
@@ -153,5 +153,29 @@ describe("dodak s viacerymi sarzami a zoznamom paliet", () => {
     expect(zle).toContain("Paleta 123456789012345682 není na dodacím listu");
     const obj = kontrolaPrijmu({ objednavka: { cislo: "451/0511" }, dodak: { polozka: kelimek, cisloObjednavky: "", maPolozky: true }, dnes });
     expect(obj.map((x) => x.text).join()).toContain("objednávku 450/0411");
+  });
+});
+
+describe("material len z katalogu dodavatela dokladu", () => {
+  const zoznamy = {
+    materialy: ["Kartony"],
+    katalog: [
+      { dodavatel: "Cukrovar", materialy: ["Cukr krystal Bestpop"] },
+      { dodavatel: "Kelimky s.r.o.", materialy: ["Kýble JET 56P red", "Víčka DET 225P"] },
+    ],
+    dodavatelia: ["Cukrovar", "Kelimky s.r.o."],
+  };
+
+  it("material ineho dodavatela sa zahodi, vseobecny ostane", () => {
+    const r = normalizujDodak({ dodavatelNas: "Kelimky s.r.o.", polozky: [{ nazov: "JET 56P Bestpop", materialNas: "Cukr krystal Bestpop" }, { nazov: "DET", materialNas: "víčka det 225p" }, { nazov: "Krabice", materialNas: "Kartony" }] }, zoznamy);
+    expect(r.polozky.map((p) => p.materialNas)).toEqual(["", "Víčka DET 225P", "Kartony"]);
+  });
+
+  it("nerozpoznany dodavatel = vsetky materialy, prompt ma sekcie podla dodavatela", () => {
+    const r = normalizujDodak({ polozky: [{ nazov: "Zucker", materialNas: "Cukr krystal Bestpop" }] }, zoznamy);
+    expect(r.polozky[0].materialNas).toBe("Cukr krystal Bestpop");
+    const p = dodakPrompt(zoznamy);
+    expect(p).toContain("## Kelimky s.r.o.\n- Kýble JET 56P red");
+    expect(p).toContain("VSEOBECNE MATERIALY:\n- Kartony");
   });
 });

@@ -13,7 +13,7 @@ Odpovedz VYLUCNE JSON objektom v tomto tvare (bez markdown, bez vysvetlenia):
   "polozky": [
     {
       "nazov": "nazov produktu presne ako na doklade",
-      "materialNas": "presne jeden nazov zo zoznamu NASE MATERIALY nizsie, ktory zodpoveda tomuto produktu, inak prazdny retazec",
+      "materialNas": "presne jeden nazov z nasich materialov nizsie, ktory je TEN ISTY produkt, inak prazdny retazec",
       "mnozstvo": 0,
       "jednotka": "kg | ks | l | m | t",
       "cisloObjednavky": "nase cislo objednavky pre tuto polozku, ak je pri nej uvedene, inak prazdny retazec",
@@ -30,13 +30,32 @@ Pravidla:
 - sarze: kazda sarza polozky raz, s DMT (MHD, BBD, best before, shelf life exp. date, datum trvanlivosti, spotřebujte do) a datumom vyroby, ak su uvedene. Ak sarza nie je uvedena, prazdne pole.
 - palety: len ak doklad uvadza cisla jednotlivych paliet (SSCC, NVE). Inak prazdne pole.
 - pocetPaliet je pocet paliet polozky, ak je uvedeny alebo ho mozno spocitat zo zoznamu paliet, inak 0.
+- materialNas vyberaj najprv zo zoznamu materialov dodavatela dokladu (MATERIALY PODLA DODAVATELA), az potom zo VSEOBECNYCH MATERIALOV. Musi to byt ten isty druh tovaru (surovina vs. obal, typ obalu, rozmer, farba). Zhoda len v nazve znacky, zakaznika alebo potlace (napr. rovnake slovo v nazve suroviny aj kelimka) nestaci. Ak si nie si isty alebo zodpoveda viac materialov, nechaj prazdny retazec.
 - Udaje nevymyslaj. Co na doklade nie je alebo sa neda precitat, nechaj prazdne (cislo 0).
 - Datumy vzdy DD.MM.RRRR. Ak je uvedeny len mesiac a rok, pouzi posledny den mesiaca.
 - Ak dokument nie je dodaci list, vrat {"jeDodak": false}.`;
 
-export function dodakPrompt({ materialy = [], dodavatelia = [] } = {}) {
+// katalog = [{ dodavatel, materialy }] (tovary dodavatelov), materialy = vseobecne nazvy.
+export function dodakPrompt({ materialy = [], katalog = [], dodavatelia = [] } = {}) {
   const zoznam = (nadpis, list) => `\n\n${nadpis}:\n` + (list.length ? list.map((m) => "- " + m).join("\n") : "(prazdny)");
-  return DODAK_INSTRUCTIONS + zoznam("NASE MATERIALY", materialy.slice(0, 300)) + zoznam("NASI DODAVATELIA", dodavatelia.slice(0, 200));
+  const podlaDodavatela = katalog
+    .filter((k) => k.dodavatel && k.materialy.length)
+    .slice(0, 100)
+    .map((k) => `\n## ${k.dodavatel}\n` + k.materialy.slice(0, 200).map((m) => "- " + m).join("\n"))
+    .join("");
+  return (
+    DODAK_INSTRUCTIONS +
+    "\n\nMATERIALY PODLA DODAVATELA:" + (podlaDodavatela || "\n(prazdny)") +
+    zoznam("VSEOBECNE MATERIALY", materialy.slice(0, 300)) +
+    zoznam("NASI DODAVATELIA", dodavatelia.slice(0, 200))
+  );
+}
+
+// Materialy, z ktorych smie byt materialNas: tovary dodavatela dokladu + vseobecne.
+// Ked dodavatel nie je rozpoznany alebo nema zoznam, vsetky.
+export function povoleneMaterialy({ materialy = [], katalog = [] }, dodavatelNas) {
+  const k = dodavatelNas && katalog.find((x) => x.dodavatel === dodavatelNas && x.materialy.length);
+  return k ? [...k.materialy, ...materialy] : [...katalog.flatMap((x) => x.materialy), ...materialy];
 }
 
 export function parseClaudeJson(text) {
@@ -92,12 +111,14 @@ function normalizujSarze(p) {
 
 // Upravi odpoved AI: datumy, jednotky (t -> kg), materialNas/dodavatelNas len zo zoznamu.
 // Polozka dostane aj suhrnne sarza (vsetky), dmt a datumVyroby (najskorsie) pre formular.
-export function normalizujDodak(raw, { materialy = [], dodavatelia = [] } = {}) {
+export function normalizujDodak(raw, { materialy = [], katalog = [], dodavatelia = [] } = {}) {
   if (!raw || raw.jeDodak === false) return { jeDodak: false, polozky: [] };
   const zoListu = (v, list) => {
     const t = String(v || "").trim().toLowerCase();
     return t ? list.find((x) => x.trim().toLowerCase() === t) || "" : "";
   };
+  const dodavatelNas = zoListu(raw.dodavatelNas, dodavatelia);
+  const povolene = povoleneMaterialy({ materialy, katalog }, dodavatelNas);
   const polozky = (Array.isArray(raw.polozky) ? raw.polozky : []).map((p) => {
     let mnozstvo = cisloZ(p.mnozstvo);
     let jednotka = JEDNOTKY[String(p.jednotka || "").trim().toLowerCase()] || "";
@@ -112,7 +133,7 @@ export function normalizujDodak(raw, { materialy = [], dodavatelia = [] } = {}) 
       .filter((x) => x.sscc);
     return {
       nazov: String(p.nazov || "").trim(),
-      materialNas: zoListu(p.materialNas, materialy),
+      materialNas: zoListu(p.materialNas, povolene),
       mnozstvo: mnozstvo > 0 ? mnozstvo : null,
       jednotka,
       cisloObjednavky: String(p.cisloObjednavky || "").trim(),
@@ -127,7 +148,7 @@ export function normalizujDodak(raw, { materialy = [], dodavatelia = [] } = {}) 
   return {
     jeDodak: true,
     dodavatel: String(raw.dodavatel || "").trim(),
-    dodavatelNas: zoListu(raw.dodavatelNas, dodavatelia),
+    dodavatelNas,
     cisloDokladu: String(raw.cisloDokladu || "").trim(),
     datum: normalizujDatum(raw.datum),
     cisloObjednavky: String(raw.cisloObjednavky || "").trim(),
@@ -148,7 +169,7 @@ export function mediaTypePodlaCesty(path) {
 }
 
 // Zavola Claude s dokladom a vrati normalizovany vysledok.
-export async function extractDodak({ bytes, mediaType, apiKey, materialy = [], dodavatelia = [], fetchImpl = fetch }) {
+export async function extractDodak({ bytes, mediaType, apiKey, materialy = [], katalog = [], dodavatelia = [], fetchImpl = fetch }) {
   const zdroj = { type: "base64", media_type: mediaType, data: base64FromBytes(bytes) };
   const blok = mediaType === "application/pdf" ? { type: "document", source: zdroj } : { type: "image", source: zdroj };
   const res = await fetchImpl("https://api.anthropic.com/v1/messages", {
@@ -159,7 +180,7 @@ export async function extractDodak({ bytes, mediaType, apiKey, materialy = [], d
     body: JSON.stringify({
       model: "claude-sonnet-5-5",
       max_tokens: 8000,
-      messages: [{ role: "user", content: [blok, { type: "text", text: dodakPrompt({ materialy, dodavatelia }) }] }],
+      messages: [{ role: "user", content: [blok, { type: "text", text: dodakPrompt({ materialy, katalog, dodavatelia }) }] }],
     }),
   });
   if (!res.ok) {
@@ -168,5 +189,5 @@ export async function extractDodak({ bytes, mediaType, apiKey, materialy = [], d
   }
   const data = await res.json();
   if (data.stop_reason === "max_tokens") throw new Error("Doklad je příliš dlouhý, AI ho nedočetla.");
-  return normalizujDodak(parseClaudeJson((data.content || []).map((b) => b.text || "").join("\n")), { materialy, dodavatelia });
+  return normalizujDodak(parseClaudeJson((data.content || []).map((b) => b.text || "").join("\n")), { materialy, katalog, dodavatelia });
 }
