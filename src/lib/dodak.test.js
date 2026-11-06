@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { normalizujDodak, normalizujDatum, extractDodak, dodakPrompt, mediaTypePodlaCesty } from "../../supabase/functions/dodak-extract/dodak.js";
-import { kontrolaPrijmu, polozkaPreMaterial } from "./prijemPalety.js";
+import { kontrolaPrijmu, polozkaPreMaterial, paletaNaDodaku } from "./prijemPalety.js";
 
 const ZOZNAMY = { materialy: ["Cukr krystal", "Tuk palmový"], dodavatelia: ["Test Cukr s.r.o."] };
 
@@ -100,5 +100,58 @@ describe("krizove kontroly s dodacim listom", () => {
     expect(t).toContain("2 palet, naskenováno 1");
     expect(t).toContain("objednávku M-12, příjem je vázán na M-99");
     expect(texty(kontrolaPrijmu({ material: "Sůl", dodak: { polozka: null, maPolozky: true }, dnes }))).toContain("na dodacím listu nenalezen");
+  });
+});
+
+// Tvar podla skutocnych dodakov (vymyslene cisla): viac sarzi s roznym DMT a SSCC
+// na kazdu paletu, zoznam paliet s kratkymi NVE cislami, viac objednavok na doklade.
+describe("dodak s viacerymi sarzami a zoznamom paliet", () => {
+  const dodak = normalizujDodak({
+    cisloDokladu: "DL-5",
+    polozky: [
+      {
+        nazov: "cukr krystal 10 x 1kg",
+        mnozstvo: "1,68",
+        jednotka: "t",
+        sarze: [
+          { sarza: "B2", dmt: "21.09.2029", datumVyroby: "21.09.2026" },
+          { sarza: "B1", dmt: "16.10.2029", datumVyroby: "16.10.2026" },
+          { sarza: "b1", dmt: "" },
+        ],
+        palety: [{ sscc: "1234 5678 9012 3456 75", sarza: "B1" }, { sscc: "340123456789012340", sarza: "B2" }],
+      },
+      { nazov: "Kelimek", mnozstvo: 3240, jednotka: "Stk", cisloObjednavky: "450/0411", palety: [{ sscc: "86754671" }, { sscc: "" }] },
+    ],
+  });
+  const [cukr, kelimek] = dodak.polozky;
+
+  it("normalizacia: sarze bez duplicit, najskorsie DMT, palety len cislice, pocet paliet zo zoznamu", () => {
+    expect(cukr).toMatchObject({ mnozstvo: 1680, jednotka: "kg", sarza: "B2, B1", dmt: "21.09.2029", datumVyroby: "21.09.2026", pocetPaliet: 2 });
+    expect(cukr.sarze).toHaveLength(2);
+    expect(cukr.palety[0].sscc).toBe("123456789012345675");
+    expect(kelimek).toMatchObject({ jednotka: "ks", cisloObjednavky: "450/0411", pocetPaliet: 1, sarze: [] });
+  });
+
+  it("paletaNaDodaku: cele SSCC aj kratke NVE (seriova cast pred kontrolnou cislicou)", () => {
+    expect(paletaNaDodaku("123456789012345675", cukr.palety)).toBe(true);
+    expect(paletaNaDodaku("340000000867546714", kelimek.palety)).toBe(true);
+    expect(paletaNaDodaku("340000000867546721", kelimek.palety)).toBe(false);
+  });
+
+  it("DMT sa porovnava s DMT sarze palety, cudzia paleta a ina objednavka polozky", () => {
+    const dnes = new Date(2026, 10, 5);
+    const palety = [
+      { sscc: "123456789012345675", sarza: "B1", dmt: "16.10.2029", mnozstvo: 840 },
+      { sscc: "340123456789012340", sarza: "B2", dmt: "21.09.2029", mnozstvo: 840 },
+    ];
+    const ok = kontrolaPrijmu({ material: "Cukr", mnozstvo: "1680", jednotka: "kg", palety, dodak: { polozka: cukr, maPolozky: true }, dnes });
+    expect(ok).toEqual([]);
+    const zle = kontrolaPrijmu({ material: "Cukr", mnozstvo: "1680", jednotka: "kg", palety: [{ ...palety[0], dmt: "21.09.2029" }, { sscc: "123456789012345682", sarza: "B2", dmt: "21.09.2029" }], dodak: { polozka: cukr, maPolozky: true }, dnes })
+      .map((x) => x.text)
+      .join(" | ");
+    expect(zle).toContain("DMT na etiketě (21.09.2029)");
+    expect(zle).toContain("Paleta 123456789012345682 není na dodacím listu");
+    const obj = kontrolaPrijmu({ objednavka: { cislo: "451/0511" }, dodak: { polozka: kelimek, cisloObjednavky: "", maPolozky: true }, dnes });
+    expect(obj.map((x) => x.text).join()).toContain("objednávku 450/0411");
   });
 });

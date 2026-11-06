@@ -6810,7 +6810,7 @@ function InvoiceUploadModal({ receipts, company, suppliers, prefill, onClose, on
     }
     setMatches(
       (data.polozky || []).map((it) => {
-        const suggestions = suggestReceiptMatches(it, data.dodavatel, receipts);
+        const suggestions = suggestReceiptMatches(it, data.dodavatel, receipts, data);
         return { item: it, receiptId: suggestions[0] ? suggestions[0].id : "", suggestions };
       })
     );

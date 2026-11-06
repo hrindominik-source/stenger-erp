@@ -65,8 +65,6 @@ function cislo(s) {
   return Number.isFinite(n) ? n : null;
 }
 
-// Krizove kontroly prijmu. Vrati [{ uroven: "chyba" | "upozornenie", text }].
-// chyba = nepustit ulozit bez opravy; upozornenie = skladnik vidi a rozhodne.
 // Polozka dodacieho listu pre material prijmu (podla nasho nazvu, potom nazvu z dokladu).
 export function polozkaPreMaterial(dodak, material) {
   const polozky = (dodak && dodak.polozky) || [];
@@ -76,7 +74,17 @@ export function polozkaPreMaterial(dodak, material) {
 }
 
 const sarzeSet = (s) => new Set(String(s || "").split(/[,;]/).map((x) => x.trim().toLowerCase()).filter(Boolean));
+const bezMedzier = (s) => String(s || "").replace(/\s/g, "");
 
+// Je paleta (SSCC zo skenu) na dodacom liste? Dodak moze uvadzat cele SSCC (18 cislic)
+// alebo len kratke NVE cislo - to je seriova cast SSCC pred kontrolnou cislicou.
+export function paletaNaDodaku(sscc, paletyDodaku) {
+  const s = String(sscc || "");
+  return paletyDodaku.some((p) => p.sscc === s || (p.sscc.length >= 6 && p.sscc.length < 18 && s.length === 18 && s.slice(0, 17).endsWith(p.sscc)));
+}
+
+// Krizove kontroly prijmu. Vrati [{ uroven: "chyba" | "upozornenie", text }].
+// chyba = nepustit ulozit bez opravy; upozornenie = skladnik vidi a rozhodne.
 // dodak = { polozka (vybrana polozka dodacieho listu alebo null), cisloObjednavky, maPolozky }
 export function kontrolaPrijmu({ material, mnozstvo, jednotka, sarza, dmt, palety = [], karty = [], prijateSscc = new Set(), objednavka = null, jeSurovina = false, dodak = null, dnes = new Date() }) {
   const out = [];
@@ -151,14 +159,28 @@ export function kontrolaPrijmu({ material, mnozstvo, jednotka, sarza, dmt, palet
         const mimo = Array.from(new Set(palety.map((x) => x.sarza).filter((x) => x && !dlSarze.has(x.toLowerCase()))));
         if (mimo.length) pozor(`Šarže na etiketě (${mimo.join(", ")}) není na dodacím listu (${p.sarza}).`);
       }
-      if (p.dmt) {
-        const ine = Array.from(new Set(palety.map((x) => x.dmt).filter((x) => x && x !== p.dmt)));
-        if (ine.length) pozor(`DMT na etiketě (${ine.join(", ")}) se liší od dodacího listu (${p.dmt}).`);
+      // DMT palety porovnat s DMT jej sarze na dodaku (ak ju dodak ma), inak so vsetkymi DMT dodaku
+      const sarzeDodaku = p.sarze && p.sarze.length ? p.sarze : p.dmt ? [{ sarza: p.sarza, dmt: p.dmt }] : [];
+      const dmtDodaku = new Set(sarzeDodaku.map((x) => x.dmt).filter(Boolean));
+      if (dmtDodaku.size) {
+        const ine = new Set();
+        for (const x of palety) {
+          if (!x.dmt) continue;
+          const jejSarza = x.sarza && sarzeDodaku.find((y) => y.sarza && y.sarza.toLowerCase() === x.sarza.toLowerCase() && y.dmt);
+          if (jejSarza ? jejSarza.dmt !== x.dmt : !dmtDodaku.has(x.dmt)) ine.add(x.dmt);
+        }
+        if (ine.size) pozor(`DMT na etiketě (${Array.from(ine).join(", ")}) se liší od dodacího listu (${Array.from(dmtDodaku).join(", ")}).`);
+      }
+      const paletyDodaku = p.palety || [];
+      if (paletyDodaku.length) {
+        const mimo = palety.filter((x) => x.sscc && !paletaNaDodaku(x.sscc, paletyDodaku)).map((x) => x.sscc);
+        if (mimo.length) pozor(`Paleta ${mimo.join(", ")} není na dodacím listu.`);
       }
       if (p.pocetPaliet && palety.length && p.pocetPaliet !== palety.length) pozor(`Dodací list uvádí ${p.pocetPaliet} palet, naskenováno ${palety.length}.`);
     }
-    if (dodak.cisloObjednavky && objednavka && objednavka.cislo && dodak.cisloObjednavky.replace(/\s/g, "") !== String(objednavka.cislo).replace(/\s/g, "")) {
-      pozor(`Dodací list uvádí objednávku ${dodak.cisloObjednavky}, příjem je vázán na ${objednavka.cislo}.`);
+    const cisloDl = (p && p.cisloObjednavky) || dodak.cisloObjednavky;
+    if (cisloDl && objednavka && objednavka.cislo && bezMedzier(cisloDl) !== bezMedzier(objednavka.cislo)) {
+      pozor(`Dodací list uvádí objednávku ${cisloDl}, příjem je vázán na ${objednavka.cislo}.`);
     }
   }
 

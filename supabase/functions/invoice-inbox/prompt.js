@@ -8,12 +8,16 @@ Odpovedz VYLUCNE JSON objektom v tomto presnom tvare (bez ciarok naviac, bez mar
   "cisloFaktury": "cislo faktury / invoice number",
   "datumFaktury": "datum vystavenia faktury vo formate DD.MM.RRRR",
   "mena": "trojpismenovy kod meny súm na fakture podla symbolu/skratky pri cenach, napr. EUR, CZK, USD",
+  "cisloDodacihoListu": "cislo dodacieho listu, ku ktoremu faktura patri (dodací list, Lieferschein, delivery note), viac cisel oddel ciarkou, inak prazdny retazec",
+  "cisloObjednavky": "nase cislo objednavky (objednávka odběratele, your order, your reference), inak prazdny retazec",
   "polozky": [
     {
       "popis": "nazov/popis polozky presne ako je uvedeny na fakture",
       "mnozstvoCislo": cislo mnozstva danej polozky ako JSON cislo (nie retazec, bez jednotky),
       "mnozstvoJednotka": "jednotka mnozstva presne ako na fakture (napr. kg, ks, m, l)",
-      "cenaJednotkova": jednotkova cena za jednu jednotku mnozstva ako JSON cislo (nie retazec, bez oznacenia meny)
+      "cenaJednotkova": jednotkova cena za jednu jednotku mnozstva ako JSON cislo (nie retazec, bez oznacenia meny),
+      "cisloDodacihoListu": "cislo dodacieho listu tejto polozky, ak je pri nej uvedene, inak prazdny retazec",
+      "cisloObjednavky": "nase cislo objednavky tejto polozky, ak je pri nej uvedene, inak prazdny retazec"
     }
   ]
 }
