@@ -1,13 +1,13 @@
 import { describe, it, expect } from "vitest";
-import { parseGs1, GS } from "./gs1Pda.js";
+import { parseGs1Detail, GS } from "./gs1.js";
 import { mergeScan, EMPTY_PENDING, pdaErrorMessage, isPrimaryKeyConflict, pdaId, summarizePallets } from "./pdaScan.js";
 
 const TODAY = new Date(2026, 9, 13);
 const SSCC_A = "106141411234567897";
 const SSCC_B = "359012345000000013";
 const GTIN = "14001234000012";
-const ssccCode = (s) => parseGs1("00" + s, TODAY);
-const prodCode = (count = 48) => parseGs1("02" + GTIN + "15270315" + "37" + count + GS + "10L1", TODAY);
+const ssccCode = (s) => parseGs1Detail("00" + s, TODAY);
+const prodCode = (count = 48) => parseGs1Detail("02" + GTIN + "15270315" + "37" + count + GS + "10L1", TODAY);
 
 describe("mergeScan - lubovolne poradie", () => {
   it("SSCC potom produkt", () => {
@@ -28,7 +28,7 @@ describe("mergeScan - lubovolne poradie", () => {
     expect(b.pallet.raw_produkt).toContain(GTIN);
   });
   it("kombinovany kod = hned hotova paleta", () => {
-    const r = mergeScan(EMPTY_PENDING, parseGs1("00" + SSCC_A + "02" + GTIN + "3748", TODAY), new Set());
+    const r = mergeScan(EMPTY_PENDING, parseGs1Detail("00" + SSCC_A + "02" + GTIN + "3748", TODAY), new Set());
     expect(r.status).toBe("ready");
     expect(r.warnings.join(" ")).toMatch(/BBD/);
   });
@@ -62,7 +62,7 @@ describe("mergeScan - ochrany", () => {
   });
   it("neplatny kod nemeni rozpracovanu paletu", () => {
     const a = mergeScan(EMPTY_PENDING, ssccCode(SSCC_A), new Set());
-    const b = mergeScan(a.pending, parseGs1("00106141411234567898", TODAY), new Set());
+    const b = mergeScan(a.pending, parseGs1Detail("00106141411234567898", TODAY), new Set());
     expect(b.status).toBe("error");
     expect(b.pending).toBe(a.pending);
   });

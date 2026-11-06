@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeAll } from "vitest";
-import { parseGs1 } from "../lib/gs1Pda.js";
+import { parseGs1Detail } from "../lib/gs1.js";
 import { mergeScan, EMPTY_PENDING, pdaId } from "../lib/pdaScan.js";
 import { savePalletFlow, deletePalletFlow, finishFlow, canFinish, createVydajkaFlow, mergeLoadedRows } from "../lib/pdaFlow.js";
 import { buildPdaExportSheets } from "../lib/pdaExport.js";
@@ -39,7 +39,7 @@ function createSession(api, vydajkaId) {
     pending: EMPTY_PENDING,
     rows: [],
     async scan(raw) {
-      const parsed = parseGs1(raw, TODAY);
+      const parsed = parseGs1Detail(raw, TODAY);
       const res = mergeScan(s.pending, parsed, new Set(s.rows.map((r) => r.sscc)));
       s.pending = res.pending;
       if (res.status !== "ready") return res;

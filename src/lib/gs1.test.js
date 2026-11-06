@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { parseGs1, gs1Datum, mergeScans, dmtZTrvanlivosti, mnozstvoPalety } from "./gs1.js";
+import { parseGs1, parseGs1Detail, gs1Datum, mergeScans, dmtZTrvanlivosti, mnozstvoPalety } from "./gs1.js";
 
 const GS = "\u001d";
 
@@ -88,5 +88,30 @@ describe("kontrolne cislice", () => {
     expect(() => parseGs1("00010124305400000086553819")).toThrow();
     expect(() => parseGs1("00123456789012345670")).toThrow(/SSCC/);
     expect(() => parseGs1("0212345678901232")).toThrow(/GTIN/);
+  });
+});
+
+describe("prijem a PDA pouzivaju ten isty parser", () => {
+  it("nahradny oddelovac | (DataWedge bez GS) funguje aj v prijme", () => {
+    const r = parseGs1("0212345678901231" + "3784|10LOT7");
+    expect(r.pocet).toBe(84);
+    expect(r.sarza).toBe("LOT7");
+  });
+
+  it("chybajuci GS za mnozstvom = zrozumitelna chyba namiesto zlych udajov", () => {
+    expect(() => parseGs1("0212345678901231" + "378410LOT7")).toThrow(/FNC1|GS/);
+  });
+
+  it("storocie datumu podla GS1 (nie natvrdo 20xx)", () => {
+    const dnes = new Date(Date.UTC(2026, 10, 6));
+    expect(gs1Datum("991231", dnes)).toBe("31.12.1999");
+    expect(gs1Datum("270925", dnes)).toBe("25.09.2027");
+  });
+
+  it("PDA detail vracia chyby namiesto vynimky", () => {
+    const r = parseGs1Detail("(10)L1");
+    expect(r.ok).toBe(false);
+    expect(r.errors[0]).toMatch(/SSCC/);
+    expect(parseGs1Detail("(00)123456789012345675").sscc).toBe("123456789012345675");
   });
 });

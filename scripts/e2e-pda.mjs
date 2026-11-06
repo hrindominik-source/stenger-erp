@@ -121,7 +121,7 @@ try {
 
   await step("klávesnice PC: skutečné stisky kláves, GS = Ctrl+], Enter", async () => {
     const sscc = "306141410000004242".slice(0, 17);
-    const { gs1CheckDigit } = await import("../src/lib/gs1Pda.js");
+    const { gs1CheckDigit } = await import("../src/lib/gs1.js");
     const full = sscc + gs1CheckDigit(sscc);
     await phone.click({ position: { x: 150, y: 400 } });
     await page.keyboard.type("00" + full, { delay: 5 });
