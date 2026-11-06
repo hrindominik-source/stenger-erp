@@ -15,7 +15,7 @@ const duchkova = {
   first_name: "Marta", last_name: "Duchková", maiden_name: "Nováková", date_of_birth: "1972-06-16",
   birth_number: "7256160494", gender: "zena", place_of_birth: "Praha",
   perm_ulice: "Lnáře", perm_cp: "214", perm_obec: "Lnáře", perm_psc: "38742",
-  kontakt_ulice: "Čelakovské-Rajské", kontakt_cp: "208", kontakt_obec: "Rožmitál pod Třemšínem", kontakt_psc: "26242", kontakt_stat: "Česká republika",
+  dorucovaci_stejna: false, kontakt_ulice: "Čelakovské-Rajské", kontakt_cp: "208", kontakt_obec: "Rožmitál pod Třemšínem", kontakt_psc: "26242", kontakt_stat: "Česká republika",
   highest_education: "H", health_insurance_company: "205",
   start_date: "2026-09-24", vznik_zamestnani: "2026-09-24", employment_type: "doba_urcita", postaveni: "1112", pozice_kategorie: "HI-001", nazev_pozice: "dělnice",
   bank_account: "123456789/0800",

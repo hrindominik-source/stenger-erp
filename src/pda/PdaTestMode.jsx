@@ -14,7 +14,7 @@ import { FlaskConical, ScanLine, Trash2, Wifi, WifiOff, Timer, Unplug, Keyboard,
 import { PdaApiContext, PdaMain } from "./PdaMobileView.jsx";
 import PdaOfficeView from "./PdaOfficeView.jsx";
 import { createPdaMockStore, createMockPdaApi } from "./pdaMockApi.js";
-import { GS, visibleControlChars } from "../lib/gs1.js";
+import { GS, visibleControlChars } from "../lib/gs1Pda.js";
 import { DEMO_GTINS, randomSscc, ssccCode, produktCode } from "../lib/pdaTestCodes.js";
 
 const FONT = { fontFamily: "system-ui, -apple-system, Segoe UI, sans-serif" };

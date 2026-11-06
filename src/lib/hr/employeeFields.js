@@ -35,6 +35,14 @@ export const FIXED_WORKPLACE = {
 
 const opts = (arr) => arr.map(([value, label]) => ({ value, label: label ?? value }));
 
+// Misto prubehu prace (JMHZ / CSSZ).
+export const MISTO_PRUBEHU_OPTIONS = opts([
+  ["1", "1 – v prostorách zaměstnavatele"],
+  ["2", "2 – u zákazníka"],
+  ["3", "3 – bydliště zaměstnance"],
+  ["4", "4 – jinde"],
+]);
+
 export const STATE_OPTIONS = opts([[CZ], ["Slovensko"], ["Ukrajina"], ["Moldavsko"], ["Bulharsko"]]);
 export const GENDER_OPTIONS = opts([["zena", "Žena"], ["muz", "Muž"]]);
 export const MARITAL_OPTIONS = opts([
@@ -179,6 +187,15 @@ export const POSITION_CATEGORIES = [
   },
 ];
 
+// Popis zaznamu z tabulky positions: pri kategorii jej nazov (zaznam je
+// spolocny pre muzov aj zeny - napr. HI-001 bol "Dělnice"), inak kod – nazov.
+export function positionRecordLabel(p) {
+  if (!p) return null;
+  const code = String(p.code || "").toUpperCase().replace(/L/g, "I").replace(/\s/g, "");
+  const cat = POSITION_CATEGORIES.find((c) => c.code === code);
+  return cat ? cat.label : p.code ? `${p.code} – ${p.name}` : p.name;
+}
+
 // Nazvy pre danu kategoriu, filtrovane podla pohlavia (bez pohlavia vsetky).
 export function positionNameOptions(categoryCode, gender) {
   const cat = POSITION_CATEGORIES.find((c) => c.code === categoryCode);
@@ -278,7 +295,11 @@ const dependent = (slot, title, extraFields, showIf, extra = {}) => ({
   ...extra,
   fields: [
     { key: `${slot}_jmeno`, label: "Jméno a příjmení", type: "text", store: { t: "pay", slot, field: "jmeno" } },
-    { key: `${slot}_datum_rc`, label: "Datum narození, rodné číslo", type: "text", store: { t: "pay", slot, field: "datum_narozeni_rc" } },
+    // Datum narozeni a RC zvlast; spolocne pole "datum_narozeni_rc" (JMHZ,
+    // prohlaseni, starsie zaznamy) sa z nich sklada - viz childBirthText.
+    { key: `${slot}_datum_narozeni`, label: "Datum narození", type: "date", rowStart: true, store: { t: "pay", slot, field: "datum_narozeni" } },
+    { key: `${slot}_rc`, label: "Rodné číslo", type: "text", store: { t: "pay", slot, field: "rodne_cislo" } },
+    { key: `${slot}_datum_rc`, label: "Datum narození, rodné číslo", type: "hidden", store: { t: "pay", slot, field: "datum_narozeni_rc" } },
     ...extraFields,
   ],
 });
@@ -287,7 +308,7 @@ const dependent = (slot, title, extraFields, showIf, extra = {}) => ({
 // JMHZ PDF ma miesto len pre 4, dalsie su v karte a HR ich prilozi zvlast.
 export const MAX_CHILDREN = 10;
 export const JMHZ_PDF_CHILDREN = 4;
-const CHILD_FIELD_SUFFIXES = ["jmeno", "datum_rc", "narok", "ztpp", "studium", "neuplatneni"];
+const CHILD_FIELD_SUFFIXES = ["jmeno", "datum_narozeni", "rc", "datum_rc", "narok", "ztpp", "studium", "neuplatneni"];
 export const childSlot = (i) => `dite${i}`;
 const childExtra = (slot) => [
   { key: `${slot}_narok`, label: "Nárok na daňové zvýhodnění", type: "yesno", store: { t: "pay", slot, field: "narok_danove_zvyhodneni" } },
@@ -333,6 +354,7 @@ export const EMPLOYEE_SECTIONS = [
       { key: "osobni_cislo", label: "Osobní číslo zaměstnance", type: "text", rowStart: true, store: { t: "emp", col: "data", path: "osobni_cislo" } },
       { key: "oic", label: "OIČ – osobní identifikační číslo (přiděluje ČSSZ)", type: "text", rowStart: true, store: { t: "emp", col: "data", path: "oic" } },
       { key: "id_ppv", label: "ID PPV – identifikátor zaměstnání (přiděluje ČSSZ)", type: "text", tier: "job", store: { t: "job", col: "data", path: "id_ppv" } },
+      { key: "evidence_pojistneho_vztahu", label: "Evidence pojistného vztahu – potvrzení ČSSZ o přidělení OIČ / ID PPV (PDF)", type: "file", kind: "evidence_pojistneho_vztahu", tier: "payroll" },
       { key: "cislo_pojistence", label: "Číslo pojištěnce (náhradní / evidenční číslo pojištěnce)", type: "text", rowStart: true, store: { t: "emp", col: "data", path: "cislo_pojistence" } },
       // Prilohy sa ukladaju k mzdovym udajom (payroll.data.prilohy) -> tier payroll.
       { key: "cislo_pojistence_oznameni", label: "Oznámení o přidělení čísla pojištěnce (PDF / sken)", type: "file", kind: "oznameni_cislo_pojistence", tier: "payroll" },
@@ -376,24 +398,28 @@ export const EMPLOYEE_SECTIONS = [
   },
   {
     id: "adresa_kontaktni",
-    title: "Kontaktní adresa (jen pokud je odlišná od trvalé)",
+    title: "Kontaktní adresa",
     fields: [
-      ...addr("kontakt", "emp", "correspondence_address", ""),
-      { key: "kontakt_stat", label: "Stát", type: "select", options: STATE_OPTIONS, allowOther: true, store: { t: "emp", col: "correspondence_address", path: "stat" } },
+      // Zaskrtnute = dorucovaci adresa sa neuklada zvlast; dokumenty a JMHZ
+      // pouziju adresu trvaleho pobytu (prip. pobytu v CR u cizince).
+      { key: "dorucovaci_stejna", label: "Kontaktní adresa je stejná jako adresa trvalého pobytu", type: "check", def: true, store: { t: "emp", col: "data", path: "dorucovaci_stejna" } },
+      ...addr("kontakt", "emp", "correspondence_address", "", { showIf: (v) => v.dorucovaci_stejna !== true }),
+      { key: "kontakt_stat", label: "Stát", type: "select", options: STATE_OPTIONS, allowOther: true, showIf: (v) => v.dorucovaci_stejna !== true, store: { t: "emp", col: "correspondence_address", path: "stat" } },
     ],
   },
   {
     id: "kontakt",
     title: "Kontakt, doklad a účet",
     fields: [
-      { key: "phone", label: "Telefonní číslo", type: "text", store: { t: "emp", col: "phone" } },
+      // Dvojice vedle sebe: telefon + e-mail, typ + cislo dokladu, ucet.
+      { key: "phone", label: "Telefonní číslo", type: "text", rowStart: true, store: { t: "emp", col: "phone" } },
       { key: "private_email", label: "E-mailová adresa", type: "text", store: { t: "emp", col: "private_email" } },
-      { key: "id_document_type", label: "Typ průkazu", type: "select", options: DOKLAD_OPTIONS, allowOther: true, def: "Občanský průkaz", store: { t: "emp", col: "id_document_type" } },
+      { key: "id_document_type", label: "Typ průkazu", type: "select", rowStart: true, options: DOKLAD_OPTIONS, allowOther: true, def: "Občanský průkaz", store: { t: "emp", col: "id_document_type" } },
       { key: "id_document_number", label: "Číslo průkazu", type: "text", tier: "sensitive", store: { t: "sens", col: "id_document_number" } },
-      { key: "bank_account", label: "Číslo bankovního účtu pro výplatu mzdy", type: "text", tier: "sensitive", store: { t: "sens", col: "bank_account" } },
+      { key: "bank_account", label: "Číslo bankovního účtu pro výplatu mzdy", type: "text", rowStart: true, tier: "sensitive", store: { t: "sens", col: "bank_account" } },
       // Heslo na zaheslovane PDF vyplatnej pasky posielanej e-mailom (= JMHZ
       // "Heslo pro elektronickou komunikaci").
-      { key: "heslo_pasky", label: "Heslo pro zaslání výplatní pásky e-mailem", type: "text", tier: "sensitive", store: { t: "sens", col: "data", path: "heslo_vyplatni_pasky" } },
+      { key: "heslo_pasky", label: "Heslo pro zaslání výplatní pásky e-mailem", type: "text", rowStart: true, tier: "sensitive", store: { t: "sens", col: "data", path: "heslo_vyplatni_pasky" } },
     ],
   },
   {
@@ -501,10 +527,11 @@ export const EMPLOYEE_SECTIONS = [
       { key: "vedouci", label: "Vedoucí zaměstnanec", type: "yesno", def: false, hr: true, store: { t: "job", col: "data", path: "vedouci" } },
       { key: "pracovni_rezim", label: "Pracovní režim", type: "select", options: REZIM_OPTIONS, def: "jednosmenny", hr: true, store: { t: "job", col: "data", path: "pracovni_rezim" } },
       { key: "nepretrzity_provoz", label: "Nepřetržitý provoz", type: "yesno", def: false, hr: true, store: { t: "job", col: "data", path: "nepretrzity_provoz" } },
-      { key: "workplace", label: "Místo výkonu práce pro ČSSZ", type: "fixed", fixedValue: FIXED_WORKPLACE.adresa, hr: true, store: { t: "job", col: "workplace" } },
-      { key: "obec_vykonu", label: "Název obce", type: "fixed", fixedValue: FIXED_WORKPLACE.obec, hr: true, store: { t: "job", col: "data", path: "obec_vykonu" } },
-      { key: "misto_vykonu_smlouva", label: "Místo výkonu práce do pracovní smlouvy", info: "Znění do smlouvy – doplnit podle doporučení právničky (např. sídlo zaměstnavatele / obec).", type: "text", hr: true, wide: true, store: { t: "job", col: "data", path: "misto_vykonu_smlouva" } },
-      { key: "kod_obce", label: "Kód obce", type: "fixed", fixedValue: FIXED_WORKPLACE.kod_obce, hr: true, store: { t: "job", col: "data", path: "kod_obce" } },
+      // Misto vykonu prace: misto prubehu pre CSSZ, adresa ide aj do pracovnej zmluvy.
+      { key: "misto_prubehu", label: "Místo průběhu práce (ČSSZ)", type: "select", options: MISTO_PRUBEHU_OPTIONS, def: "1", noEmpty: true, hr: true, wide: true, store: { t: "job", col: "data", path: "misto_prubehu_prace" } },
+      { key: "workplace", label: "Místo výkonu práce – pracovní smlouva", info: "Toto znění se vyplní do pracovní smlouvy.", type: "fixed", fixedValue: FIXED_WORKPLACE.adresa, hr: true, rowStart: true, store: { t: "job", col: "workplace" } },
+      { key: "kod_obce", label: "Kód obce pracovního místa", type: "fixed", fixedValue: FIXED_WORKPLACE.kod_obce, hr: true, store: { t: "job", col: "data", path: "kod_obce" } },
+      { key: "obec_vykonu", label: "Obec pracovního místa", type: "fixed", fixedValue: FIXED_WORKPLACE.obec, hr: true, store: { t: "job", col: "data", path: "obec_vykonu" } },
     ],
   },
   {
@@ -682,6 +709,15 @@ function readStore(store, { employee, sensitive, payroll, employment }) {
 const OMEZENI_LEGACY = { iii: "omezeni_typ_iii_stupen", iii_mimoradne: "omezeni_typ_iii_stupen_mimoradne", ii: "omezeni_typ_ii_stupen", i: "omezeni_typ_i_stupen", ozz: "omezeni_ozz" };
 const DUCHOD_LEGACY = { starobni: "duchod_starobni", invalidni_3: "duchod_invalidni_3_stupne", invalidni_12: "duchod_invalidni_1_2_stupne", cizi_starobni: "duchod_cizi_charakteru_starobni", cizi_invalidni_3: "duchod_cizi_charakteru_invalidni_3", cizi_invalidni_12: "duchod_cizi_charakteru_invalidni_1_2" };
 
+// Priznak "dorucovaci = trvala" pre starsie zaznamy: dorucovacia adresa nie je
+// vyplnena, alebo je zhodna s trvalou (ulica, c.p., c.o., obec, PSC).
+const ADDR_PARTS = ["ulice", "cp", "co", "obec", "psc"];
+const normAddr = (x) => String(x || "").trim().toLowerCase().replace(/\s+/g, " ");
+function dorucovaciJakoTrvala(v) {
+  if (!ADDR_PARTS.some((k) => normAddr(v[`kontakt_${k}`]))) return true;
+  return ADDR_PARTS.every((k) => normAddr(v[`kontakt_${k}`]) === normAddr(v[`perm_${k}`]));
+}
+
 export function valuesFromRecords(records) {
   const v = emptyEmployeeValues();
   for (const f of ALL_FIELDS) {
@@ -703,6 +739,11 @@ export function valuesFromRecords(records) {
     v.vedouci = records.payroll.concurrent_employment.vedouci_pracovnik === true;
   }
   if (!records.employment?.data?.postaveni && records.employment) v.postaveni = derivePostaveni(v.employment_type);
+  // Starsie zaznamy bez priznaku: "stejna" len ak dorucovacia adresa nie je vyplnena.
+  if (records.employee && records.employee.data?.dorucovaci_stejna === undefined) {
+    v.dorucovaci_stejna = dorucovaciJakoTrvala(v);
+  }
+  splitChildBirth(v);
   v.deti_pocet = countChildren(v);
   v.prilohy = Array.isArray(records.payroll?.data?.prilohy) ? records.payroll.data.prilohy : [];
   v.zp_historie = Array.isArray(records.employee?.data?.zp_historie) ? records.employee.data.zp_historie : [];
@@ -720,10 +761,12 @@ export function normalizeLegacyDraft(d) {
   if (d.permanent_city && !d.perm_obec) out.perm_obec = d.permanent_city;
   if (d.permanent_zip && !d.perm_psc) out.perm_psc = d.permanent_zip;
   if (d.permanent_country && !d.perm_stat) out.perm_stat = d.permanent_country;
+  if (d.dorucovaci_stejna === undefined) out.dorucovaci_stejna = dorucovaciJakoTrvala(out);
   out.gender = normalizeGender(out.gender);
   out.highest_education = normalizeEducation(out.highest_education);
   out.health_insurance_company = normalizeHealthInsurance(out.health_insurance_company);
   for (const f of ALL_FIELDS) if (f.type === "fixed") out[f.key] = f.fixedValue;
+  splitChildBirth(out);
   out.deti_pocet = Math.max(Number(out.deti_pocet || 0), countChildren(out));
   if (!Array.isArray(out.prilohy)) out.prilohy = [];
   return out;
@@ -749,6 +792,7 @@ function toDbValue(field, value) {
 export function buildRecordPatches(rawValues, existing = {}, ctx = {}) {
   // Vyplnene dieta sa nikdy nestrati, ani keby deti_pocet chybal (stary draft).
   const values = { ...rawValues, deti_pocet: Math.max(Number(rawValues.deti_pocet || 0), countChildren(rawValues)) };
+  for (let i = 1; i <= MAX_CHILDREN; i++) values[`${childSlot(i)}_datum_rc`] = childBirthText(values, childSlot(i));
   const { mode = "create", canSensitive = true, canPayroll = true } = ctx;
   const emp = {}; const sens = {}; const job = {};
   const pay = {};
@@ -871,6 +915,30 @@ export function isValuesForeigner(v) {
 // ---------------------------------------------------------------------------
 
 const isFilled = (x) => x !== "" && x !== undefined && x !== null;
+
+// Dieta: "datum narozeni, rodne cislo" ako jeden text (JMHZ, prohlaseni,
+// vypocet veku). Z novych poli; ak nie su vyplnene, starsi spolocny text.
+export function childBirthText(v, slot) {
+  const d = v[`${slot}_datum_narozeni`];
+  const rc = String(v[`${slot}_rc`] || "").trim();
+  if (!d && !rc) return String(v[`${slot}_datum_rc`] || "").trim();
+  const [y, m, day] = String(d || "").split("-");
+  return [day ? `${Number(day)}.${Number(m)}.${y}` : "", rc].filter(Boolean).join(", ");
+}
+
+// Starsi zaznam "1.2.2010, 100201/1234" -> datum narozeni a RC zvlast.
+// Co sa neda rozpoznat, ostane v poli RC, aby sa nic nestratilo.
+function splitChildBirth(v) {
+  for (let i = 1; i <= MAX_CHILDREN; i++) {
+    const s = childSlot(i);
+    const old = String(v[`${s}_datum_rc`] || "").trim();
+    if (!old || v[`${s}_datum_narozeni`] || v[`${s}_rc`]) continue;
+    const date = old.match(/(\d{1,2})\.\s*(\d{1,2})\.\s*(\d{4})/);
+    const rc = old.match(/(\d{6})\s*\/?\s*(\d{3,4})/);
+    if (date) v[`${s}_datum_narozeni`] = `${date[3]}-${date[2].padStart(2, "0")}-${date[1].padStart(2, "0")}`;
+    v[`${s}_rc`] = rc ? `${rc[1]}/${rc[2]}` : (date ? "" : old);
+  }
+}
 
 export function countChildren(v) {
   let n = 0;

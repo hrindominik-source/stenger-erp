@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { parseGs1, GS } from "./gs1.js";
+import { parseGs1, GS } from "./gs1Pda.js";
 import { mergeScan, EMPTY_PENDING, pdaErrorMessage, isPrimaryKeyConflict, pdaId, summarizePallets } from "./pdaScan.js";
 
 const TODAY = new Date(2026, 9, 13);

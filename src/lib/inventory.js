@@ -112,15 +112,35 @@ export function materialShortages(requiredIssues, stock) {
 // Navrhne, ktore existujuce (este neocenene) prijmy tovaru najlepsie zodpovedaju
 // polozke z faktury - podla zhody dodavatela a podobnosti nazvu materialu. Office
 // si z navrhov vyberie/potvrdi spravny prijem rucne (nespoliehame sa na automat).
-export function suggestReceiptMatches(item, dodavatelNazov, receipts) {
+// Cisla dokladov na porovnanie: "13159810 / 593421" -> ["13159810", "593421"].
+function cislaDokladu(...hodnoty) {
+  const out = new Set();
+  hodnoty.forEach((h) =>
+    String(h || "")
+      .split(/[\s,;/]+/)
+      .map((t) => t.replace(/[^0-9a-z]/gi, "").toLowerCase())
+      .filter((t) => t.length >= 4)
+      .forEach((t) => out.add(t))
+  );
+  return out;
+}
+const bezMedzier = (s) => String(s || "").replace(/\s/g, "").toLowerCase();
+
+// faktura (nepovinne) = { cisloDodacihoListu, cisloObjednavky } z hlavicky faktury; polozka
+// moze mat vlastne. Zhoda cisla dodacieho listu alebo objednavky ma prednost pred nazvom.
+export function suggestReceiptMatches(item, dodavatelNazov, receipts, faktura = {}) {
   const popisLower = (item.popis || "").trim().toLowerCase();
   const dodLower = (dodavatelNazov || "").trim().toLowerCase();
+  const dlFaktury = cislaDokladu(item.cisloDodacihoListu || faktura.cisloDodacihoListu);
+  const objFaktury = bezMedzier(item.cisloObjednavky || faktura.cisloObjednavky);
   return (receipts || [])
     .filter((r) => r.cenaJednotkovaCzk === "" || r.cenaJednotkovaCzk === undefined || r.cenaJednotkovaCzk === null)
     .map((r) => {
       let score = 0;
       const dodReceipt = (r.dodavatel || "").trim().toLowerCase();
       if (dodLower && dodReceipt && (dodReceipt.includes(dodLower) || dodLower.includes(dodReceipt))) score += 5;
+      if (dlFaktury.size && Array.from(cislaDokladu(r.cisloDokladu, r.dodakCislo)).some((c) => dlFaktury.has(c))) score += 20;
+      if (objFaktury && [r.materialObjednavkaCislo, r.dodakObjednavka].some((o) => o && bezMedzier(o) === objFaktury)) score += 8;
       const matLower = (r.material || "").trim().toLowerCase();
       if (matLower && popisLower) {
         if (matLower === popisLower) score += 10;

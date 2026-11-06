@@ -2515,3 +2515,179 @@ begin
   );
 end;
 $$;
+
+-- ============================================================
+-- 48. hr_nastaveni - nastavenia Personalistiky (kluc -> jsonb hodnota).
+--     Prvy kluc: "lekar_kontakt" = kontakt na lekara pre pokyny
+--     k lekarskej prehliadke ({ volat, telefon, ordinace }).
+--     Spustit JEDNORAZOVO v Supabase -> SQL Editor (je idempotentne).
+--     Rovnaky obsah je aj na konci supabase/schema.sql (sekcia 48).
+--     Citat moze HR_VIEW_BASIC, menit HR_EDIT. Zmeny zapisuje audit_trigger.
+-- ============================================================
+
+create table if not exists public.hr_nastaveni (
+  key text primary key,
+  value jsonb not null default '{}'::jsonb,
+  updated_at timestamptz not null default now(),
+  updated_by uuid references auth.users(id) default auth.uid()
+);
+alter table public.hr_nastaveni enable row level security;
+
+drop policy if exists "hr_nastaveni_view" on public.hr_nastaveni;
+create policy "hr_nastaveni_view" on public.hr_nastaveni
+  for select
+  using (public.current_role() = 'office' and public.hr_has_permission('HR_VIEW_BASIC'));
+
+drop policy if exists "hr_nastaveni_edit" on public.hr_nastaveni;
+create policy "hr_nastaveni_edit" on public.hr_nastaveni
+  for all
+  using (public.current_role() = 'office' and public.hr_has_permission('HR_EDIT'))
+  with check (public.current_role() = 'office' and public.hr_has_permission('HR_EDIT'));
+
+drop trigger if exists audit_hr_nastaveni on public.hr_nastaveni;
+create trigger audit_hr_nastaveni after insert or update or delete on public.hr_nastaveni
+  for each row execute function public.audit_trigger();
+
+-- ============================================================
+-- 49. inventury - fyzicka inventura skladu (suroviny, obaly).
+--     Sklad spocita naslepo (ROZPRACOVANA -> SPOCITANA), kancelaria oceni
+--     a uzavrie (UZAVRENA). Rozdiely sa pri uzavreti zapisu ako bezne
+--     pohyby do goods_receipts / stock_issues (data.inventuraId).
+--     Uzavretu inventuru uz nikto nezmeni ani nezmaze.
+--     Spustit JEDNORAZOVO v Supabase -> SQL Editor (je idempotentne).
+--     Rovnaky obsah je aj na konci supabase/schema.sql (sekcia 49).
+-- ============================================================
+
+create table if not exists public.inventury (
+  id text primary key,
+  data jsonb not null,
+  created_at timestamptz not null default now()
+);
+alter table public.inventury enable row level security;
+
+drop policy if exists "inventury_select" on public.inventury;
+create policy "inventury_select" on public.inventury
+  for select
+  using (public.current_role() in ('office', 'sklad'));
+
+drop policy if exists "inventury_insert" on public.inventury;
+create policy "inventury_insert" on public.inventury
+  for insert
+  with check (public.current_role() in ('office', 'sklad') and data->>'stav' in ('ROZPRACOVANA', 'SPOCITANA'));
+
+drop policy if exists "inventury_update" on public.inventury;
+create policy "inventury_update" on public.inventury
+  for update
+  using (public.current_role() in ('office', 'sklad') and data->>'stav' <> 'UZAVRENA')
+  with check (
+    (public.current_role() = 'office' and data->>'stav' in ('ROZPRACOVANA', 'SPOCITANA', 'UZAVRENA'))
+    or (public.current_role() = 'sklad' and data->>'stav' in ('ROZPRACOVANA', 'SPOCITANA'))
+  );
+
+drop policy if exists "inventury_delete" on public.inventury;
+create policy "inventury_delete" on public.inventury
+  for delete
+  using (public.current_role() = 'office' and data->>'stav' <> 'UZAVRENA');
+
+drop trigger if exists audit_inventury on public.inventury;
+create trigger audit_inventury after insert or update or delete on public.inventury
+  for each row execute function public.audit_trigger();
+
+-- ============================================================
+-- 50. prijate_faktury - faktury dodavatelov nacitane automaticky zo schranky
+--     (Edge Function invoice-inbox). Zapisuje ich len funkcia (service role),
+--     kancelaria ich v Prijme tovaru skontroluje a napáruje na prijmy.
+--     Stavy: KE_KONTROLE, ZPRACOVANA, NESKLADOVA, NIE_JE_FAKTURA.
+--     Spustit JEDNORAZOVO v Supabase -> SQL Editor (je idempotentne).
+--     Plny skript aj s nastavenim cronu: supabase/2026-11-05_prijate_faktury.sql.
+-- ============================================================
+
+-- A. Tabulka, pristup, token pre cron ---------------------------------
+
+create table if not exists public.prijate_faktury (
+  id text primary key,
+  data jsonb not null,
+  created_at timestamptz not null default now()
+);
+alter table public.prijate_faktury enable row level security;
+
+drop policy if exists "prijate_faktury_select" on public.prijate_faktury;
+create policy "prijate_faktury_select" on public.prijate_faktury
+  for select
+  using (public.current_role() = 'office');
+
+drop policy if exists "prijate_faktury_update" on public.prijate_faktury;
+create policy "prijate_faktury_update" on public.prijate_faktury
+  for update
+  using (public.current_role() = 'office')
+  with check (public.current_role() = 'office' and data->>'stav' in ('KE_KONTROLE', 'ZPRACOVANA', 'NESKLADOVA', 'NIE_JE_FAKTURA'));
+
+drop trigger if exists audit_prijate_faktury on public.prijate_faktury;
+create trigger audit_prijate_faktury after insert or update or delete on public.prijate_faktury
+  for each row execute function public.audit_trigger();
+
+-- Nahodny token, ktorym sa cron preukazuje funkcii. Vznikne raz v Supabase Vault,
+-- nikto ho nemusi kopirovat (funkcia ho overi cez RPC nizsie).
+create extension if not exists supabase_vault;
+do $$
+begin
+  if not exists (select 1 from vault.secrets where name = 'invoice_inbox_token') then
+    perform vault.create_secret(encode(extensions.gen_random_bytes(32), 'hex'), 'invoice_inbox_token');
+  end if;
+end $$;
+
+create or replace function public.invoice_inbox_token_ok(p_token text)
+returns boolean
+language sql
+security definer
+set search_path = ''
+as $$
+  select exists (
+    select 1 from vault.decrypted_secrets
+    where name = 'invoice_inbox_token' and decrypted_secret = p_token
+  );
+$$;
+revoke all on function public.invoice_inbox_token_ok(text) from public, anon, authenticated;
+grant execute on function public.invoice_inbox_token_ok(text) to service_role;
+
+-- ============================================================
+-- 51. skladove_karty - priradenie kodu produktu z paletovej etikety (GTIN)
+--     k materialu skladu: ktory material, jednotka, kolko jednotiek je
+--     v 1 baleni a trvanlivost (ked etiketa nema DMT). Vznikaju pri prvom
+--     skene neznameho produktu na prijme, upravit ich moze sklad aj kancelaria.
+--     Sarza, DMT a palety (SSCC) sa ukladaju priamo v goods_receipts.data.
+--     Spustit JEDNORAZOVO v Supabase -> SQL Editor (je idempotentne).
+--     Rovnaky obsah je aj na konci supabase/schema.sql (sekcia 51).
+-- ============================================================
+
+create table if not exists public.skladove_karty (
+  id text primary key,
+  data jsonb not null,
+  created_at timestamptz not null default now()
+);
+alter table public.skladove_karty enable row level security;
+
+drop policy if exists "skladove_karty_select" on public.skladove_karty;
+create policy "skladove_karty_select" on public.skladove_karty
+  for select
+  using (public.current_role() in ('office', 'sklad'));
+
+drop policy if exists "skladove_karty_insert" on public.skladove_karty;
+create policy "skladove_karty_insert" on public.skladove_karty
+  for insert
+  with check (public.current_role() in ('office', 'sklad'));
+
+drop policy if exists "skladove_karty_update" on public.skladove_karty;
+create policy "skladove_karty_update" on public.skladove_karty
+  for update
+  using (public.current_role() in ('office', 'sklad'))
+  with check (public.current_role() in ('office', 'sklad'));
+
+drop policy if exists "skladove_karty_delete" on public.skladove_karty;
+create policy "skladove_karty_delete" on public.skladove_karty
+  for delete
+  using (public.current_role() = 'office');
+
+drop trigger if exists audit_skladove_karty on public.skladove_karty;
+create trigger audit_skladove_karty after insert or update or delete on public.skladove_karty
+  for each row execute function public.audit_trigger();

@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeAll } from "vitest";
-import { parseGs1 } from "../lib/gs1.js";
+import { parseGs1 } from "../lib/gs1Pda.js";
 import { mergeScan, EMPTY_PENDING, pdaId } from "../lib/pdaScan.js";
 import { savePalletFlow, deletePalletFlow, finishFlow, canFinish, createVydajkaFlow, mergeLoadedRows } from "../lib/pdaFlow.js";
 import { buildPdaExportSheets } from "../lib/pdaExport.js";

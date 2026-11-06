@@ -2,7 +2,7 @@
 // mesiace narokov na deti pre potvrdenie 5558, polozky rocneho zuctovania
 // (5457/B), stav roka a upozornenia (15.2.). Data roka su v
 // employee_payroll_data.data.dane[rok].
-import { MAX_CHILDREN, childSlot } from "./employeeFields.js";
+import { MAX_CHILDREN, childSlot, childBirthText } from "./employeeFields.js";
 import { birthDateFrom, ageOn, extractBirthNumber, splitName } from "./taxChildren.js";
 
 // Platca dane (zamestnavatel) - hlavicka tiskopisov.
@@ -63,14 +63,14 @@ export function childMonthsForYear(v, year, employment) {
     const s = childSlot(i);
     if (!v[`${s}_jmeno`] || v[`${s}_narok`] !== true) continue;
     order += 1;
-    const birth = birthDateFrom(v[`${s}_datum_rc`]);
+    const birth = birthDateFrom(childBirthText(v, s));
     const months = employed.filter((m) => {
       if (!birth) return true;
       if (birth > monthEnd(year, m)) return false;
       const age = ageOn(birth, monthStart(year, m));
       return age === null || age < 26;
     }).length;
-    out.push({ ...splitName(v[`${s}_jmeno`]), rc: extractBirthNumber(v[`${s}_datum_rc`]) || (birth ? birth.split("-").reverse().map(Number).join(".") : ""), poradi: Math.min(order, 3), mesice: months });
+    out.push({ ...splitName(v[`${s}_jmeno`]), rc: extractBirthNumber(childBirthText(v, s)) || (birth ? birth.split("-").reverse().map(Number).join(".") : ""), poradi: Math.min(order, 3), mesice: months });
   }
   return out.filter((c) => c.mesice > 0);
 }
@@ -81,9 +81,9 @@ export function childrenUnder3(v, year) {
   for (let i = 1; i <= MAX_CHILDREN; i++) {
     const s = childSlot(i);
     if (!v[`${s}_jmeno`]) continue;
-    const birth = birthDateFrom(v[`${s}_datum_rc`]);
+    const birth = birthDateFrom(childBirthText(v, s));
     if (!birth || ageOn(birth, `${year}-01-01`) >= 3) continue;
-    out.push({ ...splitName(v[`${s}_jmeno`]), rc: extractBirthNumber(v[`${s}_datum_rc`]) });
+    out.push({ ...splitName(v[`${s}_jmeno`]), rc: extractBirthNumber(childBirthText(v, s)) });
   }
   return out;
 }

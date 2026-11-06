@@ -14,7 +14,24 @@ export const KNOWN_TEMPLATE_KEYS = [
   "zarazeni", "druh_prace", "mzda_hod", "priplatek_noc", "priplatek_vikend",
   "datum", "datum_dokumentu", "datum_skoleni", "zastupce", "zastupce_pad7",
   "predavajici", "skolitel",
+  // Rodove tvary podla pohlavia zamestnanca (karta) - pracovník/pracovnice,
+  // 2. pad pracovníka/pracovnice, dělník/dělnice, zaměstnanec/zaměstnankyně;
+  // rod_a = koncovka slovesa/pridavneho mena ("byl{{rod_a}} seznámen{{rod_a}}").
+  "pracovnik", "pracovnika", "delnik", "zamestnanec", "rod_a",
 ];
+
+// Rod podla pohlavia ("muz" / "zena"); bez pohlavia oba tvary.
+export function genderForms(gender) {
+  const z = gender === "zena", m = gender === "muz";
+  const pick = (muz, zena) => (z ? zena : m ? muz : `${muz} / ${zena}`);
+  return {
+    pracovnik: pick("pracovník", "pracovnice"),
+    pracovnika: pick("pracovníka", "pracovnice"),
+    delnik: pick("dělník", "dělnice"),
+    zamestnanec: pick("zaměstnanec", "zaměstnankyně"),
+    rod_a: pick("", "a").replace(" / ", "/"),
+  };
+}
 
 // Presne, ktore kluce POUZIVA ktora z nasich 3 sablon (overene priamo z
 // word/document.xml kazdeho vzoru) - pouziva sa na kontrolu povinnych poli
@@ -129,5 +146,6 @@ export function buildDocumentData({ person, sensitive, documentFields }) {
     zastupce_pad7: documentFields.zastupce_pad7 ?? "",
     predavajici: documentFields.predavajici ?? "",
     skolitel: documentFields.skolitel ?? "",
+    ...genderForms(person?.gender),
   };
 }

@@ -1,7 +1,7 @@
 // Deti a dane - vek z rodneho cisla, poradie narokov, upozornenia (26 let).
 // Ciste funkcie bez pdf-lib, aby sa dali pouzit v karte a prehlade bez
 // nacitania kniznice na PDF.
-import { MAX_CHILDREN, childSlot } from "./employeeFields.js";
+import { MAX_CHILDREN, childSlot, childBirthText } from "./employeeFields.js";
 
 // ---------------------------------------------------------------------------
 // Rodne cislo / vek
@@ -62,13 +62,13 @@ export function childrenForDeclaration(v, onIso) {
   for (let i = 1; i <= MAX_CHILDREN; i++) {
     const s = childSlot(i);
     if (!v[`${s}_jmeno`]) continue;
-    const birth = birthDateFrom(v[`${s}_datum_rc`]);
+    const birth = birthDateFrom(childBirthText(v, s));
     const age = ageOn(birth, onIso);
     const narok = v[`${s}_narok`] === true;
     if (narok) order += 1;
     out.push({
       ...splitName(v[`${s}_jmeno`]),
-      rc: extractBirthNumber(v[`${s}_datum_rc`]),
+      rc: extractBirthNumber(childBirthText(v, s)),
       narok: narok ? `${Math.min(order, 3)}.` : "N",
       ztpp: narok && v[`${s}_ztpp`] === true ? "X" : "",
       zletile: narok && age !== null && age >= 18 && age < 26 ? "X" : "",
@@ -85,7 +85,7 @@ export function childTaxWarnings(v, today = new Date().toISOString().slice(0, 10
   for (let i = 1; i <= MAX_CHILDREN; i++) {
     const s = childSlot(i);
     if (!v[`${s}_jmeno`] || v[`${s}_narok`] !== true) continue;
-    const birth = birthDateFrom(v[`${s}_datum_rc`]);
+    const birth = birthDateFrom(childBirthText(v, s));
     if (!birth) continue;
     const name = v[`${s}_jmeno`];
     const d26 = addYearsIso(birth, 26);

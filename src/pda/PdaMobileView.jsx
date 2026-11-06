@@ -11,7 +11,7 @@
 
 import React, { useState, useEffect, useRef, useCallback, createContext, useContext } from "react";
 import { Loader2, AlertCircle, LogOut, ArrowLeft, Plus, ScanLine, CheckCircle2, XCircle, Trash2, RotateCcw, PackageCheck, User, Wifi, WifiOff, Keyboard } from "lucide-react";
-import { parseGs1, visibleControlChars, GS } from "../lib/gs1.js";
+import { parseGs1, visibleControlChars, GS } from "../lib/gs1Pda.js";
 import { mergeScan, EMPTY_PENDING, pdaErrorMessage, pdaId, summarizePallets } from "../lib/pdaScan.js";
 import { savePalletFlow, deletePalletFlow, finishFlow, canFinish, createVydajkaFlow, mergeLoadedRows } from "../lib/pdaFlow.js";
 
