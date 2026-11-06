@@ -2,7 +2,7 @@
 // (?pda=test) a automaticke testy. Pouziva GS1 prikladovy prefix 0614141
 // (nie skutocny vyrobca), takze nekoliduje s realnymi etiketami.
 
-import { gs1CheckDigit, GS } from "./gs1Pda.js";
+import { gs1CheckDigit, GS } from "./gs1.js";
 
 export const DEMO_GTINS = [
   { gtin: "14001234000012", nazov: "Test – oplatky 48 ks" },

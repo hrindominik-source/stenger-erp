@@ -1,121 +1,308 @@
-// Citanie paletovych etikiet GS1-128 (GS1 logisticka etiketa) zo skenera.
-// Skener posiela obsah kodu ako text; polia premennej dlzky oddeluje znak GS
-// (ASCII 29, FNC1). Podporovany je aj zapis so zatvorkami z popisu pod kodom,
-// napr. "(00)123...(10)ABC", a viac naskenovanych kodov jednej etikety naraz.
+// Citanie paletovych etikiet GS1-128 / GS1 DataMatrix zo skenera - jeden
+// parser pre PDA / Expedice (parseGs1Detail) aj prijem tovaru (parseGs1).
+//
+// Vstup je text tak, ako ho posle skener do Chrome (DataWedge keystroke):
+//   * FNC1 oddelovac = ASCII GS (0x1D). Ak by Chrome na PDA control znak
+//     zahodil, DataWedge sa da nastavit, aby GS nahradil znakom "|" - ten
+//     nie je v GS1 znakovej sade, takze je bezpecny ako nahradny oddelovac.
+//   * volitelny symbology identifier na zaciatku (]C1, ]d2, ]Q3, ]e0 ...),
+//   * pri rucnom zadani aj "ludsky" format so zatvorkami: (00)...(02)...
+//
+// Pravidla podla GS1 General Specifications:
+//   * AI s preddefinovanou dlzkou (prve 2 cislice 00-04, 11-20, 31-36, 41)
+//     nepotrebuju za sebou FNC1; ostatne (10, 21, 37, ...) su ukoncene
+//     FNC1/GS alebo koncom kodu. Nadbytocny GS za pevnym AI tolerujeme.
+//   * SSCC (00) a GTIN (01/02) maju kontrolnu cislicu mod 10 (vaha 3/1).
+//   * Datumy YYMMDD: storocie podla pravidla GS1 (7.12) - rozdiel YY od
+//     aktualneho roka 51..99 = minule storocie, -99..-50 = buduce, inak
+//     aktualne. Den 00 = posledny den mesiaca (AI 15/16/17, ale aj 11/13).
 
-const GS = "\u001d";
+export const GS = "\x1D";
+const ALT_SEPARATORS = ["|"];
 
-// AI -> [pevna dlzka udaju alebo null = premenna, max dlzka]
-const AI_DEF = {
-  "00": [18, 18],
-  "01": [14, 14],
-  "02": [14, 14],
-  10: [null, 20],
-  11: [6, 6],
-  13: [6, 6],
-  15: [6, 6],
-  16: [6, 6],
-  17: [6, 6],
-  21: [null, 20],
-  37: [null, 8],
-  400: [null, 30],
-  401: [null, 30],
+// Prve 2 cislice AI, pri ktorych je dlzka pevne dana (FNC1 netreba).
+const PREDEFINED_PREFIXES = new Set(["00", "01", "02", "03", "04", "11", "12", "13", "14", "15", "16", "17", "18", "19", "20", "31", "32", "33", "34", "35", "36", "41"]);
+
+const AI_TABLE = {
+  "00": { fixed: 18, numeric: true, label: "SSCC" },
+  "01": { fixed: 14, numeric: true, label: "GTIN" },
+  "02": { fixed: 14, numeric: true, label: "GTIN obsahu" },
+  "10": { max: 20, label: "Šarže" },
+  "11": { fixed: 6, numeric: true, date: true, label: "Datum výroby" },
+  "12": { fixed: 6, numeric: true, date: true, label: "Datum splatnosti" },
+  "13": { fixed: 6, numeric: true, date: true, label: "Datum balení" },
+  "15": { fixed: 6, numeric: true, date: true, label: "Minimální trvanlivost (BBD)" },
+  "16": { fixed: 6, numeric: true, date: true, label: "Prodat do" },
+  "17": { fixed: 6, numeric: true, date: true, label: "Datum spotřeby" },
+  "20": { fixed: 2, numeric: true, label: "Varianta" },
+  "21": { max: 20, label: "Sériové číslo" },
+  "22": { max: 20, label: "CPV" },
+  "30": { max: 8, numeric: true, label: "Proměnné množství" },
+  "37": { max: 8, numeric: true, label: "Počet obchodních jednotek" },
+  "90": { max: 30, label: "Interní (90)" },
+  "240": { max: 30, label: "Doplňkové ID" },
+  "241": { max: 30, label: "Číslo dílu zákazníka" },
+  "250": { max: 30, label: "Sekundární sériové číslo" },
+  "251": { max: 30, label: "Reference na zdroj" },
+  "400": { max: 30, label: "Číslo objednávky zákazníka" },
+  "401": { max: 30, label: "GINC" },
+  "402": { fixed: 17, numeric: true, label: "GSIN" },
+  "403": { max: 30, label: "Směrovací kód" },
+  "420": { max: 20, label: "PSČ doručení" },
 };
+for (let i = 410; i <= 417; i++) AI_TABLE[String(i)] = { fixed: 13, numeric: true, label: "GLN (" + i + ")" };
+for (let i = 91; i <= 99; i++) AI_TABLE[String(i)] = { max: 90, label: "Interní (" + i + ")" };
 
-function aiDef(ai) {
-  if (AI_DEF[ai]) return AI_DEF[ai];
-  if (/^31\d\d$/.test(ai) || /^33\d\d$/.test(ai)) return [6, 6];
-  if (/^9\d$/.test(ai)) return [null, 90];
-  return null;
+// 31nn-36nn: miery (hmotnost, dlzka...), 4. cislica = pocet desatinnych miest.
+function measureSpec(ai) {
+  const p = ai.slice(0, 2);
+  if (!/^3[1-6]\d\d$/.test(ai)) return null;
+  const label = p === "31" && ai[2] === "0" ? "Čistá hmotnost (kg)" : p === "33" && ai[2] === "0" ? "Hrubá hmotnost (kg)" : "Míra (" + ai + ")";
+  return { fixed: 6, numeric: true, decimals: Number(ai[3]), label };
 }
 
-// Pozna AI na zaciatku retazca (2, 3 alebo 4 cislice).
+function specFor(ai) {
+  return AI_TABLE[ai] || measureSpec(ai) || null;
+}
+
+// Najde AI na zaciatku zvysneho retazca (2, 3 alebo 4 cislice).
 function matchAi(s) {
-  for (const len of [2, 3, 4]) {
+  if (/^3[1-6]\d\d/.test(s)) return s.slice(0, 4);
+  for (const len of [2, 3]) {
     const ai = s.slice(0, len);
-    if (ai.length === len && /^\d+$/.test(ai) && aiDef(ai)) {
-      if (len === 2 && (ai === "31" || ai === "33" || ai === "40")) continue;
-      return ai;
-    }
+    if (AI_TABLE[ai]) return ai;
   }
   return null;
 }
 
-// GS1 datum RRMMDD -> "DD.MM.RRRR". DD = 00 znamena posledny den mesiaca.
-export function gs1Datum(yymmdd) {
-  const m = String(yymmdd || "").match(/^(\d{2})(\d{2})(\d{2})$/);
-  if (!m) return "";
-  const yy = Number(m[1]);
-  // GS1: rok v rozsahu -49..+50 rokov od aktualneho; pre nase datumy staci 20xx
-  const year = 2000 + yy;
-  const month = Number(m[2]);
-  if (month < 1 || month > 12) return "";
-  let day = Number(m[3]);
-  if (day === 0) day = new Date(Date.UTC(year, month, 0)).getUTCDate();
-  return `${String(day).padStart(2, "0")}.${String(month).padStart(2, "0")}.${year}`;
+// Kontrolna cislica GS1 (mod 10, vahy 3/1 sprava) pre telo bez nej.
+export function gs1CheckDigit(body) {
+  let sum = 0;
+  for (let i = 0; i < body.length; i++) {
+    const d = Number(body[body.length - 1 - i]);
+    sum += i % 2 === 0 ? d * 3 : d;
+  }
+  return (10 - (sum % 10)) % 10;
 }
 
-function parseParenthesized(text) {
-  const out = {};
-  const re = /\((\d{2,4})\)\s*([^(]*)/g;
+export function gs1CheckDigitOk(digits) {
+  if (!/^\d+$/.test(digits) || digits.length < 2) return false;
+  return gs1CheckDigit(digits.slice(0, -1)) === Number(digits[digits.length - 1]);
+}
+
+function lastDayOfMonth(year, month) {
+  return new Date(Date.UTC(year, month, 0)).getUTCDate();
+}
+
+// GS1 GenSpecs 7.12 - urcenie storocia z dvojcifernho roka.
+export function gs1Year(yy, today = new Date()) {
+  const cur = today.getFullYear();
+  const curYY = cur % 100;
+  const century = cur - curYY;
+  const diff = yy - curYY;
+  if (diff >= 51) return century - 100 + yy;
+  if (diff <= -50) return century + 100 + yy;
+  return century + yy;
+}
+
+// "YYMMDD" -> { iso: "YYYY-MM-DD", dayMissing } alebo { error }.
+export function parseGs1Date(yymmdd, today = new Date()) {
+  if (!/^\d{6}$/.test(yymmdd)) return { error: "Datum musí mít 6 číslic (YYMMDD)." };
+  const yy = Number(yymmdd.slice(0, 2));
+  const mm = Number(yymmdd.slice(2, 4));
+  let dd = Number(yymmdd.slice(4, 6));
+  if (mm < 1 || mm > 12) return { error: "Neplatný měsíc v datu " + yymmdd + "." };
+  const year = gs1Year(yy, today);
+  const maxDay = lastDayOfMonth(year, mm);
+  const dayMissing = dd === 0;
+  if (dayMissing) dd = maxDay;
+  if (dd > maxDay) return { error: "Neplatný den v datu " + yymmdd + "." };
+  const iso = `${year}-${String(mm).padStart(2, "0")}-${String(dd).padStart(2, "0")}`;
+  return { iso, dayMissing };
+}
+
+function normalizeRaw(raw) {
+  let s = String(raw == null ? "" : raw);
+  s = s.replace(/[\r\n]+$/g, "").replace(/^\s+|\s+$/g, "");
+  // Symbology identifier (]C1 GS1-128, ]d2 DataMatrix, ]Q3 QR, ]e0 DataBar...).
+  if (/^\][A-Za-z][0-9A-Za-z]/.test(s)) s = s.slice(3);
+  for (const sep of ALT_SEPARATORS) s = s.split(sep).join(GS);
+  // Uvodny FNC1 (niektore skenery ho prenesu ako GS).
+  while (s[0] === GS) s = s.slice(1);
+  return s;
+}
+
+function parseBracketed(s) {
+  const elements = [];
+  const errors = [];
+  const re = /\((\d{2,4})\)([^(]*)/g;
   let m;
-  let found = false;
-  while ((m = re.exec(text))) {
-    found = true;
-    out[m[1]] = m[2].replace(/\s+/g, "").trim();
+  let consumed = 0;
+  while ((m = re.exec(s))) {
+    if (m.index !== consumed) errors.push("Neočekávaný text v kódu: " + s.slice(consumed, m.index));
+    consumed = re.lastIndex;
+    elements.push({ ai: m[1], value: m[2].replace(/\s+$/g, "") });
   }
-  return found ? out : null;
+  if (consumed !== s.length) errors.push("Neočekávaný text v kódu: " + s.slice(consumed));
+  return { elements, errors };
 }
 
-function parseRaw(text) {
-  const out = {};
-  let s = text.replace(/^\][A-Za-z]\d/, "");
-  while (s.length > 0) {
-    if (s[0] === GS) {
-      s = s.slice(1);
-      continue;
+function parseConcatenated(s) {
+  const elements = [];
+  const errors = [];
+  let i = 0;
+  while (i < s.length) {
+    if (s[i] === GS) { i++; continue; }
+    const rest = s.slice(i);
+    const ai = matchAi(rest);
+    if (!ai) {
+      errors.push("Neznámý nebo nepodporovaný AI na pozici " + (i + 1) + " (" + rest.slice(0, 4) + "...).");
+      break;
     }
-    const ai = matchAi(s);
-    if (!ai) throw new Error("Neznámý kód v etiketě: " + s.slice(0, 8));
-    const [fixed, max] = aiDef(ai);
-    s = s.slice(ai.length);
-    let value;
-    if (fixed) {
-      value = s.slice(0, fixed);
-      s = s.slice(fixed);
-      if (s[0] === GS) s = s.slice(1);
+    const spec = specFor(ai);
+    i += ai.length;
+    if (spec.fixed) {
+      const value = s.slice(i, i + spec.fixed);
+      if (value.length < spec.fixed || value.indexOf(GS) !== -1) {
+        errors.push(`AI (${ai}) má mít ${spec.fixed} znaků.`);
+        break;
+      }
+      elements.push({ ai, value });
+      i += spec.fixed;
+      // AI mimo preddefinovanej tabulky musi byt ukonceny FNC1 alebo koncom.
+      if (!PREDEFINED_PREFIXES.has(ai.slice(0, 2)) && i < s.length && s[i] !== GS) {
+        errors.push(`Za AI (${ai}) chybí oddělovač FNC1/GS.`);
+        break;
+      }
     } else {
-      const end = s.indexOf(GS);
-      value = end === -1 ? s : s.slice(0, end);
-      if (value.length > max) value = value.slice(0, max);
-      s = end === -1 ? s.slice(value.length) : s.slice(end + 1);
+      let end = s.indexOf(GS, i);
+      if (end === -1) end = s.length;
+      elements.push({ ai, value: s.slice(i, end) });
+      i = end;
     }
-    out[ai] = value;
   }
-  return out;
+  return { elements, errors };
+}
+
+function validateElement(el, today, errors, warnings) {
+  const spec = specFor(el.ai);
+  if (!spec) {
+    errors.push(`Nepodporovaný AI (${el.ai}).`);
+    return;
+  }
+  el.label = spec.label;
+  const v = el.value;
+  if (spec.fixed && v.length !== spec.fixed) errors.push(`AI (${el.ai}) má mít ${spec.fixed} znaků, má ${v.length}.`);
+  if (spec.max && (v.length < 1 || v.length > spec.max)) errors.push(`AI (${el.ai}) má mít 1–${spec.max} znaků, má ${v.length}${v.length > spec.max ? " - nechybí oddělovač FNC1/GS?" : ""}.`);
+  if (spec.numeric && !/^\d*$/.test(v)) {
+    // Typicky: chyba FNC1/GS za AI 37 a nasledujuci AI 10 sa prilepil k mnozstvu.
+    errors.push(`AI (${el.ai}) smí obsahovat jen číslice${spec.max ? " - nechybí oddělovač FNC1/GS?" : "."}`);
+  }
+  if ((el.ai === "00" || el.ai === "01" || el.ai === "02") && /^\d+$/.test(v) && v.length === spec.fixed && !gs1CheckDigitOk(v)) {
+    errors.push(`${spec.label} ${v} má chybnou kontrolní číslici.`);
+  }
+  if (spec.date && /^\d{6}$/.test(v)) {
+    const d = parseGs1Date(v, today);
+    if (d.error) errors.push(`${spec.label}: ${d.error}`);
+    else {
+      el.date = d.iso;
+      if (d.dayMissing) warnings.push(`${spec.label}: den 00 = poslední den měsíce (${d.iso}).`);
+    }
+  }
+  if (spec.decimals != null && /^\d{6}$/.test(v)) el.number = Number(v) / Math.pow(10, spec.decimals);
+}
+
+// Rozbor jedneho kodu. Vracia:
+// { ok, raw, normalized, elements:[{ai,value,label,date?}], ai:{}, errors, warnings,
+//   sscc, gtin, gtinAi, bbd, bbdAi, batch, count, kind: "sscc"|"produkt"|"oboje"|"neznamy" }
+function rozoberGs1(raw, today) {
+  const normalized = normalizeRaw(raw);
+  const result = { ok: false, raw: String(raw == null ? "" : raw), normalized, elements: [], ai: {}, errors: [], warnings: [], kind: "neznamy" };
+  if (!normalized) {
+    result.errors.push("Prázdný kód.");
+    return result;
+  }
+  if (/^(\d{8}|\d{12,14})$/.test(normalized)) {
+    result.errors.push("Toto je běžný EAN/UPC/ITF-14 kód, ne GS1-128 kód z paletové etikety.");
+    return result;
+  }
+  const parsed = normalized[0] === "(" ? parseBracketed(normalized) : parseConcatenated(normalized);
+  result.elements = parsed.elements;
+  result.errors.push(...parsed.errors);
+  for (const el of result.elements) {
+    validateElement(el, today, result.errors, result.warnings);
+    if (result.ai[el.ai] != null && result.ai[el.ai] !== el.value) result.errors.push(`AI (${el.ai}) je v kódu dvakrát s různou hodnotou.`);
+    result.ai[el.ai] = el.value;
+  }
+
+  const a = result.ai;
+  if (a["00"]) result.sscc = a["00"];
+  if (a["01"] || a["02"]) {
+    result.gtinAi = a["02"] ? "02" : "01";
+    result.gtin = a["02"] || a["01"];
+  }
+  const bbdEl = result.elements.find((e) => e.ai === "15") || result.elements.find((e) => e.ai === "17");
+  if (bbdEl && bbdEl.date) {
+    result.bbd = bbdEl.date;
+    result.bbdAi = bbdEl.ai;
+  }
+  if (a["10"] != null) result.batch = a["10"];
+  if (a["37"] != null && /^\d+$/.test(a["37"])) result.count = Number(a["37"]);
+
+  result.kind = result.sscc && result.gtin ? "oboje" : result.sscc ? "sscc" : result.gtin ? "produkt" : "neznamy";
+  result.ok = result.errors.length === 0;
+  return result;
+}
+
+// PDA / Expedice: kod palety musi mat SSCC alebo GTIN. Vracia vysledok
+// rozboru (ok, errors, sscc, gtin, bbd, batch, count, kind ...), nehadze chybu.
+export function parseGs1Detail(raw, today = new Date()) {
+  const result = rozoberGs1(raw, today);
+  if (!result.errors.length && result.kind === "neznamy") {
+    result.errors.push("Kód neobsahuje SSCC (00) ani GTIN (01/02).");
+    result.ok = false;
+  }
+  return result;
+}
+
+// Pre zobrazenie surovych dat na PDA (test skeneru) - GS a ine control znaky viditelne.
+export function visibleControlChars(s) {
+  return String(s == null ? "" : s).replace(/[\x00-\x1F]/g, (c) => (c === GS ? "⟨GS⟩" : "⟨" + c.charCodeAt(0).toString(16).padStart(2, "0") + "⟩"));
+}
+
+/* ---------------- Prijem tovaru ---------------- */
+
+// ISO "YYYY-MM-DD" -> "DD.MM.RRRR"
+function isoNaDatum(iso) {
+  const m = String(iso || "").match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  return m ? `${m[3]}.${m[2]}.${m[1]}` : "";
+}
+
+// GS1 datum RRMMDD -> "DD.MM.RRRR" (storocie podla GS1, DD = 00 = posledny den mesiaca).
+export function gs1Datum(yymmdd, today = new Date()) {
+  const d = parseGs1Date(String(yymmdd || ""), today);
+  return d.error ? "" : isoNaDatum(d.iso);
 }
 
 // Kontrolna cislica GS1 (mod 10) pre SSCC a GTIN - odhali preklep aj kod,
 // ktory GS1 nie je (napr. vlastny kod dodavatela zacinajuci sa na 00).
 export function gs1CheckOk(digits) {
-  if (!/^\d+$/.test(digits || "")) return false;
-  const d = digits.split("").map(Number);
-  const check = d.pop();
-  let sum = 0;
-  d.reverse().forEach((n, i) => (sum += n * (i % 2 === 0 ? 3 : 1)));
-  return (10 - (sum % 10)) % 10 === check;
+  return gs1CheckDigitOk(String(digits || ""));
 }
 
-// Jeden alebo viac naskenovanych kodov (oddelenych novym riadkom) -> udaje palety.
-export function parseGs1(input) {
-  const ai = {};
+// Prijem: jeden alebo viac naskenovanych kodov jednej etikety (oddelenych
+// novym riadkom) -> udaje palety. Pri chybe hadze Error s popisom.
+export function parseGs1(input, today = new Date()) {
   const casti = String(input || "")
     .split(/[\r\n]+/)
     .map((c) => c.trim())
     .filter(Boolean);
   if (casti.length === 0) throw new Error("Prázdný sken.");
+  const ai = {};
   for (const c of casti) {
-    Object.assign(ai, parseParenthesized(c) || parseRaw(c));
+    const r = rozoberGs1(c, today);
+    if (r.errors.length) throw new Error(r.errors[0]);
+    Object.assign(ai, r.ai);
   }
   const netto = Object.keys(ai).find((k) => /^310\d$/.test(k));
   const result = {
@@ -123,15 +310,13 @@ export function parseGs1(input) {
     gtin: ai["01"] || ai["02"] || "",
     pocet: ai["37"] ? Number(ai["37"]) : null,
     sarza: ai["10"] || "",
-    dmt: gs1Datum(ai["15"] || ai["17"] || ai["16"]),
-    datumVyroby: gs1Datum(ai["11"] || ai["13"]),
+    dmt: gs1Datum(ai["15"] || ai["17"] || ai["16"], today),
+    datumVyroby: gs1Datum(ai["11"] || ai["13"], today),
     nettoKg: netto ? Number(ai[netto]) / 10 ** Number(netto[3]) : null,
     objednavka: ai["400"] || "",
     ai,
   };
   if (!result.sscc && !result.gtin && !result.sarza) throw new Error("Kód neobsahuje údaje palety (SSCC, GTIN ani šarži).");
-  if (result.sscc && !gs1CheckOk(result.sscc)) throw new Error("Kód není platná GS1 etiketa (nesedí kontrolní číslice SSCC).");
-  if (result.gtin && !gs1CheckOk(result.gtin)) throw new Error("Kód není platná GS1 etiketa (nesedí kontrolní číslice GTIN).");
   return result;
 }
 

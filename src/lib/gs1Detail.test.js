@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { parseGs1, parseGs1Date, gs1Year, gs1CheckDigitOk, visibleControlChars, GS } from "./gs1Pda.js";
+import { parseGs1Detail, parseGs1Date, gs1Year, gs1CheckDigitOk, visibleControlChars, GS } from "./gs1.js";
 
 const SSCC = "106141411234567897";
 const GTIN = "14001234000012";
@@ -51,34 +51,34 @@ describe("parseGs1Date", () => {
   });
 });
 
-describe("parseGs1 - SSCC kod", () => {
+describe("parseGs1Detail - SSCC kod", () => {
   it("cisty (00) kod", () => {
-    const r = parseGs1("00" + SSCC, TODAY);
+    const r = parseGs1Detail("00" + SSCC, TODAY);
     expect(r.ok).toBe(true);
     expect(r.kind).toBe("sscc");
     expect(r.sscc).toBe(SSCC);
   });
   it("so symbology identifierom ]C1 a Enterom na konci", () => {
-    const r = parseGs1("]C100" + SSCC + "\r\n", TODAY);
+    const r = parseGs1Detail("]C100" + SSCC + "\r\n", TODAY);
     expect(r.ok).toBe(true);
     expect(r.sscc).toBe(SSCC);
   });
   it("uvodny FNC1 ako GS", () => {
-    expect(parseGs1(GS + "00" + SSCC, TODAY).sscc).toBe(SSCC);
+    expect(parseGs1Detail(GS + "00" + SSCC, TODAY).sscc).toBe(SSCC);
   });
   it("chybna kontrolna cislica SSCC = chyba", () => {
-    const r = parseGs1("00106141411234567898", TODAY);
+    const r = parseGs1Detail("00106141411234567898", TODAY);
     expect(r.ok).toBe(false);
     expect(r.errors[0]).toMatch(/kontrolní číslici/);
   });
   it("kratke SSCC = chyba", () => {
-    expect(parseGs1("0010614141123456789", TODAY).ok).toBe(false);
+    expect(parseGs1Detail("0010614141123456789", TODAY).ok).toBe(false);
   });
 });
 
-describe("parseGs1 - produktovy kod", () => {
+describe("parseGs1Detail - produktovy kod", () => {
   it("(02)(15)(37) + GS + (10) - typicky NVE produktovy kod", () => {
-    const r = parseGs1("02" + GTIN + "15270315" + "3748" + GS + "10L2610A", TODAY);
+    const r = parseGs1Detail("02" + GTIN + "15270315" + "3748" + GS + "10L2610A", TODAY);
     expect(r.ok).toBe(true);
     expect(r.kind).toBe("produkt");
     expect(r.gtin).toBe(GTIN);
@@ -89,22 +89,22 @@ describe("parseGs1 - produktovy kod", () => {
     expect(r.batch).toBe("L2610A");
   });
   it("AI 37 s premenlivou dlzkou na konci kodu (bez GS)", () => {
-    expect(parseGs1("02" + GTIN + "37" + "1200", TODAY).count).toBe(1200);
-    expect(parseGs1("02" + GTIN + "37" + "5", TODAY).count).toBe(5);
-    expect(parseGs1("02" + GTIN + "37" + "12345678", TODAY).count).toBe(12345678);
+    expect(parseGs1Detail("02" + GTIN + "37" + "1200", TODAY).count).toBe(1200);
+    expect(parseGs1Detail("02" + GTIN + "37" + "5", TODAY).count).toBe(5);
+    expect(parseGs1Detail("02" + GTIN + "37" + "12345678", TODAY).count).toBe(12345678);
   });
   it("AI 37 dlhsie nez 8 cislic = chyba (chyba oddelovac)", () => {
-    const r = parseGs1("02" + GTIN + "37" + "48" + "10" + "1234567", TODAY);
+    const r = parseGs1Detail("02" + GTIN + "37" + "48" + "10" + "1234567", TODAY);
     expect(r.ok).toBe(false);
     expect(r.errors.join(" ")).toMatch(/oddělovač/);
   });
   it("chybajuci GS medzi AI 37 a AI 10 (sarza s pismenami) = napoveda o oddelovaci", () => {
-    const r = parseGs1("02" + GTIN + "3748" + "10L1", TODAY);
+    const r = parseGs1Detail("02" + GTIN + "3748" + "10L1", TODAY);
     expect(r.ok).toBe(false);
     expect(r.errors[0]).toMatch(/nechybí oddělovač FNC1\/GS/);
   });
   it("AI 37 pred AI 10 oddelene GS", () => {
-    const r = parseGs1("02" + GTIN + "37" + "60" + GS + "10" + "ABC" + GS + "15" + "270400", TODAY);
+    const r = parseGs1Detail("02" + GTIN + "37" + "60" + GS + "10" + "ABC" + GS + "15" + "270400", TODAY);
     expect(r.ok).toBe(true);
     expect(r.count).toBe(60);
     expect(r.batch).toBe("ABC");
@@ -112,66 +112,66 @@ describe("parseGs1 - produktovy kod", () => {
     expect(r.warnings.length).toBe(1);
   });
   it("AI 17 (datum spotreby) ked chyba AI 15", () => {
-    const r = parseGs1("01" + GTIN + "17" + "261231", TODAY);
+    const r = parseGs1Detail("01" + GTIN + "17" + "261231", TODAY);
     expect(r.bbd).toBe("2026-12-31");
     expect(r.bbdAi).toBe("17");
   });
   it("ma prednost AI 15 pred 17", () => {
-    const r = parseGs1("01" + GTIN + "17261231" + "15261130", TODAY);
+    const r = parseGs1Detail("01" + GTIN + "17261231" + "15261130", TODAY);
     expect(r.bbdAi).toBe("15");
     expect(r.bbd).toBe("2026-11-30");
   });
   it("nadbytocny GS za pevnym AI je tolerovany", () => {
-    const r = parseGs1("02" + GTIN + GS + "15270315" + GS + "3748", TODAY);
+    const r = parseGs1Detail("02" + GTIN + GS + "15270315" + GS + "3748", TODAY);
     expect(r.ok).toBe(true);
     expect(r.count).toBe(48);
   });
   it("nahradny oddelovac | (ak Chrome zahodi GS)", () => {
-    const r = parseGs1("02" + GTIN + "3748|10L1|15270315", TODAY);
+    const r = parseGs1Detail("02" + GTIN + "3748|10L1|15270315", TODAY);
     expect(r.ok).toBe(true);
     expect(r.count).toBe(48);
     expect(r.batch).toBe("L1");
   });
   it("hmotnost 3103", () => {
-    const r = parseGs1("02" + GTIN + "3103" + "012345", TODAY);
+    const r = parseGs1Detail("02" + GTIN + "3103" + "012345", TODAY);
     expect(r.ok).toBe(true);
     expect(r.elements[1].number).toBeCloseTo(12.345);
   });
   it("chybny GTIN check digit", () => {
-    expect(parseGs1("02" + "14001234000013" + "3748", TODAY).ok).toBe(false);
+    expect(parseGs1Detail("02" + "14001234000013" + "3748", TODAY).ok).toBe(false);
   });
   it("neplatny datum v AI 15", () => {
-    expect(parseGs1("02" + GTIN + "15271340", TODAY).ok).toBe(false);
+    expect(parseGs1Detail("02" + GTIN + "15271340", TODAY).ok).toBe(false);
   });
 });
 
-describe("parseGs1 - kombinovany a zatvorkovy format", () => {
+describe("parseGs1Detail - kombinovany a zatvorkovy format", () => {
   it("jeden kod s SSCC aj produktom", () => {
-    const r = parseGs1("00" + SSCC + "02" + GTIN + "3748", TODAY);
+    const r = parseGs1Detail("00" + SSCC + "02" + GTIN + "3748", TODAY);
     expect(r.kind).toBe("oboje");
   });
   it("rucne zadany format so zatvorkami", () => {
-    const r = parseGs1("(02)" + GTIN + "(15)270315(37)48(10)L1", TODAY);
+    const r = parseGs1Detail("(02)" + GTIN + "(15)270315(37)48(10)L1", TODAY);
     expect(r.ok).toBe(true);
     expect(r.count).toBe(48);
     expect(r.batch).toBe("L1");
   });
 });
 
-describe("parseGs1 - neplatne vstupy", () => {
+describe("parseGs1Detail - neplatne vstupy", () => {
   it("prazdny", () => {
-    expect(parseGs1("", TODAY).ok).toBe(false);
+    expect(parseGs1Detail("", TODAY).ok).toBe(false);
   });
   it("EAN-13 a ITF-14", () => {
-    expect(parseGs1("8594008000015", TODAY).errors[0]).toMatch(/EAN/);
-    expect(parseGs1(GTIN, TODAY).errors[0]).toMatch(/EAN/);
+    expect(parseGs1Detail("8594008000015", TODAY).errors[0]).toMatch(/EAN/);
+    expect(parseGs1Detail(GTIN, TODAY).errors[0]).toMatch(/EAN/);
   });
   it("neznamy AI", () => {
-    expect(parseGs1("99" + "x".repeat(91), TODAY).ok).toBe(false);
-    expect(parseGs1("8888123", TODAY).ok).toBe(false);
+    expect(parseGs1Detail("99" + "x".repeat(91), TODAY).ok).toBe(false);
+    expect(parseGs1Detail("8888123", TODAY).ok).toBe(false);
   });
   it("kod bez SSCC aj GTIN", () => {
-    const r = parseGs1("10ABC", TODAY);
+    const r = parseGs1Detail("10ABC", TODAY);
     expect(r.ok).toBe(false);
     expect(r.errors[0]).toMatch(/SSCC/);
   });

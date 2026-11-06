@@ -22,7 +22,7 @@ function sameProdukt(a, b) {
   return a.gtin === b.gtin && a.bbd === b.bbd && a.sarza === b.sarza && a.mnozstvo === b.mnozstvo;
 }
 
-// pending: aktualna rozpracovana paleta, parsed: vysledok parseGs1(),
+// pending: aktualna rozpracovana paleta, parsed: vysledok parseGs1Detail(),
 // ssccVoVydajke: Set SSCC, ktore uz v tejto vydajke su (ulozene aj prave sa ukladajuce).
 // Vracia { pending, status: "error"|"info"|"wait"|"ready", message, pallet? }.
 export function mergeScan(pending, parsed, ssccVoVydajke) {

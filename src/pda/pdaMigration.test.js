@@ -2,7 +2,7 @@ import { describe, it, expect, beforeAll } from "vitest";
 import { PGlite } from "@electric-sql/pglite";
 import { createSupabaseLikeDb, SUPABASE_STUB, MIGRATION, ROLLBACK, U } from "./__testutils__/pgliteSupabase.js";
 import { pdaErrorMessage, isPrimaryKeyConflict } from "../lib/pdaScan.js";
-import { gs1CheckDigit } from "../lib/gs1Pda.js";
+import { gs1CheckDigit } from "../lib/gs1.js";
 
 // Skutocny Postgres (PGlite = Postgres skompilovany do WASM) - overuje
 // supabase/2026-10-13_pda.sql (triggre, RLS, granty) bez produkcneho Supabase.
