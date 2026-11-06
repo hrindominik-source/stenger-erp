@@ -89,6 +89,23 @@ export default function PdaTestMode() {
     setResetKey((k) => k + 1);
   }
 
+  // Na samotnom PDA (uzka obrazovka) len PDA na celu obrazovku, bez
+  // simulatora a kancelarie. ?skener=1 otvori rovno "Test skeneru".
+  const naPda = typeof window !== "undefined" && window.innerWidth < 700;
+  const startScreen = new URLSearchParams(window.location.search).get("skener") === "1" ? "test" : undefined;
+  if (naPda) {
+    return (
+      <div className="min-h-screen bg-slate-50" style={FONT}>
+        <div className="bg-amber-400 text-slate-900 px-3 py-1 text-[11px] font-semibold flex items-center gap-1.5">
+          <FlaskConical size={13} /> TESTOVACÍ REŽIM – nic se neukládá do Stenger ONE
+        </div>
+        <PdaApiContext.Provider value={skladApi}>
+          <PdaMain key={resetKey} onSignOut={null} startScreen={startScreen} />
+        </PdaApiContext.Provider>
+      </div>
+    );
+  }
+
   return (
     <div className="min-h-screen bg-slate-100 text-slate-900" style={FONT}>
       <div className="bg-amber-400 text-slate-900 px-4 py-2 text-sm font-semibold flex items-center gap-2 flex-wrap" style={{ backgroundImage: "repeating-linear-gradient(45deg, rgba(0,0,0,0.06) 0 10px, transparent 10px 20px)" }}>

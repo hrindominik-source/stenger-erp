@@ -8,7 +8,8 @@
     "build": "vite build",
     "preview": "vite preview",
     "test": "vitest run",
-    "e2e:pda": "node scripts/e2e-pda.mjs"
+    "e2e:pda": "node scripts/e2e-pda.mjs",
+    "pda:lan": "node scripts/pda-lan-server.mjs"
   },
   "dependencies": {
     "@pdf-lib/fontkit": "^1.1.1",

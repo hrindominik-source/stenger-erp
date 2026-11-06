@@ -72,20 +72,36 @@ function isOtherEditable(el, own) {
 // kontrolou kazdych 700 ms. Ak ma fokus ine textove pole (rucne zadanie),
 // fokus nekradne. Klavesy mimo pola (fokus na tlacidle) zachyti na urovni
 // dokumentu. inputMode="none" = nevyskakuje softverova klavesnica.
-function ScanInput({ onScan, active = true }) {
+// diag=true (len "Test skeneru"): zaznamenava klavesove/input udalosti skenu
+// a sposob ukoncenia, aby bolo vidiet, ako DataWedge posiela GS a Enter.
+function ScanInput({ onScan, active = true, diag = false }) {
   const ref = useRef(null);
   const idleTimer = useRef(null);
   const onScanRef = useRef(onScan);
   onScanRef.current = onScan;
+  const diagLog = useRef([]);
+  const diagStart = useRef(0);
 
-  const commit = useCallback(() => {
+  function record(typ, e) {
+    if (!diag || diagLog.current.length > 400) return;
+    const now = Date.now();
+    if (!diagLog.current.length) diagStart.current = now;
+    diagLog.current.push({
+      t: now - diagStart.current, typ, key: e.key, code: e.code, kc: e.keyCode || e.which || 0,
+      ctrl: !!e.ctrlKey, alt: !!e.altKey, shift: !!e.shiftKey, data: e.data, inputType: e.inputType,
+    });
+  }
+
+  const commit = useCallback((ukoncenie) => {
     const el = ref.current;
     if (!el) return;
     clearTimeout(idleTimer.current);
     const value = el.value;
     el.value = "";
-    if (value.replace(/[\s\x1D]/g, "")) onScanRef.current(value);
-  }, []);
+    const meta = diag ? { ukoncenie, udalosti: diagLog.current, trvanieMs: diagLog.current.length ? Date.now() - diagStart.current : 0 } : undefined;
+    diagLog.current = [];
+    if (value.replace(/[\s\x1D]/g, "")) onScanRef.current(value, meta);
+  }, [diag]);
 
   const refocus = useCallback(() => {
     const el = ref.current;
@@ -118,7 +134,7 @@ function ScanInput({ onScan, active = true }) {
   function armIdleCommit() {
     clearTimeout(idleTimer.current);
     idleTimer.current = setTimeout(() => {
-      if (ref.current && ref.current.value.length >= 16) commit();
+      if (ref.current && ref.current.value.length >= 16) commit("časovač (bez Enter)");
     }, 1000);
   }
 
@@ -128,11 +144,12 @@ function ScanInput({ onScan, active = true }) {
     const el = ref.current;
     const k = e.key;
     const code = e.keyCode || e.which;
+    record(fromDocument ? "keydown (mimo pole)" : "keydown", e);
     if (k === "Enter" || code === 13 || k === "Tab" || code === 9) {
       // Enter mimo pola bez rozpisaneho kodu nechame tak (klavesnica na PC).
       if (fromDocument && !el.value) return false;
       e.preventDefault();
-      commit();
+      commit(k === "Tab" || code === 9 ? "Tab" : "Enter");
       return true;
     }
     // FNC1/GS poslany ako klavesa (Ctrl+] alebo keyCode 29) - Chrome ho do
@@ -179,7 +196,7 @@ function ScanInput({ onScan, active = true }) {
       aria-label="Skenovací pole"
       data-pda-scan-input="1"
       onKeyDown={(e) => handleKey(e, false)}
-      onInput={armIdleCommit}
+      onInput={(e) => { record("input", e.nativeEvent); armIdleCommit(); }}
       onBlur={() => setTimeout(refocus, 60)}
       style={{ position: "fixed", top: 0, left: 0, width: 1, height: 1, opacity: 0, fontSize: 16, border: 0, padding: 0 }}
     />
@@ -244,14 +261,14 @@ function useOnline() {
 
 /* ---------------- Hlavny stav PDA ---------------- */
 
-export function PdaMain({ onSignOut }) {
+export function PdaMain({ onSignOut, startScreen }) {
   const api = usePdaApi();
   const pracovnikKey = PRACOVNIK_KEY + (api.isDemo ? "_test" : "");
   const online = useOnline();
   const [pracovnik, setPracovnik] = useState(() => {
     try { return localStorage.getItem(pracovnikKey) || ""; } catch (e) { return ""; }
   });
-  const [screen, setScreen] = useState("domov"); // domov | pracovnik | nova | vydajka | test
+  const [screen, setScreen] = useState(startScreen || "domov"); // domov | pracovnik | nova | vydajka | test
   const [vydajka, setVydajka] = useState(null);
 
   function choosePracovnik(meno) {
@@ -261,7 +278,8 @@ export function PdaMain({ onSignOut }) {
   }
 
   const common = { pracovnik, online, onSignOut };
-  if (!pracovnik || screen === "pracovnik") {
+  // "Test skeneru" nepotrebuje pracovnika (nic sa neuklada).
+  if ((!pracovnik && screen !== "test") || screen === "pracovnik") {
     return <PracovnikScreen {...common} onChoose={choosePracovnik} onBack={pracovnik ? () => setScreen("domov") : null} />;
   }
   if (screen === "nova") {
@@ -778,27 +796,79 @@ function VydajkaScreen({ vydajka: initial, pracovnik, online, onBack }) {
 
 /* ---------------- Test skeneru (diagnostika na PDA) ---------------- */
 
+// Lokalny diagnosticky server (scripts/pda-lan-server.mjs) vlozi do stranky
+// window.__PDA_LAN_DIAG__ - len vtedy sa skeny posielaju do PC. Na GitHub
+// Pages ani v ostrom rezime sa nic neposiela.
+function lanDiagEnabled() {
+  return typeof window !== "undefined" && window.__PDA_LAN_DIAG__ === true;
+}
+
+// Klavesy, ktore nie su obycajny znak - pre vyhodnotenie oddelovaca GS a Enter.
+function specialneUdalosti(meta) {
+  if (!meta) return [];
+  return meta.udalosti.filter((u) => (u.typ !== "input" && !(u.key && u.key.length === 1 && !u.ctrl && !u.alt)) || (u.typ === "input" && u.data && /[\x00-\x1F]/.test(u.data)));
+}
+
 function TestSkeneruScreen({ pracovnik, online, onBack }) {
   const [scans, setScans] = useState([]);
+  const [stitek, setStitek] = useState("horní");
   const chrome = (navigator.userAgent.match(/Chrome\/(\d+)/) || [])[1];
+  const lan = lanDiagEnabled();
 
-  function onScan(raw) {
+  async function odoslat(key, zaznam) {
+    try {
+      const res = await fetch("/__pda-diag", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(zaznam) });
+      setScans((prev) => prev.map((s) => (s.key === key ? { ...s, odoslane: res.ok } : s)));
+    } catch (e) {
+      setScans((prev) => prev.map((s) => (s.key === key ? { ...s, odoslane: false } : s)));
+    }
+  }
+
+  function onScan(raw, meta) {
     const parsed = parseGs1(raw);
     feedback(parsed.ok ? "ok" : "error");
-    setScans((prev) => [{ key: Date.now() + Math.random(), raw, parsed }, ...prev].slice(0, 10));
+    const key = Date.now() + Math.random();
+    setScans((prev) => [{ key, raw, parsed, meta, stitek, odoslane: lan ? null : undefined }, ...prev].slice(0, 10));
+    if (lan) {
+      odoslat(key, {
+        cas: new Date().toISOString(), stitek, raw, kody: Array.from(raw).map((c) => c.charCodeAt(0)), viditelne: visibleControlChars(raw),
+        parsed: { ok: parsed.ok, kind: parsed.kind, elements: parsed.elements.map((e) => ({ ai: e.ai, value: e.value, date: e.date })), errors: parsed.errors, warnings: parsed.warnings },
+        meta, chrome, ua: navigator.userAgent, obrazovka: `${window.innerWidth}x${window.innerHeight}@${window.devicePixelRatio}`,
+      });
+    }
   }
 
   return (
     <div className="min-h-screen bg-slate-50 text-slate-900" style={FONT}>
-      <ScanInput onScan={onScan} />
+      <ScanInput onScan={onScan} diag />
       <PdaHeader title="Test skeneru" pracovnik={pracovnik} online={online} onBack={onBack} />
       <div className="p-3 space-y-2">
-        <div className="text-xs text-slate-500">Chrome {chrome || "?"} · nic se neukládá. Naskenujte oba kódy palety a zkontrolujte, že se oddělovač zobrazí jako ⟨GS⟩.</div>
-        {scans.length === 0 && <Banner status="idle" message="Naskenujte kód…" />}
-        {scans.map(({ key, raw, parsed }) => (
+        <div className="text-xs text-slate-500">Chrome {chrome || "?"} · nic se neukládá{lan ? " · výsledky se posílají do PC" : ""}.</div>
+        <div className="flex gap-1.5">
+          {["horní", "dolní", "jiný"].map((s) => (
+            <button key={s} onClick={() => setStitek(s)} className={"flex-1 py-2.5 rounded-lg text-sm font-semibold border " + (stitek === s ? "bg-slate-900 text-white border-slate-900" : "bg-white border-slate-300 text-slate-700")}>
+              {s === "jiný" ? "Jiný kód" : (s === "horní" ? "Horní" : "Dolní") + " kód"}
+            </button>
+          ))}
+        </div>
+        {scans.length === 0 && <Banner status="idle" message={`Naskenujte ${stitek === "jiný" ? "kód" : stitek + " kód"} na etiketě…`} />}
+        {scans.map(({ key, raw, parsed, meta, stitek: st, odoslane }) => (
           <div key={key} className={"bg-white border rounded-lg p-2 text-xs " + (parsed.ok ? "border-emerald-300" : "border-red-300")}>
+            <div className="flex justify-between text-[11px] font-semibold text-slate-500 mb-1">
+              <span>{st === "jiný" ? "Jiný kód" : st === "horní" ? "HORNÍ kód" : "DOLNÍ kód"}</span>
+              {odoslane === true && <span className="text-emerald-700">✓ odesláno do PC</span>}
+              {odoslane === false && <span className="text-red-700">✗ neodesláno do PC</span>}
+              {odoslane === null && <span className="text-slate-400">odesílám…</span>}
+            </div>
             <div className="font-mono break-all bg-slate-100 rounded px-1.5 py-1 mb-1">{visibleControlChars(raw)}</div>
-            <div className="text-slate-500 mb-1">{raw.length} znaků · typ: {parsed.kind}</div>
+            <div className="text-slate-500 mb-1">{raw.length} znaků · typ: {parsed.kind}{meta ? ` · konec: ${meta.ukoncenie} ·${meta.udalosti.length} událostí / ${meta.trvanieMs} ms` : ""}</div>
+            {meta && specialneUdalosti(meta).length > 0 && (
+              <div className="text-[11px] text-slate-600 mb-1">
+                Speciální klávesy: {specialneUdalosti(meta).slice(0, 8).map((u, i) => (
+                  <span key={i} className="inline-block font-mono bg-amber-50 border border-amber-200 rounded px-1 mr-1 mb-0.5">{u.typ === "input" ? "input " + JSON.stringify(u.data) : `${u.key || "?"}/${u.kc}${u.ctrl ? "+Ctrl" : ""}`}</span>
+                ))}
+              </div>
+            )}
             {parsed.elements.map((el, i) => (
               <div key={i} className="flex gap-2"><span className="font-mono font-semibold w-12 shrink-0">({el.ai})</span><span className="font-mono break-all">{el.value}</span><span className="text-slate-400 truncate">{el.label}{el.date ? " = " + formatDate(el.date) : ""}</span></div>
             ))}
