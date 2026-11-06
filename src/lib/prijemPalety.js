@@ -190,3 +190,41 @@ export function kontrolaPrijmu({ material, mnozstvo, jednotka, sarza, dmt, palet
   }
   return out;
 }
+
+// ---- Dodaci list s viacerymi polozkami: jeden riadok prijmu na polozku ----
+
+// Riadky formulara z polozok dodacieho listu. jednotky = povolene jednotky formulara.
+export function riadkyZDodaku(dodak, jednotky = []) {
+  return ((dodak && dodak.polozky) || []).map((p, i) => ({
+    key: i,
+    zahrnut: true,
+    material: p.materialNas || "",
+    mnozstvoNum: p.mnozstvo !== null && p.mnozstvo !== undefined ? String(p.mnozstvo).replace(".", ",") : "",
+    mnozstvoUnit: p.jednotka && jednotky.includes(p.jednotka) ? p.jednotka : "ks",
+    sarza: p.sarza || "",
+    dmt: p.dmt || "",
+    stavPrevzatia: "V poriadku",
+    polozka: p,
+  }));
+}
+
+const rovnake = (a, b) => String(a || "").trim().toLowerCase() === String(b || "").trim().toLowerCase();
+
+// Rozdeli naskenovane palety k riadkom: podla karty produktu (GTIN -> material), cisla
+// palety na dodaku, sarze; pri jednom zahrnutom riadku vsetky k nemu.
+// Vrati { podlaRiadku: Map(key -> [sken]), nepriradene: [sken] }.
+export function priradPalety(skeny, riadky, karty = []) {
+  const zahrnute = riadky.filter((r) => r.zahrnut);
+  const podlaRiadku = new Map(zahrnute.map((r) => [r.key, []]));
+  const nepriradene = [];
+  for (const s of skeny) {
+    const karta = s.gtin && karty.find((k) => k.gtin === s.gtin);
+    let r = karta && zahrnute.find((x) => x.material && rovnake(x.material, karta.material));
+    if (!r && s.sscc) r = zahrnute.find((x) => paletaNaDodaku(s.sscc, (x.polozka && x.polozka.palety) || []));
+    if (!r && s.sarza) r = zahrnute.find((x) => sarzeSet(x.sarza).has(s.sarza.toLowerCase()));
+    if (!r && zahrnute.length === 1) r = zahrnute[0];
+    if (r) podlaRiadku.get(r.key).push(s);
+    else nepriradene.push(s);
+  }
+  return { podlaRiadku, nepriradene };
+}

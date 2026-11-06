@@ -131,12 +131,12 @@ export function DodakNacitanie({ dodak, loading, error, vybranaIdx, onFile, onVy
             {[dodak.dodavatelNas || dodak.dodavatel, dodak.cisloDokladu && "DL " + dodak.cisloDokladu, dodak.datum, dodak.cisloObjednavky && "obj. " + dodak.cisloObjednavky].filter(Boolean).join(" · ")}
           </div>
           {dodak.polozky.length === 0 && <div className="text-sm text-amber-800">Na dokladu se nepodařilo najít položky – zadejte údaje ručně.</div>}
-          {dodak.polozky.length > 1 && <div className="text-xs text-slate-500 mb-1">Vyberte položku, kterou přijímáte:</div>}
+          {dodak.polozky.length > 1 && <div className="text-sm text-slate-600">Položky z dodacího listu ({dodak.polozky.length}) zkontrolujte níže – uloží se najednou.</div>}
           {vybranaIdx !== null && dodak.polozky[vybranaIdx] && !dodak.polozky[vybranaIdx].materialNas && (
             <div className="text-sm text-amber-800 bg-amber-50 rounded-lg px-3 py-2 mb-1.5">Položku se nepodařilo přiřadit k našemu materiálu – vyberte materiál níže ručně.</div>
           )}
           <div className="space-y-1.5">
-            {dodak.polozky.map((p, i) => (
+            {dodak.polozky.length === 1 && dodak.polozky.map((p, i) => (
               <button key={i} onClick={() => onVyber(i)} className={"w-full text-left rounded-lg px-3 py-2 border-2 text-sm " + (vybranaIdx === i ? "border-teal-700 bg-teal-50" : "border-slate-200 bg-slate-50")}>
                 <div className="font-medium">
                   {p.materialNas || p.nazov}
@@ -155,6 +155,71 @@ export function DodakNacitanie({ dodak, loading, error, vybranaIdx, onFile, onVy
           </div>
         </div>
       )}
+    </div>
+  );
+}
+
+const STAVY = [
+  { value: "V poriadku", label: "V pořádku", active: "bg-emerald-600 text-white border-emerald-600" },
+  { value: "Poskodene", label: "Poškozené", active: "bg-red-600 text-white border-red-600" },
+  { value: "Nekompletne", label: "Nekompletní", active: "bg-amber-500 text-white border-amber-500" },
+];
+
+// Vsetky polozky dodacieho listu naraz - kazda sa ulozi ako samostatny prijem.
+export function DodakPolozky({ riadky, onZmena, kontrolyPodlaRiadku, paletyPodlaRiadku, materialy, jednotky }) {
+  const inp = "w-full border-2 border-slate-200 rounded-lg px-2.5 py-2 text-base focus:outline-none focus:ring-2 focus:ring-teal-600";
+  return (
+    <div className="space-y-3 mt-3" data-testid="dodak-polozky">
+      <datalist id="dodak-polozky-materialy">
+        {materialy.map((m) => <option key={m} value={m} />)}
+      </datalist>
+      {riadky.map((r) => {
+        const p = r.polozka || {};
+        const kontroly = kontrolyPodlaRiadku.get(r.key) || [];
+        const pocetPaliet = paletyPodlaRiadku.get(r.key) || 0;
+        return (
+          <div key={r.key} className={"border-2 rounded-xl p-3 " + (r.zahrnut ? "border-slate-200" : "border-slate-100 opacity-60")}>
+            <label className="flex items-start gap-2.5">
+              <input type="checkbox" checked={r.zahrnut} onChange={(e) => onZmena(r.key, { zahrnut: e.target.checked })} className="mt-1 w-5 h-5 accent-teal-700" />
+              <div className="min-w-0">
+                <div className="font-medium break-words">{p.nazov || "Položka"}</div>
+                <div className="text-xs text-slate-500">
+                  {[p.cisloObjednavky && "obj. " + p.cisloObjednavky, p.pocetPaliet && p.pocetPaliet + " pal. na dodacím listu", pocetPaliet > 0 && pocetPaliet + " pal. naskenováno"].filter(Boolean).join(" · ") || (r.zahrnut ? "Přijmout" : "Nepřijímat")}
+                </div>
+              </div>
+            </label>
+            {r.zahrnut && (
+              <div className="mt-2 space-y-2">
+                <input
+                  list="dodak-polozky-materialy"
+                  value={r.material}
+                  onChange={(e) => onZmena(r.key, { material: e.target.value })}
+                  placeholder="Vyberte náš materiál"
+                  className={inp + (r.material.trim() ? "" : " border-amber-300 bg-amber-50")}
+                />
+                <div className="flex gap-2">
+                  <input value={r.mnozstvoNum} onChange={(e) => onZmena(r.key, { mnozstvoNum: e.target.value })} inputMode="decimal" placeholder="Množství" className={inp + " w-32"} />
+                  <select value={r.mnozstvoUnit} onChange={(e) => onZmena(r.key, { mnozstvoUnit: e.target.value })} className={inp + " w-28"}>
+                    {jednotky.map((u) => <option key={u} value={u}>{u}</option>)}
+                  </select>
+                </div>
+                <div className="grid grid-cols-2 gap-2">
+                  <input value={r.sarza} onChange={(e) => onZmena(r.key, { sarza: e.target.value })} placeholder="Šarže" className={inp} />
+                  <input value={r.dmt} onChange={(e) => onZmena(r.key, { dmt: e.target.value })} placeholder="DMT DD.MM.RRRR" className={inp} />
+                </div>
+                <div className="grid grid-cols-3 gap-1.5">
+                  {STAVY.map((st) => (
+                    <button key={st.value} onClick={() => onZmena(r.key, { stavPrevzatia: st.value })} className={"text-sm font-medium px-2 py-2 rounded-lg border-2 " + (r.stavPrevzatia === st.value ? st.active : "bg-white text-slate-700 border-slate-200")}>
+                      {st.label}
+                    </button>
+                  ))}
+                </div>
+                <KontrolyPrijmu kontroly={kontroly} />
+              </div>
+            )}
+          </div>
+        );
+      })}
     </div>
   );
 }
