@@ -1,0 +1,1625 @@
+{
+  "_zdroj": "MAXIM NVE list - len rozlozenie/formatovanie, bez obchodnych dat (scripts/maxim-nve-spec.py)",
+  "sheetName": "NVE List",
+  "merges": [
+    "A1:E1",
+    "A2:E2",
+    "A3:E3",
+    "A4:E4"
+  ],
+  "columnWidths": {
+    "A": 4.86,
+    "B": 10.0,
+    "C": 42.86,
+    "D": 22.86,
+    "E": 8.57,
+    "F": 11.43,
+    "G": 11.43,
+    "H": 11.43
+  },
+  "rowHeights": {
+    "title": 17.45,
+    "address1": 12.75,
+    "address2": 12.75,
+    "address3": 12.75,
+    "header": 12.75,
+    "dataFirst": 12.75,
+    "dataMiddle": 12.75,
+    "dataLast": 12.75,
+    "sum": 12.75,
+    "spacer": 12.75,
+    "total": 12.75
+  },
+  "emptyRowBeforeHeader": 1,
+  "headerLabels": [
+    " ",
+    "Number",
+    "Product",
+    "SSCC code",
+    "Amount",
+    "Unit",
+    "LOT",
+    "MHD"
+  ],
+  "constants": {
+    "titlePrefix": "NVE LIST Nr: ",
+    "datePrefix": "Datum: ",
+    "unit": "box",
+    "totalLabel": "TOTAL",
+    "totalUnit": "pal"
+  },
+  "titleCells": {
+    "A1": {
+      "font": {
+        "name": "Arial",
+        "size": 14.0,
+        "bold": true,
+        "italic": false
+      },
+      "numFmt": "@",
+      "hAlign": "left",
+      "vAlign": "middle",
+      "border": {
+        "top": null,
+        "bottom": null,
+        "left": null,
+        "right": null
+      }
+    },
+    "H1": {
+      "font": {
+        "name": "Arial",
+        "size": 10.0,
+        "bold": false,
+        "italic": true
+      },
+      "numFmt": "@",
+      "hAlign": "right",
+      "vAlign": "middle",
+      "border": {
+        "top": null,
+        "bottom": null,
+        "left": null,
+        "right": null
+      }
+    }
+  },
+  "roles": {
+    "title": {
+      "A": {
+        "font": {
+          "name": "Arial",
+          "size": 14.0,
+          "bold": true,
+          "italic": false
+        },
+        "numFmt": "@",
+        "hAlign": "left",
+        "vAlign": "middle",
+        "border": {
+          "top": null,
+          "bottom": null,
+          "left": null,
+          "right": null
+        }
+      },
+      "B": {
+        "font": {
+          "name": "Arial",
+          "size": 14.0,
+          "bold": true,
+          "italic": false
+        },
+        "numFmt": "General",
+        "hAlign": "left",
+        "vAlign": "middle",
+        "border": {
+          "top": null,
+          "bottom": null,
+          "left": null,
+          "right": null
+        }
+      },
+      "C": {
+        "font": {
+          "name": "Arial",
+          "size": 14.0,
+          "bold": true,
+          "italic": false
+        },
+        "numFmt": "General",
+        "hAlign": "left",
+        "vAlign": "middle",
+        "border": {
+          "top": null,
+          "bottom": null,
+          "left": null,
+          "right": null
+        }
+      },
+      "D": {
+        "font": {
+          "name": "Arial",
+          "size": 14.0,
+          "bold": true,
+          "italic": false
+        },
+        "numFmt": "General",
+        "hAlign": "left",
+        "vAlign": "middle",
+        "border": {
+          "top": null,
+          "bottom": null,
+          "left": null,
+          "right": null
+        }
+      },
+      "E": {
+        "font": {
+          "name": "Arial",
+          "size": 14.0,
+          "bold": true,
+          "italic": false
+        },
+        "numFmt": "General",
+        "hAlign": "left",
+        "vAlign": "middle",
+        "border": {
+          "top": null,
+          "bottom": null,
+          "left": null,
+          "right": null
+        }
+      },
+      "F": {
+        "font": {
+          "name": "Arial",
+          "size": 10.0,
+          "bold": false,
+          "italic": false
+        },
+        "numFmt": "General",
+        "hAlign": "general",
+        "vAlign": "middle",
+        "border": {
+          "top": null,
+          "bottom": null,
+          "left": null,
+          "right": null
+        }
+      },
+      "G": {
+        "font": {
+          "name": "Arial",
+          "size": 10.0,
+          "bold": false,
+          "italic": false
+        },
+        "numFmt": "General",
+        "hAlign": "general",
+        "vAlign": "middle",
+        "border": {
+          "top": null,
+          "bottom": null,
+          "left": null,
+          "right": null
+        }
+      },
+      "H": {
+        "font": {
+          "name": "Arial",
+          "size": 10.0,
+          "bold": false,
+          "italic": true
+        },
+        "numFmt": "@",
+        "hAlign": "right",
+        "vAlign": "middle",
+        "border": {
+          "top": null,
+          "bottom": null,
+          "left": null,
+          "right": null
+        }
+      }
+    },
+    "address1": {
+      "A": {
+        "font": {
+          "name": "Arial",
+          "size": 10.0,
+          "bold": true,
+          "italic": false
+        },
+        "numFmt": "@",
+        "hAlign": "left",
+        "vAlign": "middle",
+        "border": {
+          "top": null,
+          "bottom": null,
+          "left": null,
+          "right": null
+        }
+      },
+      "B": {
+        "font": {
+          "name": "Arial",
+          "size": 10.0,
+          "bold": true,
+          "italic": false
+        },
+        "numFmt": "General",
+        "hAlign": "left",
+        "vAlign": "middle",
+        "border": {
+          "top": null,
+          "bottom": null,
+          "left": null,
+          "right": null
+        }
+      },
+      "C": {
+        "font": {
+          "name": "Arial",
+          "size": 10.0,
+          "bold": true,
+          "italic": false
+        },
+        "numFmt": "General",
+        "hAlign": "left",
+        "vAlign": "middle",
+        "border": {
+          "top": null,
+          "bottom": null,
+          "left": null,
+          "right": null
+        }
+      },
+      "D": {
+        "font": {
+          "name": "Arial",
+          "size": 10.0,
+          "bold": true,
+          "italic": false
+        },
+        "numFmt": "General",
+        "hAlign": "left",
+        "vAlign": "middle",
+        "border": {
+          "top": null,
+          "bottom": null,
+          "left": null,
+          "right": null
+        }
+      },
+      "E": {
+        "font": {
+          "name": "Arial",
+          "size": 10.0,
+          "bold": true,
+          "italic": false
+        },
+        "numFmt": "General",
+        "hAlign": "left",
+        "vAlign": "middle",
+        "border": {
+          "top": null,
+          "bottom": null,
+          "left": null,
+          "right": null
+        }
+      },
+      "F": {
+        "font": {
+          "name": "Arial",
+          "size": 10.0,
+          "bold": false,
+          "italic": false
+        },
+        "numFmt": "General",
+        "hAlign": "general",
+        "vAlign": "middle",
+        "border": {
+          "top": null,
+          "bottom": null,
+          "left": null,
+          "right": null
+        }
+      },
+      "G": {
+        "font": {
+          "name": "Arial",
+          "size": 10.0,
+          "bold": false,
+          "italic": false
+        },
+        "numFmt": "General",
+        "hAlign": "general",
+        "vAlign": "middle",
+        "border": {
+          "top": null,
+          "bottom": null,
+          "left": null,
+          "right": null
+        }
+      },
+      "H": {
+        "font": {
+          "name": "Arial",
+          "size": 10.0,
+          "bold": false,
+          "italic": false
+        },
+        "numFmt": "General",
+        "hAlign": "general",
+        "vAlign": "middle",
+        "border": {
+          "top": null,
+          "bottom": null,
+          "left": null,
+          "right": null
+        }
+      }
+    },
+    "address2": {
+      "A": {
+        "font": {
+          "name": "Arial",
+          "size": 10.0,
+          "bold": true,
+          "italic": false
+        },
+        "numFmt": "@",
+        "hAlign": "left",
+        "vAlign": "middle",
+        "border": {
+          "top": null,
+          "bottom": null,
+          "left": null,
+          "right": null
+        }
+      },
+      "B": {
+        "font": {
+          "name": "Arial",
+          "size": 10.0,
+          "bold": true,
+          "italic": false
+        },
+        "numFmt": "General",
+        "hAlign": "left",
+        "vAlign": "middle",
+        "border": {
+          "top": null,
+          "bottom": null,
+          "left": null,
+          "right": null
+        }
+      },
+      "C": {
+        "font": {
+          "name": "Arial",
+          "size": 10.0,
+          "bold": true,
+          "italic": false
+        },
+        "numFmt": "General",
+        "hAlign": "left",
+        "vAlign": "middle",
+        "border": {
+          "top": null,
+          "bottom": null,
+          "left": null,
+          "right": null
+        }
+      },
+      "D": {
+        "font": {
+          "name": "Arial",
+          "size": 10.0,
+          "bold": true,
+          "italic": false
+        },
+        "numFmt": "General",
+        "hAlign": "left",
+        "vAlign": "middle",
+        "border": {
+          "top": null,
+          "bottom": null,
+          "left": null,
+          "right": null
+        }
+      },
+      "E": {
+        "font": {
+          "name": "Arial",
+          "size": 10.0,
+          "bold": true,
+          "italic": false
+        },
+        "numFmt": "General",
+        "hAlign": "left",
+        "vAlign": "middle",
+        "border": {
+          "top": null,
+          "bottom": null,
+          "left": null,
+          "right": null
+        }
+      },
+      "F": {
+        "font": {
+          "name": "Arial",
+          "size": 10.0,
+          "bold": false,
+          "italic": false
+        },
+        "numFmt": "General",
+        "hAlign": "general",
+        "vAlign": "middle",
+        "border": {
+          "top": null,
+          "bottom": null,
+          "left": null,
+          "right": null
+        }
+      },
+      "G": {
+        "font": {
+          "name": "Arial",
+          "size": 10.0,
+          "bold": false,
+          "italic": false
+        },
+        "numFmt": "General",
+        "hAlign": "general",
+        "vAlign": "middle",
+        "border": {
+          "top": null,
+          "bottom": null,
+          "left": null,
+          "right": null
+        }
+      },
+      "H": {
+        "font": {
+          "name": "Arial",
+          "size": 10.0,
+          "bold": false,
+          "italic": false
+        },
+        "numFmt": "General",
+        "hAlign": "general",
+        "vAlign": "middle",
+        "border": {
+          "top": null,
+          "bottom": null,
+          "left": null,
+          "right": null
+        }
+      }
+    },
+    "address3": {
+      "A": {
+        "font": {
+          "name": "Arial",
+          "size": 10.0,
+          "bold": false,
+          "italic": false
+        },
+        "numFmt": "@",
+        "hAlign": "left",
+        "vAlign": "middle",
+        "border": {
+          "top": null,
+          "bottom": null,
+          "left": null,
+          "right": null
+        }
+      },
+      "B": {
+        "font": {
+          "name": "Arial",
+          "size": 10.0,
+          "bold": false,
+          "italic": false
+        },
+        "numFmt": "General",
+        "hAlign": "left",
+        "vAlign": "middle",
+        "border": {
+          "top": null,
+          "bottom": null,
+          "left": null,
+          "right": null
+        }
+      },
+      "C": {
+        "font": {
+          "name": "Arial",
+          "size": 10.0,
+          "bold": false,
+          "italic": false
+        },
+        "numFmt": "General",
+        "hAlign": "left",
+        "vAlign": "middle",
+        "border": {
+          "top": null,
+          "bottom": null,
+          "left": null,
+          "right": null
+        }
+      },
+      "D": {
+        "font": {
+          "name": "Arial",
+          "size": 10.0,
+          "bold": false,
+          "italic": false
+        },
+        "numFmt": "General",
+        "hAlign": "left",
+        "vAlign": "middle",
+        "border": {
+          "top": null,
+          "bottom": null,
+          "left": null,
+          "right": null
+        }
+      },
+      "E": {
+        "font": {
+          "name": "Arial",
+          "size": 10.0,
+          "bold": false,
+          "italic": false
+        },
+        "numFmt": "General",
+        "hAlign": "left",
+        "vAlign": "middle",
+        "border": {
+          "top": null,
+          "bottom": null,
+          "left": null,
+          "right": null
+        }
+      },
+      "F": {
+        "font": {
+          "name": "Arial",
+          "size": 10.0,
+          "bold": false,
+          "italic": false
+        },
+        "numFmt": "General",
+        "hAlign": "general",
+        "vAlign": "middle",
+        "border": {
+          "top": null,
+          "bottom": null,
+          "left": null,
+          "right": null
+        }
+      },
+      "G": {
+        "font": {
+          "name": "Arial",
+          "size": 10.0,
+          "bold": false,
+          "italic": false
+        },
+        "numFmt": "General",
+        "hAlign": "general",
+        "vAlign": "middle",
+        "border": {
+          "top": null,
+          "bottom": null,
+          "left": null,
+          "right": null
+        }
+      },
+      "H": {
+        "font": {
+          "name": "Arial",
+          "size": 10.0,
+          "bold": false,
+          "italic": false
+        },
+        "numFmt": "General",
+        "hAlign": "general",
+        "vAlign": "middle",
+        "border": {
+          "top": null,
+          "bottom": null,
+          "left": null,
+          "right": null
+        }
+      }
+    },
+    "header": {
+      "A": {
+        "font": {
+          "name": "Arial",
+          "size": 10.0,
+          "bold": true,
+          "italic": false
+        },
+        "numFmt": "@",
+        "hAlign": "left",
+        "vAlign": "middle",
+        "border": {
+          "top": null,
+          "bottom": "thin",
+          "left": null,
+          "right": null
+        }
+      },
+      "B": {
+        "font": {
+          "name": "Arial",
+          "size": 10.0,
+          "bold": true,
+          "italic": false
+        },
+        "numFmt": "@",
+        "hAlign": "left",
+        "vAlign": "middle",
+        "border": {
+          "top": null,
+          "bottom": "thin",
+          "left": null,
+          "right": null
+        }
+      },
+      "C": {
+        "font": {
+          "name": "Arial",
+          "size": 10.0,
+          "bold": true,
+          "italic": false
+        },
+        "numFmt": "@",
+        "hAlign": "left",
+        "vAlign": "middle",
+        "border": {
+          "top": null,
+          "bottom": "thin",
+          "left": null,
+          "right": null
+        }
+      },
+      "D": {
+        "font": {
+          "name": "Arial",
+          "size": 10.0,
+          "bold": true,
+          "italic": false
+        },
+        "numFmt": "@",
+        "hAlign": "left",
+        "vAlign": "middle",
+        "border": {
+          "top": null,
+          "bottom": "thin",
+          "left": null,
+          "right": null
+        }
+      },
+      "E": {
+        "font": {
+          "name": "Arial",
+          "size": 10.0,
+          "bold": true,
+          "italic": false
+        },
+        "numFmt": "@",
+        "hAlign": "left",
+        "vAlign": "middle",
+        "border": {
+          "top": null,
+          "bottom": "thin",
+          "left": null,
+          "right": null
+        }
+      },
+      "F": {
+        "font": {
+          "name": "Arial",
+          "size": 10.0,
+          "bold": true,
+          "italic": false
+        },
+        "numFmt": "@",
+        "hAlign": "left",
+        "vAlign": "middle",
+        "border": {
+          "top": null,
+          "bottom": "thin",
+          "left": null,
+          "right": null
+        }
+      },
+      "G": {
+        "font": {
+          "name": "Arial",
+          "size": 10.0,
+          "bold": true,
+          "italic": false
+        },
+        "numFmt": "@",
+        "hAlign": "left",
+        "vAlign": "middle",
+        "border": {
+          "top": null,
+          "bottom": "thin",
+          "left": null,
+          "right": null
+        }
+      },
+      "H": {
+        "font": {
+          "name": "Arial",
+          "size": 10.0,
+          "bold": true,
+          "italic": false
+        },
+        "numFmt": "@",
+        "hAlign": "left",
+        "vAlign": "middle",
+        "border": {
+          "top": null,
+          "bottom": "thin",
+          "left": null,
+          "right": null
+        }
+      }
+    },
+    "dataFirst": {
+      "A": {
+        "font": {
+          "name": "Arial",
+          "size": 10.0,
+          "bold": false,
+          "italic": false
+        },
+        "numFmt": "@",
+        "hAlign": "left",
+        "vAlign": "middle",
+        "border": {
+          "top": "thin",
+          "bottom": null,
+          "left": null,
+          "right": null
+        }
+      },
+      "B": {
+        "font": {
+          "name": "Arial",
+          "size": 10.0,
+          "bold": false,
+          "italic": false
+        },
+        "numFmt": "@",
+        "hAlign": "left",
+        "vAlign": "middle",
+        "border": {
+          "top": "thin",
+          "bottom": null,
+          "left": null,
+          "right": null
+        }
+      },
+      "C": {
+        "font": {
+          "name": "Arial",
+          "size": 10.0,
+          "bold": false,
+          "italic": false
+        },
+        "numFmt": "@",
+        "hAlign": "left",
+        "vAlign": "middle",
+        "border": {
+          "top": "thin",
+          "bottom": null,
+          "left": null,
+          "right": null
+        }
+      },
+      "D": {
+        "font": {
+          "name": "Arial",
+          "size": 10.0,
+          "bold": false,
+          "italic": false
+        },
+        "numFmt": "@",
+        "hAlign": "left",
+        "vAlign": "middle",
+        "border": {
+          "top": "thin",
+          "bottom": null,
+          "left": null,
+          "right": null
+        }
+      },
+      "E": {
+        "font": {
+          "name": "Arial",
+          "size": 10.0,
+          "bold": false,
+          "italic": false
+        },
+        "numFmt": "#,##0.00",
+        "hAlign": "right",
+        "vAlign": "middle",
+        "border": {
+          "top": "thin",
+          "bottom": null,
+          "left": null,
+          "right": null
+        }
+      },
+      "F": {
+        "font": {
+          "name": "Arial",
+          "size": 10.0,
+          "bold": false,
+          "italic": false
+        },
+        "numFmt": "@",
+        "hAlign": "left",
+        "vAlign": "middle",
+        "border": {
+          "top": "thin",
+          "bottom": null,
+          "left": null,
+          "right": null
+        }
+      },
+      "G": {
+        "font": {
+          "name": "Arial",
+          "size": 10.0,
+          "bold": false,
+          "italic": false
+        },
+        "numFmt": "@",
+        "hAlign": "left",
+        "vAlign": "middle",
+        "border": {
+          "top": "thin",
+          "bottom": null,
+          "left": null,
+          "right": null
+        }
+      },
+      "H": {
+        "font": {
+          "name": "Arial",
+          "size": 10.0,
+          "bold": false,
+          "italic": false
+        },
+        "numFmt": "@",
+        "hAlign": "left",
+        "vAlign": "middle",
+        "border": {
+          "top": "thin",
+          "bottom": null,
+          "left": null,
+          "right": null
+        }
+      }
+    },
+    "dataMiddle": {
+      "A": {
+        "font": {
+          "name": "Arial",
+          "size": 10.0,
+          "bold": false,
+          "italic": false
+        },
+        "numFmt": "@",
+        "hAlign": "left",
+        "vAlign": "middle",
+        "border": {
+          "top": null,
+          "bottom": null,
+          "left": null,
+          "right": null
+        }
+      },
+      "B": {
+        "font": {
+          "name": "Arial",
+          "size": 10.0,
+          "bold": false,
+          "italic": false
+        },
+        "numFmt": "@",
+        "hAlign": "left",
+        "vAlign": "middle",
+        "border": {
+          "top": null,
+          "bottom": null,
+          "left": null,
+          "right": null
+        }
+      },
+      "C": {
+        "font": {
+          "name": "Arial",
+          "size": 10.0,
+          "bold": false,
+          "italic": false
+        },
+        "numFmt": "@",
+        "hAlign": "left",
+        "vAlign": "middle",
+        "border": {
+          "top": null,
+          "bottom": null,
+          "left": null,
+          "right": null
+        }
+      },
+      "D": {
+        "font": {
+          "name": "Arial",
+          "size": 10.0,
+          "bold": false,
+          "italic": false
+        },
+        "numFmt": "@",
+        "hAlign": "left",
+        "vAlign": "middle",
+        "border": {
+          "top": null,
+          "bottom": null,
+          "left": null,
+          "right": null
+        }
+      },
+      "E": {
+        "font": {
+          "name": "Arial",
+          "size": 10.0,
+          "bold": false,
+          "italic": false
+        },
+        "numFmt": "#,##0.00",
+        "hAlign": "right",
+        "vAlign": "middle",
+        "border": {
+          "top": null,
+          "bottom": null,
+          "left": null,
+          "right": null
+        }
+      },
+      "F": {
+        "font": {
+          "name": "Arial",
+          "size": 10.0,
+          "bold": false,
+          "italic": false
+        },
+        "numFmt": "@",
+        "hAlign": "left",
+        "vAlign": "middle",
+        "border": {
+          "top": null,
+          "bottom": null,
+          "left": null,
+          "right": null
+        }
+      },
+      "G": {
+        "font": {
+          "name": "Arial",
+          "size": 10.0,
+          "bold": false,
+          "italic": false
+        },
+        "numFmt": "@",
+        "hAlign": "left",
+        "vAlign": "middle",
+        "border": {
+          "top": null,
+          "bottom": null,
+          "left": null,
+          "right": null
+        }
+      },
+      "H": {
+        "font": {
+          "name": "Arial",
+          "size": 10.0,
+          "bold": false,
+          "italic": false
+        },
+        "numFmt": "@",
+        "hAlign": "left",
+        "vAlign": "middle",
+        "border": {
+          "top": null,
+          "bottom": null,
+          "left": null,
+          "right": null
+        }
+      }
+    },
+    "dataLast": {
+      "A": {
+        "font": {
+          "name": "Arial",
+          "size": 10.0,
+          "bold": false,
+          "italic": false
+        },
+        "numFmt": "@",
+        "hAlign": "left",
+        "vAlign": "middle",
+        "border": {
+          "top": null,
+          "bottom": "thin",
+          "left": null,
+          "right": null
+        }
+      },
+      "B": {
+        "font": {
+          "name": "Arial",
+          "size": 10.0,
+          "bold": false,
+          "italic": false
+        },
+        "numFmt": "@",
+        "hAlign": "left",
+        "vAlign": "middle",
+        "border": {
+          "top": null,
+          "bottom": "thin",
+          "left": null,
+          "right": null
+        }
+      },
+      "C": {
+        "font": {
+          "name": "Arial",
+          "size": 10.0,
+          "bold": false,
+          "italic": false
+        },
+        "numFmt": "@",
+        "hAlign": "left",
+        "vAlign": "middle",
+        "border": {
+          "top": null,
+          "bottom": "thin",
+          "left": null,
+          "right": null
+        }
+      },
+      "D": {
+        "font": {
+          "name": "Arial",
+          "size": 10.0,
+          "bold": false,
+          "italic": false
+        },
+        "numFmt": "@",
+        "hAlign": "left",
+        "vAlign": "middle",
+        "border": {
+          "top": null,
+          "bottom": "thin",
+          "left": null,
+          "right": null
+        }
+      },
+      "E": {
+        "font": {
+          "name": "Arial",
+          "size": 10.0,
+          "bold": false,
+          "italic": false
+        },
+        "numFmt": "#,##0.00",
+        "hAlign": "right",
+        "vAlign": "middle",
+        "border": {
+          "top": null,
+          "bottom": "thin",
+          "left": null,
+          "right": null
+        }
+      },
+      "F": {
+        "font": {
+          "name": "Arial",
+          "size": 10.0,
+          "bold": false,
+          "italic": false
+        },
+        "numFmt": "@",
+        "hAlign": "left",
+        "vAlign": "middle",
+        "border": {
+          "top": null,
+          "bottom": "thin",
+          "left": null,
+          "right": null
+        }
+      },
+      "G": {
+        "font": {
+          "name": "Arial",
+          "size": 10.0,
+          "bold": false,
+          "italic": false
+        },
+        "numFmt": "@",
+        "hAlign": "left",
+        "vAlign": "middle",
+        "border": {
+          "top": null,
+          "bottom": "thin",
+          "left": null,
+          "right": null
+        }
+      },
+      "H": {
+        "font": {
+          "name": "Arial",
+          "size": 10.0,
+          "bold": false,
+          "italic": false
+        },
+        "numFmt": "@",
+        "hAlign": "left",
+        "vAlign": "middle",
+        "border": {
+          "top": null,
+          "bottom": "thin",
+          "left": null,
+          "right": null
+        }
+      }
+    },
+    "sum": {
+      "A": {
+        "font": {
+          "name": "Arial",
+          "size": 10.0,
+          "bold": false,
+          "italic": false
+        },
+        "numFmt": "@",
+        "hAlign": "left",
+        "vAlign": "middle",
+        "border": {
+          "top": "thin",
+          "bottom": null,
+          "left": null,
+          "right": null
+        }
+      },
+      "B": {
+        "font": {
+          "name": "Arial",
+          "size": 10.0,
+          "bold": false,
+          "italic": false
+        },
+        "numFmt": "@",
+        "hAlign": "left",
+        "vAlign": "middle",
+        "border": {
+          "top": "thin",
+          "bottom": null,
+          "left": null,
+          "right": null
+        }
+      },
+      "C": {
+        "font": {
+          "name": "Arial",
+          "size": 10.0,
+          "bold": false,
+          "italic": false
+        },
+        "numFmt": "@",
+        "hAlign": "left",
+        "vAlign": "middle",
+        "border": {
+          "top": "thin",
+          "bottom": null,
+          "left": null,
+          "right": null
+        }
+      },
+      "D": {
+        "font": {
+          "name": "Arial",
+          "size": 10.0,
+          "bold": true,
+          "italic": false
+        },
+        "numFmt": "@",
+        "hAlign": "left",
+        "vAlign": "middle",
+        "border": {
+          "top": "thin",
+          "bottom": null,
+          "left": null,
+          "right": null
+        }
+      },
+      "E": {
+        "font": {
+          "name": "Arial",
+          "size": 10.0,
+          "bold": false,
+          "italic": false
+        },
+        "numFmt": "#,##0.00",
+        "hAlign": "right",
+        "vAlign": "middle",
+        "border": {
+          "top": "thin",
+          "bottom": null,
+          "left": null,
+          "right": null
+        }
+      },
+      "F": {
+        "font": {
+          "name": "Arial",
+          "size": 10.0,
+          "bold": false,
+          "italic": false
+        },
+        "numFmt": "@",
+        "hAlign": "left",
+        "vAlign": "middle",
+        "border": {
+          "top": "thin",
+          "bottom": null,
+          "left": null,
+          "right": null
+        }
+      },
+      "G": {
+        "font": {
+          "name": "Arial",
+          "size": 10.0,
+          "bold": false,
+          "italic": false
+        },
+        "numFmt": "@",
+        "hAlign": "left",
+        "vAlign": "middle",
+        "border": {
+          "top": "thin",
+          "bottom": null,
+          "left": null,
+          "right": null
+        }
+      },
+      "H": {
+        "font": {
+          "name": "Arial",
+          "size": 10.0,
+          "bold": false,
+          "italic": false
+        },
+        "numFmt": "@",
+        "hAlign": "left",
+        "vAlign": "middle",
+        "border": {
+          "top": "thin",
+          "bottom": null,
+          "left": null,
+          "right": null
+        }
+      }
+    },
+    "spacer": {
+      "A": {
+        "font": {
+          "name": "Arial",
+          "size": 10.0,
+          "bold": false,
+          "italic": false
+        },
+        "numFmt": "General",
+        "hAlign": "general",
+        "vAlign": "middle",
+        "border": {
+          "top": null,
+          "bottom": "thin",
+          "left": null,
+          "right": null
+        }
+      },
+      "B": {
+        "font": {
+          "name": "Arial",
+          "size": 10.0,
+          "bold": false,
+          "italic": false
+        },
+        "numFmt": "General",
+        "hAlign": "general",
+        "vAlign": "middle",
+        "border": {
+          "top": null,
+          "bottom": "thin",
+          "left": null,
+          "right": null
+        }
+      },
+      "C": {
+        "font": {
+          "name": "Arial",
+          "size": 10.0,
+          "bold": false,
+          "italic": false
+        },
+        "numFmt": "General",
+        "hAlign": "general",
+        "vAlign": "middle",
+        "border": {
+          "top": null,
+          "bottom": "thin",
+          "left": null,
+          "right": null
+        }
+      },
+      "D": {
+        "font": {
+          "name": "Arial",
+          "size": 10.0,
+          "bold": false,
+          "italic": false
+        },
+        "numFmt": "General",
+        "hAlign": "general",
+        "vAlign": "middle",
+        "border": {
+          "top": null,
+          "bottom": "thin",
+          "left": null,
+          "right": null
+        }
+      },
+      "E": {
+        "font": {
+          "name": "Arial",
+          "size": 10.0,
+          "bold": false,
+          "italic": false
+        },
+        "numFmt": "General",
+        "hAlign": "general",
+        "vAlign": "middle",
+        "border": {
+          "top": null,
+          "bottom": "thin",
+          "left": null,
+          "right": null
+        }
+      },
+      "F": {
+        "font": {
+          "name": "Arial",
+          "size": 10.0,
+          "bold": false,
+          "italic": false
+        },
+        "numFmt": "General",
+        "hAlign": "general",
+        "vAlign": "middle",
+        "border": {
+          "top": null,
+          "bottom": "thin",
+          "left": null,
+          "right": null
+        }
+      },
+      "G": {
+        "font": {
+          "name": "Arial",
+          "size": 10.0,
+          "bold": false,
+          "italic": false
+        },
+        "numFmt": "General",
+        "hAlign": "general",
+        "vAlign": "middle",
+        "border": {
+          "top": null,
+          "bottom": "thin",
+          "left": null,
+          "right": null
+        }
+      },
+      "H": {
+        "font": {
+          "name": "Arial",
+          "size": 10.0,
+          "bold": false,
+          "italic": false
+        },
+        "numFmt": "General",
+        "hAlign": "general",
+        "vAlign": "middle",
+        "border": {
+          "top": null,
+          "bottom": "thin",
+          "left": null,
+          "right": null
+        }
+      }
+    },
+    "total": {
+      "A": {
+        "font": {
+          "name": "Arial",
+          "size": 10.0,
+          "bold": false,
+          "italic": false
+        },
+        "numFmt": "@",
+        "hAlign": "left",
+        "vAlign": "middle",
+        "border": {
+          "top": "thin",
+          "bottom": null,
+          "left": null,
+          "right": null
+        }
+      },
+      "B": {
+        "font": {
+          "name": "Arial",
+          "size": 10.0,
+          "bold": false,
+          "italic": false
+        },
+        "numFmt": "@",
+        "hAlign": "left",
+        "vAlign": "middle",
+        "border": {
+          "top": "thin",
+          "bottom": null,
+          "left": null,
+          "right": null
+        }
+      },
+      "C": {
+        "font": {
+          "name": "Arial",
+          "size": 10.0,
+          "bold": false,
+          "italic": false
+        },
+        "numFmt": "@",
+        "hAlign": "left",
+        "vAlign": "middle",
+        "border": {
+          "top": "thin",
+          "bottom": null,
+          "left": null,
+          "right": null
+        }
+      },
+      "D": {
+        "font": {
+          "name": "Arial",
+          "size": 10.0,
+          "bold": true,
+          "italic": false
+        },
+        "numFmt": "@",
+        "hAlign": "left",
+        "vAlign": "middle",
+        "border": {
+          "top": "thin",
+          "bottom": null,
+          "left": null,
+          "right": null
+        }
+      },
+      "E": {
+        "font": {
+          "name": "Arial",
+          "size": 10.0,
+          "bold": false,
+          "italic": false
+        },
+        "numFmt": "#,##0.00",
+        "hAlign": "right",
+        "vAlign": "middle",
+        "border": {
+          "top": "thin",
+          "bottom": null,
+          "left": null,
+          "right": null
+        }
+      },
+      "F": {
+        "font": {
+          "name": "Arial",
+          "size": 10.0,
+          "bold": false,
+          "italic": false
+        },
+        "numFmt": "@",
+        "hAlign": "left",
+        "vAlign": "middle",
+        "border": {
+          "top": "thin",
+          "bottom": null,
+          "left": null,
+          "right": null
+        }
+      },
+      "G": {
+        "font": {
+          "name": "Arial",
+          "size": 10.0,
+          "bold": false,
+          "italic": false
+        },
+        "numFmt": "@",
+        "hAlign": "left",
+        "vAlign": "middle",
+        "border": {
+          "top": "thin",
+          "bottom": null,
+          "left": null,
+          "right": null
+        }
+      },
+      "H": {
+        "font": {
+          "name": "Arial",
+          "size": 10.0,
+          "bold": false,
+          "italic": false
+        },
+        "numFmt": "@",
+        "hAlign": "left",
+        "vAlign": "middle",
+        "border": {
+          "top": "thin",
+          "bottom": null,
+          "left": null,
+          "right": null
+        }
+      }
+    }
+  },
+  "cellTypes": {
+    "data": {
+      "A": "text",
+      "B": "text",
+      "C": "text",
+      "D": "text",
+      "E": "number",
+      "F": "text",
+      "G": "text",
+      "H": "text"
+    },
+    "sum": {
+      "E": "number"
+    },
+    "total": {
+      "E": "number"
+    }
+  }
+}

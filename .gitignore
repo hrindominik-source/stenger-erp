@@ -15,3 +15,4 @@ supabase/prod_schema_dump.sql
 # Playwright (e2e)
 /test-results/
 /playwright-report/
+pda-podklady/
