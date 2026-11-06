@@ -132,6 +132,9 @@ export function DodakNacitanie({ dodak, loading, error, vybranaIdx, onFile, onVy
           </div>
           {dodak.polozky.length === 0 && <div className="text-sm text-amber-800">Na dokladu se nepodařilo najít položky – zadejte údaje ručně.</div>}
           {dodak.polozky.length > 1 && <div className="text-xs text-slate-500 mb-1">Vyberte položku, kterou přijímáte:</div>}
+          {vybranaIdx !== null && dodak.polozky[vybranaIdx] && !dodak.polozky[vybranaIdx].materialNas && (
+            <div className="text-sm text-amber-800 bg-amber-50 rounded-lg px-3 py-2 mb-1.5">Položku se nepodařilo přiřadit k našemu materiálu – vyberte materiál níže ručně.</div>
+          )}
           <div className="space-y-1.5">
             {dodak.polozky.map((p, i) => (
               <button key={i} onClick={() => onVyber(i)} className={"w-full text-left rounded-lg px-3 py-2 border-2 text-sm " + (vybranaIdx === i ? "border-teal-700 bg-teal-50" : "border-slate-200 bg-slate-50")}>

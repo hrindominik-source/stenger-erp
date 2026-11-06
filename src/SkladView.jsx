@@ -1334,7 +1334,8 @@ function PrijemTab({ fullName }) {
     const dod = d.dodavatelNas ? suppliers.find((x) => x.nazov === d.dodavatelNas) : null;
     const obj = najdiObjednavku(p.cisloObjednavky || d.cisloObjednavky);
     setF((prev) => {
-      const next = { ...prev, material: p.materialNas || prev.material || p.nazov };
+      // nazov z dokladu sa do materialu nedava - vznikla by nova polozka zasob; skladnik vyberie sam
+      const next = { ...prev, material: p.materialNas || prev.material };
       if (p.mnozstvo !== null) next.mnozstvoNum = String(p.mnozstvo).replace(".", ",");
       if (p.jednotka && UNIT_QUICK_PICKS.includes(p.jednotka)) next.mnozstvoUnit = p.jednotka;
       if (p.sarza) next.sarza = p.sarza;
@@ -1361,8 +1362,9 @@ function PrijemTab({ fullName }) {
       const { error: upErr } = await supabase.storage.from(GOODS_RECEIPT_PHOTOS_BUCKET).upload(path, blob, { upsert: true, contentType: blob.type || file.type });
       if (upErr) throw new Error("Nahrání dokladu se nezdařilo.");
       setF((prev) => ({ ...prev, dodakPath: path }));
-      const materialy = materialPicksForSupplier(f.dodavatelId, suppliers, MATERIAL_QUICK_PICKS);
-      const { data, error: fnErr } = await supabase.functions.invoke("dodak-extract", { body: { path, materialy, dodavatelia: suppliers.map((x) => x.nazov).filter(Boolean) } });
+      // vsetci dodavatelia s ich tovarmi - dodak moze byt od ineho dodavatela, nez je vo formulari
+      const katalog = suppliers.filter((x) => x.nazov).map((x) => ({ dodavatel: x.nazov, materialy: (x.tovary || []).map((t) => (typeof t === "string" ? t : (t && t.popis) || "").trim()).filter(Boolean) }));
+      const { data, error: fnErr } = await supabase.functions.invoke("dodak-extract", { body: { path, materialy: MATERIAL_QUICK_PICKS, katalog, dodavatelia: suppliers.map((x) => x.nazov).filter(Boolean) } });
       if (fnErr) {
         let msg = "";
         try {

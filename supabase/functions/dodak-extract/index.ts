@@ -5,7 +5,7 @@
 // sa berie z Nastavenia firmy (company.data.apiKey) - sklad ho nevidi, preto
 // to nejde priamo z prehliadaca. Nasadzuje sa s --no-verify-jwt, overenie je nizsie.
 //
-// Body: { path: "<formId>/dodak.jpg", materialy: string[], dodavatelia: string[] }
+// Body: { path: "<formId>/dodak.jpg", materialy: string[], katalog: [{ dodavatel, materialy }], dodavatelia: string[] }
 
 import { createClient } from "npm:@supabase/supabase-js@2.111.0";
 import { extractDodak, mediaTypePodlaCesty } from "./dodak.js";
@@ -37,7 +37,7 @@ Deno.serve(async (req: Request) => {
   }
   if (!povolene) return json({ error: "Nepovolený přístup." }, 401);
 
-  let body: { path?: string; materialy?: unknown; dodavatelia?: unknown };
+  let body: { path?: string; materialy?: unknown; katalog?: unknown; dodavatelia?: unknown };
   try {
     body = await req.json();
   } catch {
@@ -62,6 +62,9 @@ Deno.serve(async (req: Request) => {
       mediaType,
       apiKey,
       materialy: strList(body.materialy),
+      katalog: (Array.isArray(body.katalog) ? body.katalog : [])
+        .map((k: { dodavatel?: unknown; materialy?: unknown }) => ({ dodavatel: String((k && k.dodavatel) || ""), materialy: strList(k && k.materialy) }))
+        .filter((k: { dodavatel: string }) => k.dodavatel),
       dodavatelia: strList(body.dodavatelia),
     });
     console.log(`[dodak-extract] ${path}: ${vysledok.jeDodak ? vysledok.polozky.length + " polozky" : "nie je dodak"}`);
