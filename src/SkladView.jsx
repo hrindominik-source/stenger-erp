@@ -5,10 +5,10 @@ import { extractCityFromAddress, todayStr, nowTimeStr, formatDateTime, uid, pars
 import { computeStockLevels, computeFinishedGoodsStock, wouldExceed, materialPicksForSupplier, allKnownMaterials, UNIT_QUICK_PICKS } from "./lib/inventory.js";
 import { isPlanZmenaActive, formatZmenaText } from "./lib/planZmena.js";
 import InventuraPocitanie from "./InventuraPocitanie.jsx";
-import { PaletySken, KontrolyPrijmu, DodakNacitanie } from "./PrijemPalety.jsx";
+import { PaletySken, KontrolyPrijmu, DodakNacitanie, DodakPolozky } from "./PrijemPalety.jsx";
 import { zmensitFotku } from "./lib/obrazok.js";
 import { parseGs1 } from "./lib/gs1.js";
-import { pridajSken, doplnPaletu, sumaPaliet, suhrnPaliet, kontrolaPrijmu, polozkaPreMaterial } from "./lib/prijemPalety.js";
+import { pridajSken, doplnPaletu, sumaPaliet, suhrnPaliet, kontrolaPrijmu, polozkaPreMaterial, riadkyZDodaku, priradPalety } from "./lib/prijemPalety.js";
 
 const POLL_MS = 4000;
 const MATERIAL_QUICK_PICKS = ["Kukuřice Mushroom Yellow", "Cukr Tereos krystal", "Sůl SUPERFINE", "Tuk AKOSNAC NT MB", "Kartony", "Kbelíky", "Fólie", "Střešní fólie", "Pásky"];
@@ -1039,6 +1039,11 @@ function emptyReceiptForm() {
   };
 }
 
+// 1 položka, 2-4 položky, 5+ položek
+function polozkyText(n) {
+  return `${n} ${n === 1 ? "položka" : n >= 2 && n <= 4 ? "položky" : "položek"}`;
+}
+
 function jeSurovinaDodavatel(supplier) {
   const typ = supplier && supplier.typ;
   const list = Array.isArray(typ) ? typ : typ ? [typ] : [];
@@ -1109,6 +1114,8 @@ function PrijemTab({ fullName }) {
   const [dodakIdx, setDodakIdx] = useState(null);
   const [dodakLoading, setDodakLoading] = useState(false);
   const [dodakError, setDodakError] = useState("");
+  // dodak s viacerymi polozkami: riadok na polozku, ulozia sa naraz ako samostatne prijmy
+  const [riadky, setRiadky] = useState([]);
 
   const fetchAll = useCallback(async () => {
     const [suppliersRes, receiptsRes, materialOrdersRes, kartyRes] = await Promise.all([
@@ -1238,6 +1245,7 @@ function PrijemTab({ fullName }) {
     setDodak(null);
     setDodakIdx(null);
     setDodakError("");
+    setRiadky([]);
   }
 
   const kartaPodlaGtin = (gtin) => karty.find((k) => k.gtin === gtin) || null;
@@ -1248,7 +1256,7 @@ function PrijemTab({ fullName }) {
   const aktualnyDodavatel = suppliers.find((s) => s.id === f.dodavatelId) || null;
   const dodakPolozka = dodak ? (dodakIdx !== null ? dodak.polozky[dodakIdx] : polozkaPreMaterial(dodak, f.material)) || null : null;
   const naviazanaObjednavka = f.materialObjednavkaId ? materialOrders.find((o) => o.id === f.materialObjednavkaId) : null;
-  const kontroly = kontrolaPrijmu({
+  const kontrolyJednej = kontrolaPrijmu({
     material: f.material,
     mnozstvo: f.mnozstvoNum,
     jednotka: f.mnozstvoUnit,
@@ -1261,11 +1269,56 @@ function PrijemTab({ fullName }) {
     jeSurovina: jeSurovinaDodavatel(aktualnyDodavatel),
     dodak: dodak ? { polozka: dodakPolozka, cisloObjednavky: dodak.cisloObjednavky, maPolozky: dodak.polozky.length > 0 } : null,
   });
-  const maChyby = kontroly.some((k) => k.uroven === "chyba");
+
+  // viac poloziek z dodaku: palety sa rozdelia k riadkom, kontroly bezia pre kazdy riadok
+  const viacPoloziek = riadky.length > 1 && !editingId;
+  const jeSurovina = jeSurovinaDodavatel(aktualnyDodavatel);
+  const rozdelenie = viacPoloziek ? priradPalety(vsetkySkeny, riadky, karty) : null;
+  const paletyRiadku = (r) =>
+    ((rozdelenie && rozdelenie.podlaRiadku.get(r.key)) || []).map((p) =>
+      doplnPaletu(p, (p.gtin && kartaPodlaGtin(p.gtin)) || (p.gtin ? { ...docasnaKarta, jednotka: r.mnozstvoUnit } : null))
+    );
+  const kontrolyPodlaRiadku = new Map(
+    viacPoloziek
+      ? riadky
+          .filter((r) => r.zahrnut)
+          .map((r) => {
+            const obj = najdiObjednavku(r.polozka.cisloObjednavky || (dodak && dodak.cisloObjednavky));
+            return [
+              r.key,
+              kontrolaPrijmu({
+                material: r.material,
+                mnozstvo: r.mnozstvoNum,
+                jednotka: r.mnozstvoUnit,
+                sarza: r.sarza,
+                dmt: r.dmt.trim(),
+                palety: paletyRiadku(r),
+                karty,
+                prijateSscc,
+                objednavka: obj ? { cislo: obj.cisloObjednavkyDopravy, mnozstvo: obj.mnozstvo } : null,
+                jeSurovina,
+                dodak: { polozka: r.polozka, cisloObjednavky: dodak && dodak.cisloObjednavky, maPolozky: true },
+              }),
+            ];
+          })
+      : []
+  );
+  const kontroly = viacPoloziek
+    ? rozdelenie.nepriradene.length
+      ? [{ uroven: "upozornenie", text: `${rozdelenie.nepriradene.length} naskenovaných palet nepatří k žádné položce dodacího listu – zkontrolujte, že jsou z této dodávky.` }]
+      : []
+    : kontrolyJednej;
+  const maChyby = [kontroly, ...kontrolyPodlaRiadku.values()].some((list) => list.some((k) => k.uroven === "chyba"));
+  const zahrnuteRiadky = riadky.filter((r) => r.zahrnut);
+
+  function zmenRiadok(key, patch) {
+    setRiadky((prev) => prev.map((r) => (r.key === key ? { ...r, ...patch } : r)));
+    setPotvrditKontroly(false);
+  }
 
   // mnozstvo, sarza a DMT sa z palet dopocitavaju, kym ich skladnik neprepise rucne
   useEffect(() => {
-    if (palety.length === 0) return;
+    if (palety.length === 0 || viacPoloziek) return;
     const suhrn = suhrnPaliet(palety);
     const vsetkyMaju = palety.every((p) => p.mnozstvo !== null && p.mnozstvo !== undefined);
     setF((prev) => {
@@ -1276,7 +1329,7 @@ function PrijemTab({ fullName }) {
       return next.mnozstvoNum === prev.mnozstvoNum && next.sarza === prev.sarza && next.dmt === prev.dmt ? prev : next;
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [JSON.stringify(palety), rucne]);
+  }, [JSON.stringify(palety), rucne, viacPoloziek]);
 
   async function handleScan(text) {
     let scan;
@@ -1353,6 +1406,19 @@ function PrijemTab({ fullName }) {
     });
   }
 
+  function nastavHlavicku(d) {
+    const dod = d.dodavatelNas ? suppliers.find((x) => x.nazov === d.dodavatelNas) : null;
+    setF((prev) => {
+      const next = { ...prev };
+      if (d.cisloDokladu && !prev.cisloDokladu.trim()) next.cisloDokladu = d.cisloDokladu;
+      if (dod && !prev.dodavatel.trim()) {
+        next.dodavatelId = dod.id;
+        next.dodavatel = dod.nazov;
+      }
+      return next;
+    });
+  }
+
   async function handleDodak(file) {
     setDodakLoading(true);
     setDodakError("");
@@ -1380,9 +1446,15 @@ function PrijemTab({ fullName }) {
         return;
       }
       setDodak(data);
-      const auto = data.polozky.length === 1 ? 0 : data.polozky.indexOf(polozkaPreMaterial(data, f.material));
-      if (auto >= 0) pouzitPolozku(data, auto);
-      else setDodakIdx(null);
+      if (data.polozky.length > 1 && !editingId) {
+        setRiadky(riadkyZDodaku(data, UNIT_QUICK_PICKS));
+        setDodakIdx(null);
+        nastavHlavicku(data);
+      } else {
+        setRiadky([]);
+        if (data.polozky.length === 1) pouzitPolozku(data, 0);
+        else setDodakIdx(null);
+      }
     } catch (e) {
       console.error(e);
       setDodakError(`${e.message || e} Údaje zadejte ručně.`);
@@ -1394,6 +1466,7 @@ function PrijemTab({ fullName }) {
   function zrusitDodak() {
     setDodak(null);
     setDodakIdx(null);
+    setRiadky([]);
     setDodakError("");
     setF((prev) => ({ ...prev, dodakPath: "" }));
   }
@@ -1431,7 +1504,90 @@ function PrijemTab({ fullName }) {
     setPhotoPreview("");
   }
 
+  async function handleSaveViac() {
+    if (!fullName) {
+      setError("Nahoře v \"Kdo pracuje\" vyberte, kdo zboží převzal.");
+      return;
+    }
+    if (!f.dodavatel.trim()) {
+      setError("Vyberte nebo zadejte dodavatele.");
+      return;
+    }
+    if (zahrnuteRiadky.length === 0) {
+      setError("Zaškrtněte alespoň jednu položku, kterou přijímáte.");
+      return;
+    }
+    const bezMaterialu = zahrnuteRiadky.filter((r) => !r.material.trim()).length;
+    if (bezMaterialu) {
+      setError(`Chybí náš materiál (${polozkyText(bezMaterialu)}) – vyberte ho, nebo položku odškrtněte.`);
+      return;
+    }
+    if (maChyby && !potvrditKontroly) {
+      setPotvrditKontroly(true);
+      setError("Příjem má chyby (viz výše). Opravte je, nebo stiskněte znovu „Uložit přesto“.");
+      return;
+    }
+    setError("");
+    setSaving(true);
+    const cas = nowTimeStr();
+    const zaznamy = zahrnuteRiadky.map((r) => {
+      const obj = najdiObjednavku(r.polozka.cisloObjednavky || dodak.cisloObjednavky);
+      const kr = kontrolyPodlaRiadku.get(r.key) || [];
+      const id = uid();
+      return {
+        id,
+        data: {
+          id,
+          datumPrijatia: f.datumPrijatia.trim() || todayStr(),
+          casPrijatia: cas,
+          dodavatelId: f.dodavatelId,
+          dodavatel: f.dodavatel.trim(),
+          material: r.material.trim(),
+          mnozstvo: [r.mnozstvoNum.trim(), r.mnozstvoUnit].filter(Boolean).join(" ").trim(),
+          mnozstvoCislo: parseFloat(String(r.mnozstvoNum).replace(",", ".")) || 0,
+          mnozstvoJednotka: r.mnozstvoUnit,
+          cisloDokladu: f.cisloDokladu.trim(),
+          stavPrevzatia: r.stavPrevzatia,
+          poznamka: f.poznamka.trim(),
+          prevzal: fullName || "",
+          materialObjednavkaId: obj ? obj.id : "",
+          materialObjednavkaCislo: obj ? obj.cisloObjednavkyDopravy || "" : "",
+          photoPath: f.photoPath || "",
+          sarza: r.sarza.trim(),
+          dmt: r.dmt.trim(),
+          palety: paletyRiadku(r).map((p) => ({ sscc: p.sscc, gtin: p.gtin, sarza: p.sarza, dmt: p.dmt, datumVyroby: p.datumVyroby, objednavka: p.objednavka, pocet: p.pocet, nettoKg: p.nettoKg, mnozstvo: p.mnozstvo, zdroj: p.zdroj })),
+          kontroly: [...kontroly, ...kr].map((k) => k.text),
+          kontrolyPotvrdil: maChyby ? fullName || "" : "",
+          dodakPath: f.dodakPath || "",
+          dodakPolozka: r.polozka,
+          dodakObjednavka: r.polozka.cisloObjednavky || dodak.cisloObjednavky || "",
+          dodakCislo: dodak.cisloDokladu || "",
+        },
+      };
+    });
+    try {
+      // karta produktu pre novy GTIN podla riadku, ku ktoremu paleta patri
+      for (const g of neznameGtiny) {
+        const r = zahrnuteRiadky.find((x) => (rozdelenie.podlaRiadku.get(x.key) || []).some((p) => p.gtin === g.gtin));
+        if (!r) continue;
+        const karta = { id: g.gtin, gtin: g.gtin, material: r.material.trim(), jednotka: r.mnozstvoUnit, mnozstvoNaKs: docasnaKarta.mnozstvoNaKs, trvanlivostMesiace: docasnaKarta.trvanlivostMesiace || null, dodavatelId: f.dodavatelId, dodavatel: f.dodavatel.trim(), zalozil: fullName || "" };
+        const { error: kErr } = await supabase.from("skladove_karty").upsert({ id: karta.id, data: karta });
+        if (kErr) console.error(kErr);
+      }
+      const { error: insErr } = await supabase.from("goods_receipts").insert(zaznamy);
+      if (insErr) throw insErr;
+      setFlash(`Uloženo: ${polozkyText(zaznamy.length)}`);
+      await fetchAll();
+      resetForm(true);
+    } catch (e) {
+      console.error(e);
+      setError("Uložení se nezdařilo, zkuste to znovu.");
+    }
+    setSaving(false);
+  }
+
   async function handleSave() {
+    if (viacPoloziek) return handleSaveViac();
     if (!fullName) {
       setError("Nahoře v \"Kdo pracuje\" vyberte, kdo zboží převzal.");
       return;
@@ -1606,6 +1762,17 @@ function PrijemTab({ fullName }) {
           />
         )}
 
+        {viacPoloziek ? (
+          <DodakPolozky
+            riadky={riadky}
+            onZmena={zmenRiadok}
+            kontrolyPodlaRiadku={kontrolyPodlaRiadku}
+            paletyPodlaRiadku={new Map(riadky.map((r) => [r.key, ((rozdelenie && rozdelenie.podlaRiadku.get(r.key)) || []).length]))}
+            materialy={allKnownMaterials(suppliers, MATERIAL_QUICK_PICKS)}
+            jednotky={UNIT_QUICK_PICKS}
+          />
+        ) : (
+          <>
         <div className="mb-1 mt-3 text-sm font-medium text-slate-500">Materiál</div>
         {(() => {
           const zdroj = materialPicksForSupplier(f.dodavatelId, suppliers, MATERIAL_QUICK_PICKS);
@@ -1707,7 +1874,10 @@ function PrijemTab({ fullName }) {
           })}
         </div>
 
-        {f.stavPrevzatia === "Poskodene" && (
+          </>
+        )}
+
+        {!viacPoloziek && f.stavPrevzatia === "Poskodene" && (
           <div className="mb-2 mt-1">
             <PhotoControl
               photoPath={f.photoPath}
@@ -1727,7 +1897,7 @@ function PrijemTab({ fullName }) {
           </button>
         ) : (
           <div className="mt-3 space-y-2">
-            {f.stavPrevzatia !== "Poskodene" && (
+            {(viacPoloziek || f.stavPrevzatia !== "Poskodene") && (
               <PhotoControl
                 photoPath={f.photoPath}
                 photoPreview={photoPreview}
@@ -1768,7 +1938,7 @@ function PrijemTab({ fullName }) {
             className="flex-1 bg-teal-700 hover:bg-teal-800 disabled:opacity-60 text-white text-lg font-semibold px-4 py-4 rounded-xl flex items-center justify-center gap-2"
           >
             {saving ? <Loader2 size={20} className="animate-spin" /> : <CheckCircle2 size={20} />}
-            {maChyby && potvrditKontroly ? "Uložit přesto" : editingId ? "Uložit změny" : "Uložit příjem"}
+            {maChyby && potvrditKontroly ? "Uložit přesto" : editingId ? "Uložit změny" : viacPoloziek ? `Uložit příjem (${polozkyText(zahrnuteRiadky.length)})` : "Uložit příjem"}
           </button>
         </div>
       </div>
