@@ -34,10 +34,14 @@ export function computeStockLevels(receipts, issues) {
         mnozstvoOcenene: 0,
         neocenenePrijmy: 0,
         vratna: jeVratnaPaleta(record.material),
+        odDodavatelov: {},
       };
     }
     if (sign > 0) {
       byKey[key].prijate += qty.num;
+      // kolko sme prijali od ktoreho dodavatela (napr. palety EUR od viacerych firiem)
+      const dod = String(record.dodavatel || "").trim() || "Bez dodavatele";
+      byKey[key].odDodavatelov[dod] = (byKey[key].odDodavatelov[dod] || 0) + qty.num;
       const cena = typeof record.cenaJednotkovaCzk === "number" && !isNaN(record.cenaJednotkovaCzk) ? record.cenaJednotkovaCzk : null;
       if (cena !== null) {
         byKey[key].hodnotaPrijate += cena * qty.num;
@@ -62,6 +66,16 @@ export function computeStockLevels(receipts, issues) {
       return { ...row, stav, priemernaCena, hodnota };
     })
     .sort((a, b) => a.material.localeCompare(b.material) || a.unit.localeCompare(b.unit));
+}
+
+// "Paletten 561 · Flexipal 300" - len ked material prisiel od 2+ dodavatelov.
+export function prijateOdText(row) {
+  const e = Object.entries((row && row.odDodavatelov) || {});
+  if (e.length < 2) return "";
+  return e
+    .sort((a, b) => b[1] - a[1])
+    .map(([d, q]) => `${d} ${Math.round(q * 1000) / 1000}`)
+    .join(" · ");
 }
 
 // Vypocita stav zasob hotovych vyrobkov (v paletach) na sklade:

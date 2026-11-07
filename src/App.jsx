@@ -29,7 +29,7 @@ import { buildCmrXlsx, buildCmrWorkbook } from "./lib/cmrXlsx.js";
 import { renderWorksheetToHtml } from "./lib/xlsxToHtml.js";
 import { parseSupplierCatalogFile, mergeSupplierCatalog } from "./lib/supplierCatalog.js";
 import { exportRowsToExcel, exportSheetsToExcel } from "./lib/exportExcel.js";
-import { computeStockLevels, computeProductionIssues, extraKnownMaterials, materialPicksForSupplier, allKnownMaterials, suggestReceiptMatches, UNIT_QUICK_PICKS } from "./lib/inventory.js";
+import { computeStockLevels, computeProductionIssues, extraKnownMaterials, materialPicksForSupplier, allKnownMaterials, suggestReceiptMatches, prijateOdText, UNIT_QUICK_PICKS } from "./lib/inventory.js";
 import { vyhodnotInventuru, inventuraOpravy, INVENTURA_STAV, INVENTURA_DOVOD, INVENTURA_PREBYTEK } from "./lib/inventura.js";
 import { rozdelStav, vlastnikPalety } from "./lib/palety.js";
 import { INVOICE_EXTRACT_INSTRUCTIONS } from "../supabase/functions/invoice-inbox/prompt.js";
@@ -7423,6 +7423,7 @@ function StockView({ goodsReceipts, stockIssues, currentUserName, onInventuraOpr
       "Průměrná cena (Kč)": row.priemernaCena !== null ? Math.round(row.priemernaCena * 100) / 100 : "",
       "Hodnota (Kč)": row.hodnota !== null ? Math.round(row.hodnota) : "",
       "Neoceněné příjmy": row.neocenenePrijmy,
+      "Přijato od": prijateOdText(row),
     }));
     const issueRows = stockIssues.map((i) => ({
       "Datum": i.datum,
@@ -7496,7 +7497,10 @@ function StockView({ goodsReceipts, stockIssues, currentUserName, onInventuraOpr
             <tbody>
               {stock.map((row) => (
                 <tr key={row.material + row.unit} className="border-t border-slate-100">
-                  <td className="px-3 py-2 font-medium">{row.material}</td>
+                  <td className="px-3 py-2 font-medium">
+                    {row.material}
+                    {prijateOdText(row) && <div className="text-xs font-normal text-slate-400">přijato od: {prijateOdText(row)}</div>}
+                  </td>
                   <td className="px-3 py-2 text-right text-slate-500">{row.prijate} {row.unit}</td>
                   <td className="px-3 py-2 text-right text-slate-500">{row.vydane} {row.unit}</td>
                   <td className={"px-3 py-2 text-right font-semibold " + (row.stav <= 0 ? "text-red-600" : "")}>{row.stav} {row.unit}</td>
@@ -7529,7 +7533,10 @@ function StockView({ goodsReceipts, stockIssues, currentUserName, onInventuraOpr
             <tbody>
               {vratnePalety.map((row) => (
                 <tr key={row.material + row.unit} className="border-t border-slate-100">
-                  <td className="px-3 py-2 font-medium">{row.material}</td>
+                  <td className="px-3 py-2 font-medium">
+                    {row.material}
+                    {prijateOdText(row) && <div className="text-xs font-normal text-slate-400">přijato od: {prijateOdText(row)}</div>}
+                  </td>
                   <td className="px-3 py-2 text-slate-500">{vlastnikPalety(row.material) || "-"}</td>
                   <td className="px-3 py-2 text-right text-slate-500">{row.prijate} {row.unit}</td>
                   <td className="px-3 py-2 text-right text-slate-500">{row.vydane} {row.unit}</td>

@@ -70,3 +70,23 @@ describe("vratne palety v inventure", () => {
     expect(row.vratna).toBe(true);
   });
 });
+
+describe("prijate od dodavatelov", () => {
+  it("rozpis len pri 2+ dodavateloch, zoradeny podla mnozstva", async () => {
+    const { prijateOdText } = await import("./inventory.js");
+    const m = "Paleta EUR tmavá (použitá)";
+    const stock = computeStockLevels(
+      [
+        { material: m, dodavatel: "Flexipal a.s.", mnozstvoCislo: 300, mnozstvoJednotka: "ks" },
+        { material: m, dodavatel: "Paletten service logistik s.r.o.", mnozstvoCislo: 561, mnozstvoJednotka: "ks" },
+        { material: m, dodavatel: "Flexipal a.s.", mnozstvoCislo: 20, mnozstvoJednotka: "ks" },
+        { material: "Kartony", dodavatel: "Smurfit", mnozstvoCislo: 5, mnozstvoJednotka: "ks" },
+      ],
+      [{ material: m, mnozstvoCislo: 100, mnozstvoJednotka: "ks" }]
+    );
+    const pal = stock.find((r) => r.material === m);
+    expect(pal.stav).toBe(781);
+    expect(prijateOdText(pal)).toBe("Paletten service logistik s.r.o. 561 · Flexipal a.s. 320");
+    expect(prijateOdText(stock.find((r) => r.material === "Kartony"))).toBe("");
+  });
+});
