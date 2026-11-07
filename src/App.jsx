@@ -30,6 +30,7 @@ import { parseSupplierCatalogFile, mergeSupplierCatalog } from "./lib/supplierCa
 import { exportRowsToExcel, exportSheetsToExcel } from "./lib/exportExcel.js";
 import { computeStockLevels, computeProductionIssues, extraKnownMaterials, materialPicksForSupplier, allKnownMaterials, suggestReceiptMatches, UNIT_QUICK_PICKS } from "./lib/inventory.js";
 import { vyhodnotInventuru, inventuraOpravy, INVENTURA_STAV, INVENTURA_DOVOD, INVENTURA_PREBYTEK } from "./lib/inventura.js";
+import { rozdelStav, vlastnikPalety } from "./lib/palety.js";
 import { INVOICE_EXTRACT_INSTRUCTIONS } from "../supabase/functions/invoice-inbox/prompt.js";
 import { diffProductionPlanFields, isPlanZmenaActive, formatZmenaText } from "./lib/planZmena.js";
 import { getCnbRate } from "./lib/exchangeRate.js";
@@ -7368,7 +7369,9 @@ function formatCzk(n) {
 
 function StockView({ goodsReceipts, stockIssues, currentUserName, onInventuraOpravy, onNew, onNewTestProduction, onEdit, onDelete }) {
   const [confirmDelete, setConfirmDelete] = useState(null);
-  const stock = computeStockLevels(goodsReceipts, stockIssues);
+  const vsetkyZasoby = computeStockLevels(goodsReceipts, stockIssues);
+  // vratne palety (CHEP/LPR...) nie su nas majetok - samostatna tabulka bez hodnoty
+  const { materialy: stock, vratne: vratnePalety } = rozdelStav(vsetkyZasoby);
   const celkovaHodnota = stock.reduce((sum, row) => sum + (row.hodnota || 0), 0);
   const pocetNeocenenych = stock.reduce((sum, row) => sum + row.neocenenePrijmy, 0);
 
@@ -7392,9 +7395,18 @@ function StockView({ goodsReceipts, stockIssues, currentUserName, onInventuraOpr
       "Zapsal": i.zapisal,
       "Nad stav": i.prekroceniePotvrdene ? "Ano" : "Nie",
     }));
+    const vratneRows = vratnePalety.map((row) => ({
+      "Paleta": row.material,
+      "Vlastník": vlastnikPalety(row.material),
+      "Přijato": row.prijate,
+      "Vráceno": row.vydane,
+      "Na skladě": row.stav,
+      "Jednotka": row.unit,
+    }));
     await exportSheetsToExcel(
       [
         { name: "Stav zásob", rows: stockRows },
+        ...(vratneRows.length ? [{ name: "Vratné palety", rows: vratneRows }] : []),
         { name: "Poslední výdeje", rows: issueRows },
       ],
       "Stav_zasob"
@@ -7454,6 +7466,36 @@ function StockView({ goodsReceipts, stockIssues, currentUserName, onInventuraOpr
                     {row.hodnota !== null ? formatCzk(row.hodnota) : <span className="text-slate-400">-</span>}
                     {row.neocenenePrijmy > 0 && <div className="text-xs text-amber-600">+{row.neocenenePrijmy} bez ceny</div>}
                   </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+
+      {vratnePalety.length > 0 && (
+        <div className="bg-white border border-amber-200 rounded-lg overflow-x-auto mb-6">
+          <div className="px-3 py-2.5 bg-amber-50 border-b border-amber-200 text-sm text-slate-700">
+            <b>Vratné palety</b> <span className="text-slate-500">– nejsou náš majetek, do hodnoty skladu se nepočítají</span>
+          </div>
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="bg-slate-100 text-slate-600 text-left">
+                <th className="px-3 py-2 font-medium">Paleta</th>
+                <th className="px-3 py-2 font-medium">Vlastník</th>
+                <th className="px-3 py-2 font-medium text-right">Přijato</th>
+                <th className="px-3 py-2 font-medium text-right">Vráceno</th>
+                <th className="px-3 py-2 font-medium text-right">Na skladě</th>
+              </tr>
+            </thead>
+            <tbody>
+              {vratnePalety.map((row) => (
+                <tr key={row.material + row.unit} className="border-t border-slate-100">
+                  <td className="px-3 py-2 font-medium">{row.material}</td>
+                  <td className="px-3 py-2 text-slate-500">{vlastnikPalety(row.material) || "-"}</td>
+                  <td className="px-3 py-2 text-right text-slate-500">{row.prijate} {row.unit}</td>
+                  <td className="px-3 py-2 text-right text-slate-500">{row.vydane} {row.unit}</td>
+                  <td className={"px-3 py-2 text-right font-semibold " + (row.stav < 0 ? "text-red-600" : "")}>{row.stav} {row.unit}</td>
                 </tr>
               ))}
             </tbody>

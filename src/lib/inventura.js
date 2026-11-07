@@ -1,5 +1,6 @@
 import { computeStockLevels } from "./inventory.js";
 import { parseSkDate } from "./utils.js";
+import { jeVratnaPaleta } from "./palety.js";
 
 // Inventura: sklad spocita zasoby naslepo (nevidi evidovany stav), kancelaria
 // porovna s evidenciou k datumu inventury, oceni a uzavrie. Pri uzavreti sa
@@ -45,6 +46,7 @@ export function stavKDatu(receipts, issues, datum) {
 export function polozkyNaPocitanie(receipts, issues, datum) {
   return stavKDatu(receipts, issues, datum)
     .filter((row) => Math.abs(row.stav) > 1e-9)
+    .sort((a, b) => Number(a.vratna) - Number(b.vratna))
     .map((row) => ({ material: row.material, unit: row.unit, napocitane: "", poznamka: "" }));
 }
 
@@ -70,12 +72,13 @@ export function vyhodnotInventuru(inventura, receipts, issues) {
     if (seen.has(key) || Math.abs(e.stav) <= 1e-9) continue;
     rows.push(radek(e.material, e.unit, e, null, ""));
   }
-  rows.sort((a, b) => a.material.localeCompare(b.material) || a.unit.localeCompare(b.unit));
+  // vratne palety (nie nas majetok) na koniec, vo vlastnej sekcii
+  rows.sort((a, b) => Number(a.vratna) - Number(b.vratna) || a.material.localeCompare(b.material) || a.unit.localeCompare(b.unit));
   const spocitane = rows.filter((r) => r.napocitane !== null);
   return {
     rows,
     nespocitane: rows.filter((r) => r.napocitane === null),
-    bezCeny: spocitane.filter((r) => r.priemernaCena === null && r.napocitane !== 0),
+    bezCeny: spocitane.filter((r) => r.priemernaCena === null && r.napocitane !== 0 && !r.vratna),
     hodnotaEvidovana: round(sum(rows, "hodnotaEvidovana"), 2),
     hodnotaSkutecna: round(sum(spocitane, "hodnotaSkutecna"), 2),
     hodnotaRozdilu: round(sum(spocitane, "hodnotaRozdilu"), 2),
@@ -102,6 +105,7 @@ function radek(material, unit, e, napocitane, poznamka) {
     hodnotaSkutecna: hodnota(napocitane),
     hodnotaRozdilu: hodnota(rozdil),
     poznamka,
+    vratna: jeVratnaPaleta(material),
   };
 }
 
