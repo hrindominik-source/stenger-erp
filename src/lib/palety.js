@@ -65,3 +65,75 @@ export function prijmyPaliet(riadky, zaklad) {
     };
   });
 }
+
+// ---- Palety pri expedicii a paletove konto zakaznikov ----
+// Palety odchadzaju zo skladu az ked fyzicky odidu (potvrdenie expedicie).
+// Zakaznik ich vrati (prijem "z expedicie"), alebo sa mu vyfakturuju / odpisu
+// (vyrovnanie v kancelarii, ulozene v karte zakaznika).
+export const EXPEDICE_DOVOD = "Expedice";
+export const PALETA_EXPEDICE = "Paleta EUR tmavá (použitá)";
+export const VYROVNANI_TYPY = [
+  { id: "vyfakturovano", label: "Vyfakturováno" },
+  { id: "odepsano", label: "Odepsáno" },
+];
+
+// Riadky typ+pocet -> zaznamy vydaja (stock_issues) pri expedicii.
+export function vydajePalietExpedice(riadky, zaklad) {
+  return prijmyPaliet(riadky, {}).map((r) => ({
+    ...zaklad,
+    material: r.material,
+    mnozstvo: r.mnozstvo,
+    mnozstvoCislo: r.mnozstvoCislo,
+    mnozstvoJednotka: "ks",
+    dovod: EXPEDICE_DOVOD,
+    paletyExpedice: true,
+  }));
+}
+
+// Riadky typ+pocet -> prijmy paliet vratenych z expedicie.
+export function prijmyPalietZExpedice(riadky, zaklad) {
+  return prijmyPaliet(riadky, zaklad).map(({ paletySDodavkou, ...r }) => ({ ...r, paletyZExpedice: true }));
+}
+
+function kluc(s) {
+  return String(s || "").trim().toLowerCase();
+}
+
+// Paletove konto: po zakaznikoch a typoch paliet kolko odislo, vratilo sa,
+// vyfakturovalo / odpisalo a kolko este zakaznik dlhuje.
+export function paletoveKonto(issues, receipts, customers) {
+  const map = new Map();
+  function riadok(zakaznik, material) {
+    const k = kluc(zakaznik);
+    if (!k) return null;
+    if (!map.has(k)) map.set(k, { zakaznik: String(zakaznik).trim(), palety: new Map() });
+    const z = map.get(k);
+    const m = String(material || "").trim();
+    if (!z.palety.has(m)) z.palety.set(m, { material: m, odeslo: 0, vraceno: 0, vyfakturovano: 0, odepsano: 0 });
+    return z.palety.get(m);
+  }
+  for (const i of issues || []) {
+    if (!i.paletyExpedice) continue;
+    const r = riadok(i.zakaznik, i.material);
+    if (r) r.odeslo += parseFloat(i.mnozstvoCislo) || 0;
+  }
+  for (const p of receipts || []) {
+    if (!p.paletyZExpedice) continue;
+    const r = riadok(p.zakaznik, p.material);
+    if (r) r.vraceno += parseFloat(p.mnozstvoCislo) || 0;
+  }
+  for (const c of customers || []) {
+    for (const v of c.paletyVyrovnani || []) {
+      const r = riadok(c.nazov, v.material);
+      if (r && (v.typ === "vyfakturovano" || v.typ === "odepsano")) r[v.typ] += parseFloat(v.pocet) || 0;
+    }
+  }
+  return Array.from(map.values())
+    .map((z) => {
+      const palety = Array.from(z.palety.values())
+        .map((r) => ({ ...r, zbyva: r.odeslo - r.vraceno - r.vyfakturovano - r.odepsano }))
+        .sort((a, b) => a.material.localeCompare(b.material));
+      return { zakaznik: z.zakaznik, palety, zbyva: palety.reduce((s, r) => s + r.zbyva, 0) };
+    })
+    .sort((a, b) => b.zbyva - a.zbyva || a.zakaznik.localeCompare(b.zakaznik));
+}

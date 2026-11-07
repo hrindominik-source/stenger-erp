@@ -90,3 +90,28 @@ describe("prijate od dodavatelov", () => {
     expect(prijateOdText(stock.find((r) => r.material === "Kartony"))).toBe("");
   });
 });
+
+describe("palety pri expedicii a paletove konto", () => {
+  it("vydaj pri expedicii, vratenie, vyrovnanie a zostatok", async () => {
+    const { vydajePalietExpedice, prijmyPalietZExpedice, paletoveKonto, PALETA_EXPEDICE, EXPEDICE_DOVOD } = await import("./palety.js");
+    const vydaje = vydajePalietExpedice(
+      [{ material: PALETA_EXPEDICE, pocet: "33" }, { material: "", pocet: "2" }, { material: PALETA_EXPEDICE, pocet: "0" }],
+      { zakaznik: "Netto", orderId: "o1" }
+    );
+    expect(vydaje).toHaveLength(1);
+    expect(vydaje[0]).toMatchObject({ material: PALETA_EXPEDICE, mnozstvoCislo: 33, dovod: EXPEDICE_DOVOD, paletyExpedice: true, zakaznik: "Netto" });
+    const vratene = prijmyPalietZExpedice([{ material: PALETA_EXPEDICE, pocet: "20" }], { zakaznik: "netto ", dodavatel: "Dorys" });
+    expect(vratene[0].paletyZExpedice).toBe(true);
+    expect(vratene[0].paletySDodavkou).toBeUndefined();
+    const konto = paletoveKonto(
+      [...vydaje, { material: PALETA_EXPEDICE, mnozstvoCislo: 10, paletyExpedice: true, zakaznik: "Edeka" }, { material: "x", mnozstvoCislo: 5, zakaznik: "Netto" }],
+      vratene,
+      [{ nazov: "Netto", paletyVyrovnani: [{ typ: "vyfakturovano", material: PALETA_EXPEDICE, pocet: 3 }] }]
+    );
+    expect(konto.map((z) => [z.zakaznik, z.zbyva])).toEqual([["Edeka", 10], ["Netto", 10]]);
+    expect(konto[1].palety[0]).toMatchObject({ odeslo: 33, vraceno: 20, vyfakturovano: 3, odepsano: 0, zbyva: 10 });
+    // stav skladu: vydaj a vratenie sa prejavi v zasobach
+    const stock = computeStockLevels(vratene, vydaje);
+    expect(stock.find((r) => r.material === PALETA_EXPEDICE).stav).toBe(-13);
+  });
+});

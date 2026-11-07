@@ -30,7 +30,7 @@ import { parseSupplierCatalogFile, mergeSupplierCatalog } from "./lib/supplierCa
 import { exportRowsToExcel, exportSheetsToExcel } from "./lib/exportExcel.js";
 import { computeStockLevels, computeProductionIssues, extraKnownMaterials, materialPicksForSupplier, allKnownMaterials, suggestReceiptMatches, prijateOdText, UNIT_QUICK_PICKS } from "./lib/inventory.js";
 import { vyhodnotInventuru, inventuraOpravy, INVENTURA_STAV, INVENTURA_DOVOD, INVENTURA_PREBYTEK } from "./lib/inventura.js";
-import { rozdelStav, vlastnikPalety } from "./lib/palety.js";
+import { rozdelStav, vlastnikPalety, paletoveKonto, VYROVNANI_TYPY } from "./lib/palety.js";
 import { INVOICE_EXTRACT_INSTRUCTIONS } from "../supabase/functions/invoice-inbox/prompt.js";
 import { diffProductionPlanFields, isPlanZmenaActive, formatZmenaText } from "./lib/planZmena.js";
 import { getCnbRate } from "./lib/exchangeRate.js";
@@ -2079,6 +2079,8 @@ function OfficeApp({ userFullName, userEmail, onSignOut }) {
           <StockView
             goodsReceipts={goodsReceipts}
             stockIssues={stockIssues}
+            customers={customers}
+            onSaveCustomers={persistCustomers}
             currentUserName={userFullName}
             onInventuraOpravy={(rec, iss) => {
               const recIds = new Set(rec.map((r) => r.id));
@@ -7367,13 +7369,98 @@ function formatCzk(n) {
   return Math.round(n).toLocaleString("sk-SK") + " Kč";
 }
 
-function StockView({ goodsReceipts, stockIssues, currentUserName, onInventuraOpravy, onNew, onNewTestProduction, onEdit, onDelete }) {
+// Paletove konto zakaznikov: palety odisle s expediciou, vratene, vyfakturovane
+// alebo odpisane. Vyrovnanie (faktura / odpis) sa uklada do karty zakaznika.
+function PaletoveKonto({ konto, customers, onSaveCustomers, currentUserName }) {
+  const [form, setForm] = useState(null);
+  const [error, setError] = useState("");
+  if (konto.length === 0) return null;
+
+  function zakaznikPre(nazov) {
+    const k = String(nazov || "").trim().toLowerCase();
+    return customers.find((c) => String(c.nazov || "").trim().toLowerCase() === k);
+  }
+
+  async function ulozit() {
+    const c = zakaznikPre(form.zakaznik);
+    const pocet = parseFloat(String(form.pocet).replace(",", "."));
+    if (!c) { setError("Zákazník není v seznamu zákazníků - vyrovnání nelze uložit."); return; }
+    if (!(pocet > 0)) { setError("Zadejte počet palet."); return; }
+    const zaznam = { id: uid(), datum: form.datum.trim() || todayStr(), typ: form.typ, material: form.material, pocet, poznamka: form.poznamka.trim(), zapisal: currentUserName || "" };
+    await onSaveCustomers(customers.map((x) => (x.id === c.id ? { ...x, paletyVyrovnani: [...(x.paletyVyrovnani || []), zaznam] } : x)));
+    setForm(null);
+    setError("");
+  }
+
+  return (
+    <div className="bg-white border border-slate-200 rounded-lg overflow-x-auto mb-6" data-testid="paletove-konto">
+      <div className="px-3 py-2.5 bg-slate-50 border-b border-slate-200 text-sm text-slate-700">
+        <b>Paletové konto zákazníků</b> <span className="text-slate-500">– palety odeslané s expedicí, které se mají vrátit, vyfakturovat nebo odepsat</span>
+      </div>
+      <table className="w-full text-sm">
+        <thead>
+          <tr className="bg-slate-100 text-slate-600 text-left">
+            <th className="px-3 py-2 font-medium">Zákazník</th>
+            <th className="px-3 py-2 font-medium">Paleta</th>
+            <th className="px-3 py-2 font-medium text-right">Odešlo</th>
+            <th className="px-3 py-2 font-medium text-right">Vráceno</th>
+            <th className="px-3 py-2 font-medium text-right">Vyfakturováno</th>
+            <th className="px-3 py-2 font-medium text-right">Odepsáno</th>
+            <th className="px-3 py-2 font-medium text-right">Zbývá vrátit</th>
+            <th className="px-3 py-2"></th>
+          </tr>
+        </thead>
+        <tbody>
+          {konto.flatMap((z) =>
+            z.palety.map((r, i) => (
+              <tr key={z.zakaznik + r.material} className="border-t border-slate-100">
+                <td className="px-3 py-2 font-medium">{i === 0 ? z.zakaznik : ""}</td>
+                <td className="px-3 py-2">{r.material}</td>
+                <td className="px-3 py-2 text-right text-slate-500">{r.odeslo}</td>
+                <td className="px-3 py-2 text-right text-slate-500">{r.vraceno}</td>
+                <td className="px-3 py-2 text-right text-slate-500">{r.vyfakturovano}</td>
+                <td className="px-3 py-2 text-right text-slate-500">{r.odepsano}</td>
+                <td className={"px-3 py-2 text-right font-semibold " + (r.zbyva < 0 ? "text-red-600" : r.zbyva > 0 ? "text-amber-700" : "text-slate-400")}>{r.zbyva}</td>
+                <td className="px-3 py-2 text-right">
+                  {r.zbyva > 0 && (
+                    <button onClick={() => { setError(""); setForm({ zakaznik: z.zakaznik, material: r.material, typ: "vyfakturovano", pocet: String(r.zbyva), datum: todayStr(), poznamka: "" }); }} className="text-xs text-teal-700 hover:underline whitespace-nowrap">
+                      Vyrovnat
+                    </button>
+                  )}
+                </td>
+              </tr>
+            ))
+          )}
+        </tbody>
+      </table>
+      {form && (
+        <div className="border-t border-slate-200 p-3 bg-slate-50">
+          <div className="text-sm font-medium mb-2">Vyrovnání: {form.zakaznik} – {form.material}</div>
+          <div className="flex flex-wrap items-center gap-2">
+            {VYROVNANI_TYPY.map((t) => (
+              <button key={t.id} onClick={() => setForm({ ...form, typ: t.id })} className={"text-sm px-3 py-1.5 rounded-md border " + (form.typ === t.id ? "bg-teal-700 text-white border-teal-700" : "bg-white text-slate-700 border-slate-200")}>{t.label}</button>
+            ))}
+            <input value={form.pocet} onChange={(e) => setForm({ ...form, pocet: e.target.value })} inputMode="numeric" className="w-20 border border-slate-200 rounded-md px-2 py-1.5 text-sm" placeholder="ks" />
+            <input value={form.datum} onChange={(e) => setForm({ ...form, datum: e.target.value })} className="w-28 border border-slate-200 rounded-md px-2 py-1.5 text-sm" placeholder="DD.MM.RRRR" />
+            <input value={form.poznamka} onChange={(e) => setForm({ ...form, poznamka: e.target.value })} className="flex-1 min-w-[10rem] border border-slate-200 rounded-md px-2 py-1.5 text-sm" placeholder="Poznámka, např. číslo faktury" />
+            <button onClick={ulozit} className="bg-teal-700 hover:bg-teal-800 text-white text-sm font-medium px-3 py-1.5 rounded-md">Uložit</button>
+            <button onClick={() => setForm(null)} className="text-sm text-slate-500 px-2">Zrušit</button>
+          </div>
+          {error && <div className="mt-2 text-xs text-red-700">{error}</div>}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function StockView({ goodsReceipts, stockIssues, customers = [], onSaveCustomers, currentUserName, onInventuraOpravy, onNew, onNewTestProduction, onEdit, onDelete }) {
   const [confirmDelete, setConfirmDelete] = useState(null);
   const vsetkyZasoby = computeStockLevels(goodsReceipts, stockIssues);
   // vratne palety (CHEP/LPR...) nie su nas majetok - samostatna tabulka bez hodnoty
   const { materialy: stock, vratne: vratnePalety } = rozdelStav(vsetkyZasoby);
   const celkovaHodnota = stock.reduce((sum, row) => sum + (row.hodnota || 0), 0);
   const pocetNeocenenych = stock.reduce((sum, row) => sum + row.neocenenePrijmy, 0);
+  const konto = paletoveKonto(stockIssues, goodsReceipts, customers);
 
   async function exportToExcel() {
     const stockRows = stock.map((row) => ({
@@ -7404,10 +7491,22 @@ function StockView({ goodsReceipts, stockIssues, currentUserName, onInventuraOpr
       "Na skladě": row.stav,
       "Jednotka": row.unit,
     }));
+    const kontoRows = konto.flatMap((z) =>
+      z.palety.map((r) => ({
+        "Zákazník": z.zakaznik,
+        "Paleta": r.material,
+        "Odešlo": r.odeslo,
+        "Vráceno": r.vraceno,
+        "Vyfakturováno": r.vyfakturovano,
+        "Odepsáno": r.odepsano,
+        "Zbývá vrátit": r.zbyva,
+      }))
+    );
     await exportSheetsToExcel(
       [
         { name: "Stav zásob", rows: stockRows },
         ...(vratneRows.length ? [{ name: "Vratné palety", rows: vratneRows }] : []),
+        ...(kontoRows.length ? [{ name: "Paletové konto", rows: kontoRows }] : []),
         { name: "Poslední výdeje", rows: issueRows },
       ],
       "Stav_zasob"
@@ -7509,6 +7608,8 @@ function StockView({ goodsReceipts, stockIssues, currentUserName, onInventuraOpr
           </table>
         </div>
       )}
+
+      <PaletoveKonto konto={konto} customers={customers} onSaveCustomers={onSaveCustomers} currentUserName={currentUserName} />
 
       <h2 className="text-sm font-semibold text-slate-500 mb-2">Poslední výdeje</h2>
       {stockIssues.length === 0 ? (

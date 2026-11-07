@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState } from "react";
 import { ScanLine, Trash2, AlertCircle, TriangleAlert, FileText, Camera, Loader2 } from "lucide-react";
-import { volbyPaliet } from "./lib/palety.js";
+import { volbyPaliet, PALETA_EXPEDICE } from "./lib/palety.js";
 
 // Skenovanie paletovych etiket na prijme (PDA skener posiela kod ako text + Enter)
 // a zoznam palet. Ked etiketa GS1 nema, sarza a DMT sa zadaju rucne vo formulari.
@@ -249,7 +249,7 @@ export function DodakPolozky({ riadky, onZmena, kontrolyPodlaRiadku, paletyPodla
 
 // Palety, na ktorych prisiel tovar: nase (EUR od dodavatela) aj vratne (CHEP/LPR...).
 // Kazdy typ sa ulozi ako samostatny prijem v ks.
-export function PaletySDodavkou({ riadky, onChange, materialy, pocetSkenov }) {
+export function PaletySDodavkou({ riadky, onChange, materialy, pocetSkenov, nadpis = "Palety s dodávkou", popis, testId = "palety-dodavky" }) {
   const [otvorene, setOtvorene] = useState(riadky.length > 0);
   const { nase, vratne } = volbyPaliet(materialy);
 
@@ -269,10 +269,10 @@ export function PaletySDodavkou({ riadky, onChange, materialy, pocetSkenov }) {
   }
 
   return (
-    <div className="mt-3 mb-2 border-2 border-amber-200 bg-amber-50/40 rounded-xl p-3" data-testid="palety-dodavky">
-      <div className="text-sm font-semibold text-slate-700">Palety s dodávkou</div>
+    <div className="mt-3 mb-2 border-2 border-amber-200 bg-amber-50/40 rounded-xl p-3" data-testid={testId}>
+      <div className="text-sm font-semibold text-slate-700">{nadpis}</div>
       <div className="text-xs text-slate-500 mb-2">
-        Na čem zboží přijelo. Vratné palety se evidují zvlášť a vracejí se.{pocetSkenov > 0 ? ` Naskenováno ${pocetSkenov} palet.` : ""}
+        {popis || "Na čem zboží přijelo. Vratné palety se evidují zvlášť a vracejí se."}{pocetSkenov > 0 ? ` Naskenováno ${pocetSkenov} palet.` : ""}
       </div>
       <div className="space-y-2">
         {riadky.map((r) => (
@@ -294,6 +294,72 @@ export function PaletySDodavkou({ riadky, onChange, materialy, pocetSkenov }) {
         ))}
       </div>
       <button onClick={pridat} className="mt-2 text-sm text-teal-700 font-medium">+ Další typ palety</button>
+    </div>
+  );
+}
+
+// Palety vratene z expedicie (dopravca alebo zakaznik ich privezie spat).
+// Naskladnia sa podla typu a odpocitaju z paletoveho konta zakaznika.
+export function PaletyZExpedice({ zakaznici, dopravci, materialy, onSave }) {
+  const [otvorene, setOtvorene] = useState(false);
+  const [zakaznik, setZakaznik] = useState("");
+  const [dopravca, setDopravca] = useState("");
+  const [doklad, setDoklad] = useState("");
+  const [riadky, setRiadky] = useState([]);
+  const [saving, setSaving] = useState(false);
+  const [chyba, setChyba] = useState("");
+
+  function otvorit() {
+    setOtvorene(true);
+    setChyba("");
+    if (riadky.length === 0) setRiadky([{ key: "p0", material: PALETA_EXPEDICE, pocet: "" }]);
+  }
+
+  async function ulozit() {
+    if (!zakaznik.trim()) { setChyba("Vyberte zákazníka, od kterého se palety vrátily."); return; }
+    if (!riadky.some((r) => r.material && parseFloat(String(r.pocet).replace(",", ".")) > 0)) { setChyba("Zadejte typ a počet palet."); return; }
+    setChyba("");
+    setSaving(true);
+    try {
+      await onSave({ zakaznik: zakaznik.trim(), dopravca: dopravca.trim(), doklad: doklad.trim(), riadky });
+      setOtvorene(false);
+      setZakaznik(""); setDopravca(""); setDoklad(""); setRiadky([]);
+    } catch (e) {
+      console.error(e);
+      setChyba("Uložení se nezdařilo, zkuste to znovu.");
+    }
+    setSaving(false);
+  }
+
+  if (!otvorene) {
+    return (
+      <button onClick={otvorit} className="w-full mb-5 text-base font-semibold px-4 py-3.5 rounded-xl border-2 border-amber-300 bg-amber-50 text-amber-900 text-center" data-testid="palety-z-expedice-otvorit">
+        Palety vrácené z expedice
+      </button>
+    );
+  }
+
+  return (
+    <div className="bg-white border-2 border-amber-300 rounded-xl p-4 mb-5" data-testid="palety-z-expedice">
+      <div className="text-lg font-semibold mb-1">Palety vrácené z expedice</div>
+      <div className="text-sm text-slate-500 mb-3">Prázdné palety, které přivezl dopravce nebo zákazník zpět. Naskladní se a odečtou z paletového konta zákazníka.</div>
+      <div className="text-sm font-medium text-slate-500 mb-1">Za zákazníka</div>
+      <input value={zakaznik} onChange={(e) => setZakaznik(e.target.value)} list="palety-zakaznici" placeholder="např. Netto" className="w-full border-2 border-slate-200 rounded-xl px-3 py-3 text-base mb-3" />
+      <datalist id="palety-zakaznici">
+        {zakaznici.map((z) => <option key={z} value={z} />)}
+      </datalist>
+      <div className="text-sm font-medium text-slate-500 mb-1">Přivezl (dopravce)</div>
+      <input value={dopravca} onChange={(e) => setDopravca(e.target.value)} list="palety-dopravci" placeholder="např. Dorys" className="w-full border-2 border-slate-200 rounded-xl px-3 py-3 text-base mb-3" />
+      <datalist id="palety-dopravci">
+        {dopravci.map((d) => <option key={d} value={d} />)}
+      </datalist>
+      <input value={doklad} onChange={(e) => setDoklad(e.target.value)} placeholder="Číslo dokladu / paletového listu (nepovinné)" className="w-full border-2 border-slate-200 rounded-xl px-3 py-2.5 text-base" />
+      <PaletySDodavkou riadky={riadky} onChange={setRiadky} materialy={materialy} nadpis="Vrácené palety" popis="Typ a počet kusů." testId="palety-z-expedice-riadky" />
+      {chyba && <div className="mb-2 bg-red-50 text-red-700 text-sm px-3 py-2 rounded-lg flex items-center gap-2"><AlertCircle size={16} /> {chyba}</div>}
+      <div className="grid grid-cols-2 gap-2 mt-2">
+        <button onClick={() => setOtvorene(false)} disabled={saving} className="text-base font-semibold px-4 py-3 rounded-xl border-2 border-slate-200 bg-white text-slate-700">Zrušit</button>
+        <button onClick={ulozit} disabled={saving} className="text-base font-semibold px-4 py-3 rounded-xl border-2 border-teal-700 bg-teal-700 text-white disabled:opacity-50">{saving ? "Ukládám..." : "Naskladnit palety"}</button>
+      </div>
     </div>
   );
 }
