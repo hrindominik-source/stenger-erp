@@ -5,7 +5,8 @@ import { extractCityFromAddress, todayStr, nowTimeStr, formatDateTime, uid, pars
 import { computeStockLevels, computeFinishedGoodsStock, wouldExceed, materialPicksForSupplier, allKnownMaterials, UNIT_QUICK_PICKS } from "./lib/inventory.js";
 import { isPlanZmenaActive, formatZmenaText } from "./lib/planZmena.js";
 import InventuraPocitanie from "./InventuraPocitanie.jsx";
-import { PaletySken, KontrolyPrijmu, DodakNacitanie, DodakPolozky } from "./PrijemPalety.jsx";
+import { PaletySken, KontrolyPrijmu, DodakNacitanie, DodakPolozky, PaletySDodavkou } from "./PrijemPalety.jsx";
+import { prijmyPaliet, rozdelStav, jeVratnaPaleta, VRATNE_PALETY, VRATENIE_DOVOD } from "./lib/palety.js";
 import { zmensitFotku } from "./lib/obrazok.js";
 import { parseGs1 } from "./lib/gs1.js";
 import { pridajSken, doplnPaletu, sumaPaliet, suhrnPaliet, kontrolaPrijmu, polozkaPreMaterial, riadkyZDodaku, priradPalety } from "./lib/prijemPalety.js";
@@ -1116,6 +1117,8 @@ export function PrijemTab({ fullName }) {
   const [dodakError, setDodakError] = useState("");
   // dodak s viacerymi polozkami: riadok na polozku, ulozia sa naraz ako samostatne prijmy
   const [riadky, setRiadky] = useState([]);
+  // palety, na ktorych tovar prisiel (nase aj vratne) - ulozia sa ako samostatne prijmy
+  const [paletyDodavky, setPaletyDodavky] = useState([]);
 
   const fetchAll = useCallback(async () => {
     const [suppliersRes, receiptsRes, materialOrdersRes, kartyRes] = await Promise.all([
@@ -1246,6 +1249,7 @@ export function PrijemTab({ fullName }) {
     setDodakIdx(null);
     setDodakError("");
     setRiadky([]);
+    setPaletyDodavky([]);
   }
 
   const kartaPodlaGtin = (gtin) => karty.find((k) => k.gtin === gtin) || null;
@@ -1504,6 +1508,27 @@ export function PrijemTab({ fullName }) {
     setPhotoPreview("");
   }
 
+  function zaznamyPaliet(cas) {
+    if (editingId) return [];
+    return prijmyPaliet(paletyDodavky, {
+      datumPrijatia: f.datumPrijatia.trim() || todayStr(),
+      casPrijatia: cas,
+      dodavatelId: f.dodavatelId,
+      dodavatel: f.dodavatel.trim(),
+      cisloDokladu: f.cisloDokladu.trim(),
+      stavPrevzatia: "V poriadku",
+      poznamka: "Palety s dodávkou",
+      prevzal: fullName || "",
+      materialObjednavkaId: "",
+      materialObjednavkaCislo: "",
+      photoPath: "",
+      dodakPath: f.dodakPath || "",
+    }).map((d) => {
+      const id = uid();
+      return { id, data: { ...d, id } };
+    });
+  }
+
   async function handleSaveViac() {
     if (!fullName) {
       setError("Nahoře v \"Kdo pracuje\" vyberte, kdo zboží převzal.");
@@ -1574,9 +1599,10 @@ export function PrijemTab({ fullName }) {
         const { error: kErr } = await supabase.from("skladove_karty").upsert({ id: karta.id, data: karta });
         if (kErr) console.error(kErr);
       }
-      const { error: insErr } = await supabase.from("goods_receipts").insert(zaznamy);
+      const palZaznamy = zaznamyPaliet(cas);
+      const { error: insErr } = await supabase.from("goods_receipts").insert([...zaznamy, ...palZaznamy]);
       if (insErr) throw insErr;
-      setFlash(`Uloženo: ${polozkyText(zaznamy.length)}`);
+      setFlash(`Uloženo: ${polozkyText(zaznamy.length)}${palZaznamy.length ? " + palety" : ""}`);
       await fetchAll();
       resetForm(true);
     } catch (e) {
@@ -1643,7 +1669,8 @@ export function PrijemTab({ fullName }) {
         const { error: upErr } = await supabase.from("goods_receipts").update({ data: { ...record, id: editingId } }).eq("id", editingId);
         if (upErr) throw upErr;
       } else {
-        const { error: insErr } = await supabase.from("goods_receipts").insert({ id: formId, data: { ...record, id: formId } });
+        const palZaznamy = zaznamyPaliet(record.casPrijatia);
+        const { error: insErr } = await supabase.from("goods_receipts").insert([{ id: formId, data: { ...record, id: formId } }, ...palZaznamy]);
         if (insErr) throw insErr;
       }
       setFlash("Uloženo");
@@ -1889,6 +1916,15 @@ export function PrijemTab({ fullName }) {
               onRemove={removePhoto}
             />
           </div>
+        )}
+
+        {!editingId && (
+          <PaletySDodavkou
+            riadky={paletyDodavky}
+            onChange={setPaletyDodavky}
+            materialy={allKnownMaterials(suppliers, MATERIAL_QUICK_PICKS)}
+            pocetSkenov={palety.length}
+          />
         )}
 
         {!showDetails ? (
@@ -2174,12 +2210,22 @@ function ZasobyTab({ fullName }) {
   }, [flash]);
 
   const stock = computeStockLevels(receipts, issues);
+  const { materialy: stockMaterialy, vratne: stockVratne } = rozdelStav(stock);
   const finishedStock = computeFinishedGoodsStock(outputs, dispatches);
+  // vratnu paletu len vraciame (alebo ine) - vyroba/vzorky pri nej nedavaju zmysel
+  const dovodyVydaja = jeVratnaPaleta(f.material) ? [VRATENIE_DOVOD, "Ine"] : STOCK_ISSUE_REASONS;
+  const dovod = dovodyVydaja.includes(f.dovod) ? f.dovod : dovodyVydaja[0];
   const mnozstvoNaEnter = parseFloat(String(f.mnozstvoNum).replace(",", ".")) || 0;
   const stockRow = stock.find((r) => r.material.trim().toLowerCase() === f.material.trim().toLowerCase() && r.unit.toLowerCase() === f.mnozstvoUnit.toLowerCase());
   const dostupneMnozstvo = stockRow ? stockRow.stav : 0;
   const presahujeStock = !!f.material.trim() && mnozstvoNaEnter > 0 && mnozstvoNaEnter > dostupneMnozstvo;
-  const materialPicks = allKnownMaterials(suppliers, MATERIAL_QUICK_PICKS);
+  const materialPicks = allKnownMaterials(suppliers, [...MATERIAL_QUICK_PICKS, ...VRATNE_PALETY.map((p) => p.material)]);
+
+  function vratitPalety(row) {
+    setF({ ...emptyIssueForm(), material: row.material, mnozstvoUnit: row.unit || "ks", dovod: VRATENIE_DOVOD });
+    setPotvrdenyMinus(false);
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  }
 
   function pickOpeningUnit(u) {
     setOf((prev) => ({ ...prev, mnozstvoUnit: u }));
@@ -2287,7 +2333,7 @@ function ZasobyTab({ fullName }) {
       mnozstvo: [f.mnozstvoNum.trim(), f.mnozstvoUnit].filter(Boolean).join(" ").trim(),
       mnozstvoCislo: parseFloat(String(f.mnozstvoNum).replace(",", ".")) || 0,
       mnozstvoJednotka: f.mnozstvoUnit,
-      dovod: f.dovod,
+      dovod,
       poznamka: f.poznamka.trim(),
       zapisal: fullName || "",
       prekroceniePotvrdene: presahujeStock ? true : false,
@@ -2539,8 +2585,8 @@ function ZasobyTab({ fullName }) {
 
         <div className="mb-1 mt-3 text-sm font-medium text-slate-500">Důvod</div>
         <div className="grid grid-cols-2 gap-2 mb-2">
-          {STOCK_ISSUE_REASONS.map((d) => (
-            <button key={d} onClick={() => pickDovod(d)} className={bigBtn + " " + (f.dovod === d ? "bg-teal-700 text-white border-teal-700" : "bg-white text-slate-700 border-slate-200")}>
+          {dovodyVydaja.map((d) => (
+            <button key={d} onClick={() => pickDovod(d)} className={bigBtn + " " + (dovod === d ? "bg-teal-700 text-white border-teal-700" : "bg-white text-slate-700 border-slate-200")}>
               {d}
             </button>
           ))}
@@ -2565,7 +2611,7 @@ function ZasobyTab({ fullName }) {
       </div>
 
       <div className="text-sm font-semibold text-slate-500 mb-2">Aktuální stav zásob</div>
-      {stock.length === 0 ? (
+      {stockMaterialy.length === 0 ? (
         <div className="bg-white border border-slate-200 rounded-lg p-6 text-center text-slate-400 text-sm mb-5">Zatím žádná data.</div>
       ) : (
         <div className="bg-white border border-slate-200 rounded-lg overflow-x-auto mb-5">
@@ -2579,7 +2625,7 @@ function ZasobyTab({ fullName }) {
               </tr>
             </thead>
             <tbody>
-              {stock.map((row) => (
+              {stockMaterialy.map((row) => (
                 <tr key={row.material + row.unit} className="border-t border-slate-100">
                   <td className="px-3 py-2 font-medium">{row.material}</td>
                   <td className="px-3 py-2 text-right text-slate-500">{row.prijate} {row.unit}</td>
@@ -2590,6 +2636,39 @@ function ZasobyTab({ fullName }) {
             </tbody>
           </table>
         </div>
+      )}
+
+      {stockVratne.length > 0 && (
+        <>
+          <div className="text-sm font-semibold text-slate-500 mb-1">Vratné palety (nejsou náš majetek)</div>
+          <div className="text-xs text-slate-400 mb-2">Přijaté s dodávkou, při odvozu zapište vrácení.</div>
+          <div className="bg-white border border-amber-200 rounded-lg overflow-x-auto mb-5" data-testid="vratne-palety">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="bg-amber-50 text-slate-600 text-left">
+                  <th className="px-3 py-2 font-medium">Paleta</th>
+                  <th className="px-3 py-2 font-medium text-right">Přijato</th>
+                  <th className="px-3 py-2 font-medium text-right">Vráceno</th>
+                  <th className="px-3 py-2 font-medium text-right">Na skladě</th>
+                  <th className="px-3 py-2"></th>
+                </tr>
+              </thead>
+              <tbody>
+                {stockVratne.map((row) => (
+                  <tr key={row.material + row.unit} className="border-t border-slate-100">
+                    <td className="px-3 py-2 font-medium">{row.material}</td>
+                    <td className="px-3 py-2 text-right text-slate-500">{row.prijate} {row.unit}</td>
+                    <td className="px-3 py-2 text-right text-slate-500">{row.vydane} {row.unit}</td>
+                    <td className={"px-3 py-2 text-right font-semibold " + (row.stav < 0 ? "text-red-600" : "")}>{row.stav} {row.unit}</td>
+                    <td className="px-3 py-2 text-right">
+                      <button onClick={() => vratitPalety(row)} disabled={row.stav <= 0} className="text-xs font-semibold px-2.5 py-1.5 rounded-lg border-2 border-amber-300 text-amber-800 bg-white disabled:opacity-40">Vrátit</button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </>
       )}
 
       <div className="text-sm font-semibold text-slate-500 mb-2">Hotové výrobky na skladě</div>

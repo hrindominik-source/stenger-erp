@@ -4,6 +4,7 @@ import { supabase } from "./supabaseClient.js";
 import { todayStr, uid, parseSkDate } from "./lib/utils.js";
 import { UNIT_QUICK_PICKS } from "./lib/inventory.js";
 import { polozkyNaPocitanie, polozkaKey, parseQtyInput } from "./lib/inventura.js";
+import { jeVratnaPaleta } from "./lib/palety.js";
 
 // Inventura naslepo: pocitajuci vidi len co pocitat (material + jednotka), nie
 // evidovany stav. Pouziva ju sklad (Kontrola skladu) aj kancelaria, ked skladnik
@@ -106,7 +107,12 @@ export default function InventuraPocitanie({ fullName, extraMaterialy = [], onCh
       return;
     }
     setError("");
-    setPolozky((list) => [...list, { material, unit: novy.unit, napocitane: "", poznamka: "", pridano: true }]);
+    // vratne palety drzime na konci zoznamu (vlastna sekcia), ostatne pred nimi
+    setPolozky((list) => {
+      const item = { material, unit: novy.unit, napocitane: "", poznamka: "", pridano: true };
+      const i = jeVratnaPaleta(material) ? -1 : list.findIndex((x) => jeVratnaPaleta(x.material));
+      return i < 0 ? [...list, item] : [...list.slice(0, i), item, ...list.slice(i)];
+    });
     setNovy({ material: "", unit: novy.unit });
   }
 
@@ -171,7 +177,11 @@ export default function InventuraPocitanie({ fullName, extraMaterialy = [], onCh
           <div className="text-sm text-slate-500 mb-3">Zapište, co skutečně je na skladě. Když položka není, zadejte 0.</div>
           <div className="space-y-2 mb-4">
             {polozky.map((p, idx) => (
-              <div key={p.material + "|" + p.unit} className="border-2 border-slate-200 rounded-xl p-3">
+              <React.Fragment key={p.material + "|" + p.unit}>
+              {jeVratnaPaleta(p.material) && !polozky.slice(0, idx).some((x) => jeVratnaPaleta(x.material)) && (
+                <div className="pt-2 text-sm font-semibold text-amber-800">Vratné palety (nejsou náš majetek – jen spočítat)</div>
+              )}
+              <div className={"border-2 rounded-xl p-3 " + (jeVratnaPaleta(p.material) ? "border-amber-200" : "border-slate-200")}>
                 <div className="flex items-center justify-between gap-2 mb-2">
                   <div className="font-medium">{p.material}</div>
                   {p.pridano && (
@@ -184,6 +194,7 @@ export default function InventuraPocitanie({ fullName, extraMaterialy = [], onCh
                 </div>
                 <input value={p.poznamka} onChange={(e) => zmenPolozku(idx, { poznamka: e.target.value })} placeholder="Poznámka (nepovinné)" className="w-full mt-2 border border-slate-200 rounded-lg px-3 py-2 text-sm" />
               </div>
+              </React.Fragment>
             ))}
           </div>
 

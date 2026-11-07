@@ -1,5 +1,6 @@
 import React, { useEffect, useRef, useState } from "react";
 import { ScanLine, Trash2, AlertCircle, TriangleAlert, FileText, Camera, Loader2 } from "lucide-react";
+import { volbyPaliet } from "./lib/palety.js";
 
 // Skenovanie paletovych etiket na prijme (PDA skener posiela kod ako text + Enter)
 // a zoznam palet. Ked etiketa GS1 nema, sarza a DMT sa zadaju rucne vo formulari.
@@ -242,6 +243,57 @@ export function DodakPolozky({ riadky, onZmena, kontrolyPodlaRiadku, paletyPodla
           </div>
         );
       })}
+    </div>
+  );
+}
+
+// Palety, na ktorych prisiel tovar: nase (EUR od dodavatela) aj vratne (CHEP/LPR...).
+// Kazdy typ sa ulozi ako samostatny prijem v ks.
+export function PaletySDodavkou({ riadky, onChange, materialy, pocetSkenov }) {
+  const [otvorene, setOtvorene] = useState(riadky.length > 0);
+  const { nase, vratne } = volbyPaliet(materialy);
+
+  function pridat() {
+    onChange([...riadky, { key: Date.now() + "-" + riadky.length, material: "", pocet: riadky.length === 0 && pocetSkenov > 0 ? String(pocetSkenov) : "" }]);
+  }
+  function zmenit(key, patch) {
+    onChange(riadky.map((r) => (r.key === key ? { ...r, ...patch } : r)));
+  }
+
+  if (!otvorene) {
+    return (
+      <button onClick={() => { setOtvorene(true); if (riadky.length === 0) pridat(); }} className="mt-2 mb-1 block text-sm text-teal-700 font-medium" data-testid="palety-dodavky-otvorit">
+        + Palety s dodávkou (naše i vratné CHEP/LPR)
+      </button>
+    );
+  }
+
+  return (
+    <div className="mt-3 mb-2 border-2 border-amber-200 bg-amber-50/40 rounded-xl p-3" data-testid="palety-dodavky">
+      <div className="text-sm font-semibold text-slate-700">Palety s dodávkou</div>
+      <div className="text-xs text-slate-500 mb-2">
+        Na čem zboží přijelo. Vratné palety se evidují zvlášť a vracejí se.{pocetSkenov > 0 ? ` Naskenováno ${pocetSkenov} palet.` : ""}
+      </div>
+      <div className="space-y-2">
+        {riadky.map((r) => (
+          <div key={r.key} className="flex gap-2 items-center">
+            <select value={r.material} onChange={(e) => zmenit(r.key, { material: e.target.value })} className="flex-1 min-w-0 border-2 border-slate-200 rounded-xl px-2 py-2.5 text-sm bg-white">
+              <option value="">Typ palety…</option>
+              {nase.length > 0 && (
+                <optgroup label="Naše palety">
+                  {nase.map((m) => <option key={m} value={m}>{m}</option>)}
+                </optgroup>
+              )}
+              <optgroup label="Vratné palety (vracíme)">
+                {vratne.map((m) => <option key={m} value={m}>{m}</option>)}
+              </optgroup>
+            </select>
+            <input value={r.pocet} onChange={(e) => zmenit(r.key, { pocet: e.target.value })} inputMode="numeric" placeholder="ks" className="w-20 border-2 border-slate-200 rounded-xl px-2 py-2.5 text-base text-center bg-white" />
+            <button onClick={() => onChange(riadky.filter((x) => x.key !== r.key))} title="Odebrat" className="text-slate-400 hover:text-red-600 p-1"><Trash2 size={18} /></button>
+          </div>
+        ))}
+      </div>
+      <button onClick={pridat} className="mt-2 text-sm text-teal-700 font-medium">+ Další typ palety</button>
     </div>
   );
 }

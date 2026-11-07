@@ -1,3 +1,5 @@
+import { jeVratnaPaleta } from "./palety.js";
+
 export const UNIT_QUICK_PICKS = ["ks", "kg", "kartonov", "balikov", "paliet", "m", "l", "sudov"];
 
 function parseQty(record) {
@@ -31,6 +33,7 @@ export function computeStockLevels(receipts, issues) {
         hodnotaPrijate: 0,
         mnozstvoOcenene: 0,
         neocenenePrijmy: 0,
+        vratna: jeVratnaPaleta(record.material),
       };
     }
     if (sign > 0) {
@@ -39,7 +42,8 @@ export function computeStockLevels(receipts, issues) {
       if (cena !== null) {
         byKey[key].hodnotaPrijate += cena * qty.num;
         byKey[key].mnozstvoOcenene += qty.num;
-      } else {
+      } else if (!byKey[key].vratna) {
+        // vratna paleta nie je nas majetok - cenu nema a nema ani cakat na fakturu
         byKey[key].neocenenePrijmy += 1;
       }
     } else {
