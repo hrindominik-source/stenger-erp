@@ -2,7 +2,7 @@ import React, { useState, useEffect, useCallback, useRef } from "react";
 import { LogOut, LogIn, Loader2, AlertCircle, PackageCheck, PackageX, Check, TriangleAlert, XCircle, Trash2, CheckCircle2, Camera, X, ChevronRight, Truck, PackagePlus, Warehouse, LayoutDashboard, Coffee, ClipboardCheck, FileText } from "lucide-react";
 import { supabase } from "./supabaseClient.js";
 import { extractCityFromAddress, todayStr, nowTimeStr, formatDateTime, uid, parseSkDate, durationMinutes, formatMinutes } from "./lib/utils.js";
-import { computeStockLevels, computeFinishedGoodsStock, wouldExceed, materialPicksForSupplier, allKnownMaterials, UNIT_QUICK_PICKS } from "./lib/inventory.js";
+import { computeStockLevels, computeFinishedGoodsStock, wouldExceed, materialPicksForSupplier, allKnownMaterials, prijateOdText, UNIT_QUICK_PICKS } from "./lib/inventory.js";
 import { isPlanZmenaActive, formatZmenaText } from "./lib/planZmena.js";
 import InventuraPocitanie from "./InventuraPocitanie.jsx";
 import { PaletySken, KontrolyPrijmu, DodakNacitanie, DodakPolozky, PaletySDodavkou } from "./PrijemPalety.jsx";
@@ -2627,7 +2627,10 @@ function ZasobyTab({ fullName }) {
             <tbody>
               {stockMaterialy.map((row) => (
                 <tr key={row.material + row.unit} className="border-t border-slate-100">
-                  <td className="px-3 py-2 font-medium">{row.material}</td>
+                  <td className="px-3 py-2 font-medium">
+                    {row.material}
+                    {prijateOdText(row) && <div className="text-xs font-normal text-slate-400">přijato od: {prijateOdText(row)}</div>}
+                  </td>
                   <td className="px-3 py-2 text-right text-slate-500">{row.prijate} {row.unit}</td>
                   <td className="px-3 py-2 text-right text-slate-500">{row.vydane} {row.unit}</td>
                   <td className="px-3 py-2 text-right font-semibold">{row.stav} {row.unit}</td>
@@ -2656,7 +2659,10 @@ function ZasobyTab({ fullName }) {
               <tbody>
                 {stockVratne.map((row) => (
                   <tr key={row.material + row.unit} className="border-t border-slate-100">
-                    <td className="px-3 py-2 font-medium">{row.material}</td>
+                    <td className="px-3 py-2 font-medium">
+                      {row.material}
+                      {prijateOdText(row) && <div className="text-xs font-normal text-slate-400">přijato od: {prijateOdText(row)}</div>}
+                    </td>
                     <td className="px-3 py-2 text-right text-slate-500">{row.prijate} {row.unit}</td>
                     <td className="px-3 py-2 text-right text-slate-500">{row.vydane} {row.unit}</td>
                     <td className={"px-3 py-2 text-right font-semibold " + (row.stav < 0 ? "text-red-600" : "")}>{row.stav} {row.unit}</td>
