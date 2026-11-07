@@ -5,8 +5,8 @@ import { extractCityFromAddress, todayStr, nowTimeStr, formatDateTime, uid, pars
 import { computeStockLevels, computeFinishedGoodsStock, wouldExceed, materialPicksForSupplier, allKnownMaterials, prijateOdText, UNIT_QUICK_PICKS } from "./lib/inventory.js";
 import { isPlanZmenaActive, formatZmenaText } from "./lib/planZmena.js";
 import InventuraPocitanie from "./InventuraPocitanie.jsx";
-import { PaletySken, KontrolyPrijmu, DodakNacitanie, DodakPolozky, PaletySDodavkou } from "./PrijemPalety.jsx";
-import { prijmyPaliet, rozdelStav, jeVratnaPaleta, VRATNE_PALETY, VRATENIE_DOVOD } from "./lib/palety.js";
+import { PaletySken, KontrolyPrijmu, DodakNacitanie, DodakPolozky, PaletySDodavkou, PaletyZExpedice } from "./PrijemPalety.jsx";
+import { prijmyPaliet, rozdelStav, jeVratnaPaleta, VRATNE_PALETY, VRATENIE_DOVOD, vydajePalietExpedice, prijmyPalietZExpedice, PALETA_EXPEDICE } from "./lib/palety.js";
 import { zmensitFotku } from "./lib/obrazok.js";
 import { parseGs1 } from "./lib/gs1.js";
 import { pridajSken, doplnPaletu, sumaPaliet, suhrnPaliet, kontrolaPrijmu, polozkaPreMaterial, riadkyZDodaku, priradPalety } from "./lib/prijemPalety.js";
@@ -314,6 +314,7 @@ function ExpediciaTab({ fullName }) {
   const [outputs, setOutputs] = useState([]);
   const [dispatches, setDispatches] = useState([]);
   const [carriers, setCarriers] = useState([]);
+  const [suppliers, setSuppliers] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [updatingId, setUpdatingId] = useState(null);
@@ -321,12 +322,13 @@ function ExpediciaTab({ fullName }) {
   const pollRef = useRef(null);
 
   const fetchAll = useCallback(async () => {
-    const [ordersRes, productsRes, outputsRes, dispatchesRes, carriersRes] = await Promise.all([
+    const [ordersRes, productsRes, outputsRes, dispatchesRes, carriersRes, suppliersRes] = await Promise.all([
       supabase.rpc("get_orders_for_sklad"),
       supabase.from("products").select("*"),
       supabase.from("production_outputs").select("*"),
       supabase.from("expedicia_zaznamy").select("*").order("created_at", { ascending: false }),
       supabase.from("carriers").select("*"),
+      supabase.from("suppliers").select("*"),
     ]);
     if (ordersRes.error) {
       setError("Nepodařilo se načíst objednávky.");
@@ -338,6 +340,7 @@ function ExpediciaTab({ fullName }) {
     if (!outputsRes.error) setOutputs((outputsRes.data || []).map((row) => row.data));
     if (!dispatchesRes.error) setDispatches((dispatchesRes.data || []).map((row) => ({ ...row.data, id: row.id, orderId: row.order_id, createdAt: row.created_at })));
     if (!carriersRes.error) setCarriers((carriersRes.data || []).map((row) => row.data));
+    if (!suppliersRes.error) setSuppliers((suppliersRes.data || []).map((row) => row.data));
   }, []);
 
   useEffect(() => {
@@ -376,6 +379,22 @@ function ExpediciaTab({ fullName }) {
     const { error: delErr } = await supabase.from("expedicia_zaznamy").delete().eq("id", id);
     if (delErr) throw delErr;
     await fetchAll();
+  }
+
+  // palety odchadzaju zo skladu pri potvrdeni expedicie (vydaj, dovod Expedice)
+  async function vydajPaliet(records) {
+    const rows = records.map((r) => {
+      const id = uid();
+      return { id, data: { ...r, id } };
+    });
+    if (rows.length === 0) return [];
+    const { error: insErr } = await supabase.from("stock_issues").insert(rows);
+    if (insErr) throw insErr;
+    return rows.map((r) => r.id);
+  }
+
+  async function zrusVydajPaliet(ids) {
+    if (ids.length) await supabase.from("stock_issues").delete().in("id", ids);
   }
 
   const finishedStock = computeFinishedGoodsStock(outputs, dispatches);
@@ -465,6 +484,9 @@ function ExpediciaTab({ fullName }) {
           onClose={() => setOpenOrderId(null)}
           onAddDispatch={(record) => addDispatch(openOrder, record)}
           onDeleteDispatch={deleteDispatch}
+          materialy={allKnownMaterials(suppliers, MATERIAL_QUICK_PICKS)}
+          onVydajPaliet={vydajPaliet}
+          onZrusVydajPaliet={zrusVydajPaliet}
           onConfirmExpedice={() => toggleExpedovana(openOrder)}
           confirmingExpedice={updatingId === openOrder.id}
         />
@@ -473,8 +495,10 @@ function ExpediciaTab({ fullName }) {
   );
 }
 
-function OrderDetailModal({ order, products, carriers, dispatches, finishedStock, fullName, onClose, onAddDispatch, onDeleteDispatch, onConfirmExpedice, confirmingExpedice }) {
+function OrderDetailModal({ order, products, carriers, dispatches, finishedStock, fullName, onClose, onAddDispatch, onDeleteDispatch, onConfirmExpedice, confirmingExpedice, materialy = [], onVydajPaliet, onZrusVydajPaliet }) {
   const [loznaPlochaOk, setLoznaPlochaOk] = useState(false);
+  // palety, ktore s tovarom fyzicky odchadzaju (predvyplnene: nalozene palety, tmava EUR)
+  const [paletyOdchod, setPaletyOdchod] = useState(null);
   const [confirmSaving, setConfirmSaving] = useState(false);
   const [confirmError, setConfirmError] = useState("");
   const [showReject, setShowReject] = useState(false);
@@ -592,17 +616,34 @@ function OrderDetailModal({ order, products, carriers, dispatches, finishedStock
   async function handleConfirmLoznaPlocha() {
     setConfirmError("");
     setConfirmSaving(true);
+    const den = datum.trim() || todayStr();
+    const cas = nowTimeStr();
+    const vydaje = vydajePalietExpedice(paletyOdchod || [], {
+      datum: den,
+      cas,
+      zakaznik: order.zakaznik || "",
+      orderId: order.id,
+      cisloLS: order.cislo_dodacieho_listu || "",
+      poznamka: `Expedice ${order.cislo_objednavky_dopravy || ""}`.trim(),
+      zapisal: fullName || "",
+    });
+    let issueIds = [];
     try {
+      issueIds = onVydajPaliet ? await onVydajPaliet(vydaje) : [];
       await onAddDispatch({
         typ: "kontrola",
         vysledek: "ok",
         zapisal: fullName || "",
-        datum: datum.trim() || todayStr(),
-        cas: nowTimeStr(),
+        datum: den,
+        cas,
+        palety: vydaje.map((v) => ({ material: v.material, pocet: v.mnozstvoCislo })),
+        paletyIssueIds: issueIds,
       });
       await onConfirmExpedice();
     } catch (e) {
       console.error(e);
+      // kontrola sa neulozila - palety nesmu ostat odpisane
+      if (issueIds.length && onZrusVydajPaliet) await onZrusVydajPaliet(issueIds).then(null, (err) => console.error(err));
       setConfirmError("Uložení se nezdařilo, zkuste to znovu.");
     }
     setConfirmSaving(false);
@@ -947,8 +988,13 @@ function OrderDetailModal({ order, products, carriers, dispatches, finishedStock
                   </button>
                 </div>
               ) : (
-                <div className="flex items-center gap-2 text-emerald-700 text-sm font-medium">
-                  <PackageCheck size={18} /> Ložná plocha zkontrolována - OK{order.stav_expedicie === "Expedovana" ? " - expedice potvrzena" : ""}
+                <div>
+                  <div className="flex items-center gap-2 text-emerald-700 text-sm font-medium">
+                    <PackageCheck size={18} /> Ložná plocha zkontrolována - OK{order.stav_expedicie === "Expedovana" ? " - expedice potvrzena" : ""}
+                  </div>
+                  {(kontrolaZaznam.palety || []).length > 0 && (
+                    <div className="mt-1 text-xs text-slate-500">Odešlé palety: {kontrolaZaznam.palety.map((p) => `${p.pocet}× ${p.material}`).join(", ")}</div>
+                  )}
                 </div>
               )
             ) : batchDispatches.length === 0 ? (
@@ -959,9 +1005,29 @@ function OrderDetailModal({ order, products, carriers, dispatches, finishedStock
             ) : (
               <>
                 <label className="flex items-start gap-2 text-sm text-slate-700 mb-3 cursor-pointer">
-                  <input type="checkbox" checked={loznaPlochaOk} onChange={(e) => { setLoznaPlochaOk(e.target.checked); setShowReject(false); setConfirmError(""); }} className="mt-0.5" />
+                  <input
+                    type="checkbox"
+                    checked={loznaPlochaOk}
+                    onChange={(e) => {
+                      setLoznaPlochaOk(e.target.checked);
+                      setShowReject(false);
+                      setConfirmError("");
+                      if (e.target.checked && paletyOdchod === null) setPaletyOdchod([{ key: "p0", material: PALETA_EXPEDICE, pocet: nalozeneSpolu > 0 ? String(nalozeneSpolu) : "" }]);
+                    }}
+                    className="mt-0.5"
+                  />
                   Zkontroloval(a) jsem ložnou plochu auta.
                 </label>
+                {loznaPlochaOk && !showReject && paletyOdchod !== null && (
+                  <PaletySDodavkou
+                    riadky={paletyOdchod}
+                    onChange={setPaletyOdchod}
+                    materialy={materialy}
+                    nadpis="Palety, které odjíždějí"
+                    popis="Odepíšou se ze skladu a připíšou na paletové konto zákazníka. Bez palet řádek smažte."
+                    testId="palety-expedice"
+                  />
+                )}
                 {loznaPlochaOk && !showReject && (
                   <div className="flex gap-2">
                     <button
@@ -1119,6 +1185,9 @@ export function PrijemTab({ fullName }) {
   const [riadky, setRiadky] = useState([]);
   // palety, na ktorych tovar prisiel (nase aj vratne) - ulozia sa ako samostatne prijmy
   const [paletyDodavky, setPaletyDodavky] = useState([]);
+  // zakaznici a dopravcovia pre palety vratene z expedicie
+  const [zakaznici, setZakaznici] = useState([]);
+  const [dopravci, setDopravci] = useState([]);
 
   const fetchAll = useCallback(async () => {
     const [suppliersRes, receiptsRes, materialOrdersRes, kartyRes] = await Promise.all([
@@ -1138,6 +1207,40 @@ export function PrijemTab({ fullName }) {
     setReceipts((receiptsRes.data || []).map((row) => ({ ...row.data, createdAt: row.created_at })));
     if (!materialOrdersRes.error) setMaterialOrders((materialOrdersRes.data || []).map((row) => row.data));
   }, []);
+
+  useEffect(() => {
+    (async () => {
+      const [ordersRes, carriersRes] = await Promise.all([supabase.rpc("get_orders_for_sklad"), supabase.from("carriers").select("*")]);
+      const uniq = (list) => Array.from(new Set(list.map((s) => String(s || "").trim()).filter(Boolean))).sort((a, b) => a.localeCompare(b));
+      if (!ordersRes.error) setZakaznici(uniq((ordersRes.data || []).map((o) => o.zakaznik)));
+      if (!carriersRes.error) setDopravci(uniq((carriersRes.data || []).map((row) => row.data && row.data.nazov)));
+    })();
+  }, []);
+
+  async function ulozitPaletyZExpedice({ zakaznik, dopravca, doklad, riadky: rows }) {
+    const zaznamy = prijmyPalietZExpedice(rows, {
+      datumPrijatia: todayStr(),
+      casPrijatia: nowTimeStr(),
+      dodavatelId: "",
+      dodavatel: dopravca || zakaznik,
+      zakaznik,
+      cisloDokladu: doklad,
+      stavPrevzatia: "V poriadku",
+      poznamka: "Palety vrácené z expedice",
+      prevzal: fullName || "",
+      materialObjednavkaId: "",
+      materialObjednavkaCislo: "",
+      photoPath: "",
+      dodakPath: "",
+    });
+    const { error: insErr } = await supabase.from("goods_receipts").insert(zaznamy.map((r) => {
+      const id = uid();
+      return { id, data: { ...r, id } };
+    }));
+    if (insErr) throw insErr;
+    setFlash("Palety naskladněny");
+    await fetchAll();
+  }
 
   useEffect(() => {
     let cancelled = false;
@@ -1720,6 +1823,8 @@ export function PrijemTab({ fullName }) {
           <CheckCircle2 size={16} /> {flash}
         </div>
       )}
+
+      <PaletyZExpedice zakaznici={zakaznici} dopravci={dopravci} materialy={allKnownMaterials(suppliers, MATERIAL_QUICK_PICKS)} onSave={ulozitPaletyZExpedice} />
 
       {pendingOrders.length > 0 && (
         <div className="bg-white border border-slate-200 rounded-xl p-4 mb-5">
