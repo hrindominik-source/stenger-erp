@@ -24,6 +24,17 @@ export function createSupabasePdaApi(supabase) {
       return supabase.rpc("get_orders_for_sklad");
     },
 
+    // Rucne zapisane davky expedicie (+ objednavka) pre dohledatelnost.
+    listRucneExpedicie() {
+      return fetchAll(() =>
+        supabase
+          .from("expedicia_zaznamy")
+          .select("id, order_id, created_at, data, orders(zakaznik, cislo_objednavky_dopravy, cislo_dodacieho_listu)")
+          .order("created_at", { ascending: true })
+          .order("id"),
+      );
+    },
+
     listOpenVydajky() {
       return supabase
         .from("pda_vydajky")

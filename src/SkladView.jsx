@@ -10,6 +10,7 @@ import { prijmyPaliet, rozdelStav, jeVratnaPaleta, VRATNE_PALETY, VRATENIE_DOVOD
 import { zmensitFotku } from "./lib/obrazok.js";
 import { parseGs1, visibleControlChars } from "./lib/gs1.js";
 import { jeSkenovanyZakaznik, prekazkaSkenuExpedice, objednavkaProVydajku } from "./lib/pdaObjednavka.js";
+import { davkyZoSkenu } from "./lib/pdaDohladatelnost.js";
 import { chybajucePovinne, pridajSken, doplnPaletu, sumaPaliet, suhrnPaliet, kontrolaPrijmu, polozkaPreMaterial, riadkyZDodaku, priradPalety } from "./lib/prijemPalety.js";
 
 const POLL_MS = 4000;
@@ -309,13 +310,25 @@ function PrehladTab() {
 
 /* ---------------- Expedicia ---------------- */
 
+// PDA vydajky zalozene s touto objednavkou a ich palety.
+async function nacitajSkenObjednavky(orderId) {
+  const { data, error } = await supabase
+    .from("pda_vydajky")
+    .select("id, stav, cislo_lieferschein, pda_palety(sscc, gtin, sarza, bbd, mnozstvo)")
+    .filter("data->objednavka->>id", "eq", orderId);
+  if (error) return { error };
+  return {
+    vydajky: (data || []).map((v) => ({ stav: v.stav, cislo: v.cislo_lieferschein, palet: (v.pda_palety || []).length })),
+    palety: (data || []).flatMap((v) => v.pda_palety || []),
+  };
+}
+
 // Text prekazky pri zakaznikoch s povinnym skenom, inak prazdny retazec.
 async function chybaSkenuExpedice(order) {
   if (!jeSkenovanyZakaznik(order.zakaznik)) return "";
-  const { data, error } = await supabase.from("pda_vydajky").select("stav, pda_palety(count)").filter("data->objednavka->>id", "eq", order.id);
-  if (error) return "Sken expedice se nepodařilo ověřit, zkuste to znovu.";
-  const vydajky = (data || []).map((v) => ({ stav: v.stav, palet: (v.pda_palety && v.pda_palety[0] && v.pda_palety[0].count) || 0 }));
-  return prekazkaSkenuExpedice({ vydajky, ocakavane: objednavkaProVydajku(order).palet });
+  const s = await nacitajSkenObjednavky(order.id);
+  if (s.error) return "Sken expedice se nepodařilo ověřit, zkuste to znovu.";
+  return prekazkaSkenuExpedice({ vydajky: s.vydajky, ocakavane: objednavkaProVydajku(order).palet });
 }
 
 function ExpediciaTab({ fullName }) {
@@ -366,8 +379,12 @@ function ExpediciaTab({ fullName }) {
     };
   }, [fetchAll]);
 
-  async function toggleExpedovana(order) {
+  async function toggleExpedovana(order, zDetailu = false) {
     const next = order.stav_expedicie === "Expedovana" ? "Neexpedovana" : "Expedovana";
+    if (next === "Expedovana" && !zDetailu && jeSkenovanyZakaznik(order.zakaznik)) {
+      setError("Tuto expedici potvrďte v detailu objednávky po kontrole ložné plochy (palety se odepíšou podle skenu).");
+      return;
+    }
     if (next === "Expedovana") {
       const chyba = await chybaSkenuExpedice(order);
       if (chyba) {
@@ -391,6 +408,7 @@ function ExpediciaTab({ fullName }) {
     const { error: insErr } = await supabase.from("expedicia_zaznamy").insert({ id, order_id: order.id, data: { ...record, id } });
     if (insErr) throw insErr;
     await fetchAll();
+    return id;
   }
 
   async function deleteDispatch(id) {
@@ -505,7 +523,7 @@ function ExpediciaTab({ fullName }) {
           materialy={allKnownMaterials(suppliers, MATERIAL_QUICK_PICKS)}
           onVydajPaliet={vydajPaliet}
           onZrusVydajPaliet={zrusVydajPaliet}
-          onConfirmExpedice={() => toggleExpedovana(openOrder)}
+          onConfirmExpedice={() => toggleExpedovana(openOrder, true)}
           confirmingExpedice={updatingId === openOrder.id}
         />
       )}
@@ -522,6 +540,14 @@ function OrderDetailModal({ order, products, carriers, dispatches, finishedStock
   const [showReject, setShowReject] = useState(false);
   const [rejectReason, setRejectReason] = useState("");
   const kontrolaZaznam = dispatches.find((d) => d.typ === "kontrola");
+  // Edeka/Picnic/Globus: davky sa nezapisuju rucne, beru sa zo skenu PDA.
+  const skenovana = jeSkenovanyZakaznik(order.zakaznik);
+  const [sken, setSken] = useState(null); // { vydajky, palety } | { error }
+  const nacitajSken = useCallback(async () => {
+    setSken(null);
+    setSken(await nacitajSkenObjednavky(order.id));
+  }, [order.id]);
+  useEffect(() => { if (skenovana) nacitajSken(); }, [skenovana, nacitajSken]);
   const [datum, setDatum] = useState(() => todayStr());
   const [linka, setLinka] = useState("sacky");
   const [produktId, setProduktId] = useState("");
@@ -568,6 +594,10 @@ function OrderDetailModal({ order, products, carriers, dispatches, finishedStock
   const kartonovNaEnter = kartonov.trim() ? (parseFloat(String(kartonov).replace(",", ".")) || 0) : 0;
   const maPrekrocenie = prekrocenaPlanovanaPaleta || prekrocenePlanovaneKartony;
   const bigBtn = "text-sm font-semibold px-3 py-2.5 rounded-lg border-2 text-center active:scale-[0.98] transition-transform";
+  const skenOk = skenovana && sken && !sken.error;
+  const prekazkaSkenu = skenOk ? prekazkaSkenuExpedice({ vydajky: sken.vydajky, ocakavane: objednavkaProVydajku(order).palet }) : null;
+  const skenDavky = skenOk ? davkyZoSkenu(sken.palety, products, productLabel) : null;
+  const nalozeneCelkom = skenOk ? sken.palety.length : nalozeneSpolu;
 
   async function handlePhotoSelect(e) {
     const file = e.target.files && e.target.files[0];
@@ -640,6 +670,18 @@ function OrderDetailModal({ order, products, carriers, dispatches, finishedStock
       setConfirmSaving(false);
       return;
     }
+    // Hotove vyrobky zo skenu sa odpisu prave raz (davky so zdrojom "pda").
+    let davky = [];
+    if (skenovana && !batchDispatches.some((d) => d.zdroj === "pda")) {
+      const s = await nacitajSkenObjednavky(order.id);
+      const r = s.error ? null : davkyZoSkenu(s.palety, products, productLabel);
+      if (!r || r.bezProduktu.length) {
+        setConfirmError(r ? `Výrobek s EAN ${r.bezProduktu.join(", ")} není v Stenger ONE – kancelář musí u produktu doplnit „EAN karton“.` : "Sken se nepodařilo načíst, zkuste to znovu.");
+        setConfirmSaving(false);
+        return;
+      }
+      davky = r.zaznamy;
+    }
     const den = datum.trim() || todayStr();
     const cas = nowTimeStr();
     const vydaje = vydajePalietExpedice(paletyOdchod || [], {
@@ -652,7 +694,9 @@ function OrderDetailModal({ order, products, carriers, dispatches, finishedStock
       zapisal: fullName || "",
     });
     let issueIds = [];
+    const davkyIds = [];
     try {
+      for (const z of davky) davkyIds.push(await onAddDispatch({ ...z, zapisal: fullName || "", datum: den, cas }));
       issueIds = onVydajPaliet ? await onVydajPaliet(vydaje) : [];
       await onAddDispatch({
         typ: "kontrola",
@@ -668,6 +712,7 @@ function OrderDetailModal({ order, products, carriers, dispatches, finishedStock
       console.error(e);
       // kontrola sa neulozila - palety nesmu ostat odpisane
       if (issueIds.length && onZrusVydajPaliet) await onZrusVydajPaliet(issueIds).then(null, (err) => console.error(err));
+      for (const id of davkyIds) await onDeleteDispatch(id).then(null, (err) => console.error(err));
       setConfirmError("Uložení se nezdařilo, zkuste to znovu.");
     }
     setConfirmSaving(false);
@@ -866,6 +911,37 @@ function OrderDetailModal({ order, products, carriers, dispatches, finishedStock
             </div>
           )}
 
+          {skenovana ? (
+            <>
+              <div className="text-xs font-semibold text-slate-500 mb-1.5">Sken palet z PDA (povinný)</div>
+              <div className={"border-2 rounded-lg p-3 mb-4 " + (prekazkaSkenu === "" ? "border-emerald-300 bg-emerald-50" : "border-amber-300 bg-amber-50")} data-testid="sken-expedice">
+                {!sken ? (
+                  <div className="text-sm text-slate-500 flex items-center gap-2"><Loader2 size={16} className="animate-spin" /> Načítám sken…</div>
+                ) : sken.error ? (
+                  <div className="text-sm text-red-700">Sken se nepodařilo načíst.</div>
+                ) : (
+                  <>
+                    <div className="text-lg font-bold">{sken.palety.length}{objednavkaProVydajku(order).palet ? " / " + objednavkaProVydajku(order).palet : ""} palet naskenováno</div>
+                    <div className="text-sm font-medium mb-1">{prekazkaSkenu || "Sken sedí s objednávkou."}</div>
+                    {skenDavky.zaznamy.map((z) => (
+                      <div key={z.produktId + z.sarza} className="text-xs text-slate-700">{z.pocetPaliet}× {z.produktNazov} · šarže {z.sarza || "-"}</div>
+                    ))}
+                    {skenDavky.bezProduktu.length > 0 && (
+                      <div className="text-xs text-red-700 mt-1">EAN {skenDavky.bezProduktu.join(", ")} není v Stenger ONE – kancelář musí doplnit „EAN karton“ u produktu.</div>
+                    )}
+                    {sken.vydajky.length > 0 && (
+                      <div className="text-xs text-slate-500 mt-1">Výdejky: {sken.vydajky.map((v) => `LS ${v.cislo} (${v.stav === "dokoncena" ? "dokončená" : "rozpracovaná"})`).join(", ")}</div>
+                    )}
+                  </>
+                )}
+                <div className="flex items-center justify-between gap-2 mt-2">
+                  <div className="text-xs text-slate-500">Hotové výrobky se odepíšou podle skenu po kontrole ložné plochy.</div>
+                  <button onClick={nacitajSken} className="text-xs font-medium text-teal-700 underline shrink-0">Obnovit</button>
+                </div>
+              </div>
+            </>
+          ) : (
+          <>
           <div className="text-xs font-semibold text-slate-500 mb-1.5">Zapsat naloženou dávku</div>
           <div className="border border-slate-200 rounded-lg p-3 mb-4">
             <div className="grid grid-cols-3 gap-2 mb-2">
@@ -945,6 +1021,8 @@ function OrderDetailModal({ order, products, carriers, dispatches, finishedStock
               {saving ? <Loader2 size={16} className="animate-spin" /> : <CheckCircle2 size={16} />} Přidat dávku
             </button>
           </div>
+          </>
+          )}
 
           <div className="text-xs font-semibold text-slate-500 mb-1.5">Naložené dávky</div>
           {batchDispatches.length === 0 ? (
@@ -956,6 +1034,7 @@ function OrderDetailModal({ order, products, carriers, dispatches, finishedStock
                   <div>
                     <div className="text-sm font-medium">
                       {d.produktNazov} <span className="text-slate-400 font-normal">- {d.pocetPaliet} palet{d.pocetKartonov ? " / " + d.pocetKartonov + " kartonů" : ""}</span>
+                      {d.zdroj === "pda" && <span className="ml-2 text-xs font-medium px-2 py-0.5 rounded-full bg-teal-100 text-teal-700">ze skenu</span>}
                       {d.prekroceniePotvrdene && <span className="ml-2 text-xs font-medium px-2 py-0.5 rounded-full bg-amber-100 text-amber-700">nad plán</span>}
                     </div>
                     <div className="text-xs text-slate-500">Šarže {d.sarza || "-"} - {d.datum} {d.cas} - {d.zapisal}{backdatedNote(d.createdAt, d.datum)}</div>
@@ -1022,10 +1101,10 @@ function OrderDetailModal({ order, products, carriers, dispatches, finishedStock
                   )}
                 </div>
               )
-            ) : batchDispatches.length === 0 ? (
+            ) : (skenovana ? prekazkaSkenu !== "" : batchDispatches.length === 0) ? (
               <div className="text-sm text-slate-500 flex items-center gap-2">
                 <AlertCircle size={16} className="text-amber-500 shrink-0" />
-                Nejprve zaznamenejte alespoň jednu naloženou dávku (výše), teprve poté lze potvrdit expedici.
+                {skenovana ? (prekazkaSkenu || "Načítám sken z PDA…") : "Nejprve zaznamenejte alespoň jednu naloženou dávku (výše), teprve poté lze potvrdit expedici."}
               </div>
             ) : (
               <>
@@ -1037,7 +1116,7 @@ function OrderDetailModal({ order, products, carriers, dispatches, finishedStock
                       setLoznaPlochaOk(e.target.checked);
                       setShowReject(false);
                       setConfirmError("");
-                      if (e.target.checked && paletyOdchod === null) setPaletyOdchod([{ key: "p0", material: PALETA_EXPEDICE, pocet: nalozeneSpolu > 0 ? String(nalozeneSpolu) : "" }]);
+                      if (e.target.checked && paletyOdchod === null) setPaletyOdchod([{ key: "p0", material: PALETA_EXPEDICE, pocet: nalozeneCelkom > 0 ? String(nalozeneCelkom) : "" }]);
                     }}
                     className="mt-0.5"
                   />
