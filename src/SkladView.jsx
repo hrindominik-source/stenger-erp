@@ -9,6 +9,7 @@ import { PaletySken, KontrolyPrijmu, DodakNacitanie, DodakPolozky, PaletySDodavk
 import { prijmyPaliet, rozdelStav, jeVratnaPaleta, VRATNE_PALETY, VRATENIE_DOVOD, vydajePalietExpedice, prijmyPalietZExpedice, PALETA_EXPEDICE } from "./lib/palety.js";
 import { zmensitFotku } from "./lib/obrazok.js";
 import { parseGs1, visibleControlChars } from "./lib/gs1.js";
+import { jeSkenovanyZakaznik, prekazkaSkenuExpedice, objednavkaProVydajku } from "./lib/pdaObjednavka.js";
 import { chybajucePovinne, pridajSken, doplnPaletu, sumaPaliet, suhrnPaliet, kontrolaPrijmu, polozkaPreMaterial, riadkyZDodaku, priradPalety } from "./lib/prijemPalety.js";
 
 const POLL_MS = 4000;
@@ -308,6 +309,15 @@ function PrehladTab() {
 
 /* ---------------- Expedicia ---------------- */
 
+// Text prekazky pri zakaznikoch s povinnym skenom, inak prazdny retazec.
+async function chybaSkenuExpedice(order) {
+  if (!jeSkenovanyZakaznik(order.zakaznik)) return "";
+  const { data, error } = await supabase.from("pda_vydajky").select("stav, pda_palety(count)").filter("data->objednavka->>id", "eq", order.id);
+  if (error) return "Sken expedice se nepodařilo ověřit, zkuste to znovu.";
+  const vydajky = (data || []).map((v) => ({ stav: v.stav, palet: (v.pda_palety && v.pda_palety[0] && v.pda_palety[0].count) || 0 }));
+  return prekazkaSkenuExpedice({ vydajky, ocakavane: objednavkaProVydajku(order).palet });
+}
+
 function ExpediciaTab({ fullName }) {
   const [orders, setOrders] = useState([]);
   const [products, setProducts] = useState([]);
@@ -358,6 +368,14 @@ function ExpediciaTab({ fullName }) {
 
   async function toggleExpedovana(order) {
     const next = order.stav_expedicie === "Expedovana" ? "Neexpedovana" : "Expedovana";
+    if (next === "Expedovana") {
+      const chyba = await chybaSkenuExpedice(order);
+      if (chyba) {
+        setError(chyba);
+        return;
+      }
+      setError("");
+    }
     setUpdatingId(order.id);
     const { error: rpcError } = await supabase.rpc("set_expedovana", { p_id: order.id, p_val: next });
     setUpdatingId(null);
@@ -616,6 +634,12 @@ function OrderDetailModal({ order, products, carriers, dispatches, finishedStock
   async function handleConfirmLoznaPlocha() {
     setConfirmError("");
     setConfirmSaving(true);
+    const chybaSkenu = await chybaSkenuExpedice(order);
+    if (chybaSkenu) {
+      setConfirmError(chybaSkenu);
+      setConfirmSaving(false);
+      return;
+    }
     const den = datum.trim() || todayStr();
     const cas = nowTimeStr();
     const vydaje = vydajePalietExpedice(paletyOdchod || [], {

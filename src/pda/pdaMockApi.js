@@ -107,6 +107,8 @@ export function createMockPdaApi(store, { role = "sklad", latencyMs = 250 } = {}
 
     listProducts: () => call(() => ({ data: clone(DEMO_PRODUCTS), error: null })),
 
+    listOrdersForSklad: () => call(() => ({ data: [], error: null })),
+
     listOpenVydajky: () =>
       call(() => ({
         data: S().vydajky
