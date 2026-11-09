@@ -21,6 +21,7 @@ const OnboardingKiosk = lazy(() => import("./hr/OnboardingKiosk.jsx"));
 const PdaApp = lazy(() => import("./pda/PdaApp.jsx"));
 const PdaTestMode = lazy(() => import("./pda/PdaTestMode.jsx"));
 const PdaOfficeView = lazy(() => import("./pda/PdaOfficeView.jsx"));
+const SkladPrehledView = lazy(() => import("./SkladPrehledView.jsx"));
 import { extractCityFromAddress, todayStr, uid, parseSkDate, isoFromSkDateStr, skDateStrFromIso, durationMinutes, formatMinutes } from "./lib/utils.js";
 import { parsePricelistFile, computeTransportPrice, computeTransportPriceForCity, formatEur, formatPriceNumber } from "./lib/pricelist.js";
 import { buildLieferscheinXlsx } from "./lib/lieferscheinXlsx.js";
@@ -29,6 +30,7 @@ import { renderWorksheetToHtml } from "./lib/xlsxToHtml.js";
 import { parseSupplierCatalogFile, mergeSupplierCatalog } from "./lib/supplierCatalog.js";
 import { exportRowsToExcel, exportSheetsToExcel } from "./lib/exportExcel.js";
 import { computeStockLevels, computeProductionIssues, extraKnownMaterials, materialPicksForSupplier, allKnownMaterials, suggestReceiptMatches, prijateOdText, UNIT_QUICK_PICKS } from "./lib/inventory.js";
+import { porovnanieFaktury } from "./lib/skladPrehled.js";
 import { vyhodnotInventuru, inventuraOpravy, INVENTURA_STAV, INVENTURA_DOVOD, INVENTURA_PREBYTEK } from "./lib/inventura.js";
 import { rozdelStav, vlastnikPalety, paletoveKonto, VYROVNANI_TYPY } from "./lib/palety.js";
 import { INVOICE_EXTRACT_INSTRUCTIONS } from "../supabase/functions/invoice-inbox/prompt.js";
@@ -2097,6 +2099,19 @@ function OfficeApp({ userFullName, userEmail, onSignOut }) {
         {view === "products" && (
           <ProductsView products={products} designs={designs} swPricelist={swPricelist} onSave={persistProducts} onEdit={(p) => setEditingProduct(p)} />
         )}
+        {view === "skladprehled" && (
+          <Suspense fallback={<div className="flex items-center justify-center text-slate-500 py-10"><Loader2 className="animate-spin mr-2" size={20} /> Načítám...</div>}>
+            <SkladPrehledView
+              goodsReceipts={goodsReceipts}
+              materialOrders={materialOrders}
+              orders={orders}
+              userFullName={userFullName}
+              onUpdateReceipt={updateGoodsReceipt}
+              onUpdateMaterialOrder={updateMaterialOrder}
+              onGoTo={setView}
+            />
+          </Suspense>
+        )}
         {view === "pda" && (
           <Suspense fallback={<div className="flex items-center justify-center text-slate-500 py-10"><Loader2 className="animate-spin mr-2" size={20} /> Načítám...</div>}>
             <PdaOfficeView />
@@ -2239,6 +2254,7 @@ function OfficeApp({ userFullName, userEmail, onSignOut }) {
       {showInvoiceUpload && (
         <InvoiceUploadModal
           receipts={goodsReceipts}
+          materialOrders={materialOrders}
           company={company}
           suppliers={suppliers}
           prefill={typeof showInvoiceUpload === "object" ? showInvoiceUpload : null}
@@ -2633,6 +2649,7 @@ function Header({ view, setView, company, userFullName, userEmail, onSignOut }) 
           <NavButton icon={<ClipboardList size={18} />} label="Objednávky" color="blue" active={view === "register"} onClick={() => setView("register")} />
           <NavButton icon={<Boxes size={18} />} label="Objednávky surovin a obalů" color="amber" active={view === "materials"} onClick={() => setView("materials")} />
           <NavButton icon={<PackagePlus size={18} />} label="Příjem zboží" color="emerald" active={view === "goodsreceipts"} onClick={() => setView("goodsreceipts")} />
+          <NavButton icon={<ListChecks size={18} />} label="Přehled skladu" color="orange" active={view === "skladprehled"} onClick={() => setView("skladprehled")} />
           <NavButton icon={<Warehouse size={18} />} label="Stav zásob" color="violet" active={view === "stock"} onClick={() => setView("stock")} />
           <NavButton icon={<ClipboardCheck size={18} />} label="Výroba" color="rose" active={view === "productionplan"} onClick={() => setView("productionplan")} />
           <NavButton icon={<ScanBarcode size={18} />} label="PDA / Expedice" color="cyan" active={view === "pda"} onClick={() => setView("pda")} />
@@ -2644,6 +2661,7 @@ function Header({ view, setView, company, userFullName, userEmail, onSignOut }) 
 
 const NAV_COLORS = {
   teal: { badge: "from-teal-400 to-teal-600", shadow: "shadow-teal-500/40" },
+  orange: { badge: "from-orange-400 to-orange-600", shadow: "shadow-orange-500/40" },
   blue: { badge: "from-blue-400 to-blue-600", shadow: "shadow-blue-500/40" },
   amber: { badge: "from-amber-400 to-amber-600", shadow: "shadow-amber-500/40" },
   emerald: { badge: "from-emerald-400 to-emerald-600", shadow: "shadow-emerald-500/40" },
@@ -6737,7 +6755,7 @@ function MaterialSupplierOrderModal({ order, suppliers, company, currentUserName
 
 // prefill = zaznam z prijate_faktury (faktura nacitana zo schranky): PDF uz je
 // v bucketu a AI vytazenie hotove, takze sa rovno ukaze parovanie na prijmy.
-function InvoiceUploadModal({ receipts, company, suppliers, prefill, onClose, onApply, onAddToSupplierCatalog }) {
+function InvoiceUploadModal({ receipts, materialOrders = [], company, suppliers, prefill, onClose, onApply, onAddToSupplierCatalog }) {
   const [file, setFile] = useState(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
@@ -6975,6 +6993,15 @@ function InvoiceUploadModal({ receipts, company, suppliers, prefill, onClose, on
                           ))}
                         </optgroup>
                       </select>
+                      {(() => {
+                        const p = porovnanieFaktury(m.item, receipts.find((r) => r.id === m.receiptId), materialOrders);
+                        if (!p) return null;
+                        return (
+                          <div className={"mt-1 text-xs " + (p.nesedi ? "text-red-700 font-semibold" : "text-slate-500")} data-testid="faktura-porovnanie">
+                            {p.nesedi ? "Množství nesedí: " : ""}{p.riadky.map((x) => `${x.co} ${x.text}`).join(" · ")}
+                          </div>
+                        );
+                      })()}
                     </td>
                   </tr>
                 ))}
