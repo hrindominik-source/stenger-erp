@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { objednavkaProVydajku, porovnajVydajku, varovaniaPalety, problemyVydajky, jeSkenovanyZakaznik, prekazkaSkenuExpedice, paletyBezStopy } from "./pdaObjednavka.js";
+import { objednavkaProVydajku, porovnajVydajku, varovaniaPalety, problemyVydajky, jeSkenovanyZakaznik, jeSkenovanaObjednavka, prijemcaObjednavky, prekazkaSkenuExpedice, paletyBezStopy } from "./pdaObjednavka.js";
 
 const A = { id: "A", cisloArtikluSW: "62 99901", eanKarton: "4001234000015" };
 const B = { id: "B", cisloArtikluSW: "62 99902", eanKarton: "4001234000022" };
@@ -17,6 +17,14 @@ describe("povinny sken expedicie", () => {
   it("skenovani zakaznici", () => {
     for (const z of ["EDEKA Zentrale", "Picnic GmbH", "Globus SB"]) expect(jeSkenovanyZakaznik(z)).toBe(true);
     expect(jeSkenovanyZakaznik("Netto Marken-Discount AG & Co. KG")).toBe(false);
+  });
+  it("objednavka cez Stenger Waffeln s dodanim na Edeku", () => {
+    const o = { zakaznik: "Stenger Waffeln GmbH", adresa_dodania_nazov: "EDEKA Zentrallager Süd", adresa_dodania: "" };
+    expect(jeSkenovanaObjednavka(o)).toBe(true);
+    expect(prijemcaObjednavky(o)).toBe("EDEKA Zentrallager Süd");
+    expect(objednavkaProVydajku({ id: "X", ...o })).toMatchObject({ zakaznik: "EDEKA Zentrallager Süd", objednavatel: "Stenger Waffeln GmbH" });
+    expect(jeSkenovanaObjednavka({ zakaznik: "Stenger Waffeln GmbH", adresa_dodania_nazov: "Kaufland" })).toBe(false);
+    expect(prijemcaObjednavky({ zakaznik: "Rau" })).toBe("Rau");
   });
   it("bez vydajky, nedokoncena, chybaju, navyse, sedi", () => {
     expect(prekazkaSkenuExpedice({ vydajky: [], ocakavane: 2 })).toContain("povinný");

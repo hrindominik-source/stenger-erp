@@ -9,7 +9,7 @@ import { PaletySken, KontrolyPrijmu, DodakNacitanie, DodakPolozky, PaletySDodavk
 import { prijmyPaliet, rozdelStav, jeVratnaPaleta, VRATNE_PALETY, VRATENIE_DOVOD, vydajePalietExpedice, prijmyPalietZExpedice, PALETA_EXPEDICE } from "./lib/palety.js";
 import { zmensitFotku } from "./lib/obrazok.js";
 import { parseGs1, visibleControlChars } from "./lib/gs1.js";
-import { jeSkenovanyZakaznik, prekazkaSkenuExpedice, objednavkaProVydajku } from "./lib/pdaObjednavka.js";
+import { jeSkenovanaObjednavka, prekazkaSkenuExpedice, objednavkaProVydajku } from "./lib/pdaObjednavka.js";
 import { davkyZoSkenu } from "./lib/pdaDohladatelnost.js";
 import { chybajucePovinne, pridajSken, doplnPaletu, sumaPaliet, suhrnPaliet, kontrolaPrijmu, polozkaPreMaterial, riadkyZDodaku, priradPalety } from "./lib/prijemPalety.js";
 
@@ -325,7 +325,7 @@ async function nacitajSkenObjednavky(orderId) {
 
 // Text prekazky pri zakaznikoch s povinnym skenom, inak prazdny retazec.
 async function chybaSkenuExpedice(order) {
-  if (!jeSkenovanyZakaznik(order.zakaznik)) return "";
+  if (!jeSkenovanaObjednavka(order)) return "";
   const s = await nacitajSkenObjednavky(order.id);
   if (s.error) return "Sken expedice se nepodařilo ověřit, zkuste to znovu.";
   return prekazkaSkenuExpedice({ vydajky: s.vydajky, ocakavane: objednavkaProVydajku(order).palet });
@@ -381,7 +381,7 @@ function ExpediciaTab({ fullName }) {
 
   async function toggleExpedovana(order, zDetailu = false) {
     const next = order.stav_expedicie === "Expedovana" ? "Neexpedovana" : "Expedovana";
-    if (next === "Expedovana" && !zDetailu && jeSkenovanyZakaznik(order.zakaznik)) {
+    if (next === "Expedovana" && !zDetailu && jeSkenovanaObjednavka(order)) {
       setError("Tuto expedici potvrďte v detailu objednávky po kontrole ložné plochy (palety se odepíšou podle skenu).");
       return;
     }
@@ -541,7 +541,7 @@ function OrderDetailModal({ order, products, carriers, dispatches, finishedStock
   const [rejectReason, setRejectReason] = useState("");
   const kontrolaZaznam = dispatches.find((d) => d.typ === "kontrola");
   // Edeka/Picnic/Globus: davky sa nezapisuju rucne, beru sa zo skenu PDA.
-  const skenovana = jeSkenovanyZakaznik(order.zakaznik);
+  const skenovana = jeSkenovanaObjednavka(order);
   const [sken, setSken] = useState(null); // { vydajky, palety } | { error }
   const nacitajSken = useCallback(async () => {
     setSken(null);
