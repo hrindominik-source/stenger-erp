@@ -13,6 +13,7 @@ import React, { useState, useEffect, useRef, useCallback, createContext, useCont
 import { Loader2, AlertCircle, LogOut, ArrowLeft, Plus, ScanLine, CheckCircle2, XCircle, Trash2, RotateCcw, PackageCheck, User, Wifi, WifiOff, Keyboard } from "lucide-react";
 import { parseGs1Detail, visibleControlChars, GS } from "../lib/gs1.js";
 import { mergeScan, EMPTY_PENDING, pdaErrorMessage, pdaId, summarizePallets } from "../lib/pdaScan.js";
+import { objednavkaProVydajku, varovaniaPalety, problemyVydajky, porovnajVydajku } from "../lib/pdaObjednavka.js";
 import { savePalletFlow, deletePalletFlow, finishFlow, canFinish, createVydajkaFlow, mergeLoadedRows } from "../lib/pdaFlow.js";
 
 // Datova vrstva (Supabase alebo simulacia v testovacom rezime ?pda=test).
@@ -432,15 +433,37 @@ function NovaVydajkaScreen({ pracovnik, online, onBack, onCreated }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [existujuce, setExistujuce] = useState(null); // varovanie: LS uz existuje
+  const [objednavky, setObjednavky] = useState([]);
+  const [vybrana, setVybrana] = useState(null);
+  const [bezObjednavky, setBezObjednavky] = useState(false); // varovanie pred zalozenim bez objednavky
   const inputRef = useRef(null);
   const pendingId = useRef(null); // { id, cislo } - nepotvrdene zalozenie
 
   useEffect(() => { if (inputRef.current) inputRef.current.focus(); }, []);
 
-  async function create(force) {
+  useEffect(() => {
+    let cancelled = false;
+    api.listOrdersForSklad().then(({ data }) => {
+      if (!cancelled && data) setObjednavky(data.filter((o) => o.stav_expedicie !== "Expedovana").slice(0, 40));
+    });
+    return () => { cancelled = true; };
+  }, [api]);
+
+  function vybrat(o) {
+    setVybrana(o);
+    setBezObjednavky(false);
+    if (o.cislo_dodacieho_listu) setLs(o.cislo_dodacieho_listu);
+    setExistujuce(null);
+  }
+
+  async function create(force, potvrdenoBez) {
     const cislo = ls.replace(/[\x00-\x1F]/g, "").trim();
     if (!cislo) {
       setError("Zadejte číslo dodacího listu.");
+      return;
+    }
+    if (!vybrana && !potvrdenoBez && objednavky.length) {
+      setBezObjednavky(true);
       return;
     }
     setBusy(true);
@@ -458,7 +481,7 @@ function NovaVydajkaScreen({ pracovnik, online, onBack, onCreated }) {
         return;
       }
     }
-    const res = await createVydajkaFlow(api, { id, cislo_lieferschein: cislo, pracovnik });
+    const res = await createVydajkaFlow(api, { id, cislo_lieferschein: cislo, pracovnik, ...(vybrana ? { data: { objednavka: objednavkaProVydajku(vybrana) } } : {}) });
     setBusy(false);
     if (!res.ok) {
       setError(res.message + (res.retry ? " Zkuste znovu." : ""));
@@ -473,7 +496,20 @@ function NovaVydajkaScreen({ pracovnik, online, onBack, onCreated }) {
   return (
     <div className="min-h-screen bg-slate-50 text-slate-900" style={FONT}>
       <PdaHeader title="Nová výdejka" pracovnik={pracovnik} online={online} onBack={onBack} />
-      <form className="p-3 space-y-3" onSubmit={(e) => { e.preventDefault(); create(false); }}>
+      <form className="p-3 space-y-3" onSubmit={(e) => { e.preventDefault(); create(false, false); }}>
+        {objednavky.length > 0 && (
+          <div>
+            <span className="block text-sm font-medium text-slate-600 mb-1">Objednávka, která se nakládá</span>
+            <div className="max-h-52 overflow-y-auto space-y-1.5" data-testid="pda-objednavky">
+              {objednavky.map((o) => (
+                <button type="button" key={o.id} onClick={() => vybrat(o)} className={"w-full text-left border-2 rounded-lg px-3 py-2 text-sm " + (vybrana && vybrana.id === o.id ? "border-teal-700 bg-teal-50" : "border-slate-200 bg-white")}>
+                  <div className="font-semibold">{o.zakaznik}</div>
+                  <div className="text-xs text-slate-500">{o.cislo_objednavky_dopravy}{o.cislo_dodacieho_listu ? " · LS " + o.cislo_dodacieho_listu : ""}{objednavkaProVydajku(o).palet ? " · " + objednavkaProVydajku(o).palet + " pal." : ""}</div>
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
         <label className="block">
           <span className="block text-sm font-medium text-slate-600 mb-1">Číslo německého dodacího listu (Lieferschein)</span>
           <input
@@ -487,10 +523,16 @@ function NovaVydajkaScreen({ pracovnik, online, onBack, onCreated }) {
           <span className="block text-xs text-slate-400 mt-1">Napište číslo, nebo naskenujte čárový kód z dodacího listu.</span>
         </label>
         {error && <div className="bg-red-50 text-red-700 text-sm px-3 py-2 rounded-md flex items-center gap-2"><AlertCircle size={16} /> {error}</div>}
+        {bezObjednavky && !existujuce && (
+          <div className="bg-amber-50 border border-amber-200 rounded-xl p-3 space-y-2">
+            <div className="text-sm text-amber-900 font-medium">Není vybraná objednávka – počty palet se nebudou kontrolovat.</div>
+            <button type="button" disabled={busy} onClick={() => create(false, true)} className="w-full bg-amber-500 text-white rounded-lg py-3 font-semibold disabled:opacity-60">Založit bez objednávky</button>
+          </div>
+        )}
         {existujuce ? (
           <div className="bg-amber-50 border border-amber-200 rounded-xl p-3 space-y-2">
             <div className="text-sm text-amber-900 font-medium">Výdejka s LS {ls.trim()} už existuje ({existujuce.map((d) => (d.stav === "dokoncena" ? "dokončená" : "rozpracovaná") + " " + formatDate(d.created_at)).join(", ")}).</div>
-            <button type="button" disabled={busy} onClick={() => create(true)} className="w-full bg-amber-500 text-white rounded-lg py-3 font-semibold disabled:opacity-60">Přesto založit novou</button>
+            <button type="button" disabled={busy} onClick={() => create(true, true)} className="w-full bg-amber-500 text-white rounded-lg py-3 font-semibold disabled:opacity-60">Přesto založit novou</button>
           </div>
         ) : (
           <button type="submit" disabled={busy || !online} className="w-full flex items-center justify-center gap-2 bg-teal-700 text-white rounded-xl py-4 text-lg font-bold disabled:opacity-60">
@@ -514,9 +556,15 @@ function PendingSlot({ label, done, children }) {
   );
 }
 
+function dnesIso() {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+}
+
 function VydajkaScreen({ vydajka: initial, pracovnik, online, onBack }) {
   const api = usePdaApi();
   const [vydajka, setVydajka] = useState(initial);
+  const objednavka = (vydajka.data && vydajka.data.objednavka) || null;
   const [rows, setRows] = useState(null); // [{...paleta, _status: ok|saving|error|deleting, _error}]
   const [loadError, setLoadError] = useState("");
   const [pending, setPending] = useState(EMPTY_PENDING);
@@ -528,6 +576,7 @@ function VydajkaScreen({ vydajka: initial, pracovnik, online, onBack }) {
   const [finishing, setFinishing] = useState(false);
   const [finishError, setFinishError] = useState("");
   const [hotovo, setHotovo] = useState(false);
+  const [products, setProducts] = useState([]);
   const pendingRef = useRef(pending);
   pendingRef.current = pending;
   const rowsRef = useRef(rows);
@@ -542,6 +591,12 @@ function VydajkaScreen({ vydajka: initial, pracovnik, online, onBack }) {
   }, [api, initial.id]);
 
   useEffect(() => { load(); }, [load]);
+
+  useEffect(() => {
+    let cancelled = false;
+    api.listProducts().then(({ data }) => { if (!cancelled && data) setProducts(data); });
+    return () => { cancelled = true; };
+  }, [api]);
 
   // Skeny zachytene pocas nacitania spracovat v poradi, ako prisli.
   useEffect(() => {
@@ -579,7 +634,7 @@ function VydajkaScreen({ vydajka: initial, pracovnik, online, onBack }) {
       patchRow(row.id, { ...res.data, _status: "ok", _error: "" });
       const varovanie = res.warning || ((row.data && row.data.warnings) || []).join(" ");
       setBanner({ status: varovanie ? "warn" : "ok", message: `Uloženo ✓ paleta …${row.sscc.slice(-6)}.${varovanie ? " " + varovanie : ""}` });
-      feedback("ok");
+      feedback(varovanie ? "error" : "ok");
       return;
     }
     // Pravidlo DB (duplicita, dokoncena vydajka) - riadok zmizne, opakovanie
@@ -614,7 +669,7 @@ function VydajkaScreen({ vydajka: initial, pracovnik, online, onBack }) {
       vydajka_id: vydajka.id,
       ...res.pallet,
       pracovnik,
-      data: { warnings: res.warnings || [], elements: parsed.elements.map((e) => ({ ai: e.ai, value: e.value })) },
+      data: { warnings: [...(res.warnings || []), ...varovaniaPalety(res.pallet, { objednavka, products, dnesIso: dnesIso() })], elements: parsed.elements.map((e) => ({ ai: e.ai, value: e.value })) },
       created_at: new Date().toISOString(),
       _status: "saving",
     };
@@ -690,6 +745,7 @@ function VydajkaScreen({ vydajka: initial, pracovnik, online, onBack }) {
   }
 
   if (souhrn) {
+    const problemy = problemyVydajky({ objednavka, palety: okRows, products, dnesIso: dnesIso() });
     const sum = summarizePallets(okRows);
     const celkom = sum.reduce((s, r) => s + r.mnozstvo, 0);
     return (
@@ -711,9 +767,14 @@ function VydajkaScreen({ vydajka: initial, pracovnik, online, onBack }) {
               </div>
             ))}
           </div>
+          {problemy.length > 0 && (
+            <div className="bg-red-50 border-2 border-red-300 text-red-800 rounded-xl p-3 text-sm font-semibold space-y-1" data-testid="pda-problemy">
+              {problemy.map((t) => <div key={t}>{t}</div>)}
+            </div>
+          )}
           {finishError && <div className="bg-red-50 text-red-700 text-sm px-3 py-2 rounded-md flex items-center gap-2"><AlertCircle size={16} /> {finishError}</div>}
           <button onClick={dokoncit} disabled={finishing || !online} className="w-full flex items-center justify-center gap-2 bg-emerald-600 text-white rounded-xl py-4 text-lg font-bold disabled:opacity-60">
-            {finishing ? <Loader2 size={20} className="animate-spin" /> : <PackageCheck size={22} />} Potvrdit dokončení
+            {finishing ? <Loader2 size={20} className="animate-spin" /> : <PackageCheck size={22} />} {problemy.length ? "Dokončit přesto" : "Potvrdit dokončení"}
           </button>
           <button onClick={() => setSouhrn(false)} className="w-full text-slate-600 py-2">Zpět ke skenování</button>
         </div>
@@ -728,6 +789,19 @@ function VydajkaScreen({ vydajka: initial, pracovnik, online, onBack }) {
       <div className="p-3 space-y-3">
         {!online && <div className="bg-red-600 text-white text-sm font-semibold px-3 py-2 rounded-md flex items-center gap-2"><WifiOff size={16} /> Bez připojení - palety se neuloží!</div>}
         <Banner status={banner.status} message={banner.message} />
+
+        {objednavka && (() => {
+          const v = porovnajVydajku(objednavka, okRows, products);
+          const hotove = v.ocakavane && v.naskenovane === v.ocakavane;
+          const navyse = v.ocakavane && v.naskenovane > v.ocakavane;
+          return (
+            <div className={"rounded-xl px-3 py-2 font-semibold " + (navyse ? "bg-red-100 text-red-900" : hotove ? "bg-emerald-100 text-emerald-900" : "bg-amber-100 text-amber-900")} data-testid="pda-postup">
+              <div className="text-lg">{v.naskenovane}{v.ocakavane ? " / " + v.ocakavane : ""} palet</div>
+              <div className="text-xs font-medium">{objednavka.zakaznik} · {objednavka.cislo}</div>
+              {v.riadky.map((r) => <div key={r.popis} className="text-xs font-medium">{r.popis}: {r.naskenovane} / {r.ocakavane}</div>)}
+            </div>
+          );
+        })()}
 
         <div className="flex gap-2 items-stretch">
           <PendingSlot label="SSCC" done={!!pending.sscc}>{pending.sscc ? "…" + pending.sscc.slice(-8) : "—"}</PendingSlot>

@@ -19,6 +19,11 @@ export function createSupabasePdaApi(supabase) {
       return { data: error ? null : (data || []).map((r) => r.data), error };
     },
 
+    // Objednavky pre vyber pri zalozeni vydajky (sklad nevidi tabulku orders priamo).
+    listOrdersForSklad() {
+      return supabase.rpc("get_orders_for_sklad");
+    },
+
     listOpenVydajky() {
       return supabase
         .from("pda_vydajky")
