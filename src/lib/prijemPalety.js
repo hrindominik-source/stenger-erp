@@ -84,6 +84,24 @@ function cislo(s) {
   return Number.isFinite(n) ? n : null;
 }
 
+// Co palete zo skenu este chyba (SSCC, mnozstvo, sarza).
+export function chybajuceNaPalete(p) {
+  const out = [];
+  if (!p.sscc) out.push("SSCC");
+  if (p.mnozstvo === null || p.mnozstvo === undefined) out.push("množství");
+  if (!p.sarza) out.push("šarže");
+  return out;
+}
+
+// Bez tychto udajov sa prijem neulozi (zadat sa daju aj rucne).
+export function chybajucePovinne({ mnozstvo, sarza, dmt, jeSurovina }) {
+  const out = [];
+  if (!String(mnozstvo || "").trim()) out.push("množství");
+  if (jeSurovina && !String(sarza || "").trim()) out.push("šarže");
+  if (jeSurovina && !String(dmt || "").trim()) out.push("DMT");
+  return out;
+}
+
 // Polozka dodacieho listu pre material prijmu (podla nasho nazvu, potom nazvu z dokladu).
 export function polozkaPreMaterial(dodak, material) {
   const polozky = (dodak && dodak.polozky) || [];
@@ -105,10 +123,12 @@ export function paletaNaDodaku(sscc, paletyDodaku) {
 // Krizove kontroly prijmu. Vrati [{ uroven: "chyba" | "upozornenie", text }].
 // chyba = nepustit ulozit bez opravy; upozornenie = skladnik vidi a rozhodne.
 // dodak = { polozka (vybrana polozka dodacieho listu alebo null), cisloObjednavky, maPolozky }
-export function kontrolaPrijmu({ material, mnozstvo, jednotka, sarza, dmt, palety = [], karty = [], prijateSscc = new Set(), objednavka = null, jeSurovina = false, dodak = null, dnes = new Date() }) {
+export function kontrolaPrijmu({ material, mnozstvo, jednotka, sarza, dmt, palety = [], karty = [], prijateSscc = new Set(), objednavka = null, jeSurovina = false, dodak = null, rozpracovana = false, dnes = new Date() }) {
   const out = [];
   const chyba = (text) => out.push({ uroven: "chyba", text });
   const pozor = (text) => out.push({ uroven: "upozornenie", text });
+
+  if (rozpracovana) chyba("Poslední paleta není celá – naskenujte ostatní kódy z její etikety.");
 
   const videne = new Set();
   for (const p of palety) {

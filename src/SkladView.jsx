@@ -9,7 +9,7 @@ import { PaletySken, KontrolyPrijmu, DodakNacitanie, DodakPolozky, PaletySDodavk
 import { prijmyPaliet, rozdelStav, jeVratnaPaleta, VRATNE_PALETY, VRATENIE_DOVOD, vydajePalietExpedice, prijmyPalietZExpedice, PALETA_EXPEDICE } from "./lib/palety.js";
 import { zmensitFotku } from "./lib/obrazok.js";
 import { parseGs1, visibleControlChars } from "./lib/gs1.js";
-import { pridajSken, doplnPaletu, sumaPaliet, suhrnPaliet, kontrolaPrijmu, polozkaPreMaterial, riadkyZDodaku, priradPalety } from "./lib/prijemPalety.js";
+import { chybajucePovinne, pridajSken, doplnPaletu, sumaPaliet, suhrnPaliet, kontrolaPrijmu, polozkaPreMaterial, riadkyZDodaku, priradPalety } from "./lib/prijemPalety.js";
 
 const POLL_MS = 4000;
 const MATERIAL_QUICK_PICKS = ["Kukuřice Mushroom Yellow", "Cukr Tereos krystal", "Sůl SUPERFINE", "Tuk AKOSNAC NT MB", "Kartony", "Kbelíky", "Fólie", "Střešní fólie", "Pásky"];
@@ -1374,6 +1374,7 @@ export function PrijemTab({ fullName }) {
     prijateSscc,
     objednavka: naviazanaObjednavka ? { cislo: naviazanaObjednavka.cisloObjednavkyDopravy, mnozstvo: naviazanaObjednavka.mnozstvo } : null,
     jeSurovina: jeSurovinaDodavatel(aktualnyDodavatel),
+    rozpracovana: !!rozpracovana,
     dodak: dodak ? { polozka: dodakPolozka, cisloObjednavky: dodak.cisloObjednavky, maPolozky: dodak.polozky.length > 0 } : null,
   });
 
@@ -1411,9 +1412,12 @@ export function PrijemTab({ fullName }) {
       : []
   );
   const kontroly = viacPoloziek
-    ? rozdelenie.nepriradene.length
-      ? [{ uroven: "upozornenie", text: `${rozdelenie.nepriradene.length} naskenovaných palet nepatří k žádné položce dodacího listu – zkontrolujte, že jsou z této dodávky.` }]
-      : []
+    ? [
+        ...(rozpracovana ? [{ uroven: "chyba", text: "Poslední paleta není celá – naskenujte ostatní kódy z její etikety." }] : []),
+        ...(rozdelenie.nepriradene.length
+          ? [{ uroven: "upozornenie", text: `${rozdelenie.nepriradene.length} naskenovaných palet nepatří k žádné položce dodacího listu – zkontrolujte, že jsou z této dodávky.` }]
+          : []),
+      ]
     : kontrolyJednej;
   const maChyby = [kontroly, ...kontrolyPodlaRiadku.values()].some((list) => list.some((k) => k.uroven === "chyba"));
   const zahrnuteRiadky = riadky.filter((r) => r.zahrnut);
@@ -1438,15 +1442,21 @@ export function PrijemTab({ fullName }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [JSON.stringify(palety), rucne, viacPoloziek]);
 
+  function zvukSkenu(ok) {
+    if (navigator.vibrate) navigator.vibrate(ok ? 60 : [120, 80, 120]);
+  }
+
   async function handleScan(text) {
     let scan;
     try {
       scan = parseGs1(text);
     } catch (e) {
-      setScanError(`${e.message} Šarži a DMT zadejte ručně (nebo z dodacího listu). Načteno: ${visibleControlChars(text)}`);
+      setScanError(`Tento kód nejde přečíst jako etiketu palety. Zkuste jiný kód na etiketě, nebo zadejte údaje ručně. Načteno: ${visibleControlChars(text)}`);
+      zvukSkenu(false);
       return;
     }
     setScanError(scan.gtin && scan.pocet === null && scan.nettoKg === null ? `Z kódu se nepodařilo přečíst množství. Načteno: ${visibleControlChars(text)}` : "");
+    zvukSkenu(true);
     const st = pridajSken(skeny, rozpracovana, scan);
     setSkeny(st.palety);
     setRozpracovana(st.rozpracovana);
@@ -1650,6 +1660,13 @@ export function PrijemTab({ fullName }) {
       setError(`Chybí náš materiál (${polozkyText(bezMaterialu)}) – vyberte ho, nebo položku odškrtněte.`);
       return;
     }
+    for (const r of zahrnuteRiadky) {
+      const chybaju = chybajucePovinne({ mnozstvo: r.mnozstvoNum, sarza: r.sarza, dmt: r.dmt, jeSurovina });
+      if (chybaju.length) {
+        setError(`${r.material}: doplňte ${chybaju.join(", ")}.`);
+        return;
+      }
+    }
     if (maChyby && !potvrditKontroly) {
       setPotvrditKontroly(true);
       setError("Příjem má chyby (viz výše). Opravte je, nebo stiskněte znovu „Uložit přesto“.");
@@ -1727,6 +1744,11 @@ export function PrijemTab({ fullName }) {
     }
     if (!f.material.trim()) {
       setError("Vyberte nebo zadejte materiál.");
+      return;
+    }
+    const chybaju = chybajucePovinne({ mnozstvo: f.mnozstvoNum, sarza: f.sarza, dmt: f.dmt, jeSurovina: !editingId && jeSurovina });
+    if (chybaju.length) {
+      setError(`Nelze uložit – doplňte ${chybaju.join(", ")}.`);
       return;
     }
     if (maChyby && !potvrditKontroly) {
@@ -1854,7 +1876,6 @@ export function PrijemTab({ fullName }) {
 
         <PaletySken
           palety={palety}
-          rozpracovana={!!rozpracovana}
           onScan={handleScan}
           onRemove={odobratPaletu}
           scanError={scanError}
@@ -2066,6 +2087,12 @@ export function PrijemTab({ fullName }) {
         )}
 
         <KontrolyPrijmu kontroly={kontroly} />
+
+        {!viacPoloziek && palety.length > 0 && (
+          <div className="mt-3 text-sm font-semibold text-slate-700 bg-slate-100 rounded-lg px-3 py-2" data-testid="suhrn-prijmu">
+            Ukládáte: {palety.length} pal. · {[f.mnozstvoNum, f.mnozstvoUnit].filter(Boolean).join(" ")}{f.sarza ? " · šarže " + f.sarza : ""}{f.dmt ? " · DMT " + f.dmt : ""}
+          </div>
+        )}
 
         <div className="flex gap-2 mt-4">
           {editingId && (

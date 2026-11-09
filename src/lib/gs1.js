@@ -188,7 +188,7 @@ function parseConcatenated(s) {
         if (m) end = i + m[1].length;
       }
       if (ai === "37") {
-        const m = s.slice(i, end).match(/^\d{1,8}?(?=1[1357]\d{6}(?:10.+)?$)/);
+        const m = s.slice(i, end).match(/^\d{1,8}?(?=1[1357]\d{6}(?:10.+)?$|00\d{18}(?:10.+)?$)/);
         if (m) end = i + m[0].length;
       }
       elements.push({ ai, value: s.slice(i, end) });

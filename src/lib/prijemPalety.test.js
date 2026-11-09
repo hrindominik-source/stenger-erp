@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { parseGs1 } from "./gs1.js";
-import { pridajSken, doplnPaletu, sumaPaliet, suhrnPaliet, kontrolaPrijmu } from "./prijemPalety.js";
+import { pridajSken, doplnPaletu, sumaPaliet, suhrnPaliet, kontrolaPrijmu, chybajuceNaPalete, chybajucePovinne } from "./prijemPalety.js";
 
 // Vymyslene cisla s platnymi kontrolnymi cislicami.
 const SSCC1 = "123456789012345675";
@@ -88,6 +88,24 @@ describe("suhrn", () => {
     ];
     expect(suhrnPaliet(palety)).toEqual({ sarza: "A, B", dmt: "01.03.2027" });
     expect(sumaPaliet(palety)).toBe(2520.5);
+  });
+});
+
+describe("kompletnost palety a povinne udaje", () => {
+  it("co palete chyba", () => {
+    expect(chybajuceNaPalete({ sscc: SSCC1, mnozstvo: 800, sarza: "L1" })).toEqual([]);
+    expect(chybajuceNaPalete({ gtin: GTIN, mnozstvo: null })).toEqual(["SSCC", "množství", "šarže"]);
+  });
+  it("mnozstvo vzdy, sarza a DMT len pri surovine", () => {
+    expect(chybajucePovinne({ mnozstvo: "", sarza: "", dmt: "", jeSurovina: false })).toEqual(["množství"]);
+    expect(chybajucePovinne({ mnozstvo: "5", sarza: "", dmt: " ", jeSurovina: true })).toEqual(["šarže", "DMT"]);
+    expect(chybajucePovinne({ mnozstvo: "5", sarza: "L", dmt: "01.01.2030", jeSurovina: true })).toEqual([]);
+  });
+  it("rozpracovana paleta je chyba prijmu", () => {
+    expect(kontrolaPrijmu({ rozpracovana: true, dnes: new Date(2026, 10, 5) }).map((k) => k.uroven)).toEqual(["chyba"]);
+  });
+  it("dva kody zliate do jedneho skenu", () => {
+    expect(parseGs1(`02${GTIN}11260723373200${SSCC1}10L1`)).toMatchObject({ gtin: GTIN, pocet: 32, sscc: SSCC1, sarza: "L1" });
   });
 });
 
