@@ -11,6 +11,7 @@ import { zmensitFotku } from "./lib/obrazok.js";
 import { parseGs1, visibleControlChars } from "./lib/gs1.js";
 import { jeSkenovanaObjednavka, prekazkaSkenuExpedice, objednavkaProVydajku } from "./lib/pdaObjednavka.js";
 import { davkyZoSkenu } from "./lib/pdaDohladatelnost.js";
+import { snapshotPrijmu, zlucPrijem, popisRozpracovaneho } from "./lib/prijemRozpracovany.js";
 import { chybajucePovinne, pridajSken, doplnPaletu, sumaPaliet, suhrnPaliet, kontrolaPrijmu, polozkaPreMaterial, riadkyZDodaku, priradPalety } from "./lib/prijemPalety.js";
 
 const POLL_MS = 4000;
@@ -1292,14 +1293,21 @@ export function PrijemTab({ fullName }) {
   // zakaznici a dopravcovia pre palety vratene z expedicie
   const [zakaznici, setZakaznici] = useState([]);
   const [dopravci, setDopravci] = useState([]);
+  // rozpracovany prijem zdielany medzi zariadeniami (tablet: dodaci list, PDA: sken)
+  const [draft, setDraft] = useState(null); // { id, verzia } otvoreneho rozpracovaneho prijmu
+  const [rozpracovane, setRozpracovane] = useState([]);
+  const [confirmZmazatDraft, setConfirmZmazatDraft] = useState(null);
 
   const fetchAll = useCallback(async () => {
-    const [suppliersRes, receiptsRes, materialOrdersRes, kartyRes] = await Promise.all([
+    const [suppliersRes, receiptsRes, materialOrdersRes, kartyRes, draftyRes] = await Promise.all([
       supabase.from("suppliers").select("*"),
       supabase.from("goods_receipts").select("*").order("created_at", { ascending: false }).limit(50),
       supabase.from("material_orders").select("*"),
       supabase.from("skladove_karty").select("*"),
+      supabase.from("prijem_rozpracovany").select("*").order("created_at", { ascending: true }),
     ]);
+    // tabulka nemusi este existovat (SQL nespustene) - zoznam je potom prazdny
+    if (!draftyRes.error) setRozpracovane(draftyRes.data || []);
     // tabulka kariet nemusi este existovat (SQL nespustene) - skenovanie potom ide bez kariet
     if (!kartyRes.error) setKarty((kartyRes.data || []).map((row) => row.data));
     if (suppliersRes.error || receiptsRes.error) {
@@ -1457,6 +1465,90 @@ export function PrijemTab({ fullName }) {
     setDodakError("");
     setRiadky([]);
     setPaletyDodavky([]);
+    setDraft(null);
+  }
+
+  function aktualnyStav() {
+    return snapshotPrijmu({ f, dodak, dodakIdx, riadky, skeny, rozpracovana, paletyDodavky }, {});
+  }
+
+  function nastavStav(s) {
+    setEditingId(null);
+    setF(s.f);
+    setCustomSupplier(!s.f.dodavatelId && !!s.f.dodavatel);
+    setDodak(s.dodak);
+    setDodakIdx(s.dodakIdx);
+    setRiadky(s.riadky);
+    setSkeny(s.skeny);
+    setRozpracovana(null);
+    setPaletyDodavky(s.paletyDodavky);
+    setPotvrditKontroly(false);
+  }
+
+  function otvoritRozpracovany(row) {
+    nastavStav(zlucPrijem(aktualnyStav(), row.data, emptyReceiptForm()));
+    setDraft({ id: row.id, verzia: row.data.verzia });
+    setError("");
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  }
+
+  // Ulozi formular ako rozpracovany; ak ho medzitym zmenilo ine zariadenie, najprv zluci.
+  async function ulozitRozpracovany() {
+    setSaving(true);
+    setError("");
+    try {
+      const id = draft ? draft.id : uid();
+      let stav = aktualnyStav();
+      if (draft) {
+        const { data: row, error: selErr } = await supabase.from("prijem_rozpracovany").select("*").eq("id", draft.id).maybeSingle();
+        if (selErr) throw selErr;
+        if (row && row.data.verzia !== draft.verzia) stav = zlucPrijem(stav, row.data, emptyReceiptForm());
+      }
+      const data = snapshotPrijmu(stav, { verzia: uid(), ulozil: fullName || "", cas: `${todayStr()} ${nowTimeStr()}` });
+      const { error: upErr } = await supabase.from("prijem_rozpracovany").upsert({ id, data });
+      if (upErr) throw upErr;
+      resetForm(false);
+      setFlash("Rozpracovaný příjem uložen – dokončete ho na druhém zařízení.");
+      await fetchAll();
+    } catch (e) {
+      console.error(e);
+      setError("Rozpracovaný příjem se nepodařilo uložit, zkuste to znovu.");
+    }
+    setSaving(false);
+  }
+
+  // Pred ulozenim prijmu: ak ine zariadenie medzitym doplnilo rozpracovany prijem, doplni sa do formulara.
+  async function rozpracovanySedi() {
+    if (!draft || editingId) return true;
+    const { data: row, error: selErr } = await supabase.from("prijem_rozpracovany").select("*").eq("id", draft.id).maybeSingle();
+    if (selErr) {
+      setError("Nepodařilo se ověřit rozpracovaný příjem, zkuste to znovu.");
+      return false;
+    }
+    if (row && row.data.verzia !== draft.verzia) {
+      nastavStav(zlucPrijem(aktualnyStav(), row.data, emptyReceiptForm()));
+      setDraft({ id: row.id, verzia: row.data.verzia });
+      setError("Na jiném zařízení mezitím přibyly údaje – doplnil jsem je do formuláře. Zkontrolujte a uložte znovu.");
+      return false;
+    }
+    return true;
+  }
+
+  async function zmazatRozpracovanyPoUlozeni() {
+    if (!draft) return;
+    const { error: delErr } = await supabase.from("prijem_rozpracovany").delete().eq("id", draft.id);
+    if (delErr) console.error(delErr);
+  }
+
+  async function zmazatRozpracovany(id) {
+    setConfirmZmazatDraft(null);
+    const { error: delErr } = await supabase.from("prijem_rozpracovany").delete().eq("id", id);
+    if (delErr) {
+      setError("Smazání se nezdařilo, zkuste to znovu.");
+      return;
+    }
+    if (draft && draft.id === id) setDraft(null);
+    await fetchAll();
   }
 
   const kartaPodlaGtin = (gtin) => karty.find((k) => k.gtin === gtin) || null;
@@ -1826,6 +1918,7 @@ export function PrijemTab({ fullName }) {
       const palZaznamy = zaznamyPaliet(cas);
       const { error: insErr } = await supabase.from("goods_receipts").insert([...zaznamy, ...palZaznamy]);
       if (insErr) throw insErr;
+      await zmazatRozpracovanyPoUlozeni();
       setFlash(`Uloženo: ${polozkyText(zaznamy.length)}${palZaznamy.length ? " + palety" : ""}`);
       await fetchAll();
       resetForm(true);
@@ -1837,6 +1930,7 @@ export function PrijemTab({ fullName }) {
   }
 
   async function handleSave() {
+    if (!(await rozpracovanySedi())) return;
     if (viacPoloziek) return handleSaveViac();
     if (!fullName) {
       setError("Nahoře v \"Kdo pracuje\" vyberte, kdo zboží převzal.");
@@ -1901,6 +1995,7 @@ export function PrijemTab({ fullName }) {
         const palZaznamy = zaznamyPaliet(record.casPrijatia);
         const { error: insErr } = await supabase.from("goods_receipts").insert([{ id: formId, data: { ...record, id: formId } }, ...palZaznamy]);
         if (insErr) throw insErr;
+        await zmazatRozpracovanyPoUlozeni();
       }
       setFlash("Uloženo");
       await fetchAll();
@@ -1966,8 +2061,36 @@ export function PrijemTab({ fullName }) {
         </div>
       )}
 
+      {rozpracovane.length > 0 && (
+        <div className="bg-amber-50 border-2 border-amber-300 rounded-xl p-4 mb-5" data-testid="prijem-rozpracovane">
+          <div className="text-sm font-semibold text-amber-900 mb-2">Rozpracované příjmy – čekají na dokončení</div>
+          <div className="space-y-1.5">
+            {rozpracovane.map((r) => (
+              <div key={r.id} className={"bg-white rounded-lg px-3 py-2.5 border-2 " + (draft && draft.id === r.id ? "border-teal-700" : "border-amber-200")}>
+                <div className="text-sm font-medium">{popisRozpracovaneho(r.data)}</div>
+                <div className="text-xs text-slate-500">{r.data.ulozil || "-"} · {r.data.cas}{draft && draft.id === r.id ? " · otevřeno ve formuláři" : ""}</div>
+                {confirmZmazatDraft === r.id ? (
+                  <div className="flex gap-2 mt-2">
+                    <button onClick={() => zmazatRozpracovany(r.id)} className="flex-1 bg-red-600 text-white rounded-lg py-2.5 text-sm font-semibold">Opravdu smazat</button>
+                    <button onClick={() => setConfirmZmazatDraft(null)} className="px-4 border border-slate-300 rounded-lg text-sm">Ne</button>
+                  </div>
+                ) : (
+                  <div className="flex gap-2 mt-2">
+                    <button onClick={() => otvoritRozpracovany(r)} className="flex-1 bg-teal-700 text-white rounded-lg py-2.5 text-sm font-semibold">Otevřít a doplnit</button>
+                    <button onClick={() => setConfirmZmazatDraft(r.id)} className="px-3 border border-slate-300 rounded-lg text-slate-500" aria-label="Smazat rozpracovaný příjem"><Trash2 size={16} /></button>
+                  </div>
+                )}
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
       <div className="bg-white border border-slate-200 rounded-xl p-4 mb-5">
         <div className="text-lg font-semibold mb-3">{editingId ? "Upravit příjem" : "Nový příjem zboží"}</div>
+        {draft && (
+          <div className="mb-3 bg-amber-50 text-amber-900 text-sm px-3 py-2 rounded-lg">Doplňujete rozpracovaný příjem. Po uložení zmizí ze seznamu.</div>
+        )}
 
         {f.materialObjednavkaId && (
           <div className="mb-3 bg-teal-50 text-teal-800 text-sm px-3 py-2 rounded-lg flex items-center justify-between gap-2">
@@ -2213,6 +2336,11 @@ export function PrijemTab({ fullName }) {
             {maChyby && potvrditKontroly ? "Uložit přesto" : editingId ? "Uložit změny" : viacPoloziek ? `Uložit příjem (${polozkyText(zahrnuteRiadky.length)})` : "Uložit příjem"}
           </button>
         </div>
+        {!editingId && (
+          <button onClick={ulozitRozpracovany} disabled={saving} data-testid="ulozit-rozpracovany" className="w-full mt-2 border-2 border-amber-400 bg-amber-50 text-amber-900 rounded-xl py-3 text-base font-semibold disabled:opacity-60">
+            Uložit rozpracované – dokončit na jiném zařízení
+          </button>
+        )}
       </div>
 
       <div className="text-sm font-semibold text-slate-500 mb-2">Poslední příjmy</div>
