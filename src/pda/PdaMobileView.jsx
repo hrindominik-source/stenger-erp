@@ -13,7 +13,7 @@ import React, { useState, useEffect, useRef, useCallback, createContext, useCont
 import { Loader2, AlertCircle, LogOut, ArrowLeft, Plus, ScanLine, CheckCircle2, XCircle, Trash2, RotateCcw, PackageCheck, User, Wifi, WifiOff, Keyboard } from "lucide-react";
 import { parseGs1Detail, visibleControlChars, GS } from "../lib/gs1.js";
 import { mergeScan, EMPTY_PENDING, pdaErrorMessage, pdaId, summarizePallets } from "../lib/pdaScan.js";
-import { objednavkaProVydajku, varovaniaPalety, problemyVydajky, porovnajVydajku } from "../lib/pdaObjednavka.js";
+import { objednavkaProVydajku, varovaniaPalety, problemyVydajky, porovnajVydajku, paletyBezStopy } from "../lib/pdaObjednavka.js";
 import { savePalletFlow, deletePalletFlow, finishFlow, canFinish, createVydajkaFlow, mergeLoadedRows } from "../lib/pdaFlow.js";
 
 // Datova vrstva (Supabase alebo simulacia v testovacom rezime ?pda=test).
@@ -746,6 +746,7 @@ function VydajkaScreen({ vydajka: initial, pracovnik, online, onBack }) {
 
   if (souhrn) {
     const problemy = problemyVydajky({ objednavka, palety: okRows, products, dnesIso: dnesIso() });
+    const bezStopy = paletyBezStopy(okRows);
     const sum = summarizePallets(okRows);
     const celkom = sum.reduce((s, r) => s + r.mnozstvo, 0);
     return (
@@ -767,13 +768,18 @@ function VydajkaScreen({ vydajka: initial, pracovnik, online, onBack }) {
               </div>
             ))}
           </div>
+          {bezStopy.length > 0 && (
+            <div className="bg-red-600 text-white rounded-xl p-3 text-sm font-semibold" data-testid="pda-bez-stopy">
+              Nelze dokončit: {bezStopy.length} pal. bez šarže i BBD. Smažte je a naskenujte znovu: {bezStopy.map((p) => "…" + p.sscc.slice(-6)).join(", ")}
+            </div>
+          )}
           {problemy.length > 0 && (
             <div className="bg-red-50 border-2 border-red-300 text-red-800 rounded-xl p-3 text-sm font-semibold space-y-1" data-testid="pda-problemy">
               {problemy.map((t) => <div key={t}>{t}</div>)}
             </div>
           )}
           {finishError && <div className="bg-red-50 text-red-700 text-sm px-3 py-2 rounded-md flex items-center gap-2"><AlertCircle size={16} /> {finishError}</div>}
-          <button onClick={dokoncit} disabled={finishing || !online} className="w-full flex items-center justify-center gap-2 bg-emerald-600 text-white rounded-xl py-4 text-lg font-bold disabled:opacity-60">
+          <button onClick={dokoncit} disabled={finishing || !online || bezStopy.length > 0} className="w-full flex items-center justify-center gap-2 bg-emerald-600 text-white rounded-xl py-4 text-lg font-bold disabled:opacity-60">
             {finishing ? <Loader2 size={20} className="animate-spin" /> : <PackageCheck size={22} />} {problemy.length ? "Dokončit přesto" : "Potvrdit dokončení"}
           </button>
           <button onClick={() => setSouhrn(false)} className="w-full text-slate-600 py-2">Zpět ke skenování</button>

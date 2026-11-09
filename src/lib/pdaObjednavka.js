@@ -81,6 +81,11 @@ export function varovaniaPalety(paleta, { objednavka = null, products = [], dnes
   return out;
 }
 
+// Palety bez sarze aj BBD - nie su dohladatelne, vydajka sa s nimi nedokonci.
+export function paletyBezStopy(palety) {
+  return palety.filter((p) => !String(p.sarza || "").trim() && !p.bbd);
+}
+
 // Problemy pred dokoncenim vydajky.
 export function problemyVydajky({ objednavka, palety, products, dnesIso }) {
   const out = [];
@@ -94,8 +99,6 @@ export function problemyVydajky({ objednavka, palety, products, dnesIso }) {
   if (poDmt) out.push(`Po DMT: ${poDmt} palet.`);
   const bezMnozstva = palety.filter((p) => p.mnozstvo === null || p.mnozstvo === undefined).length;
   if (bezMnozstva) out.push(`Bez množství: ${bezMnozstva} palet.`);
-  const bezDmt = palety.filter((p) => !p.bbd).length;
-  if (bezDmt) out.push(`Bez DMT: ${bezDmt} palet.`);
   if (products.length) {
     const nezname = palety.filter((p) => !findProduktForGtin(p.gtin, products)).length;
     if (nezname) out.push(`Výrobek není v Stenger ONE: ${nezname} palet.`);

@@ -14,6 +14,7 @@ import { exportSheetsToExcel } from "../lib/exportExcel.js";
 import { pdaErrorMessage, summarizePallets } from "../lib/pdaScan.js";
 import { buildPdaExportSheets, formatIsoDate as formatDate, buildNveListData, downloadNveList } from "../lib/pdaExport.js";
 import { createSupabasePdaApi } from "./pdaApi.js";
+import PdaDohladatelnost from "./PdaDohladatelnost.jsx";
 
 function localIso(d) {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
@@ -35,6 +36,22 @@ function StavBadge({ stav }) {
 
 export default function PdaOfficeView({ api: apiProp }) {
   const api = useMemo(() => apiProp || createSupabasePdaApi(supabase), [apiProp]);
+  const [zalozka, setZalozka] = useState("vydajky");
+  const tlacidlo = (id, text) => (
+    <button onClick={() => setZalozka(id)} className={"px-3 py-2 text-sm font-medium border-b-2 " + (zalozka === id ? "border-teal-700 text-teal-800" : "border-transparent text-slate-500 hover:text-slate-800")}>{text}</button>
+  );
+  return (
+    <div>
+      <div className="flex gap-1 border-b border-slate-200 mb-4">
+        {tlacidlo("vydajky", "Výdejky")}
+        {tlacidlo("dohledatelnost", "Dohledatelnost")}
+      </div>
+      {zalozka === "vydajky" ? <PrehledVydajek api={api} /> : <PdaDohladatelnost api={api} />}
+    </div>
+  );
+}
+
+function PrehledVydajek({ api }) {
   const [vydajky, setVydajky] = useState(null);
   const [palety, setPalety] = useState([]);
   const [error, setError] = useState("");

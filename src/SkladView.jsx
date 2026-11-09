@@ -698,6 +698,7 @@ function OrderDetailModal({ order, products, carriers, dispatches, finishedStock
   async function handleAdd() {
     if (!selectedProduct) { setFormError("Vyberte produkt."); return; }
     if (!paliet.trim()) { setFormError("Zadejte počet palet."); return; }
+    if (!sarza.trim()) { setFormError("Zadejte šarži (lot / BBD)."); return; }
     if (maPrekrocenie && !potvrdenePrekrocenie) {
       setFormError("Potvrďte, že překročení plánu je záměr (zaškrtávací políčko níže).");
       return;
