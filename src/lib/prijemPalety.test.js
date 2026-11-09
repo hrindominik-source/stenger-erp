@@ -19,6 +19,30 @@ describe("pridajSken", () => {
     expect(st.rozpracovana).toBe(null);
   });
 
+  const jokey = [`(400)451/0511(11)261104(10)L1`, `(02)${GTIN}(37)1080`, `(00)${SSCC1}`];
+  const naskenuj = (kody, st = { palety: [], rozpracovana: null }) => kody.reduce((s, k) => pridajSken(s.palety, s.rozpracovana, parseGs1(k)), st);
+
+  it.each([[[0, 1, 2]], [[0, 2, 1]], [[2, 0, 1]], [[2, 1, 0]], [[1, 2, 0]], [[1, 0, 2]]])("tri kody etikety v poradi %j = jedna uplna paleta", (poradie) => {
+    const st = naskenuj(poradie.map((i) => jokey[i]));
+    expect(st.rozpracovana).toBe(null);
+    expect(st.palety).toHaveLength(1);
+    expect(st.palety[0]).toMatchObject({ sscc: SSCC1, gtin: GTIN, sarza: "L1", pocet: 1080, objednavka: "451/0511" });
+  });
+
+  it("opakovany sken SSCC nezacne novu paletu", () => {
+    const st = naskenuj([jokey[0], jokey[2], jokey[2], jokey[1]]);
+    expect(st.palety).toHaveLength(1);
+    expect(st.palety[0]).toMatchObject({ sscc: SSCC1, gtin: GTIN, pocet: 1080 });
+  });
+
+  it("druha paleta tej istej sarze sa nezleje s prvou", () => {
+    const druha = [jokey[0], jokey[1], `(00)${SSCC2}`];
+    const st = naskenuj([...jokey, ...druha]);
+    expect(st.rozpracovana).toBe(null);
+    expect(st.palety.map((p) => p.sscc)).toEqual([SSCC1, SSCC2]);
+    expect(st.palety[1]).toMatchObject({ gtin: GTIN, sarza: "L1", pocet: 1080 });
+  });
+
   it("nova etiketa (iny SSCC alebo ina sarza) zacne novu paletu", () => {
     let st = pridajSken([], null, parseGs1("(10)L1"));
     st = pridajSken(st.palety, st.rozpracovana, parseGs1("(10)L2"));

@@ -16,9 +16,28 @@ export function patriKPalete(paleta, scan) {
   return true;
 }
 
+// Prinasa sken udaj, ktory paleta este nema?
+function doplniaPaletu(paleta, scan) {
+  if (["gtin", "sarza", "dmt", "datumVyroby", "objednavka"].some((k) => scan[k] && !paleta[k])) return true;
+  return ["pocet", "nettoKg"].some((k) => (scan[k] ?? null) !== null && (paleta[k] ?? null) === null);
+}
+
 // Prida sken: doplni rozpracovanu paletu, alebo zacne novu. Vrati { palety, rozpracovana }.
-// Rozpracovana paleta (bez SSCC) caka na dalsie kody tej istej etikety.
+// Rozpracovana paleta (bez SSCC) caka na dalsie kody tej istej etikety. Na poradi kodov
+// nezalezi: opakovany SSCC novu paletu nezacne a kod bez SSCC doplni poslednu paletu,
+// ak jej chyba to, co nesie.
 export function pridajSken(palety, rozpracovana, scan) {
+  const ista = scan.sscc ? palety.findIndex((p) => p.sscc === scan.sscc) : -1;
+  if (ista !== -1) {
+    let spojena = mergeScans(palety[ista], scan);
+    const pripojit = rozpracovana && patriKPalete(spojena, rozpracovana);
+    if (pripojit) spojena = mergeScans(spojena, rozpracovana);
+    return { palety: palety.map((p, i) => (i === ista ? spojena : p)), rozpracovana: pripojit ? null : rozpracovana };
+  }
+  const posledna = palety[palety.length - 1];
+  if (!rozpracovana && !scan.sscc && posledna && patriKPalete(posledna, scan) && doplniaPaletu(posledna, scan)) {
+    return { palety: [...palety.slice(0, -1), mergeScans(posledna, scan)], rozpracovana: null };
+  }
   if (rozpracovana && patriKPalete(rozpracovana, scan)) {
     const spojena = mergeScans(rozpracovana, scan);
     return spojena.sscc ? { palety: [...palety, spojena], rozpracovana: null } : { palety, rozpracovana: spojena };
