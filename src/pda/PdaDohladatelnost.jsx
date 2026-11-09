@@ -6,7 +6,7 @@ import { formatDateTime } from "../lib/utils.js";
 import { exportSheetsToExcel } from "../lib/exportExcel.js";
 import { pdaErrorMessage } from "../lib/pdaScan.js";
 import { formatIsoDate as formatDate } from "../lib/pdaExport.js";
-import { buildDohladatelnost, filtrujDohladatelnost, dohladatelnostSheets } from "../lib/pdaDohladatelnost.js";
+import { buildDohladatelnost, filtrujDohladatelnost, dohladatelnostSheets, rucnaDavka } from "../lib/pdaDohladatelnost.js";
 
 const den = (iso) => (iso ? formatDateTime(iso).slice(0, 10) : "");
 const lokalnyDen = (iso) => {
@@ -18,6 +18,7 @@ export default function PdaDohladatelnost({ api }) {
   const [vydajky, setVydajky] = useState(null);
   const [palety, setPalety] = useState([]);
   const [products, setProducts] = useState([]);
+  const [rucne, setRucne] = useState([]);
   const [error, setError] = useState("");
   const [hladat, setHladat] = useState("");
   const [produkt, setProdukt] = useState("");
@@ -27,7 +28,7 @@ export default function PdaDohladatelnost({ api }) {
 
   useEffect(() => {
     let cancelled = false;
-    Promise.all([api.listVydajkyOd(null), api.listPaletyOd(null), api.listProducts()]).then(([v, p, pr]) => {
+    Promise.all([api.listVydajkyOd(null), api.listPaletyOd(null), api.listProducts(), api.listRucneExpedicie()]).then(([v, p, pr, ru]) => {
       if (cancelled) return;
       if (v.error || p.error) {
         setError(pdaErrorMessage(v.error || p.error));
@@ -36,6 +37,8 @@ export default function PdaDohladatelnost({ api }) {
       setVydajky(v.data || []);
       setPalety(p.data || []);
       setProducts(pr.data || []);
+      if (ru.error) setError("Ruční expedice se nepodařilo načíst – zobrazuji jen skeny.");
+      setRucne((ru.data || []).map(rucnaDavka).filter(Boolean));
     });
     return () => { cancelled = true; };
   }, [api]);
@@ -45,17 +48,21 @@ export default function PdaDohladatelnost({ api }) {
       const d = lokalnyDen(v.dokoncena_at || v.created_at);
       return (!od || d >= od) && (!do_ || d <= do_);
     });
-    return buildDohladatelnost(vObdobi, palety, products);
-  }, [vydajky, palety, products, od, do_]);
+    const rucneVObdobi = rucne.filter((r) => {
+      const d = r.datum.slice(0, 10);
+      return (!od || d >= od) && (!do_ || d <= do_);
+    });
+    return buildDohladatelnost(vObdobi, palety, products, rucneVObdobi);
+  }, [vydajky, palety, products, rucne, od, do_]);
 
   const produkty = useMemo(() => {
     const m = new Map();
-    for (const r of vsetky) m.set(r.gtin, r.produkt || r.gtin);
-    return Array.from(m, ([gtin, nazov]) => ({ gtin, nazov })).sort((a, b) => a.nazov.localeCompare(b.nazov));
+    for (const r of vsetky) m.set(r.produktKey, r.produkt || r.gtin);
+    return Array.from(m, ([key, nazov]) => ({ key, nazov })).sort((a, b) => a.nazov.localeCompare(b.nazov));
   }, [vsetky]);
 
   const riadky = useMemo(
-    () => filtrujDohladatelnost(vsetky.filter((r) => !produkt || r.gtin === produkt), hladat),
+    () => filtrujDohladatelnost(vsetky.filter((r) => !produkt || r.produktKey === produkt), hladat),
     [vsetky, produkt, hladat],
   );
 
@@ -87,7 +94,7 @@ export default function PdaDohladatelnost({ api }) {
           <span className={popis}>Produkt</span>
           <select value={produkt} onChange={(e) => setProdukt(e.target.value)} className={pole + " max-w-[240px]"}>
             <option value="">Všechny</option>
-            {produkty.map((p) => <option key={p.gtin} value={p.gtin}>{p.nazov}</option>)}
+            {produkty.map((p) => <option key={p.key} value={p.key}>{p.nazov}</option>)}
           </select>
         </label>
         <label>
@@ -126,7 +133,7 @@ export default function PdaDohladatelnost({ api }) {
                     <td className="px-3 py-2"><div className="font-medium">{r.produkt || "Neznámý výrobek"}</div><div className="text-xs text-slate-400 font-mono">{r.gtin}</div></td>
                     <td className="px-3 py-2 font-semibold whitespace-nowrap">{r.stopa || <span className="text-red-600">chybí</span>}</td>
                     <td className="px-3 py-2 whitespace-nowrap">{formatDate(r.bbd) || "-"}</td>
-                    <td className="px-3 py-2 text-right">{r.palety.length}</td>
+                    <td className="px-3 py-2 text-right">{r.paletCelkom}</td>
                     <td className="px-3 py-2 text-right">{r.mnozstvo}{r.mnozstvoNeuplne ? "+?" : ""}</td>
                     <td className="px-3 py-2">{r.zakaznici.join(", ") || "-"}</td>
                     <td className="px-3 py-2 whitespace-nowrap">{den(r.datumOd) === den(r.datumDo) ? den(r.datumOd) : `${den(r.datumOd)} – ${den(r.datumDo)}`}</td>
@@ -138,24 +145,26 @@ export default function PdaDohladatelnost({ api }) {
                         <table className="w-full text-xs">
                           <thead>
                             <tr className="text-left text-slate-500">
+                              <th className="px-2 py-1 font-medium">Zdroj</th>
                               <th className="px-2 py-1 font-medium">Zákazník</th>
                               <th className="px-2 py-1 font-medium">Objednávka</th>
                               <th className="px-2 py-1 font-medium">LS</th>
                               <th className="px-2 py-1 font-medium">Datum</th>
-                              <th className="px-2 py-1 font-medium">SSCC</th>
+                              <th className="px-2 py-1 font-medium">SSCC / palet</th>
                               <th className="px-2 py-1 font-medium text-right">Množství</th>
                               <th className="px-2 py-1 font-medium">Naskenoval</th>
                             </tr>
                           </thead>
                           <tbody>
-                            {r.palety.map((p) => (
-                              <tr key={p.cisloLs + p.sscc} className="border-t border-slate-200">
+                            {r.palety.map((p, i) => (
+                              <tr key={i} className="border-t border-slate-200">
+                                <td className="px-2 py-1">{p.zdroj}</td>
                                 <td className="px-2 py-1">{p.zakaznik || "-"}</td>
                                 <td className="px-2 py-1">{p.objednavka || "-"}</td>
                                 <td className="px-2 py-1">{p.cisloLs}{p.stav !== "dokoncena" ? " (rozpracovaná)" : ""}</td>
                                 <td className="px-2 py-1 whitespace-nowrap">{den(p.datum)}</td>
-                                <td className="px-2 py-1 font-mono">{p.sscc}</td>
-                                <td className="px-2 py-1 text-right">{p.mnozstvo != null ? p.mnozstvo : "?"}</td>
+                                <td className="px-2 py-1 font-mono">{p.sscc || p.pocet + " pal."}</td>
+                                <td className="px-2 py-1 text-right">{p.mnozstvo != null ? p.mnozstvo : "-"}</td>
                                 <td className="px-2 py-1">{p.pracovnik}</td>
                               </tr>
                             ))}
