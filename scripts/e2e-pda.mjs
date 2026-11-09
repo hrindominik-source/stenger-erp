@@ -248,6 +248,22 @@ try {
     console.log("      → " + file);
   });
 
+  await step("dohledatelnost: řádky, hledání, detail, export", async () => {
+    const office = page.locator("text=Kancelář (Stenger ONE").locator("xpath=..");
+    await office.getByRole("button", { name: "Dohledatelnost" }).click();
+    const d = office.getByTestId("pda-dohledatelnost");
+    const radok = d.locator("tbody tr").first();
+    await radok.waitFor();
+    assert(!/Nic nenalezeno/.test(await d.innerText()), "žádné řádky");
+    await radok.click();
+    await d.getByText("LS-4711").first().waitFor();
+    const [download] = await Promise.all([page.waitForEvent("download"), d.getByRole("button", { name: /Export/ }).click()]);
+    assert(/PDA_TEST_dohledatelnost/.test(download.suggestedFilename()), "název exportu");
+    await d.getByRole("textbox").first().fill("neexistuje-xyz");
+    await d.getByText("Nic nenalezeno").waitFor();
+    await d.getByRole("textbox").first().fill("");
+  });
+
   await step("žádný požadavek na Supabase, žádná chyba JS", async () => {
     assert(supabaseRequests === 0, "požadavků na Supabase: " + supabaseRequests);
     assert(pageErrors.length === 0, "chyby JS: " + pageErrors.join(" | "));

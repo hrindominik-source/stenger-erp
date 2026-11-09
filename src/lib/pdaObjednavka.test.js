@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { objednavkaProVydajku, porovnajVydajku, varovaniaPalety, problemyVydajky, jeSkenovanyZakaznik, prekazkaSkenuExpedice } from "./pdaObjednavka.js";
+import { objednavkaProVydajku, porovnajVydajku, varovaniaPalety, problemyVydajky, jeSkenovanyZakaznik, prekazkaSkenuExpedice, paletyBezStopy } from "./pdaObjednavka.js";
 
 const A = { id: "A", cisloArtikluSW: "62 99901", eanKarton: "4001234000015" };
 const B = { id: "B", cisloArtikluSW: "62 99902", eanKarton: "4001234000022" };
@@ -25,6 +25,12 @@ describe("povinny sken expedicie", () => {
     expect(prekazkaSkenuExpedice({ vydajky: [{ stav: "dokoncena", palet: 34 }], ocakavane: 33 })).toContain("Navíc 1 pal.");
     expect(prekazkaSkenuExpedice({ vydajky: [{ stav: "dokoncena", palet: 20 }, { stav: "dokoncena", palet: 13 }], ocakavane: 33 })).toBe("");
     expect(prekazkaSkenuExpedice({ vydajky: [{ stav: "dokoncena", palet: 5 }], ocakavane: 0 })).toBe("");
+  });
+});
+
+describe("paletyBezStopy", () => {
+  it("staci sarza alebo BBD", () => {
+    expect(paletyBezStopy([{ sarza: "L1" }, { bbd: "2027-01-01" }, { sarza: " ", bbd: null }])).toHaveLength(1);
   });
 });
 
@@ -65,7 +71,7 @@ describe("problemyVydajky", () => {
   });
   it("rozdiel v pocte a chybajuce udaje", () => {
     const r = problemyVydajky({ objednavka, palety: [pal(GTIN_A, { mnozstvo: null, bbd: null })], products, dnesIso });
-    expect(r).toEqual(["Podle objednávky má jet 2 palet, naskenováno 1.", "Popcorn A: má jet 2 palet, naskenováno 1.", "Bez množství: 1 palet.", "Bez DMT: 1 palet."]);
+    expect(r).toEqual(["Podle objednávky má jet 2 palet, naskenováno 1.", "Popcorn A: má jet 2 palet, naskenováno 1.", "Bez množství: 1 palet."]);
   });
   it("bez objednavky kontroluje len palety", () => {
     expect(problemyVydajky({ objednavka: null, palety: [pal(GTIN_A)], products, dnesIso })).toEqual([]);
