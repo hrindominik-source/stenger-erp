@@ -177,6 +177,11 @@ function parseConcatenated(s) {
     } else {
       let end = s.indexOf(GS, i);
       if (end === -1) end = s.length;
+      // Etikety, kde za nasim cislom objednavky (napr. 451/0511) chyba FNC1: dalsi AI sa pozna podla tvaru.
+      if (ai === "400") {
+        const m = s.slice(i, end).match(/^\d+\/\d{4}(?=1[1357]\d{6}|10.)/);
+        if (m) end = i + m[0].length;
+      }
       elements.push({ ai, value: s.slice(i, end) });
       i = end;
     }

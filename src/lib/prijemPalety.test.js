@@ -29,6 +29,12 @@ describe("pridajSken", () => {
     expect(st.palety[0]).toMatchObject({ sscc: SSCC1, gtin: GTIN, sarza: "L1", pocet: 1080, objednavka: "451/0511" });
   });
 
+  it("cislo objednavky (400) bez oddelovaca pred dalsim AI", () => {
+    expect(parseGs1("400451/05111126110410L1")).toMatchObject({ objednavka: "451/0511", datumVyroby: "04.11.2026", sarza: "L1" });
+    expect(parseGs1("400451/05111033")).toMatchObject({ objednavka: "451/0511", sarza: "33" });
+    expect(parseGs1("(02)12345678901231(400)ABC-1")).toMatchObject({ objednavka: "ABC-1" });
+  });
+
   it("opakovany sken SSCC nezacne novu paletu", () => {
     const st = naskenuj([jokey[0], jokey[2], jokey[2], jokey[1]]);
     expect(st.palety).toHaveLength(1);
