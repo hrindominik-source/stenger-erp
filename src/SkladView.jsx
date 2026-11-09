@@ -8,7 +8,7 @@ import InventuraPocitanie from "./InventuraPocitanie.jsx";
 import { PaletySken, KontrolyPrijmu, DodakNacitanie, DodakPolozky, PaletySDodavkou, PaletyZExpedice } from "./PrijemPalety.jsx";
 import { prijmyPaliet, rozdelStav, jeVratnaPaleta, VRATNE_PALETY, VRATENIE_DOVOD, vydajePalietExpedice, prijmyPalietZExpedice, PALETA_EXPEDICE } from "./lib/palety.js";
 import { zmensitFotku } from "./lib/obrazok.js";
-import { parseGs1 } from "./lib/gs1.js";
+import { parseGs1, visibleControlChars } from "./lib/gs1.js";
 import { pridajSken, doplnPaletu, sumaPaliet, suhrnPaliet, kontrolaPrijmu, polozkaPreMaterial, riadkyZDodaku, priradPalety } from "./lib/prijemPalety.js";
 
 const POLL_MS = 4000;
@@ -1443,10 +1443,10 @@ export function PrijemTab({ fullName }) {
     try {
       scan = parseGs1(text);
     } catch (e) {
-      setScanError(`${e.message} Šarži a DMT zadejte ručně (nebo z dodacího listu).`);
+      setScanError(`${e.message} Šarži a DMT zadejte ručně (nebo z dodacího listu). Načteno: ${visibleControlChars(text)}`);
       return;
     }
-    setScanError("");
+    setScanError(scan.gtin && scan.pocet === null && scan.nettoKg === null ? `Z kódu se nepodařilo přečíst množství. Načteno: ${visibleControlChars(text)}` : "");
     const st = pridajSken(skeny, rozpracovana, scan);
     setSkeny(st.palety);
     setRozpracovana(st.rozpracovana);
