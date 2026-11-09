@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { objednavkaProVydajku, porovnajVydajku, varovaniaPalety, problemyVydajky } from "./pdaObjednavka.js";
+import { objednavkaProVydajku, porovnajVydajku, varovaniaPalety, problemyVydajky, jeSkenovanyZakaznik, prekazkaSkenuExpedice } from "./pdaObjednavka.js";
 
 const A = { id: "A", cisloArtikluSW: "62 99901", eanKarton: "4001234000015" };
 const B = { id: "B", cisloArtikluSW: "62 99902", eanKarton: "4001234000022" };
@@ -11,6 +11,21 @@ const pal = (gtin, extra = {}) => ({ gtin, bbd: "2027-05-28", mnozstvo: 16, ...e
 const objednavka = objednavkaProVydajku({
   id: "O1", cislo_objednavky_dopravy: "0043/2509", zakaznik: "Test", pocet_paliet: "9",
   polozky: [{ popis: "Popcorn A", artikel: "6299901", palet: "2" }],
+});
+
+describe("povinny sken expedicie", () => {
+  it("skenovani zakaznici", () => {
+    for (const z of ["EDEKA Zentrale", "Picnic GmbH", "Globus SB"]) expect(jeSkenovanyZakaznik(z)).toBe(true);
+    expect(jeSkenovanyZakaznik("Netto Marken-Discount AG & Co. KG")).toBe(false);
+  });
+  it("bez vydajky, nedokoncena, chybaju, navyse, sedi", () => {
+    expect(prekazkaSkenuExpedice({ vydajky: [], ocakavane: 2 })).toContain("povinný");
+    expect(prekazkaSkenuExpedice({ vydajky: [{ stav: "rozpracovana", palet: 2 }], ocakavane: 2 })).toContain("není dokončená");
+    expect(prekazkaSkenuExpedice({ vydajky: [{ stav: "dokoncena", palet: 31 }], ocakavane: 33 })).toContain("Chybí 2 pal.");
+    expect(prekazkaSkenuExpedice({ vydajky: [{ stav: "dokoncena", palet: 34 }], ocakavane: 33 })).toContain("Navíc 1 pal.");
+    expect(prekazkaSkenuExpedice({ vydajky: [{ stav: "dokoncena", palet: 20 }, { stav: "dokoncena", palet: 13 }], ocakavane: 33 })).toBe("");
+    expect(prekazkaSkenuExpedice({ vydajky: [{ stav: "dokoncena", palet: 5 }], ocakavane: 0 })).toBe("");
+  });
 });
 
 describe("objednavkaProVydajku", () => {

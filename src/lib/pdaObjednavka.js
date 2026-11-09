@@ -9,6 +9,24 @@ const cislo = (v) => {
 };
 const kod = (v) => String(v || "").replace(/\s/g, "").toUpperCase();
 
+// Zakaznici, ktorych palety sa pri expedicii povinne skenuju.
+const SKENOVANI_ZAKAZNICI = /edeka|picnic|globus/i;
+
+export function jeSkenovanyZakaznik(zakaznik) {
+  return SKENOVANI_ZAKAZNICI.test(String(zakaznik || ""));
+}
+
+// Moze sa expedicia potvrdit? vydajky = [{ stav, palet }] naviazane na objednavku.
+// Vrati text prekazky, alebo prazdny retazec.
+export function prekazkaSkenuExpedice({ vydajky, ocakavane }) {
+  if (!vydajky.length) return "Sken expedice je povinný – naskenujte palety na PDA do výdejky s touto objednávkou.";
+  if (vydajky.some((v) => v.stav !== "dokoncena")) return "Výdejka na PDA není dokončená – nejdřív ji dokončete.";
+  const naskenovane = vydajky.reduce((s, v) => s + v.palet, 0);
+  if (ocakavane && naskenovane < ocakavane) return `Chybí ${ocakavane - naskenovane} pal.: podle objednávky ${ocakavane}, naskenováno ${naskenovane}.`;
+  if (ocakavane && naskenovane > ocakavane) return `Navíc ${naskenovane - ocakavane} pal.: podle objednávky ${ocakavane}, naskenováno ${naskenovane}.`;
+  return "";
+}
+
 // Riadok z get_orders_for_sklad -> kopia do vydajky.
 export function objednavkaProVydajku(o) {
   const polozky = (Array.isArray(o.polozky) ? o.polozky : [])
