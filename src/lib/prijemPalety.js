@@ -16,9 +16,28 @@ export function patriKPalete(paleta, scan) {
   return true;
 }
 
+// Prinasa sken udaj, ktory paleta este nema?
+function doplniaPaletu(paleta, scan) {
+  if (["gtin", "sarza", "dmt", "datumVyroby", "objednavka"].some((k) => scan[k] && !paleta[k])) return true;
+  return ["pocet", "nettoKg"].some((k) => (scan[k] ?? null) !== null && (paleta[k] ?? null) === null);
+}
+
 // Prida sken: doplni rozpracovanu paletu, alebo zacne novu. Vrati { palety, rozpracovana }.
-// Rozpracovana paleta (bez SSCC) caka na dalsie kody tej istej etikety.
+// Rozpracovana paleta (bez SSCC) caka na dalsie kody tej istej etikety. Na poradi kodov
+// nezalezi: opakovany SSCC novu paletu nezacne a kod bez SSCC doplni poslednu paletu,
+// ak jej chyba to, co nesie.
 export function pridajSken(palety, rozpracovana, scan) {
+  const ista = scan.sscc ? palety.findIndex((p) => p.sscc === scan.sscc) : -1;
+  if (ista !== -1) {
+    let spojena = mergeScans(palety[ista], scan);
+    const pripojit = rozpracovana && patriKPalete(spojena, rozpracovana);
+    if (pripojit) spojena = mergeScans(spojena, rozpracovana);
+    return { palety: palety.map((p, i) => (i === ista ? spojena : p)), rozpracovana: pripojit ? null : rozpracovana };
+  }
+  const posledna = palety[palety.length - 1];
+  if (!rozpracovana && !scan.sscc && posledna && patriKPalete(posledna, scan) && doplniaPaletu(posledna, scan)) {
+    return { palety: [...palety.slice(0, -1), mergeScans(posledna, scan)], rozpracovana: null };
+  }
   if (rozpracovana && patriKPalete(rozpracovana, scan)) {
     const spojena = mergeScans(rozpracovana, scan);
     return spojena.sscc ? { palety: [...palety, spojena], rozpracovana: null } : { palety, rozpracovana: spojena };
@@ -65,6 +84,24 @@ function cislo(s) {
   return Number.isFinite(n) ? n : null;
 }
 
+// Co palete zo skenu este chyba (SSCC, mnozstvo, sarza).
+export function chybajuceNaPalete(p) {
+  const out = [];
+  if (!p.sscc) out.push("SSCC");
+  if (p.mnozstvo === null || p.mnozstvo === undefined) out.push("množství");
+  if (!p.sarza) out.push("šarže");
+  return out;
+}
+
+// Bez tychto udajov sa prijem neulozi (zadat sa daju aj rucne).
+export function chybajucePovinne({ mnozstvo, sarza, dmt, jeSurovina }) {
+  const out = [];
+  if (!String(mnozstvo || "").trim()) out.push("množství");
+  if (jeSurovina && !String(sarza || "").trim()) out.push("šarže");
+  if (jeSurovina && !String(dmt || "").trim()) out.push("DMT");
+  return out;
+}
+
 // Polozka dodacieho listu pre material prijmu (podla nasho nazvu, potom nazvu z dokladu).
 export function polozkaPreMaterial(dodak, material) {
   const polozky = (dodak && dodak.polozky) || [];
@@ -86,10 +123,12 @@ export function paletaNaDodaku(sscc, paletyDodaku) {
 // Krizove kontroly prijmu. Vrati [{ uroven: "chyba" | "upozornenie", text }].
 // chyba = nepustit ulozit bez opravy; upozornenie = skladnik vidi a rozhodne.
 // dodak = { polozka (vybrana polozka dodacieho listu alebo null), cisloObjednavky, maPolozky }
-export function kontrolaPrijmu({ material, mnozstvo, jednotka, sarza, dmt, palety = [], karty = [], prijateSscc = new Set(), objednavka = null, jeSurovina = false, dodak = null, dnes = new Date() }) {
+export function kontrolaPrijmu({ material, mnozstvo, jednotka, sarza, dmt, palety = [], karty = [], prijateSscc = new Set(), objednavka = null, jeSurovina = false, dodak = null, rozpracovana = false, dnes = new Date() }) {
   const out = [];
   const chyba = (text) => out.push({ uroven: "chyba", text });
   const pozor = (text) => out.push({ uroven: "upozornenie", text });
+
+  if (rozpracovana) chyba("Poslední paleta není celá – naskenujte ostatní kódy z její etikety.");
 
   const videne = new Set();
   for (const p of palety) {

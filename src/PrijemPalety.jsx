@@ -1,12 +1,27 @@
 import React, { useEffect, useRef, useState } from "react";
-import { ScanLine, Trash2, AlertCircle, TriangleAlert, FileText, Camera, Loader2 } from "lucide-react";
+import { ScanLine, Trash2, AlertCircle, TriangleAlert, FileText, Camera, Loader2, CheckCircle2, WifiOff } from "lucide-react";
 import { volbyPaliet, PALETA_EXPEDICE } from "./lib/palety.js";
+import { chybajuceNaPalete, sumaPaliet } from "./lib/prijemPalety.js";
 
 // Skenovanie paletovych etiket na prijme (PDA skener posiela kod ako text + Enter)
 // a zoznam palet. Ked etiketa GS1 nema, sarza a DMT sa zadaju rucne vo formulari.
-export function PaletySken({ palety, rozpracovana, onScan, onRemove, scanError, neznameGtiny, novaKarta, onNovaKarta, material, jednotka }) {
+export function PaletySken({ palety, onScan, onRemove, scanError, neznameGtiny, novaKarta, onNovaKarta, material, jednotka }) {
   const [text, setText] = useState("");
+  const [online, setOnline] = useState(typeof navigator === "undefined" ? true : navigator.onLine !== false);
   const inputRef = useRef(null);
+  const posledna = palety[palety.length - 1];
+  const chyba = posledna ? chybajuceNaPalete(posledna) : [];
+
+  useEffect(() => {
+    const on = () => setOnline(true);
+    const off = () => setOnline(false);
+    window.addEventListener("online", on);
+    window.addEventListener("offline", off);
+    return () => {
+      window.removeEventListener("online", on);
+      window.removeEventListener("offline", off);
+    };
+  }, []);
 
   function odoslat() {
     const t = text;
@@ -35,6 +50,11 @@ export function PaletySken({ palety, rozpracovana, onScan, onRemove, scanError, 
 
   return (
     <div className="border-2 border-slate-200 rounded-xl p-3 mb-3" data-testid="palety-sken">
+      {!online && (
+        <div className="mb-2 bg-red-700 text-white font-semibold px-3 py-2.5 rounded-lg flex items-center gap-2" data-testid="bez-siete">
+          <WifiOff size={20} className="shrink-0" /> Bez sítě – příjem se neuloží. Údaje zůstávají ve formuláři.
+        </div>
+      )}
       <div className="text-sm font-medium text-slate-500 mb-1.5 flex items-center gap-1.5"><ScanLine size={16} /> Naskenujte etiketu palety (všechny kódy na etiketě)</div>
       <div className="flex gap-2">
         <input
@@ -62,7 +82,17 @@ export function PaletySken({ palety, rozpracovana, onScan, onRemove, scanError, 
           <AlertCircle size={16} className="mt-0.5 shrink-0" /> <span>{scanError}</span>
         </div>
       )}
-      {rozpracovana && <div className="mt-2 text-sm text-slate-500">Načteno část etikety – naskenujte i ostatní kódy (hlavně SSCC palety).</div>}
+      {posledna && (
+        chyba.length > 0 ? (
+          <div className="mt-2 bg-amber-100 text-amber-900 font-semibold px-3 py-2.5 rounded-lg flex items-start gap-2" data-testid="stav-palety">
+            <TriangleAlert size={20} className="mt-0.5 shrink-0" /> <span>Paleta {palety.length}: naskenujte další kód z etikety. Chybí: {chyba.join(", ")}.</span>
+          </div>
+        ) : (
+          <div className="mt-2 bg-emerald-100 text-emerald-900 font-semibold px-3 py-2.5 rounded-lg flex items-start gap-2" data-testid="stav-palety">
+            <CheckCircle2 size={20} className="mt-0.5 shrink-0" /> <span>Paleta {palety.length} je celá. Celkem {sumaPaliet(palety)} {jednotka}. Můžete skenovat další.</span>
+          </div>
+        )
+      )}
 
       {palety.length > 0 && (
         <div className="mt-3 space-y-1.5">
