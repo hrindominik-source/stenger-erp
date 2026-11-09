@@ -36,7 +36,7 @@ export function rucnaDavka(row) {
     pocetPaliet: parseFloat(d.pocetPaliet) || 0,
     datum: datumZRucneho(d.datum, row.created_at),
     zapisal: d.zapisal || "",
-    zakaznik: o.zakaznik || "",
+    zakaznik: o.adresa_dodania_nazov || o.zakaznik || "",
     objednavka: o.cislo_objednavky_dopravy || "",
     cisloLs: o.cislo_dodacieho_listu || "",
   };

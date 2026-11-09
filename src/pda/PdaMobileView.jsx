@@ -13,7 +13,7 @@ import React, { useState, useEffect, useRef, useCallback, createContext, useCont
 import { Loader2, AlertCircle, LogOut, ArrowLeft, Plus, ScanLine, CheckCircle2, XCircle, Trash2, RotateCcw, PackageCheck, User, Wifi, WifiOff, Keyboard } from "lucide-react";
 import { parseGs1Detail, visibleControlChars, GS } from "../lib/gs1.js";
 import { mergeScan, EMPTY_PENDING, pdaErrorMessage, pdaId, summarizePallets } from "../lib/pdaScan.js";
-import { objednavkaProVydajku, varovaniaPalety, problemyVydajky, porovnajVydajku, paletyBezStopy } from "../lib/pdaObjednavka.js";
+import { objednavkaProVydajku, prijemcaObjednavky, varovaniaPalety, problemyVydajky, porovnajVydajku, paletyBezStopy } from "../lib/pdaObjednavka.js";
 import { savePalletFlow, deletePalletFlow, finishFlow, canFinish, createVydajkaFlow, mergeLoadedRows } from "../lib/pdaFlow.js";
 
 // Datova vrstva (Supabase alebo simulacia v testovacom rezime ?pda=test).
@@ -505,7 +505,8 @@ function NovaVydajkaScreen({ pracovnik, online, onBack, onCreated }) {
             <div className="max-h-52 overflow-y-auto space-y-1.5" data-testid="pda-objednavky">
               {objednavky.map((o) => (
                 <button type="button" key={o.id} onClick={() => vybrat(o)} className={"w-full text-left border-2 rounded-lg px-3 py-2 text-sm " + (vybrana && vybrana.id === o.id ? "border-teal-700 bg-teal-50" : "border-slate-200 bg-white")}>
-                  <div className="font-semibold">{o.zakaznik}</div>
+                  <div className="font-semibold">{prijemcaObjednavky(o)}</div>
+                  {prijemcaObjednavky(o) !== (o.zakaznik || "") && <div className="text-xs text-slate-500">pro {o.zakaznik}</div>}
                   <div className="text-xs text-slate-500">{o.cislo_objednavky_dopravy}{o.cislo_dodacieho_listu ? " · LS " + o.cislo_dodacieho_listu : ""}{objednavkaProVydajku(o).palet ? " · " + objednavkaProVydajku(o).palet + " pal." : ""}</div>
                 </button>
               ))}

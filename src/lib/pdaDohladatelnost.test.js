@@ -9,7 +9,7 @@ const vydajky = [
 ];
 const pal = (vydajka_id, sscc, extra = {}) => ({ vydajka_id, sscc, gtin: GTIN, bbd: "2027-05-28", sarza: null, mnozstvo: 16, ...extra });
 const palety = [pal("V1", "111"), pal("V2", "222"), pal("V1", "333", { sarza: "2607A", mnozstvo: null }), pal("IBA", "999")];
-const rucnyRow = (data, extra = {}) => ({ created_at: "2026-11-07T08:00:00Z", data, orders: { zakaznik: "Netto", cislo_objednavky_dopravy: "0050/2511", cislo_dodacieho_listu: "LS9" }, ...extra });
+const rucnyRow = (data, extra = {}) => ({ created_at: "2026-11-07T08:00:00Z", data, orders: { zakaznik: "Stenger Waffeln GmbH", adresa_dodania_nazov: "Netto", cislo_objednavky_dopravy: "0050/2511", cislo_dodacieho_listu: "LS9" }, ...extra });
 
 describe("stopa", () => {
   it("bez sarze plati BBD", () => {

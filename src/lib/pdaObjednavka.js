@@ -16,6 +16,17 @@ export function jeSkenovanyZakaznik(zakaznik) {
   return SKENOVANI_ZAKAZNICI.test(String(zakaznik || ""));
 }
 
+// Objednavky Edeka/Picnic/Globus idu cez Stenger Waffeln GmbH, ale expeduju
+// sa priamo - rozhoduje aj miesto dodania.
+export function jeSkenovanaObjednavka(o) {
+  return [o.zakaznik, o.adresa_dodania_nazov, o.adresa_dodania].some(jeSkenovanyZakaznik);
+}
+
+// Kam tovar realne ide: miesto dodania, inak zakaznik.
+export function prijemcaObjednavky(o) {
+  return String(o.adresa_dodania_nazov || "").trim() || o.zakaznik || "";
+}
+
 // Moze sa expedicia potvrdit? vydajky = [{ stav, palet }] naviazane na objednavku.
 // Vrati text prekazky, alebo prazdny retazec.
 export function prekazkaSkenuExpedice({ vydajky, ocakavane }) {
@@ -36,7 +47,8 @@ export function objednavkaProVydajku(o) {
   return {
     id: o.id,
     cislo: o.cislo_objednavky_dopravy || "",
-    zakaznik: o.zakaznik || "",
+    zakaznik: prijemcaObjednavky(o),
+    objednavatel: o.zakaznik || "",
     palet: zPoloziek || cislo(o.pocet_paliet),
     polozky,
   };

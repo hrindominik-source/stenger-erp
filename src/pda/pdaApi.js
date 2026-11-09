@@ -29,7 +29,7 @@ export function createSupabasePdaApi(supabase) {
       return fetchAll(() =>
         supabase
           .from("expedicia_zaznamy")
-          .select("id, order_id, created_at, data, orders(zakaznik, cislo_objednavky_dopravy, cislo_dodacieho_listu)")
+          .select("id, order_id, created_at, data, orders(zakaznik, adresa_dodania_nazov, cislo_objednavky_dopravy, cislo_dodacieho_listu)")
           .order("created_at", { ascending: true })
           .order("id"),
       );
