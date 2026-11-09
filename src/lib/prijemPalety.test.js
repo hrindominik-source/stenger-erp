@@ -35,6 +35,13 @@ describe("pridajSken", () => {
     expect(parseGs1("(02)12345678901231(400)ABC-1")).toMatchObject({ objednavka: "ABC-1" });
   });
 
+  it("etikety bez oddelovaca FNC1 z PDA", () => {
+    expect(parseGs1(`02${GTIN}9140078436825053700001080`)).toMatchObject({ gtin: GTIN, pocet: 1080 });
+    expect(parseGs1(`02${GTIN}378415291016`)).toMatchObject({ gtin: GTIN, pocet: 84, dmt: "16.10.2029" });
+    expect(parseGs1("37011527092510V37952")).toMatchObject({ pocet: 1, dmt: "25.09.2027", sarza: "V37952" });
+    expect(parseGs1(`02${GTIN}3732`)).toMatchObject({ gtin: GTIN, pocet: 32 });
+  });
+
   it("opakovany sken SSCC nezacne novu paletu", () => {
     const st = naskenuj([jokey[0], jokey[2], jokey[2], jokey[1]]);
     expect(st.palety).toHaveLength(1);
