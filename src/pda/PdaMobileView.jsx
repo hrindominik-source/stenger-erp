@@ -410,7 +410,7 @@ function DomovScreen({ pracovnik, online, onSignOut, onNova, onOpen, onZmenitPra
                     <span className="text-sm font-semibold text-teal-700">{pocet} pal.</span>
                   </div>
                   {v.data && v.data.objednavka && (
-                    <div className="text-sm font-semibold text-slate-700">{kratkyNazov(v.data.objednavka)}</div>
+                    <div className="text-sm font-semibold text-slate-700">{kratkyNazov(v.data.objednavka)}{v.data.objednavka.ulica ? <span className="font-normal text-xs text-slate-500"> · {v.data.objednavka.ulica}</span> : null}</div>
                   )}
                   <div className="text-xs text-slate-500">{formatDate(v.created_at)} {formatTime(v.created_at)} · {v.pracovnik || "-"}</div>
                 </button>
@@ -509,6 +509,7 @@ function NovaVydajkaScreen({ pracovnik, online, onBack, onCreated }) {
               {objednavky.map((o) => (
                 <button type="button" key={o.id} onClick={() => vybrat(o)} className={"w-full text-left border-2 rounded-lg px-3 py-2 text-sm " + (vybrana && vybrana.id === o.id ? "border-teal-700 bg-teal-50" : "border-slate-200 bg-white")}>
                   <div className="font-bold text-base">{kratkyNazov(o)}</div>
+                  {hlavickaObjednavky(o).ulica && <div className="text-xs text-slate-600">{hlavickaObjednavky(o).ulica}</div>}
                   <div className="text-sm">
                     {hlavickaObjednavky(o).lsDe ? <b>LS {hlavickaObjednavky(o).lsDe}</b> : <span className="text-amber-700 font-medium">bez německého LS</span>}
                     <span className="text-xs text-slate-500">{hlavickaObjednavky(o).dl ? " · DL " + hlavickaObjednavky(o).dl : ""}{objednavkaProVydajku(o).palet ? " · " + objednavkaProVydajku(o).palet + " pal." : ""}</span>
@@ -811,7 +812,7 @@ function VydajkaScreen({ vydajka: initial, pracovnik, online, onBack }) {
           return (
             <div className={"rounded-xl px-3 py-2 font-semibold " + (navyse ? "bg-red-100 text-red-900" : hotove ? "bg-emerald-100 text-emerald-900" : "bg-amber-100 text-amber-900")} data-testid="pda-postup">
               <div className="text-lg">{v.naskenovane}{v.ocakavane ? " / " + v.ocakavane : ""} palet</div>
-              <div className="text-xs font-medium">{kratkyNazov(objednavka)}{objednavka.dl ? " · DL " + objednavka.dl : ""}</div>
+              <div className="text-xs font-medium">{kratkyNazov(objednavka)}{objednavka.ulica ? " · " + objednavka.ulica : ""}{objednavka.dl ? " · DL " + objednavka.dl : ""}</div>
               {v.riadky.map((r) => <div key={r.popis} className="text-xs font-medium">{r.popis}: {r.naskenovane} / {r.ocakavane}</div>)}
             </div>
           );

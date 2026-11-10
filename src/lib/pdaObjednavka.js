@@ -41,9 +41,22 @@ export function prekazkaSkenuExpedice({ vydajky, ocakavane }) {
 
 // Mesto dodania a doklady objednavky pre skladnika: nemecke LS (Lieferschein DE
 // od kolegov - pod nim ide vydajka aj NVE list) a nas cesky DL.
+// Ulica a PSC z adresy dodania ("Industriestr. 5, 86899 Landsberg") - rozlisi dva
+// sklady v tom istom meste. Riadky s nazvom firmy vynecha (berie len riadok pred PSC + PSC).
+export function ulicaZAdresy(adresa) {
+  const seg = String(adresa || "").split(/[\n,;]/).map((x) => x.trim()).filter(Boolean);
+  const i = seg.findIndex((x) => /^(D-|DE-)?\d{4,5}\s+\S/i.test(x));
+  if (i < 0) return "";
+  const psc = seg[i].match(/^(?:D-|DE-)?(\d{4,5})/i)[1];
+  const pred = i > 0 ? seg[i - 1] : "";
+  const ulica = /\d|str\.|stra(ss|ß)e|allee|weg|platz|ring|gasse|damm|ufer|chaussee/i.test(pred) ? pred : "";
+  return [ulica, psc].filter(Boolean).join(", ");
+}
+
 export function hlavickaObjednavky(o) {
   return {
     mesto: extractCityFromAddress(o.adresa_dodania || ""),
+    ulica: ulicaZAdresy(o.adresa_dodania),
     lsDe: String(o.nemecky_dodak_cislo || "").trim(),
     dl: String(o.cislo_dodacieho_listu || "").trim(),
   };
