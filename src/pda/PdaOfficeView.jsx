@@ -12,10 +12,10 @@ import { supabase } from "../supabaseClient.js";
 import { formatDateTime } from "../lib/utils.js";
 import { exportSheetsToExcel } from "../lib/exportExcel.js";
 import { pdaErrorMessage, summarizePallets } from "../lib/pdaScan.js";
-import { buildPdaExportSheets, formatIsoDate as formatDate, buildNveListData, downloadNveList } from "../lib/pdaExport.js";
+import { buildPdaExportSheets, formatIsoDate as formatDate, buildNveListData, downloadNveList, kratkeMesto } from "../lib/pdaExport.js";
 import { createSupabasePdaApi } from "./pdaApi.js";
 import PdaDohladatelnost from "./PdaDohladatelnost.jsx";
-import { kratkyNazov } from "../lib/pdaObjednavka.js";
+import { kratkyNazov, mestoZAdresy } from "../lib/pdaObjednavka.js";
 
 function localIso(d) {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
@@ -146,6 +146,17 @@ function PrehledVydajek({ api }) {
   // NVE LIST vo formate MAXIM pre jednu vydajku (subor <LS>.xlsx).
   async function nveList(v) {
     const nve = buildNveListData(v, palety, { products });
+    // mesto vzdy cerstvo z adresy objednavky (starsia vydajka mohla mat ulozene zle mesto)
+    const objId = v.data && v.data.objednavka && v.data.objednavka.id;
+    if (objId && !api.isDemo) {
+      try {
+        const { data } = await supabase.from("orders").select("adresa_dodania").eq("id", objId).maybeSingle();
+        const mesto = data && data.adresa_dodania ? kratkeMesto(mestoZAdresy(data.adresa_dodania)) : "";
+        if (mesto) nve.mesto = mesto;
+      } catch (e) {
+        console.warn("NVE list: adresa objednavky", e);
+      }
+    }
     const { bezProduktu, bezMnozstva } = nve.upozornenia;
     const varovania = [];
     if (bezProduktu.length) varovania.push(`GTIN bez produktu v Stenger ONE (chybí číslo artiklu a název): ${bezProduktu.join(", ")} – doplňte „EAN karton“ u produktu.`);
