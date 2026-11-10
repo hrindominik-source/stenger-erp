@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { objednavkaProVydajku, porovnajVydajku, varovaniaPalety, problemyVydajky, jeSkenovanyZakaznik, jeSkenovanaObjednavka, prijemcaObjednavky, hlavickaObjednavky, prekazkaSkenuExpedice, paletyBezStopy } from "./pdaObjednavka.js";
+import { objednavkaProVydajku, porovnajVydajku, varovaniaPalety, problemyVydajky, jeSkenovanyZakaznik, jeSkenovanaObjednavka, prijemcaObjednavky, hlavickaObjednavky, kratkyNazov, ulicaZAdresy, prekazkaSkenuExpedice, paletyBezStopy } from "./pdaObjednavka.js";
 
 const A = { id: "A", cisloArtikluSW: "62 99901", eanKarton: "4001234000015" };
 const B = { id: "B", cisloArtikluSW: "62 99902", eanKarton: "4001234000022" };
@@ -45,9 +45,29 @@ describe("paletyBezStopy", () => {
 describe("hlavickaObjednavky", () => {
   it("mesto, nemecke LS a nas DL", () => {
     const o = { adresa_dodania: "Edeka Zentrallager, Industriestr. 5, 77656 Offenburg", nemecky_dodak_cislo: " 8123456 ", cislo_dodacieho_listu: "60738/1211" };
-    expect(hlavickaObjednavky(o)).toEqual({ mesto: "OFFENBURG", lsDe: "8123456", dl: "60738/1211" });
+    expect(hlavickaObjednavky(o)).toEqual({ mesto: "OFFENBURG", ulica: "Industriestr. 5, 77656", lsDe: "8123456", dl: "60738/1211" });
     expect(objednavkaProVydajku({ id: "X", ...o })).toMatchObject({ mesto: "OFFENBURG", lsDe: "8123456", dl: "60738/1211" });
-    expect(hlavickaObjednavky({})).toEqual({ mesto: "", lsDe: "", dl: "" });
+    expect(hlavickaObjednavky({})).toEqual({ mesto: "", ulica: "", lsDe: "", dl: "" });
+  });
+});
+
+describe("ulicaZAdresy", () => {
+  it("ulica + PSC, bez nazvu firmy", () => {
+    expect(ulicaZAdresy("Piepenberg 2, 33181 Bad Wünnenberg")).toBe("Piepenberg 2, 33181");
+    expect(ulicaZAdresy("Globusallee, 55411 Bingen am Rhein")).toBe("Globusallee, 55411");
+    expect(ulicaZAdresy("EDEKA Zentrallager, 86899 Landsberg")).toBe("86899");
+    expect(ulicaZAdresy(["EDEKA Zentrallager", "Industriestr. 5", "D-86899 Landsberg"].join(String.fromCharCode(10)))).toBe("Industriestr. 5, 86899");
+    expect(ulicaZAdresy("")).toBe("");
+  });
+});
+
+describe("kratkyNazov", () => {
+  it("prve slovo prijemcu + mesto", () => {
+    expect(kratkyNazov({ zakaznik: "Stenger Waffeln GmbH", adresa_dodania_nazov: "EDEKA SB Handels Stiftung & Co. KG", adresa_dodania: "Zentrallager, 86899 Landsberg am Lech" })).toBe("EDEKA LANDSBERG");
+    expect(kratkyNazov({ zakaznik: "Globus Logistik 0582 GmbH & Co.KG", mesto: "BINGEN" })).toBe("GLOBUS BINGEN");
+    expect(kratkyNazov({ zakaznik: "Globus", mesto: "BINGEN AM RHEIN" })).toBe("GLOBUS BINGEN");
+    expect(kratkyNazov({ zakaznik: "Netto Marken-Discount AG", mesto: "" })).toBe("NETTO");
+    expect(kratkyNazov(null)).toBe("");
   });
 });
 
