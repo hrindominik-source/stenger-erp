@@ -15,6 +15,7 @@ import { pdaErrorMessage, summarizePallets } from "../lib/pdaScan.js";
 import { buildPdaExportSheets, formatIsoDate as formatDate, buildNveListData, downloadNveList } from "../lib/pdaExport.js";
 import { createSupabasePdaApi } from "./pdaApi.js";
 import PdaDohladatelnost from "./PdaDohladatelnost.jsx";
+import { kratkyNazov } from "../lib/pdaObjednavka.js";
 
 function localIso(d) {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
@@ -224,7 +225,7 @@ function PrehledVydajek({ api }) {
                       <td className="px-3 py-2 text-slate-400">{open ? <ChevronDown size={16} /> : <ChevronRight size={16} />}</td>
                       <td className="px-3 py-2 font-medium whitespace-nowrap">
                         {v.cislo_lieferschein}
-                        {v.data && v.data.objednavka && <div className="text-xs font-normal text-slate-500">{v.data.objednavka.zakaznik}{v.data.objednavka.mesto ? " · " + v.data.objednavka.mesto : ""}</div>}
+                        {v.data && v.data.objednavka && <div className="text-xs font-normal text-slate-500">{kratkyNazov(v.data.objednavka)}</div>}
                       </td>
                       <td className="px-3 py-2 whitespace-nowrap">{formatDateTime(v.created_at)}</td>
                       <td className="px-3 py-2">{v.pracovnik || <span className="text-slate-400">-</span>}</td>

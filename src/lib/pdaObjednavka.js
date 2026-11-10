@@ -49,6 +49,18 @@ export function hlavickaObjednavky(o) {
   };
 }
 
+// Kratky nazov pre skladnika: prve slovo prijemcu + mesto, napr. "EDEKA LANDSBERG".
+// Funguje aj s ulozenou objednavkou vydajky ({ zakaznik, mesto }).
+export function kratkyNazov(o) {
+  if (!o) return "";
+  const meno = o.adresa_dodania_nazov !== undefined || o.zakaznik_nazov !== undefined ? prijemcaObjednavky(o) : String(o.zakaznik || "");
+  // "Landsberg am Lech" -> "Landsberg", "Bingen am Rhein" -> "Bingen"
+  const mesto = String(o.mesto !== undefined ? o.mesto : extractCityFromAddress(o.adresa_dodania || ""))
+    .replace(/\s+(am|an|im|in|bei|ob|unter|vor|a\.|i\.|\(|\/).*$/i, "").trim();
+  const prve = meno.trim().split(/[\s,]+/)[0] || "";
+  return [prve, mesto].filter(Boolean).join(" ").toUpperCase();
+}
+
 // Riadok z get_orders_for_sklad -> kopia do vydajky.
 export function objednavkaProVydajku(o) {
   const polozky = (Array.isArray(o.polozky) ? o.polozky : [])
