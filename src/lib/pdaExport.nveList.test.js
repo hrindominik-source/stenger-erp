@@ -47,7 +47,7 @@ describe("NVE list - data", () => {
     expect(nve.sumAmount).toBe(42);
     expect(nve.palet).toBe(3);
     expect(nve.prijemce).toEqual(NVE_PRIJEMCA_DEFAULT);
-    expect(nve.upozornenia).toEqual({ bezProduktu: [], bezMnozstva: 0 });
+    expect(nve.upozornenia).toEqual({ bezProduktu: [], bezNemeckehoNazvu: ["TEST POPCORN 200g"], bezMnozstva: 0 });
   });
   it("datum = den dokoncenia vydajky", () => {
     expect(buildNveListData(V, [pal(1)]).datum).toBe("13.10.2026");
@@ -55,7 +55,7 @@ describe("NVE list - data", () => {
   it("neznamy GTIN a chybajuce mnozstvo su v upozorneniach", () => {
     const nve = buildNveListData(V, [pal(1, { gtin: "09999999999999", mnozstvo: null })], { products: [PRODUKT] });
     expect(nve.rows[0]).toMatchObject({ number: "", product: "GTIN 09999999999999", amount: null });
-    expect(nve.upozornenia).toEqual({ bezProduktu: ["09999999999999"], bezMnozstva: 1 });
+    expect(nve.upozornenia).toEqual({ bezProduktu: ["09999999999999"], bezNemeckehoNazvu: [], bezMnozstva: 1 });
   });
   it("hlada produkt podla EAN kartonu aj GTIN-14 s indikatorom", () => {
     expect(findProduktForGtin("04001234000015", [PRODUKT])).toBe(PRODUKT);
@@ -196,5 +196,18 @@ describe("NVE list so stlpcom Sage", () => {
     const wb = await buildNveListWorkbook(buildNveListData(V, [pal(1)], { products: [P] }), { sage: true });
     expect(wb.worksheets[0].getColumn(2).width).toBeGreaterThanOrEqual(16);
     expect(wb.worksheets[0].getColumn(3).width).toBeGreaterThanOrEqual(14);
+  });
+});
+
+describe("NVE list - nemecky nazov", () => {
+  it("z polozky objednavky podla cisla Sage, inak Nazev DE, inak karta + upozornenie", () => {
+    const obj = { objednavka: { polozky: [{ artikel: "62 99901", popis: '"Gut & Günstig" Popcorn süß', palet: 2 }] } };
+    expect(buildNveListData({ ...V, data: obj }, [pal(1)], { products: [PRODUKT] }).rows[0].product).toBe('"Gut & Günstig" Popcorn süß');
+    const nde = buildNveListData(V, [pal(1)], { products: [{ ...PRODUKT, nazovDE: "Popcorn süß 200 g" }] });
+    expect(nde.rows[0].product).toBe("Popcorn süß 200 g");
+    expect(nde.upozornenia.bezNemeckehoNazvu).toEqual([]);
+    const bez = buildNveListData(V, [pal(1)], { products: [PRODUKT] });
+    expect(bez.rows[0].product).toBe("TEST POPCORN 200g");
+    expect(bez.upozornenia.bezNemeckehoNazvu).toEqual(["TEST POPCORN 200g"]);
   });
 });

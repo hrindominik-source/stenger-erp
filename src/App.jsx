@@ -309,6 +309,7 @@ const EMPTY_PRODUCT = {
   cisloArtiklu: "",
   cisloArtikluSW: "",
   cisloArtikluZakaznika: "",
+  nazovDE: "",
   inhlt: "",
   eanKarton: "",
   eanUnit: "",
@@ -6001,6 +6002,7 @@ function ProductModal({ product, existingReceipts, existingIssues, onClose, onSa
         <Field label="Artiklové číslo Stenger Waffeln (Sage 100)" value={f.cisloArtikluSW} onChange={(v) => setF({ ...f, cisloArtikluSW: v })} />
         <Field label="Artiklové číslo zákazníka" value={f.cisloArtikluZakaznika} onChange={(v) => setF({ ...f, cisloArtikluZakaznika: v })} />
       </div>
+      <Field label="Název DE (pro NVE list, když není na objednávce)" value={f.nazovDE || ""} onChange={(v) => setF({ ...f, nazovDE: v })} placeholder={'např. "Gut & Günstig" Popcorn süß'} />
       <Field label="Obsah balení (inhlt, pro Lieferschein)" value={f.inhlt} onChange={(v) => setF({ ...f, inhlt: v })} textarea placeholder="např. 20 x 75 g Beutel, 1 PLT= 16 KRT" />
       <div className="grid grid-cols-2 gap-x-3">
         <Field label="EAN karton" value={f.eanKarton} onChange={(v) => setF({ ...f, eanKarton: v })} />

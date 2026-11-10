@@ -128,6 +128,17 @@ export function kratkeMesto(mesto) {
   return String(mesto || "").replace(/\s+(am|an|im|in|bei|ob|unter|vor|a\.|i\.|\(|\/).*$/i, "").trim().toUpperCase();
 }
 
+// Nemecky nazov vyrobku pre NVE list: popis polozky objednavky Stenger Waffeln
+// (parovanie cez cislo artikla Sage / nase / zakaznika), inak "Název DE" z karty.
+const kodArt = (v) => String(v || "").replace(/\s/g, "").toUpperCase();
+export function nemeckyNazov(produkt, polozky = []) {
+  if (!produkt) return "";
+  const cisla = [produkt.cisloArtikluSW, produkt.cisloArtiklu, produkt.cisloArtikluZakaznika].map(kodArt).filter(Boolean);
+  const pol = (polozky || []).find((p) => p && p.popis && cisla.includes(kodArt(p.artikel)));
+  if (pol) return String(pol.popis).trim();
+  return String(produkt.nazovDE || "").trim();
+}
+
 // Data NVE listu (bez Excelu) - testovatelne. Palety v poradi skenovania.
 export function buildNveListData(vydajka, palety, { products = [], prijemce = NVE_PRIJEMCA_DEFAULT, datum } = {}) {
   const zoradene = palety
@@ -135,9 +146,13 @@ export function buildNveListData(vydajka, palety, { products = [], prijemce = NV
     .slice()
     .sort((a, b) => (a.created_at < b.created_at ? -1 : a.created_at > b.created_at ? 1 : 0));
   const bezProduktu = new Set();
+  const bezNemeckeho = new Set();
+  const polozkyObj = (vydajka.data && vydajka.data.objednavka && vydajka.data.objednavka.polozky) || [];
   const rows = zoradene.map((p, i) => {
     const produkt = findProduktForGtin(p.gtin, products);
     if (!produkt && p.gtin) bezProduktu.add(p.gtin);
+    const de = nemeckyNazov(produkt, polozkyObj);
+    if (produkt && !de) bezNemeckeho.add(nveProduktNazov(produkt));
     const mhd = formatIsoDate(p.bbd);
     return {
       poradie: String(i + 1),
@@ -145,7 +160,8 @@ export function buildNveListData(vydajka, palety, { products = [], prijemce = NV
       // nase cislo artikla (SNC) a cislo Stenger Waffeln (Sage 100) - pre NVE list so stlpcom Sage
       snc: produkt ? String(produkt.cisloArtiklu || "") : "",
       sage: produkt ? String(produkt.cisloArtikluSW || "") : "",
-      product: produkt ? nveProduktNazov(produkt) : p.gtin ? "GTIN " + p.gtin : "",
+      // len nemecky nazov; bez neho (upozornenie) nazov z karty
+      product: produkt ? de || nveProduktNazov(produkt) : p.gtin ? "GTIN " + p.gtin : "",
       sscc: String(p.sscc),
       amount: p.mnozstvo == null ? null : Number(p.mnozstvo),
       unit: NVE_LAYOUT.constants.unit,
@@ -165,6 +181,7 @@ export function buildNveListData(vydajka, palety, { products = [], prijemce = NV
     palet: rows.length,
     upozornenia: {
       bezProduktu: Array.from(bezProduktu),
+      bezNemeckehoNazvu: Array.from(bezNemeckeho),
       bezMnozstva: rows.filter((r) => r.amount == null).length,
     },
   };
