@@ -283,6 +283,21 @@ export async function buildNveListWorkbook(nve, { sage = false } = {}) {
   row(sumRow, ["sum"], { E: sum });
   row(sumRow + 1, ["spacer"]);
   row(sumRow + 2, ["total"], { D: L.constants.totalLabel, E: nve.palet, F: L.constants.totalUnit });
+
+  // Sirky stlpcov podla obsahu (hlavicka + palety), aby text nebol orezany
+  // oramovanim susednej bunky. MAXIM sirky ostavaju ako minimum.
+  if (sage) {
+    lay.cols.forEach((c, i) => {
+      let max = 0;
+      for (let r = headerRow; r <= sumRow + 2; r++) {
+        const v = ws.getCell(LETTERS[i] + r).value;
+        const t = v && typeof v === "object" ? String(v.result ?? "") : v == null ? "" : String(v);
+        max = Math.max(max, t.length);
+      }
+      const col = ws.getColumn(i + 1);
+      col.width = Math.max(col.width || 0, Math.ceil(max * 1.15 + 2));
+    });
+  }
   return wb;
 }
 

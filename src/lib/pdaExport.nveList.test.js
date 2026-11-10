@@ -187,5 +187,14 @@ describe("NVE list so stlpcom Sage", () => {
     expect(ws.getCell("F9").value).toEqual({ formula: "SUM(F7:F8)", result: 32 });
     expect(["E11", "F11", "G11"].map((a) => ws.getCell(a).value)).toEqual(["TOTAL", 2, "pal"]);
     expect(ws.getCell("C7").numFmt).toBe(ws.getCell("B7").numFmt);
+    // sirka podla obsahu: SSCC (18 znakov) aj dlhe cislo artikla sa zmestia
+    expect(ws.getColumn(5).width).toBeGreaterThanOrEqual(22.86);
+    expect(ws.getColumn(2).width).toBeGreaterThanOrEqual(10);
+  });
+  it("dlhe cislo artikla rozsiri stlpec", async () => {
+    const P = { ...PRODUKT, cisloArtiklu: "EDEKA 6215200", cisloArtikluSW: "11000000422" };
+    const wb = await buildNveListWorkbook(buildNveListData(V, [pal(1)], { products: [P] }), { sage: true });
+    expect(wb.worksheets[0].getColumn(2).width).toBeGreaterThanOrEqual(16);
+    expect(wb.worksheets[0].getColumn(3).width).toBeGreaterThanOrEqual(14);
   });
 });
