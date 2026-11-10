@@ -202,9 +202,10 @@ describe("NVE list so stlpcom Sage", () => {
 describe("NVE list - nemecky nazov", () => {
   it("z polozky objednavky podla cisla Sage, inak Nazev DE, inak karta + upozornenie", () => {
     const obj = { objednavka: { polozky: [{ artikel: "62 99901", popis: '"Gut & Günstig" Popcorn süß', palet: 2 }] } };
-    expect(buildNveListData({ ...V, data: obj }, [pal(1)], { products: [PRODUKT] }).rows[0].product).toBe('"Gut & Günstig" Popcorn süß');
+    expect(buildNveListData({ ...V, data: obj }, [pal(1)], { products: [PRODUKT] }).rows[0].product).toBe('"Gut & Günstig" Popcorn süß 200g');
     const nde = buildNveListData(V, [pal(1)], { products: [{ ...PRODUKT, nazovDE: "Popcorn süß 200 g" }] });
     expect(nde.rows[0].product).toBe("Popcorn süß 200 g");
+    expect(buildNveListData(V, [pal(1)], { products: [{ ...PRODUKT, nazovDE: "Picnic POPCORN sweet" }] }).rows[0].product).toBe("Picnic POPCORN sweet 200g");
     expect(nde.upozornenia.bezNemeckehoNazvu).toEqual([]);
     const bez = buildNveListData(V, [pal(1)], { products: [PRODUKT] });
     expect(bez.rows[0].product).toBe("TEST POPCORN 200g");

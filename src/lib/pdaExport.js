@@ -135,8 +135,13 @@ export function nemeckyNazov(produkt, polozky = []) {
   if (!produkt) return "";
   const cisla = [produkt.cisloArtikluSW, produkt.cisloArtiklu, produkt.cisloArtikluZakaznika].map(kodArt).filter(Boolean);
   const pol = (polozky || []).find((p) => p && p.popis && cisla.includes(kodArt(p.artikel)));
-  if (pol) return String(pol.popis).trim();
-  return String(produkt.nazovDE || "").trim();
+  const nazov = pol ? String(pol.popis).trim() : String(produkt.nazovDE || "").trim();
+  if (!nazov) return "";
+  // gramaz na koniec (ako MAXIM "…POPCORN 200g"), ak v nazve este nie je
+  let gramaz = String(produkt.gramaz || "").trim();
+  if (/^\d+([.,]\d+)?$/.test(gramaz)) gramaz += "g";
+  const bezMedzier = (s) => s.toLowerCase().replace(/\s+/g, "");
+  return gramaz && !bezMedzier(nazov).includes(bezMedzier(gramaz)) ? `${nazov} ${gramaz}` : nazov;
 }
 
 // Data NVE listu (bez Excelu) - testovatelne. Palety v poradi skenovania.
