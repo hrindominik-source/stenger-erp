@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { objednavkaProVydajku, porovnajVydajku, varovaniaPalety, problemyVydajky, jeSkenovanyZakaznik, jeSkenovanaObjednavka, prijemcaObjednavky, prekazkaSkenuExpedice, paletyBezStopy } from "./pdaObjednavka.js";
+import { objednavkaProVydajku, porovnajVydajku, varovaniaPalety, problemyVydajky, jeSkenovanyZakaznik, jeSkenovanaObjednavka, prijemcaObjednavky, hlavickaObjednavky, prekazkaSkenuExpedice, paletyBezStopy } from "./pdaObjednavka.js";
 
 const A = { id: "A", cisloArtikluSW: "62 99901", eanKarton: "4001234000015" };
 const B = { id: "B", cisloArtikluSW: "62 99902", eanKarton: "4001234000022" };
@@ -39,6 +39,15 @@ describe("povinny sken expedicie", () => {
 describe("paletyBezStopy", () => {
   it("staci sarza alebo BBD", () => {
     expect(paletyBezStopy([{ sarza: "L1" }, { bbd: "2027-01-01" }, { sarza: " ", bbd: null }])).toHaveLength(1);
+  });
+});
+
+describe("hlavickaObjednavky", () => {
+  it("mesto, nemecke LS a nas DL", () => {
+    const o = { adresa_dodania: "Edeka Zentrallager, Industriestr. 5, 77656 Offenburg", nemecky_dodak_cislo: " 8123456 ", cislo_dodacieho_listu: "60738/1211" };
+    expect(hlavickaObjednavky(o)).toEqual({ mesto: "OFFENBURG", lsDe: "8123456", dl: "60738/1211" });
+    expect(objednavkaProVydajku({ id: "X", ...o })).toMatchObject({ mesto: "OFFENBURG", lsDe: "8123456", dl: "60738/1211" });
+    expect(hlavickaObjednavky({})).toEqual({ mesto: "", lsDe: "", dl: "" });
   });
 });
 

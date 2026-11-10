@@ -175,7 +175,8 @@ returns table (
   pocet_paliet text,
   pocet_paletovych_miest text,
   pocet_kartonov text,
-  polozky jsonb
+  polozky jsonb,
+  nemecky_dodak_cislo text
 )
 language sql
 stable
@@ -191,7 +192,8 @@ as $$
     data->>'pocetPaliet',
     data->>'pocetPaletovychMiest',
     data->>'pocetKartonov',
-    coalesce(data->'polozky', '[]'::jsonb)
+    coalesce(data->'polozky', '[]'::jsonb),
+    data->>'nemeckyDodakCislo'
   from public.orders
   where coalesce((data->>'stornovana')::boolean, false) = false
   order by created_at desc;

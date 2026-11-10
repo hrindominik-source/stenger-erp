@@ -2,6 +2,7 @@
 // Vydajka si pri zalozeni ulozi kopiu objednavky do data.objednavka.
 
 import { findProduktForGtin } from "./pdaExport.js";
+import { extractCityFromAddress } from "./utils.js";
 
 const cislo = (v) => {
   const n = parseFloat(String(v ?? "").replace(/\s/g, "").replace(",", "."));
@@ -38,6 +39,16 @@ export function prekazkaSkenuExpedice({ vydajky, ocakavane }) {
   return "";
 }
 
+// Mesto dodania a doklady objednavky pre skladnika: nemecke LS (Lieferschein DE
+// od kolegov - pod nim ide vydajka aj NVE list) a nas cesky DL.
+export function hlavickaObjednavky(o) {
+  return {
+    mesto: extractCityFromAddress(o.adresa_dodania || ""),
+    lsDe: String(o.nemecky_dodak_cislo || "").trim(),
+    dl: String(o.cislo_dodacieho_listu || "").trim(),
+  };
+}
+
 // Riadok z get_orders_for_sklad -> kopia do vydajky.
 export function objednavkaProVydajku(o) {
   const polozky = (Array.isArray(o.polozky) ? o.polozky : [])
@@ -49,6 +60,7 @@ export function objednavkaProVydajku(o) {
     cislo: o.cislo_objednavky_dopravy || "",
     zakaznik: prijemcaObjednavky(o),
     objednavatel: o.zakaznik || "",
+    ...hlavickaObjednavky(o),
     palet: zPoloziek || cislo(o.pocet_paliet),
     polozky,
   };
