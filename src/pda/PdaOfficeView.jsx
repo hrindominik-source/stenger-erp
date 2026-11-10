@@ -157,9 +157,10 @@ function PrehledVydajek({ api }) {
         console.warn("NVE list: adresa objednavky", e);
       }
     }
-    const { bezProduktu, bezMnozstva } = nve.upozornenia;
+    const { bezProduktu, bezMnozstva, bezNemeckehoNazvu = [] } = nve.upozornenia;
     const varovania = [];
     if (bezProduktu.length) varovania.push(`GTIN bez produktu v Stenger ONE (chybí číslo artiklu a název): ${bezProduktu.join(", ")} – doplňte „EAN karton“ u produktu.`);
+    if (bezNemeckehoNazvu.length) varovania.push(`Bez německého názvu (není na objednávce ani „Název DE“ u produktu): ${bezNemeckehoNazvu.join(", ")}.`);
     if (bezMnozstva) varovania.push(`${bezMnozstva} palet bez množství (AI 37).`);
     if (v.stav !== "dokoncena") varovania.push("Výdejka ještě není dokončená.");
     await downloadNveList(nve);
