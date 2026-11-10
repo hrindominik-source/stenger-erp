@@ -222,7 +222,10 @@ function PrehledVydajek({ api }) {
                   <React.Fragment key={v.id}>
                     <tr className="border-t border-slate-100 hover:bg-slate-50 cursor-pointer" onClick={() => setOpenId(open ? null : v.id)}>
                       <td className="px-3 py-2 text-slate-400">{open ? <ChevronDown size={16} /> : <ChevronRight size={16} />}</td>
-                      <td className="px-3 py-2 font-medium whitespace-nowrap">{v.cislo_lieferschein}</td>
+                      <td className="px-3 py-2 font-medium whitespace-nowrap">
+                        {v.cislo_lieferschein}
+                        {v.data && v.data.objednavka && <div className="text-xs font-normal text-slate-500">{v.data.objednavka.zakaznik}{v.data.objednavka.mesto ? " · " + v.data.objednavka.mesto : ""}</div>}
+                      </td>
                       <td className="px-3 py-2 whitespace-nowrap">{formatDateTime(v.created_at)}</td>
                       <td className="px-3 py-2">{v.pracovnik || <span className="text-slate-400">-</span>}</td>
                       <td className="px-3 py-2 text-right">{pal.length}</td>
