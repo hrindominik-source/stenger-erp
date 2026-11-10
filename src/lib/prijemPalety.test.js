@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { parseGs1 } from "./gs1.js";
-import { pridajSken, doplnPaletu, sumaPaliet, suhrnPaliet, kontrolaPrijmu, chybajuceNaPalete, chybajucePovinne } from "./prijemPalety.js";
+import { pridajSken, doplnPaletu, sumaPaliet, suhrnPaliet, kontrolaPrijmu, chybajuceNaPalete, chybajucePovinne, naPaletuZDodaku } from "./prijemPalety.js";
 
 // Vymyslene cisla s platnymi kontrolnymi cislicami.
 const SSCC1 = "123456789012345675";
@@ -88,6 +88,24 @@ describe("suhrn", () => {
     ];
     expect(suhrnPaliet(palety)).toEqual({ sarza: "A, B", dmt: "01.03.2027" });
     expect(sumaPaliet(palety)).toBe(2520.5);
+  });
+});
+
+describe("paleta bez karty produktu (etiketa bez GTIN)", () => {
+  const scan = { sscc: SSCC1, gtin: "", sarza: "V37943", dmt: "21.08.2027", pocet: 1, nettoKg: null };
+  it("mnozstvo z dodacieho listu, nie pocet ako kg", () => {
+    const naPaletu = naPaletuZDodaku({ mnozstvo: 24320, pocetPaliet: 32, jednotka: "kg" }, "kg");
+    expect(naPaletu).toBe(760);
+    expect(doplnPaletu(scan, null, { jednotka: "kg", naPaletu }).mnozstvo).toBe(760);
+  });
+  it("bez dodacieho listu v kg prazdne, v ks pocet", () => {
+    expect(doplnPaletu(scan, null, { jednotka: "kg", naPaletu: null }).mnozstvo).toBeNull();
+    expect(doplnPaletu(scan, null, { jednotka: "ks", naPaletu: null }).mnozstvo).toBe(1);
+    expect(naPaletuZDodaku({ mnozstvo: 24320, pocetPaliet: 32, jednotka: "kg" }, "ks")).toBeNull();
+    expect(naPaletuZDodaku({ mnozstvo: 24320, jednotka: "kg" }, "kg")).toBeNull();
+  });
+  it("netto kg z etikety ma prednost", () => {
+    expect(doplnPaletu({ ...scan, nettoKg: 755 }, null, { jednotka: "kg", naPaletu: 760 }).mnozstvo).toBe(755);
   });
 });
 
