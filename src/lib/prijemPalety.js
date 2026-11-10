@@ -47,10 +47,17 @@ export function pridajSken(palety, rozpracovana, scan) {
 }
 
 // Doplni mnozstvo a DMT palety podla karty produktu (GTIN -> material).
-export function doplnPaletu(scan, karta) {
+// bezKarty: { jednotka, naPaletu } pre paletu bez karty produktu (etiketa bez GTIN):
+// pocet z etikety su kusy baleni, nie kg - mnozstvo sa vezme z dodacieho listu
+// (mnozstvo / pocet palet), inak ostane prazdne a zada ho skladnik.
+export function doplnPaletu(scan, karta, bezKarty = null) {
   // ulozena paleta (uprava prijmu) bez poctu z etikety si necha ulozene mnozstvo
   const ulozene = scan.mnozstvo !== undefined && scan.mnozstvo !== null && (scan.pocet === null || scan.pocet === undefined) && !scan.nettoKg;
-  const mnozstvo = ulozene ? scan.mnozstvo : mnozstvoPalety({ pocet: scan.pocet ?? null, nettoKg: scan.nettoKg ?? null }, karta);
+  let mnozstvo = ulozene ? scan.mnozstvo : mnozstvoPalety({ pocet: scan.pocet ?? null, nettoKg: scan.nettoKg ?? null }, karta);
+  if (!ulozene && !karta && bezKarty) {
+    if (bezKarty.jednotka === "kg" && scan.nettoKg) mnozstvo = scan.nettoKg;
+    else mnozstvo = bezKarty.naPaletu != null ? bezKarty.naPaletu : bezKarty.jednotka === "ks" ? mnozstvo : null;
+  }
   const dmt = scan.dmt || (karta && karta.trvanlivostMesiace ? dmtZTrvanlivosti(scan.datumVyroby, karta.trvanlivostMesiace) : "");
   return {
     sscc: scan.sscc || "",
@@ -65,6 +72,16 @@ export function doplnPaletu(scan, karta) {
     mnozstvo,
     zdroj: scan.zdroj || ZDROJ_PALETY.SKEN,
   };
+}
+
+// Mnozstvo na 1 paletu z polozky dodacieho listu (len v rovnakej jednotke ako prijem).
+export function naPaletuZDodaku(polozka, jednotka) {
+  if (!polozka) return null;
+  const m = Number(polozka.mnozstvo);
+  const n = Number(polozka.pocetPaliet);
+  if (!(m > 0) || !(n > 0)) return null;
+  if (String(polozka.jednotka || "").trim().toLowerCase() !== String(jednotka || "").trim().toLowerCase()) return null;
+  return Math.round((m / n) * 1000) / 1000;
 }
 
 export function sumaPaliet(palety) {

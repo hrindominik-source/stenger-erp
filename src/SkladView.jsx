@@ -12,7 +12,7 @@ import { parseGs1, visibleControlChars } from "./lib/gs1.js";
 import { jeSkenovanaObjednavka, prekazkaSkenuExpedice, objednavkaProVydajku } from "./lib/pdaObjednavka.js";
 import { davkyZoSkenu } from "./lib/pdaDohladatelnost.js";
 import { snapshotPrijmu, zlucPrijem, popisRozpracovaneho } from "./lib/prijemRozpracovany.js";
-import { chybajucePovinne, pridajSken, doplnPaletu, sumaPaliet, suhrnPaliet, kontrolaPrijmu, polozkaPreMaterial, riadkyZDodaku, priradPalety } from "./lib/prijemPalety.js";
+import { naPaletuZDodaku, chybajucePovinne, pridajSken, doplnPaletu, sumaPaliet, suhrnPaliet, kontrolaPrijmu, polozkaPreMaterial, riadkyZDodaku, priradPalety } from "./lib/prijemPalety.js";
 
 const POLL_MS = 4000;
 const MATERIAL_QUICK_PICKS = ["Kukuřice Mushroom Yellow", "Cukr Tereos krystal", "Sůl SUPERFINE", "Tuk AKOSNAC NT MB", "Kartony", "Kbelíky", "Fólie", "Střešní fólie", "Pásky"];
@@ -1555,9 +1555,11 @@ export function PrijemTab({ fullName }) {
   const vsetkySkeny = rozpracovana ? [...skeny, rozpracovana] : skeny;
   const neznameGtiny = Array.from(new Map(vsetkySkeny.filter((p) => p.gtin && !kartaPodlaGtin(p.gtin)).map((p) => [p.gtin, p])).values());
   const docasnaKarta = { jednotka: f.mnozstvoUnit, mnozstvoNaKs: parseFloat(String(novaKarta.mnozstvoNaKs).replace(",", ".")) || 1, trvanlivostMesiace: Number(novaKarta.trvanlivostMesiace) || 0 };
-  const palety = vsetkySkeny.map((p) => doplnPaletu(p, (p.gtin && kartaPodlaGtin(p.gtin)) || (p.gtin ? docasnaKarta : null)));
   const aktualnyDodavatel = suppliers.find((s) => s.id === f.dodavatelId) || null;
   const dodakPolozka = dodak ? (dodakIdx !== null ? dodak.polozky[dodakIdx] : polozkaPreMaterial(dodak, f.material)) || null : null;
+  // etiketa bez GTIN (napr. Natais): mnozstvo na paletu z dodacieho listu, inak ho zada skladnik
+  const bezKarty = { jednotka: String(f.mnozstvoUnit || "").trim().toLowerCase(), naPaletu: naPaletuZDodaku(dodakPolozka, f.mnozstvoUnit) };
+  const palety = vsetkySkeny.map((p) => doplnPaletu(p, (p.gtin && kartaPodlaGtin(p.gtin)) || (p.gtin ? docasnaKarta : null), bezKarty));
   const naviazanaObjednavka = f.materialObjednavkaId ? materialOrders.find((o) => o.id === f.materialObjednavkaId) : null;
   const kontrolyJednej = kontrolaPrijmu({
     material: f.material,
