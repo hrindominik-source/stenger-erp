@@ -97,7 +97,11 @@ describe("krizove kontroly s dodacim listom", () => {
     expect(t).toContain("Dodací list uvádí 1680 kg, přijímáte 840 kg");
     expect(t).toContain("Šarže na etiketě (X9)");
     expect(t).toContain("DMT na etiketě (01.01.2030)");
-    expect(t).toContain("2 palet, naskenováno 1");
+    expect(t).toContain("Naskenováno 1 z 2 palet");
+    // pocet palet a mnozstvo musi skladnik vedome potvrdit (Uložit přesto)
+    const chyby = r.filter((k) => k.uroven === "chyba").map((k) => k.text).join(" ");
+    expect(chyby).toContain("Naskenováno 1 z 2 palet");
+    expect(chyby).toContain("přijímáte 840 kg");
     expect(t).toContain("objednávku M-12, příjem je vázán na M-99");
     expect(texty(kontrolaPrijmu({ material: "Sůl", dodak: { polozka: null, maPolozky: true }, dnes }))).toContain("na dodacím listu nenalezen");
   });

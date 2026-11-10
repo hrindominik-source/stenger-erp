@@ -208,7 +208,7 @@ export function kontrolaPrijmu({ material, mnozstvo, jednotka, sarza, dmt, palet
     if (p) {
       const mn = cislo(mnozstvo);
       if (p.mnozstvo !== null && mn !== null && (!p.jednotka || p.jednotka === jednotka) && p.mnozstvo !== mn) {
-        pozor(`Dodací list uvádí ${p.mnozstvo} ${p.jednotka || jednotka}, přijímáte ${mn} ${jednotka}.`);
+        chyba(`Dodací list uvádí ${p.mnozstvo} ${p.jednotka || jednotka}, přijímáte ${mn} ${jednotka}.`);
       }
       const dlSarze = sarzeSet(p.sarza);
       if (dlSarze.size) {
@@ -232,7 +232,7 @@ export function kontrolaPrijmu({ material, mnozstvo, jednotka, sarza, dmt, palet
         const mimo = palety.filter((x) => x.sscc && !paletaNaDodaku(x.sscc, paletyDodaku)).map((x) => x.sscc);
         if (mimo.length) pozor(`Paleta ${mimo.join(", ")} není na dodacím listu.`);
       }
-      if (p.pocetPaliet && palety.length && p.pocetPaliet !== palety.length) pozor(`Dodací list uvádí ${p.pocetPaliet} palet, naskenováno ${palety.length}.`);
+      if (p.pocetPaliet && palety.length && p.pocetPaliet !== palety.length) chyba(`Naskenováno ${palety.length} z ${p.pocetPaliet} palet na dodacím listu – naskenujte zbývající, nebo uložte přesto.`);
     }
     const cisloDl = (p && p.cisloObjednavky) || dodak.cisloObjednavky;
     if (cisloDl && objednavka && objednavka.cislo && bezMedzier(cisloDl) !== bezMedzier(objednavka.cislo)) {
