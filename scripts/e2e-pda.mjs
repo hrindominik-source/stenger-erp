@@ -227,11 +227,12 @@ try {
     await download.saveAs(file);
     const ws = XLSX.read(readFileSync(file), { cellFormula: true }).Sheets["NVE List"];
     assert(ws && ws.A1.v === "NVE LIST Nr: LS-4711", "nadpis: " + (ws && ws.A1 && ws.A1.v));
-    const sscc = Object.keys(ws).filter((k) => /^D\d+$/.test(k) && /^\d{18}$/.test(String(ws[k].v)));
+    const sscc = Object.keys(ws).filter((k) => /^E\d+$/.test(k) && /^\d{18}$/.test(String(ws[k].v)));
     assert(sscc.length === 5 && sscc.every((k) => ws[k].t === "s"), "SSCC: " + sscc.length);
-    assert(ws.D7.v === (await db()).palety.slice().sort((a, b) => (a.created_at < b.created_at ? -1 : 1))[0].sscc, "pořadí skenování");
-    assert(ws.E12.f === "SUM(E7:E11)" && ws.D14.v === "TOTAL" && ws.E14.v === 5, "součty");
-    assert(/TEST POPCORN 200g/.test(ws.C7.v) && ws.B7.v === "62 99901", "produkt: " + ws.B7.v + " / " + ws.C7.v);
+    assert(ws.E7.v === (await db()).palety.slice().sort((a, b) => (a.created_at < b.created_at ? -1 : 1))[0].sscc, "pořadí skenování");
+    // stlpec C = Sage (cislo Stenger Waffeln), za nim produkt, SSCC, ... posunute o 1
+    assert(ws.F12.f === "SUM(F7:F11)" && ws.E14.v === "TOTAL" && ws.F14.v === 5, "součty");
+    assert(ws.C6.v === "Sage" && /TEST POPCORN 200g/.test(ws.D7.v) && ws.C7.v === "62 99901", "produkt: " + (ws.B7 && ws.B7.v) + " / " + ws.C7.v + " / " + ws.D7.v);
     console.log("      → " + file);
   });
 

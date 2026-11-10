@@ -42,7 +42,7 @@ describe("NVE list - data", () => {
     const nve = buildNveListData(V, [pal(2, { mnozstvo: 10 }), pal(1), pal(3, { sarza: "L77" })], { products: [PRODUKT] });
     expect(nve.cislo).toBe("2026-0000001");
     expect(nve.rows.map((r) => r.sscc)).toEqual(["004061414100000001", "004061414100000002", "004061414100000003"]);
-    expect(nve.rows[0]).toEqual({ poradie: "1", number: "62 99901", product: "TEST POPCORN 200g", sscc: "004061414100000001", amount: 16, unit: "box", lot: "29.04.2027", mhd: "29.04.2027" });
+    expect(nve.rows[0]).toEqual({ poradie: "1", number: "62 99901", snc: "SNC-1", sage: "62 99901", product: "TEST POPCORN 200g", sscc: "004061414100000001", amount: 16, unit: "box", lot: "29.04.2027", mhd: "29.04.2027" });
     expect(nve.rows[2].lot).toBe("L77");
     expect(nve.sumAmount).toBe(42);
     expect(nve.palet).toBe(3);
@@ -170,5 +170,22 @@ describe("NVE list - mesto a gramaz", () => {
   });
   it("gramaz sa neopakuje", () => {
     expect(nveProduktNazov({ znacka: "EDEKA POPCORN Sladký 200 g", gramaz: "200" })).toBe("EDEKA POPCORN Sladký 200 g");
+  });
+});
+
+describe("NVE list so stlpcom Sage", () => {
+  it("B = nase cislo, C = Sage, zvysok posunuty o stlpec", async () => {
+    const wb = await buildNveListWorkbook(buildNveListData(V, [pal(1), pal(2)], { products: [PRODUKT] }), { sage: true });
+    const back = new ExcelJS.Workbook();
+    await back.xlsx.load(await wb.xlsx.writeBuffer());
+    const ws = back.worksheets[0];
+    const C9 = ["A", "B", "C", "D", "E", "F", "G", "H", "I"];
+    expect(C9.map((c) => ws.getCell(c + "6").value)).toEqual([" ", "Number", "Sage", "Product", "SSCC code", "Amount", "Unit", "LOT", "MHD"]);
+    expect(C9.map((c) => ws.getCell(c + "7").value)).toEqual(["1", "SNC-1", "62 99901", "TEST POPCORN 200g", "004061414100000001", 16, "box", "29.04.2027", "29.04.2027"]);
+    expect(ws.getCell("I1").value).toBe("Datum: 13.10.2026");
+    expect(ws._merges.A1.range).toBe("A1:F1");
+    expect(ws.getCell("F9").value).toEqual({ formula: "SUM(F7:F8)", result: 32 });
+    expect(["E11", "F11", "G11"].map((a) => ws.getCell(a).value)).toEqual(["TOTAL", 2, "pal"]);
+    expect(ws.getCell("C7").numFmt).toBe(ws.getCell("B7").numFmt);
   });
 });

@@ -142,6 +142,9 @@ export function buildNveListData(vydajka, palety, { products = [], prijemce = NV
     return {
       poradie: String(i + 1),
       number: produkt ? String(produkt.cisloArtikluSW || produkt.cisloArtiklu || "") : "",
+      // nase cislo artikla (SNC) a cislo Stenger Waffeln (Sage 100) - pre NVE list so stlpcom Sage
+      snc: produkt ? String(produkt.cisloArtiklu || "") : "",
+      sage: produkt ? String(produkt.cisloArtikluSW || "") : "",
       product: produkt ? nveProduktNazov(produkt) : p.gtin ? "GTIN " + p.gtin : "",
       sscc: String(p.sscc),
       amount: p.mnozstvo == null ? null : Number(p.mnozstvo),
@@ -186,9 +189,18 @@ function applyStyle(cell, st) {
 }
 
 const COLS = ["A", "B", "C", "D", "E", "F", "G", "H"];
+const LETTERS = ["A", "B", "C", "D", "E", "F", "G", "H", "I"];
+
+// Logicke stlpce = stlpce MAXIM (A-H); "S" = navyse stlpec Sage za B
+// (styl ako B). Do Excelu ide pismeno podla poradia v lay.cols.
+function layoutStlpcov(sage) {
+  const cols = sage ? ["A", "B", "S", "C", "D", "E", "F", "G", "H"] : COLS;
+  return { cols, out: (c) => LETTERS[cols.indexOf(c)] };
+}
 
 // Jeden datovy riadok moze byt naraz prvy aj posledny - oramovanie sa zlucuje.
 function roleStyle(roles, col) {
+  if (col === "S") col = "B";
   const base = NVE_LAYOUT.roles[roles[0]][col];
   if (roles.length === 1) return base;
   const border = { ...base.border };
@@ -199,11 +211,11 @@ function roleStyle(roles, col) {
   return { ...base, border };
 }
 
-function styleRow(ws, rowNum, roles, values = {}, cols = COLS) {
+function styleRow(ws, rowNum, roles, values = {}, cols = COLS, lay = layoutStlpcov(false)) {
   const h = NVE_LAYOUT.rowHeights[roles[0]];
   if (h) ws.getRow(rowNum).height = h;
   for (const col of cols) {
-    const cell = ws.getCell(col + rowNum);
+    const cell = ws.getCell(lay.out(col) + rowNum);
     // Skryte bunky zlucenej oblasti nestylovat - ExcelJS by styl zapisal do
     // hlavnej bunky (prepisal by napr. textovy format A2).
     if (cell.isMerged && cell.master !== cell) continue;
@@ -213,12 +225,16 @@ function styleRow(ws, rowNum, roles, values = {}, cols = COLS) {
 }
 
 // ExcelJS workbook v rozlozeni MAXIM NVE listu (harok "NVE List").
-export async function buildNveListWorkbook(nve) {
+// sage: true = navyse stlpec "Sage" (cislo Stenger Waffeln) za nasim cislom artikla.
+export async function buildNveListWorkbook(nve, { sage = false } = {}) {
   const ExcelJS = (await import("exceljs")).default;
   const L = NVE_LAYOUT;
+  const lay = layoutStlpcov(sage);
+  const o = lay.out;
+  const row = (r, roles, values = {}, cols = lay.cols) => styleRow(ws, r, roles, values, cols, lay);
   const wb = new ExcelJS.Workbook();
   const ws = wb.addWorksheet(L.sheetName);
-  ws.columns = COLS.map((c) => ({ key: c, width: L.columnWidths[c] }));
+  ws.columns = lay.cols.map((c) => ({ key: o(c), width: L.columnWidths[c === "S" ? "B" : c] }));
 
   // 1: nadpis + datum, 2-4: prijemca (zlucene A:E). Zlucit PRED formatovanim -
   // ExcelJS pri zluceni kopiruje styl prvej bunky do ostatnych, MAXIM ich ma inak.
@@ -226,49 +242,53 @@ export async function buildNveListWorkbook(nve) {
   // Najprv naformatovat A1-A4, potom zlucit: ExcelJS pri zluceni skopiruje
   // styl prvej bunky do skrytych B:E (pismo/zarovnanie ako MAXIM). Skryte
   // bunky potom uz nestylovat - zapis by sa preniesol do prvej bunky.
-  styleRow(ws, 1, ["title"], { A: L.constants.titlePrefix + nve.cislo + (nve.mesto ? " " + nve.mesto : "") }, ["A"]);
+  row(1, ["title"], { A: L.constants.titlePrefix + nve.cislo + (nve.mesto ? " " + nve.mesto : "") }, ["A"]);
   applyStyle(ws.getCell("A1"), L.titleCells.A1);
-  ["address1", "address2", "address3"].forEach((role, i) => styleRow(ws, 2 + i, [role], { A: nve.prijemce[i] || "" }, ["A"]));
-  for (const m of L.merges) {
+  ["address1", "address2", "address3"].forEach((role, i) => row(2 + i, [role], { A: nve.prijemce[i] || "" }, ["A"]));
+  for (const m0 of L.merges) {
+    // zlucenie A:E (MAXIM) sa pri stlpci Sage posunie na A:F
+    const m = m0.replace(/([A-H])(\d+)$/, (_, c, r) => o(c) + r);
     ws.mergeCells(m);
     // Skryte bunky zdielaju objekt stylu s prvou bunkou; MAXIM ich ma
     // s formatom "General" - priradit im NOVY objekt (nie menit zdielany).
     const [from, to] = m.split(":");
-    const row = from.replace(/\D/g, "");
+    const rowNum = from.replace(/\D/g, "");
     const master = ws.getCell(from);
-    for (let c = COLS.indexOf(from[0]) + 1; c <= COLS.indexOf(to[0]); c++) {
-      ws.getCell(COLS[c] + row).style = { ...JSON.parse(JSON.stringify(master.style)), numFmt: "General" };
+    for (let c = LETTERS.indexOf(from[0]) + 1; c <= LETTERS.indexOf(to[0]); c++) {
+      ws.getCell(LETTERS[c] + rowNum).style = { ...JSON.parse(JSON.stringify(master.style)), numFmt: "General" };
     }
   }
-  ws.getCell("H1").value = L.constants.datePrefix + nve.datum;
-  applyStyle(ws.getCell("H1"), L.titleCells.H1);
+  ws.getCell(o("H") + "1").value = L.constants.datePrefix + nve.datum;
+  applyStyle(ws.getCell(o("H") + "1"), L.titleCells.H1);
 
   // hlavicka stlpcov (po prazdnom riadku)
   const headerRow = 5 + L.emptyRowBeforeHeader;
   const labels = {};
   COLS.forEach((c, i) => (labels[c] = L.headerLabels[i]));
-  styleRow(ws, headerRow, ["header"], labels);
+  if (sage) labels.S = "Sage";
+  row(headerRow, ["header"], labels);
 
   // palety - SSCC, cisla a datumy ako TEXT (bez straty uvodnych nul)
   const n = nve.rows.length;
   nve.rows.forEach((r, i) => {
     const roles = n === 1 ? ["dataFirst", "dataLast"] : i === 0 ? ["dataFirst"] : i === n - 1 ? ["dataLast"] : ["dataMiddle"];
-    styleRow(ws, headerRow + 1 + i, roles, { A: r.poradie, B: r.number, C: r.product, D: r.sscc, E: r.amount, F: r.unit, G: r.lot, H: r.mhd });
+    const cisla = sage ? { B: r.snc, S: r.sage } : { B: r.number };
+    row(headerRow + 1 + i, roles, { A: r.poradie, ...cisla, C: r.product, D: r.sscc, E: r.amount, F: r.unit, G: r.lot, H: r.mhd });
   });
 
   // sucet mnozstva (v MAXIM vzorec SUM nad datovymi riadkami), oddelovaci
   // riadok, TOTAL palet (konstanta)
   const sumRow = headerRow + 1 + n;
-  const sum = n ? { formula: `SUM(E${headerRow + 1}:E${headerRow + n})`, result: nve.sumAmount } : 0;
-  styleRow(ws, sumRow, ["sum"], { E: sum });
-  styleRow(ws, sumRow + 1, ["spacer"]);
-  styleRow(ws, sumRow + 2, ["total"], { D: L.constants.totalLabel, E: nve.palet, F: L.constants.totalUnit });
+  const sum = n ? { formula: `SUM(${o("E")}${headerRow + 1}:${o("E")}${headerRow + n})`, result: nve.sumAmount } : 0;
+  row(sumRow, ["sum"], { E: sum });
+  row(sumRow + 1, ["spacer"]);
+  row(sumRow + 2, ["total"], { D: L.constants.totalLabel, E: nve.palet, F: L.constants.totalUnit });
   return wb;
 }
 
 // Stiahnutie NVE listu v prehliadaci.
 export async function downloadNveList(nve) {
-  const wb = await buildNveListWorkbook(nve);
+  const wb = await buildNveListWorkbook(nve, { sage: true });
   const buf = await wb.xlsx.writeBuffer();
   const blob = new Blob([buf], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" });
   const url = URL.createObjectURL(blob);
