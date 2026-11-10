@@ -112,7 +112,8 @@ export function nveProduktNazov(p) {
   const znacka = String(p.znacka || "").trim();
   let gramaz = String(p.gramaz || "").trim();
   if (/^\d+([.,]\d+)?$/.test(gramaz)) gramaz += "g";
-  if (!gramaz || znacka.toLowerCase().includes(gramaz.toLowerCase())) return znacka;
+  const bezMedzier = (s) => s.toLowerCase().replace(/\s+/g, "");
+  if (!gramaz || bezMedzier(znacka).includes(bezMedzier(gramaz))) return znacka;
   return `${znacka} ${gramaz}`.trim();
 }
 
@@ -120,6 +121,11 @@ function localDate(iso) {
   if (!iso) return "";
   const d = new Date(iso);
   return `${String(d.getDate()).padStart(2, "0")}.${String(d.getMonth() + 1).padStart(2, "0")}.${d.getFullYear()}`;
+}
+
+// "Landsberg am Lech" -> "LANDSBERG", "Bingen am Rhein" -> "BINGEN"
+export function kratkeMesto(mesto) {
+  return String(mesto || "").replace(/\s+(am|an|im|in|bei|ob|unter|vor|a\.|i\.|\(|\/).*$/i, "").trim().toUpperCase();
 }
 
 // Data NVE listu (bez Excelu) - testovatelne. Palety v poradi skenovania.
@@ -147,6 +153,8 @@ export function buildNveListData(vydajka, palety, { products = [], prijemce = NV
   });
   return {
     cislo: String(vydajka.cislo_lieferschein),
+    // mesto dodania z objednavky vydajky - za cislo v nadpise aj v nazve suboru
+    mesto: kratkeMesto(vydajka.data && vydajka.data.objednavka && vydajka.data.objednavka.mesto),
     datum: datum || localDate(vydajka.dokoncena_at || vydajka.created_at),
     prijemce: prijemce.slice(0, 3),
     rows,
@@ -159,8 +167,8 @@ export function buildNveListData(vydajka, palety, { products = [], prijemce = NV
   };
 }
 
-export function nveListFileName(cislo) {
-  return String(cislo || "NVE").replace(/[\\/:*?"<>|]+/g, "_").trim() + ".xlsx";
+export function nveListFileName(cislo, mesto = "") {
+  return [String(cislo || "NVE"), mesto].filter(Boolean).join(" ").replace(/[\\/:*?"<>|]+/g, "_").trim() + ".xlsx";
 }
 
 function applyStyle(cell, st) {
@@ -218,7 +226,7 @@ export async function buildNveListWorkbook(nve) {
   // Najprv naformatovat A1-A4, potom zlucit: ExcelJS pri zluceni skopiruje
   // styl prvej bunky do skrytych B:E (pismo/zarovnanie ako MAXIM). Skryte
   // bunky potom uz nestylovat - zapis by sa preniesol do prvej bunky.
-  styleRow(ws, 1, ["title"], { A: L.constants.titlePrefix + nve.cislo }, ["A"]);
+  styleRow(ws, 1, ["title"], { A: L.constants.titlePrefix + nve.cislo + (nve.mesto ? " " + nve.mesto : "") }, ["A"]);
   applyStyle(ws.getCell("A1"), L.titleCells.A1);
   ["address1", "address2", "address3"].forEach((role, i) => styleRow(ws, 2 + i, [role], { A: nve.prijemce[i] || "" }, ["A"]));
   for (const m of L.merges) {
@@ -266,7 +274,7 @@ export async function downloadNveList(nve) {
   const url = URL.createObjectURL(blob);
   const a = document.createElement("a");
   a.href = url;
-  a.download = nveListFileName(nve.cislo);
+  a.download = nveListFileName(nve.cislo, nve.mesto);
   document.body.appendChild(a);
   a.click();
   a.remove();
