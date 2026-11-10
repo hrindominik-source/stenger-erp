@@ -51,6 +51,15 @@ describe("hlavickaObjednavky", () => {
   });
 });
 
+describe("mesto z adresy s GLN", () => {
+  it("Edeka Landsberg", () => {
+    const o = { adresa_dodania_nazov: "EDEKA SB Handels Stiftung & Co. KG", adresa_dodania: "Verteilzentrum Landsberg am Lech, GLN: 4314214990108, Franz-Kollmann-Straße 2, 86899 Landsberg am Lech" };
+    expect(hlavickaObjednavky(o).mesto).toBe("LANDSBERG AM LECH");
+    expect(hlavickaObjednavky(o).ulica).toBe("Franz-Kollmann-Straße 2, 86899");
+    expect(kratkyNazov(o)).toBe("EDEKA LANDSBERG");
+  });
+});
+
 describe("ulicaZAdresy", () => {
   it("ulica + PSC, bez nazvu firmy", () => {
     expect(ulicaZAdresy("Piepenberg 2, 33181 Bad Wünnenberg")).toBe("Piepenberg 2, 33181");
