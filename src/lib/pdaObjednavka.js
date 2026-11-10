@@ -1,7 +1,7 @@
 // Kontrola PDA vydajky voci objednavke Stenger ONE (bez Reactu/Supabase - kvoli testom).
 // Vydajka si pri zalozeni ulozi kopiu objednavky do data.objednavka.
 
-import { findProduktForGtin } from "./pdaExport.js";
+import { findProduktForGtin, kratkeMesto } from "./pdaExport.js";
 import { extractCityFromAddress } from "./utils.js";
 
 const cislo = (v) => {
@@ -78,9 +78,7 @@ export function hlavickaObjednavky(o) {
 export function kratkyNazov(o) {
   if (!o) return "";
   const meno = o.adresa_dodania_nazov !== undefined || o.zakaznik_nazov !== undefined ? prijemcaObjednavky(o) : String(o.zakaznik || "");
-  // "Landsberg am Lech" -> "Landsberg", "Bingen am Rhein" -> "Bingen"
-  const mesto = String(o.mesto !== undefined ? o.mesto : mestoZAdresy(o.adresa_dodania))
-    .replace(/\s+(am|an|im|in|bei|ob|unter|vor|a\.|i\.|\(|\/).*$/i, "").trim();
+  const mesto = kratkeMesto(o.mesto !== undefined ? o.mesto : mestoZAdresy(o.adresa_dodania));
   const prve = meno.trim().split(/[\s,]+/)[0] || "";
   return [prve, mesto].filter(Boolean).join(" ").toUpperCase();
 }

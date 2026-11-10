@@ -2,7 +2,7 @@ import { describe, it, expect } from "vitest";
 import ExcelJS from "exceljs";
 import * as XLSX from "xlsx";
 import JSZip from "jszip";
-import { buildNveListData, buildNveListWorkbook, findProduktForGtin, nveProduktNazov, nveListFileName, NVE_PRIJEMCA_DEFAULT } from "./pdaExport.js";
+import { buildNveListData, buildNveListWorkbook, findProduktForGtin, nveProduktNazov, nveListFileName, NVE_PRIJEMCA_DEFAULT, kratkeMesto } from "./pdaExport.js";
 import LAYOUT from "./__fixtures__/nveListMaxim.layout.json";
 
 // NVE LIST vo formate MAXIM - vzdy spustany test (synteticke data, bez
@@ -156,5 +156,19 @@ describe("NVE list - Excel subor (rozlozenie podla MAXIM)", () => {
       expect([b.top, b.bottom]).toEqual(["thin", "thin"]);
     }
     expect(ws.getCell("E8").value).toEqual({ formula: "SUM(E7:E7)", result: 16 });
+  });
+});
+
+describe("NVE list - mesto a gramaz", () => {
+  it("mesto za cislom v nadpise aj nazve suboru", () => {
+    const v = { id: "V9", cislo_lieferschein: "2026-2212740", created_at: "2026-11-10T09:00:00Z", data: { objednavka: { mesto: "LANDSBERG AM LECH" } } };
+    const nve = buildNveListData(v, []);
+    expect(nve.mesto).toBe("LANDSBERG");
+    expect(nveListFileName(nve.cislo, nve.mesto)).toBe("2026-2212740 LANDSBERG.xlsx");
+    expect(nveListFileName("2026/1")).toBe("2026_1.xlsx");
+    expect(kratkeMesto("Bingen am Rhein")).toBe("BINGEN");
+  });
+  it("gramaz sa neopakuje", () => {
+    expect(nveProduktNazov({ znacka: "EDEKA POPCORN Sladký 200 g", gramaz: "200" })).toBe("EDEKA POPCORN Sladký 200 g");
   });
 });
