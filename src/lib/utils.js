@@ -112,3 +112,11 @@ export function extractCityFromAddress(adresa) {
   const cleaned = last.replace(/^[A-Z]{0,3}-?\s*\d{3,6}\s*[A-Za-z]{0,3}\s*/i, "").trim();
   return (cleaned || last).toUpperCase();
 }
+
+// Prípona názvu stiahnutého súboru s mestom dodania ("_LANDSBERG_AM_LECH"),
+// rovnaká pre dodák, CMR aj paletový lístok. Bez mesta prázdny reťazec.
+export function mestoDoNazvuSuboru(adresaDodania) {
+  const mesto = extractCityFromAddress(adresaDodania || "");
+  const cisty = mesto.replace(/[^\p{L}\p{N}]+/gu, "_").replace(/^_+|_+$/g, "");
+  return cisty ? `_${cisty}` : "";
+}

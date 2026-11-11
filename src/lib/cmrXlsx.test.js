@@ -40,3 +40,12 @@ describe("CMR odosielatel / prijemca", () => {
     expect(krajinaCmr("")).toBe("");
   });
 });
+
+import { mestoDoNazvuSuboru } from "./utils.js";
+describe("mestoDoNazvuSuboru", () => {
+  it("prida mesto dodania do nazvu suboru", () => {
+    expect(mestoDoNazvuSuboru("Lagerweg 2, GLN: 4314214990108, 86899 Landsberg am Lech")).toBe("_LANDSBERG_AM_LECH");
+    expect(mestoDoNazvuSuboru("Musterweg 1\n55411 Bingen am Rhein\nDeutschland")).toBe("_BINGEN_AM_RHEIN");
+    expect(mestoDoNazvuSuboru("")).toBe("");
+  });
+});

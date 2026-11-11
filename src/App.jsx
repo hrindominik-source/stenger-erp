@@ -23,7 +23,7 @@ const PdaApp = lazy(() => import("./pda/PdaApp.jsx"));
 const PdaTestMode = lazy(() => import("./pda/PdaTestMode.jsx"));
 const PdaOfficeView = lazy(() => import("./pda/PdaOfficeView.jsx"));
 const SkladPrehledView = lazy(() => import("./SkladPrehledView.jsx"));
-import { extractCityFromAddress, todayStr, uid, parseSkDate, isoFromSkDateStr, skDateStrFromIso, durationMinutes, formatMinutes } from "./lib/utils.js";
+import { extractCityFromAddress, mestoDoNazvuSuboru, todayStr, uid, parseSkDate, isoFromSkDateStr, skDateStrFromIso, durationMinutes, formatMinutes } from "./lib/utils.js";
 import { parsePricelistFile, computeTransportPrice, computeTransportPriceForCity, formatEur, formatPriceNumber } from "./lib/pricelist.js";
 import { buildLieferscheinXlsx } from "./lib/lieferscheinXlsx.js";
 import { buildLieferscheinDocHtml } from "./lib/lieferscheinHtml.js";
@@ -4274,7 +4274,7 @@ function PalletModal({ order, onClose, onDone }) {
   }
   function handleDownload() {
     const html = buildPalletHtml({ cislo: order.cisloObjednavkyDopravy, nalozeno, miesto });
-    downloadHtml(`Paletovy_listok_${order.cisloObjednavkyDopravy.replace("/", "-")}.html`, html);
+    downloadHtml(`Paletovy_listok_${order.cisloObjednavkyDopravy.replace("/", "-")}${mestoDoNazvuSuboru(order.adresaDodania)}.html`, html);
     onDone({ subject: "Paletový lístek", body: html, nalozeno, miesto, to: "stiahnute", datum: new Date().toISOString() }, "download");
   }
 
