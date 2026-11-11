@@ -26,6 +26,7 @@ const SkladPrehledView = lazy(() => import("./SkladPrehledView.jsx"));
 import { extractCityFromAddress, todayStr, uid, parseSkDate, isoFromSkDateStr, skDateStrFromIso, durationMinutes, formatMinutes } from "./lib/utils.js";
 import { parsePricelistFile, computeTransportPrice, computeTransportPriceForCity, formatEur, formatPriceNumber } from "./lib/pricelist.js";
 import { buildLieferscheinXlsx } from "./lib/lieferscheinXlsx.js";
+import { buildLieferscheinDocHtml } from "./lib/lieferscheinHtml.js";
 import { buildCmrXlsx, buildCmrWorkbook } from "./lib/cmrXlsx.js";
 import { renderWorksheetToHtml } from "./lib/xlsxToHtml.js";
 import { parseSupplierCatalogFile, mergeSupplierCatalog } from "./lib/supplierCatalog.js";
@@ -4000,208 +4001,45 @@ function computeKusyFromKarton(karton, produkt) {
   return Math.round(k * perKarton);
 }
 
-function LieferscheinPrintTable({ id, company, customer, order, carrierName, transportPrice, products }) {
-  const row = { display: "flex", borderBottom: "1px solid #ddd", padding: "2px 0" };
-  const left = { width: "50%", paddingRight: "8px" };
-  const right = { width: "50%" };
+// Data pre dodaci list (spolocne pre tlac, PDF aj nahlad) - polozky s
+// napojenym Produktom, dopocitane palety a kusy.
+function lieferscheinData({ company, customer, order, carrierName, transportPrice, products }) {
   const items = ((order.polozky && order.polozky.length > 0) ? order.polozky : [{ popis: order.popisTovaru || "", artikel: "", palet: order.pocetPaliet || "", karton: order.pocetKartonov || "" }])
     .map((it) => {
-      const produkt = findProduktForItem(it, customer, products);
-      const paletEffective = it.palet || computePaletFromKarton(it.karton, it.artikel, customer, products) || "";
-      return { ...it, produkt, paletEffective };
+      const p = findProduktForItem(it, customer, products);
+      return {
+        palet: it.palet || computePaletFromKarton(it.karton, it.artikel, customer, products) || "",
+        karton: it.karton,
+        popis: it.popis,
+        inhlt: p && p.inhlt,
+        eanUK: p && p.eanKarton,
+        eanVE: p && p.eanUnit,
+        rspo: !!(p && p.rspo),
+        stk: computeKusyFromKarton(it.karton, p),
+        artikel: it.artikel,
+        artikelNase: p && p.cisloArtiklu,
+        artikelSW: p && p.cisloArtikluSW,
+      };
     });
-  const sumPaliet = items.reduce((s, it) => s + (parseFloat(it.paletEffective) || 0), 0);
+  const sumPaliet = items.reduce((s, it) => s + (parseFloat(it.palet) || 0), 0);
   const totalPaliet = sumPaliet > 0 ? sumPaliet : (order.pocetPaliet || 0);
+  // cena dopravy v rovnakom formate ako doteraz (formatPriceNumber)
+  const cena = transportPrice && transportPrice.matched ? { matched: true, total: transportPrice.total, text: formatPriceNumber(transportPrice.total) } : null;
+  return { company, customer, order, carrierName, transportPrice: cena, polozky: items, totalPaliet, rspoKod: RSPO_CERT_CODE };
+}
+
+// Tlac: A4 s okrajmi 8 mm (PrintStyles) - pata s podpismi na spodku strany.
+function LieferscheinPrintTable({ id, ...rest }) {
   return createPortal(
-    <div id={id} className="print-only-content">
-      <div style={{ fontFamily: "Arial, sans-serif", fontSize: "11px", color: "#111", maxWidth: "760px" }}>
-        <div style={{ textAlign: "right" }}>
-          {order.cisloObjednavkyDopravy}
-          {transportPrice && transportPrice.matched ? "   " + formatPriceNumber(transportPrice.total) : ""}
-        </div>
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginTop: "2px" }}>
-          <div style={{ fontWeight: "bold" }}>{company.nazov}</div>
-          <div style={{ fontWeight: "bold", fontSize: "16px" }}>LIEFERSCHEIN <span style={{ fontWeight: "normal", fontSize: "12px" }}>Nr: {order.cisloDodaciehoListu}</span></div>
-        </div>
-
-        <div style={{ marginTop: "8px", textAlign: "right" }}>
-          <div style={{ fontStyle: "italic", fontSize: "10px" }}>Lieferadresse/adresa dodání</div>
-          <div style={{ fontWeight: "bold" }}>{order.adresaDodaniaNazov}</div>
-          <div style={{ whiteSpace: "pre-wrap" }}>{order.adresaDodania}</div>
-        </div>
-
-        <div style={{ display: "flex", marginTop: "12px", gap: "16px" }}>
-          <div style={{ width: "50%" }}>
-            <div style={{ fontWeight: "bold" }}>LIEFERANT:</div>
-            <div>{company.nazov}</div>
-            <div style={{ whiteSpace: "pre-wrap" }}>{company.adresa}</div>
-            <div>IČO: {company.ico}</div>
-            <div>DIČ: {company.dic}</div>
-          </div>
-          <div style={{ width: "50%" }}>
-            <div style={{ fontWeight: "bold" }}>ABNEHMER/ODBĚRATEL</div>
-            <div>{customer ? customer.nazov : order.zakaznik}</div>
-            <div style={{ whiteSpace: "pre-wrap" }}>{customer ? customer.adresa : ""}</div>
-            <div>{customer && customer.dic ? "Ust.-Id Nr. " + customer.dic : ""}</div>
-          </div>
-        </div>
-
-        <div style={{ ...row, marginTop: "12px" }}>
-          <div style={left}>Lieferungstag: <b>{order.datumDodania}</b></div>
-          <div style={right}>Bestellung: <b>{order.cisloObjednavkyZakaznika}</b></div>
-        </div>
-
-        <table style={{ width: "100%", borderCollapse: "collapse", marginTop: "10px", fontSize: "10.5px" }}>
-          <thead>
-            <tr style={{ borderBottom: "2px solid #333", textAlign: "left" }}>
-              <th style={{ padding: "3px" }}>Palet</th>
-              <th style={{ padding: "3px" }}>Karton</th>
-              <th style={{ padding: "3px" }}>BEZEICHNUNG</th>
-              <th style={{ padding: "3px" }}>STK</th>
-              <th style={{ padding: "3px" }}>AKRTIKEL LIEF.NUM.</th>
-            </tr>
-          </thead>
-          <tbody>
-            {items.map((it, i) => (
-              <tr key={i} style={{ borderBottom: "1px solid #eee", verticalAlign: "top" }}>
-                <td style={{ padding: "3px" }}>{it.paletEffective}</td>
-                <td style={{ padding: "3px" }}>{it.karton}</td>
-                <td style={{ padding: "3px" }}>
-                  <div>{it.popis}</div>
-                  {it.produkt?.inhlt && <div style={{ fontSize: "9px", color: "#555", whiteSpace: "pre-wrap" }}>{it.produkt.inhlt}</div>}
-                  {(it.produkt?.eanKarton || it.produkt?.eanUnit) && (
-                    <div style={{ fontSize: "9px", color: "#555" }}>
-                      {[it.produkt.eanKarton && `EAN UK: ${it.produkt.eanKarton}`, it.produkt.eanUnit && `EAN VE: ${it.produkt.eanUnit}`].filter(Boolean).join("   ")}
-                    </div>
-                  )}
-                  {it.produkt?.rspo && <div style={{ fontSize: "9px", color: "#555" }}>{RSPO_CERT_CODE}</div>}
-                </td>
-                <td style={{ padding: "3px" }}>{computeKusyFromKarton(it.karton, it.produkt)}</td>
-                <td style={{ padding: "3px" }}>
-                  {it.produkt && (it.produkt.cisloArtiklu || it.produkt.cisloArtikluSW) ? (
-                    <>
-                      {it.produkt.cisloArtiklu && <div>{it.produkt.cisloArtiklu}</div>}
-                      {it.produkt.cisloArtikluSW && <div style={{ fontSize: "9px", color: "#555" }}>SW: {it.produkt.cisloArtikluSW}</div>}
-                    </>
-                  ) : (
-                    it.artikel
-                  )}
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-
-        <div style={{ marginTop: "14px", fontWeight: "bold" }}>
-          {order.pocetPaletovychMiest || 0} Doppelstockpal. = {totalPaliet} europaletten = {order.pocetPaletovychMiest || 0} stallplätze
-        </div>
-
-        <div style={{ display: "flex", marginTop: "20px", gap: "16px" }}>
-          <div style={{ width: "33%" }}>
-            <div>vystavil/ausgestellt von:</div>
-            <div>{company.email}</div>
-          </div>
-          <div style={{ width: "33%" }}>
-            <div>TRANSPORT: {carrierName || ""}</div>
-            <div>NUMBER TRUCK: ________________</div>
-            <div style={{ marginTop: "6px" }}>EUROPALETTEN</div>
-            <div>ACCEPTED: ______</div>
-            <div>RELEASSED: ______</div>
-            <div>DEBT: ______</div>
-          </div>
-          <div style={{ width: "33%" }}>
-            <div>odběratel / abnehmer:</div>
-          </div>
-        </div>
-      </div>
-    </div>,
+    <div id={id} className="print-only-content" dangerouslySetInnerHTML={{ __html: buildLieferscheinDocHtml(lieferscheinData(rest), { minVyska: "272mm" }) }} />,
     document.body
   );
 }
-function buildLieferscheinHtml({ company, customer, order, carrierName, transportPrice, products }) {
-  const items = ((order.polozky && order.polozky.length > 0) ? order.polozky : [{ popis: order.popisTovaru || "", artikel: "", palet: order.pocetPaliet || "", karton: order.pocetKartonov || "" }])
-    .map((it) => {
-      const produkt = findProduktForItem(it, customer, products);
-      const paletEffective = it.palet || computePaletFromKarton(it.karton, it.artikel, customer, products) || "";
-      return { ...it, produkt, paletEffective };
-    });
-  const sumPaliet = items.reduce((s, it) => s + (parseFloat(it.paletEffective) || 0), 0);
-  const totalPaliet = sumPaliet > 0 ? sumPaliet : (order.pocetPaliet || 0);
-  const itemRows = items.map((it) => {
-    const p = it.produkt;
-    const eanLine = p ? [p.eanKarton && `EAN UK: ${escapeHtml(p.eanKarton)}`, p.eanUnit && `EAN VE: ${escapeHtml(p.eanUnit)}`].filter(Boolean).join("   ") : "";
-    // Nase (SNC) aj Stenger Waffeln (SW) cislo artiklu z napojeneho Produktu -
-    // ak sa produkt nenasiel (napr. este nezakatalogizovana polozka), padne
-    // spat na cislo z objednavky tak, ako doteraz.
-    const artikelCell = p && (p.cisloArtiklu || p.cisloArtikluSW)
-      ? `${p.cisloArtiklu ? `<div>${escapeHtml(p.cisloArtiklu)}</div>` : ""}${p.cisloArtikluSW ? `<div style="font-size:9px;color:#555;">SW: ${escapeHtml(p.cisloArtikluSW)}</div>` : ""}`
-      : escapeHtml(it.artikel);
-    // Padding-bottom vacsi ako horny/bocny - bez tejto rezervy html2canvas pri
-    // vykresleni PDF (fotenie DOM-u do plátna) obcas vykreslil border-bottom
-    // riadku tesne cez descendery posledneho riadku textu (g/p/y v "popcorn",
-    // "Globus"...), takze ciara vizualne prechadzala cez pismena.
-    return `
-    <tr style="border-bottom:1px solid #eee;vertical-align:top;">
-      <td style="padding:3px 3px 7px 3px;">${escapeHtml(it.paletEffective)}</td>
-      <td style="padding:3px 3px 7px 3px;">${escapeHtml(it.karton)}</td>
-      <td style="padding:3px 3px 7px 3px; line-height:1.5;">
-        <div>${escapeHtml(it.popis)}</div>
-        ${p && p.inhlt ? `<div style="font-size:9px;color:#555;white-space:pre-wrap; line-height:1.5; margin-top:2px;">${escapeHtml(p.inhlt)}</div>` : ""}
-        ${eanLine ? `<div style="font-size:9px;color:#555; line-height:1.5; margin-top:2px;">${eanLine}</div>` : ""}
-        ${p && p.rspo ? `<div style="font-size:9px;color:#555; line-height:1.5; margin-top:2px;">${RSPO_CERT_CODE}</div>` : ""}
-      </td>
-      <td style="padding:3px 3px 7px 3px;">${escapeHtml(computeKusyFromKarton(it.karton, p) ?? "")}</td>
-      <td style="padding:3px 3px 7px 3px;">${artikelCell}</td>
-    </tr>`;
-  }).join("");
-  return `
-    <div style="font-family:Arial,sans-serif;font-size:11px;color:#111;max-width:760px;">
-      <div style="text-align:right;">
-        ${escapeHtml(order.cisloObjednavkyDopravy)}${transportPrice && transportPrice.matched ? "   " + escapeHtml(formatPriceNumber(transportPrice.total)) : ""}
-      </div>
-      <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-top:2px;">
-        <div style="font-weight:bold;">${escapeHtml(company.nazov)}</div>
-        <div style="font-weight:bold;font-size:16px;">LIEFERSCHEIN <span style="font-weight:normal;font-size:12px;">Nr: ${escapeHtml(order.cisloDodaciehoListu)}</span></div>
-      </div>
-      <div style="margin-top:8px;text-align:right;">
-        <div style="font-style:italic;font-size:10px;">Lieferadresse/adresa dodání</div>
-        <div style="font-weight:bold;">${escapeHtml(order.adresaDodaniaNazov)}</div>
-        <div style="white-space:pre-wrap;">${escapeHtml(order.adresaDodania)}</div>
-      </div>
-      <div style="display:flex;margin-top:12px;gap:16px;">
-        <div style="width:50%;">
-          <div style="font-weight:bold;">LIEFERANT:</div>
-          <div>${escapeHtml(company.nazov)}</div>
-          <div style="white-space:pre-wrap;">${escapeHtml(company.adresa)}</div>
-          <div>IČO: ${escapeHtml(company.ico)}</div>
-          <div>DIČ: ${escapeHtml(company.dic)}</div>
-        </div>
-        <div style="width:50%;">
-          <div style="font-weight:bold;">ABNEHMER/ODBĚRATEL</div>
-          <div>${escapeHtml(customer ? customer.nazov : (order.zakaznik || ""))}</div>
-          <div style="white-space:pre-wrap;">${escapeHtml(customer ? customer.adresa || "" : "")}</div>
-          <div>${customer && customer.dic ? "Ust.-Id Nr. " + escapeHtml(customer.dic) : ""}</div>
-        </div>
-      </div>
-      <div style="display:flex;border-bottom:1px solid #ddd;padding:2px 0 6px 0;margin-top:12px; line-height:1.5;">
-        <div style="width:50%;">Lieferungstag: <b>${escapeHtml(order.datumDodania)}</b></div>
-        <div style="width:50%;">Bestellung: <b>${escapeHtml(order.cisloObjednavkyZakaznika)}</b></div>
-      </div>
-      <table style="width:100%;border-collapse:collapse;margin-top:10px;font-size:10.5px;">
-        <thead><tr style="border-bottom:2px solid #333;text-align:left;">
-          <th style="padding:3px;">Palet</th><th style="padding:3px;">Karton</th><th style="padding:3px;">BEZEICHNUNG</th><th style="padding:3px;">STK</th><th style="padding:3px;">AKRTIKEL LIEF.NUM.</th>
-        </tr></thead>
-        <tbody>${itemRows}</tbody>
-      </table>
-      <div style="margin-top:14px;font-weight:bold;">
-        ${escapeHtml(order.pocetPaletovychMiest || 0)} Doppelstockpal. = ${escapeHtml(totalPaliet)} europaletten = ${escapeHtml(order.pocetPaletovychMiest || 0)} stallplätze
-      </div>
-      <div style="display:flex;margin-top:20px;gap:16px;">
-        <div style="width:33%;"><div>vystavil/ausgestellt von:</div><div>${escapeHtml(company.email)}</div></div>
-        <div style="width:33%;"><div>TRANSPORT: ${escapeHtml(carrierName)}</div><div>NUMBER TRUCK: ________________</div><div style="margin-top:6px;">EUROPALETTEN</div><div>ACCEPTED: ______</div><div>RELEASSED: ______</div><div>DEBT: ______</div></div>
-        <div style="width:33%;"><div>odběratel / abnehmer:</div></div>
-      </div>
-    </div>`;
+
+// PDF: kontajner 800 px s paddingom 24 px -> obsah 752 px; strana A4 s okrajmi
+// 15 mm (renderContainerToPdf) ma pri tejto sirke ~1186 px na vysku.
+function buildLieferscheinHtml(args) {
+  return buildLieferscheinDocHtml(lieferscheinData(args), { minVyska: "1120px" });
 }
 
 function DeliveryModal({ order, customers, carriers, company, pricelist, products, currentUserName, onClose, onSent }) {
