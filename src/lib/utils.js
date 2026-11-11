@@ -93,6 +93,14 @@ export function extractCityFromAddress(adresa) {
   while (segments.length > 1 && COUNTRY_ONLY_LINE.test(segments[segments.length - 1])) {
     segments = segments.slice(0, -1);
   }
+  // 1) cast adresy, ktora ZACINA PSC ("86899 Landsberg am Lech", "D-86899 …",
+  //    "811 01 Bratislava", "3542AL Utrecht") - od konca. Cisla vnutri inych
+  //    casti (GLN: 4314214990108, cislo domu) sa za PSC nepovazuju.
+  for (let i = segments.length - 1; i >= 0; i--) {
+    const m = segments[i].match(/^(?:[A-Z]{1,2}\s?-\s?)?\d{2,3}\s?\d{2,3}\s*[A-Z]{0,2}\s+([A-Za-zÀ-ž].*)$/i);
+    if (m) return m[1].trim().toUpperCase();
+  }
+  // 2) povodne volne hladanie (PSC kdekolvek v texte)
   const text = segments.join("\n");
   const postalMatch = text.match(/(\d[\d\s]{2,6}\d)\s+([A-Za-zÀ-ÿ][A-Za-zÀ-ÿ\s\-.']*)/);
   if (postalMatch) {

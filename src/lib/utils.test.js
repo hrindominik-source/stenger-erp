@@ -90,6 +90,13 @@ describe("extractCityFromAddress", () => {
     expect(extractCityFromAddress("Mesonweg 2\n3542AL UTRECHT\nNIEDERLANDE")).toBe("UTRECHT");
     expect(extractCityFromAddress("Edekastraße 1\n76437 Rastatt\nDEUTSCHLAND")).toBe("RASTATT");
   });
+
+  it("cislo GLN ani cislo domu nie je PSC (Edeka Landsberg)", () => {
+    expect(extractCityFromAddress("Verteilzentrum Landsberg am Lech, GLN: 4314214990108, Franz-Kollmann-Straße 2, 86899 Landsberg am Lech")).toBe("LANDSBERG AM LECH");
+    expect(extractCityFromAddress("Zentrallager\nGLN 4311501000007\nIndustriestr. 12\nD-77656 Offenburg")).toBe("OFFENBURG");
+    expect(extractCityFromAddress("Globusallee, 55411 Bingen am Rhein")).toBe("BINGEN AM RHEIN");
+    expect(extractCityFromAddress("Piepenberg 2, 33181 Bad Wünnenberg")).toBe("BAD WÜNNENBERG");
+  });
 });
 
 describe("computeNextDue", () => {
