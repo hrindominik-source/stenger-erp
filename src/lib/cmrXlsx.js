@@ -4,6 +4,8 @@
 // dokumentu (vsetky staticke texty, formaty, ramceky, aj zabudovane vzorce
 // pre auto-prepocet druheho poctu paliet a druheho datumu) ostava
 // nedotknuty presne tak, ako je v sablone.
+import { mestoDoNazvuSuboru } from "./utils.js";
+
 const TEMPLATE_URL = `${import.meta.env.BASE_URL}templates/CMR_template.xlsx`;
 
 // Pouziva Date.UTC/getUTCDay namiesto lokalneho casu: exceljs pri zapise
@@ -230,7 +232,7 @@ export async function buildCmrXlsx({ order, customer, company, carrier, products
   const url = URL.createObjectURL(blob);
   const a = document.createElement("a");
   a.href = url;
-  a.download = `CMR_${String(order.cisloObjednavkyDopravy || order.id).replace(/\//g, "-")}.xlsx`;
+  a.download = `CMR_${String(order.cisloObjednavkyDopravy || order.id).replace(/\//g, "-")}${mestoDoNazvuSuboru(order.adresaDodania)}.xlsx`;
   document.body.appendChild(a);
   a.click();
   document.body.removeChild(a);
