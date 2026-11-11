@@ -118,7 +118,7 @@ export function KioskCommunicationStep({ draft, config, onChange, errors }) {
             <input type="checkbox" className="mt-1.5 w-5 h-5" disabled={!noticeRead}
               checked={draft.kiosk_s335_notice_id === texts.S335_NOTICE.id}
               onChange={(e) => { onChange("kiosk_s335_notice_id", e.target.checked ? texts.S335_NOTICE.id : ""); if (!e.target.checked) onChange("kiosk_s335", ""); }} />
-            <span>Přečetl(a) jsem celé poučení.{!noticeRead && <span className="block text-sm text-slate-400">Posuňte poučení až na konec.</span>}</span>
+            <span>Celé poučení mám přečtené.{!noticeRead && <span className="block text-sm text-slate-400">Posuňte poučení až na konec.</span>}</span>
           </label>
           {draft.kiosk_s335_notice_id === texts.S335_NOTICE.id && (
             <>

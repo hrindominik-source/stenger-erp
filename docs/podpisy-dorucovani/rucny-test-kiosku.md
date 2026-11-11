@@ -84,7 +84,7 @@ Každý scenár = nový dotazník (na konci „Začít nový dotazník“ alebo 
 - [ ] Vrátiť sa a zmeniť e-mail → voľba § 21 sa zruší a treba ju dať znova.
 
 **C. § 335 zapnutý** (pozri bod 4)
-- [ ] Blok B je oddelený od bloku A; „Přečetl(a) jsem“ sa dá zaškrtnúť až po posunutí poučenia na koniec.
+- [ ] Blok B je oddelený od bloku A; „Celé poučení mám přečtené“ sa dá zaškrtnúť až po posunutí poučenia na koniec.
 - [ ] Voľba súhlasu sa zobrazí až po potvrdení poučenia; nie je predvybraná.
 - [ ] Pri „Souhlasím“ sú v podpise tri dokumenty; v PDF súhlasu je celé poučenie pred textom súhlasu.
 

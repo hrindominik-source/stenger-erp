@@ -221,7 +221,7 @@ async function issue(req: Request, body: any) {
   const identity = {
     method: "ID_DOCUMENT_CHECKED_BY_HR_IN_PERSON", document_type: idDoc,
     verified_by: user.id, verified_by_name: hrName, verified_at: new Date().toISOString(), hr_session_id: hrSession,
-    label: `Totožnost ověřil(a) osobně ${hrName} podle dokladu (${IDENTITY_DOCUMENTS[idDoc as keyof typeof IDENTITY_DOCUMENTS]})`,
+    label: `Totožnost ověřena osobně podle dokladu (${IDENTITY_DOCUMENTS[idDoc as keyof typeof IDENTITY_DOCUMENTS]}), ověřující: ${hrName}`,
   };
   const now = new Date().toISOString();
   await service.from("hr_signing_tokens").update({ revoked_at: now }).eq("hr_document_id", doc.id).is("used_at", null).is("revoked_at", null);

@@ -92,7 +92,7 @@ export default function MfaGate({ onVerified }) {
         <button type="button" onClick={() => window.print()} className="flex items-center gap-1.5 text-sm text-teal-700 hover:text-teal-900 mb-3"><Printer size={15} /> Vytisknout</button>
         <label className="flex items-start gap-2 text-sm text-slate-700 mb-3">
           <input type="checkbox" checked={saved} onChange={(e) => setSaved(e.target.checked)} className="mt-0.5" />
-          Záložní kódy jsem si vytiskl(a) nebo bezpečně uložil(a).
+          Záložní kódy mám vytištěné nebo bezpečně uložené.
         </label>
         <button type="button" disabled={!saved} onClick={onVerified} className="bg-teal-700 hover:bg-teal-800 disabled:opacity-50 text-white text-sm font-medium px-4 py-2 rounded-md">Pokračovat</button>
       </div>

@@ -1121,7 +1121,7 @@ function OrderDetailModal({ order, products, carriers, dispatches, finishedStock
                     }}
                     className="mt-0.5"
                   />
-                  Zkontroloval(a) jsem ložnou plochu auta.
+                  Ložná plocha auta je zkontrolovaná.
                 </label>
                 {loznaPlochaOk && !showReject && paletyOdchod !== null && (
                   <PaletySDodavkou

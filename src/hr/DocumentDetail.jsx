@@ -246,7 +246,7 @@ export default function DocumentDetail({ doc, signatures = [], previousSignature
               <Row label="Dodatky">{amendments.map((a) => `v${a.version_no || 1} – ${STATUS_TEXT[a.status] || a.status} (${czDate(a.created_at)})`).join("; ")}</Row>
             )}
             <Row label="Šablona">{templateName || (doc.origin === "UPLOADED" ? "nahráno ručně" : doc.doc_type === "dodatek" ? <span className="text-amber-700">šablona dodatku zatím chybí (otevřená úloha) – dodatek připravte mimo systém a nahrajte podepsaný sken</span> : "—")}</Row>
-            <Row label="Vytvořil(a)">{who(doc.generated_by)} · {fmtTs(doc.generated_at || doc.created_at)}</Row>
+            <Row label="Vytvořeno">{who(doc.generated_by)} · {fmtTs(doc.generated_at || doc.created_at)}</Row>
             <Row label="Finální PDF">
               {doc.final_pdf_sha256
                 ? <>otisk <code className="font-mono text-xs">{short(doc.final_pdf_sha256)}</code> · {fmtTs(doc.finalized_at)}{doc.finalized_by ? ` · ${who(doc.finalized_by)}` : ""}</>
@@ -282,7 +282,7 @@ export default function DocumentDetail({ doc, signatures = [], previousSignature
                       {s.signed_by_name || "—"} · {fmtTs(s.signed_at || s.created_at)} · {signatureMethodLabel(s)}
                       {" · "}
                       {s.method === "PAPER"
-                        ? <>sken <code className="font-mono">{short(s.document_hash)}</code>{s.signed_content_sha256 ? <> k verzi <code className="font-mono">{short(s.signed_content_sha256)}</code></> : " (bez finálního PDF)"}{s.scan_matches_original_confirmed_by ? `, shodu ověřil(a) ${who(s.scan_matches_original_confirmed_by)}` : ""}</>
+                        ? <>sken <code className="font-mono">{short(s.document_hash)}</code>{s.signed_content_sha256 ? <> k verzi <code className="font-mono">{short(s.signed_content_sha256)}</code></> : " (bez finálního PDF)"}{s.scan_matches_original_confirmed_by ? `, shoda potvrzena: ${who(s.scan_matches_original_confirmed_by)}` : ""}</>
                         : signatureCounts(doc, s) ? <>k aktuální verzi <code className="font-mono">{short(s.signed_content_sha256)}</code></> : "podpis jiné verze – nepočítá se"}
                       {closed && <b> · neplatí – verze {doc.status === "VOIDED" ? "zneplatněna" : "nahrazena"} (podpis zůstává jen jako záznam)</b>}
                       {s.method === "ELECTRONIC_QUALIFIED" && (
@@ -326,7 +326,7 @@ export default function DocumentDetail({ doc, signatures = [], previousSignature
                 <div key={dl.id} className="border-l-2 border-slate-200 pl-2">
                   <div>{DELIVERY_CHANNEL_LABELS[dl.channel] || dl.channel}{dl.recipient_snapshot ? ` → ${dl.recipient_snapshot}` : ""} · <span className="text-slate-600">{st.label}</span>{st.reason ? ` (${st.reason})` : ""}</div>
                   <div className="text-xs text-slate-500">
-                    {dl.delivered_at && <>předáno/doručeno {fmtTs(dl.delivered_at)}{dl.handed_over_by ? ` · předal(a) ${who(dl.handed_over_by)}` : ""}</>}
+                    {dl.delivered_at && <>předáno/doručeno {fmtTs(dl.delivered_at)}{dl.handed_over_by ? ` · předávající: ${who(dl.handed_over_by)}` : ""}</>}
                     {!dl.delivered_at && dl.sent_at && <>odesláno {fmtTs(dl.sent_at)}</>}
                     {dl.confirmation_evidence?.note && <> · {dl.confirmation_evidence.note}</>}
                   </div>
@@ -472,7 +472,7 @@ const STATUS_TEXT = { DRAFT: "koncept", READY_FOR_REVIEW: "ke kontrole", APPROVE
 const docTitle = (d) => ({ pracovni_smlouva: "Pracovní smlouva", pracovni_smlouva_cizinec: "Pracovní smlouva – cizinec" }[d.doc_type] || d.doc_type);
 
 const CHECK_METHOD = { TEST: "test", ORAL: "ústně", PRACTICAL: "prakticky" };
-const CHECK_RESULT = { PASSED: "prospěl(a)", FAILED: "neprospěl(a)" };
+const CHECK_RESULT = { PASSED: "úspěšně", FAILED: "neúspěšně" };
 
 // Evidencia skolenia a overenia znalosti (migracia 53). Zaznam o skoleni sa
 // da podpisat a je "hotovo" len s naviazanou evidenciou s vysledkom PASSED.
@@ -502,7 +502,7 @@ function TrainingEvidence({ doc, employee, canEdit, onChanged }) {
           <div className="flex items-center gap-1.5"><GraduationCap size={14} /> Školení {czDate(linked.trained_at)} · školitel {linked.trainer_name}</div>
           <div className="text-xs text-slate-600 ml-5">Rozsah: {linked.scope}</div>
           <div className="text-xs ml-5">
-            Ověření znalostí: {CHECK_METHOD[linked.knowledge_check_method]} · {CHECK_RESULT[linked.knowledge_check_result]} · {czDate(linked.knowledge_checked_at)} · ověřil(a) {linked.knowledge_checked_by_name}
+            Ověření znalostí: {CHECK_METHOD[linked.knowledge_check_method]} · {CHECK_RESULT[linked.knowledge_check_result]} · {czDate(linked.knowledge_checked_at)} · ověřující: {linked.knowledge_checked_by_name}
           </div>
           {linked.knowledge_check_result !== "PASSED" && <div className="text-xs ml-5">Bez úspěšného ověření znalostí nelze záznam podepsat.</div>}
         </div>
@@ -561,7 +561,7 @@ function TrainingForm({ employee, onCancel, onSaved }) {
         </select>
       </label>
       <label className="text-xs text-slate-600">Datum ověření<input type="date" value={f.knowledge_checked_at} max={todayIso()} onChange={set("knowledge_checked_at")} className={inp} /></label>
-      <label className="text-xs text-slate-600">Ověřil(a)<input value={f.knowledge_checked_by_name} onChange={set("knowledge_checked_by_name")} className={inp} /></label>
+      <label className="text-xs text-slate-600">Ověřující<input value={f.knowledge_checked_by_name} onChange={set("knowledge_checked_by_name")} className={inp} /></label>
       <div className="text-[11px] text-slate-500 sm:col-span-2">Evidence se po uložení nemění – oprava = nový záznam (navázat lze jen před podpisem).</div>
       {error && <div className="text-xs text-red-700 sm:col-span-2">{error}</div>}
       <div className="flex gap-2 sm:col-span-2">
@@ -593,7 +593,7 @@ function CertificateStatus({ verification: v, canVerify, onVerify, openFile }) {
   return (
     <div className={"mt-0.5 " + tone}>
       {CERTIFICATE_STATUS_LABELS[status]}
-      {v && <> · {v.service_name}, ověřil(a) {v.verified_by_name || "—"} {fmtTs(v.verified_at)} · protokol{" "}
+      {v && <> · {v.service_name}, ověřující: {v.verified_by_name || "—"} {fmtTs(v.verified_at)} · protokol{" "}
         <button type="button" onClick={() => openFile(v.protocol_path, v.protocol_path.split("/").pop())} className="underline">
           <code className="font-mono">{short(v.protocol_sha256)}</code></button></>}
       {canVerify && status !== "VALID" && (
@@ -717,7 +717,7 @@ function TabletIssueForm({ doc, onCancel, onDone }) {
           </label>
           <label className="flex items-start gap-2">
             <input type="checkbox" checked={confirmed} onChange={(e) => setConfirmed(e.target.checked)} className="mt-0.5" />
-            <span>Zaměstnanec je osobně přítomen a ověřil(a) jsem jeho totožnost podle tohoto dokladu.</span>
+            <span>Potvrzuji: zaměstnanec je osobně přítomen a jeho totožnost je ověřena podle tohoto dokladu.</span>
           </label>
           {error && <div className="bg-red-50 text-red-700 px-3 py-2 rounded-md">{error}</div>}
           <div className="flex gap-2">
@@ -759,7 +759,7 @@ function TabletIssueForm({ doc, onCancel, onDone }) {
                 <div className="text-sm text-amber-700">Na tabletu byl zadán chybný kód – zbývající pokusy: {tokenState.attempts_left}.</div>
               )}
               {tokenState?.status === "OPENED" && <div className="text-sm text-emerald-700">Dokument je otevřen na tabletu.</div>}
-              <div className="text-xs text-slate-500">Pro <b>{issued.signer_name}</b>. Platí jednou, do {new Date(issued.expires_at).toLocaleTimeString("cs-CZ", { hour: "2-digit", minute: "2-digit" })}, jen dokud jste přihlášen(a). Třikrát chybný kód podpis zruší.</div>
+              <div className="text-xs text-slate-500">Pro <b>{issued.signer_name}</b>. Platí jednou, do {new Date(issued.expires_at).toLocaleTimeString("cs-CZ", { hour: "2-digit", minute: "2-digit" })}, jen po dobu vašeho přihlášení. Třikrát chybný kód podpis zruší.</div>
             </div>
           </div>
           <div className="flex flex-wrap gap-2">
@@ -868,7 +868,7 @@ function HandoverForm({ doc, s334, onCancel, onSaved }) {
   return (
     <div className="mt-3 border border-slate-200 rounded-md p-3 bg-slate-50">
       <div className="font-medium text-sm mb-1">Zaznamenat osobní předání vyhotovení</div>
-      <div className="text-xs text-slate-500 mb-2">Předal(a): přihlášený uživatel. Předává se podepsané vyhotovení{doc.signed_pdf_sha256 ? " (podepsaný originál)" : ""}.</div>
+      <div className="text-xs text-slate-500 mb-2">Předávající: přihlášený uživatel. Předává se podepsané vyhotovení{doc.signed_pdf_sha256 ? " (podepsaný originál)" : ""}.</div>
       <label className="block text-xs text-slate-600 mb-1">Datum předání</label>
       <input type="date" value={date} max={todayIso()} onChange={(e) => setDate(e.target.value)}
         className="border border-slate-300 rounded-md px-3 py-1.5 text-sm mb-2" />

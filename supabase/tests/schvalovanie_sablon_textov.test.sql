@@ -22,7 +22,7 @@ select is((select status from public.hr_legal_text_versions where text_key = 'RE
 select is((select count(*)::int from public.hr_legal_text_versions where text_key like 'INTENT\_%' and status <> 'KONCEPT' and version_no = 1), 0,
   'texty prejavu vule ostavaju koncept (rozhodnutie jednatela)');
 select is(public.hr_esign_ready_keys(), '{}'::text[], 'ziadny text prejavu vule nie je pripraveny na elektronicky podpis');
-select is((select count(*)::int from public.hr_legal_text_versions where text_key in ('S21_ADDRESS_NOTICE', 'S335_NOTICE', 'S335_CONSENT', 'S335_REVOCATION') and status = 'KONCEPT'), 4,
+select is((select count(distinct text_key)::int from public.hr_legal_text_versions where text_key in ('S21_ADDRESS_NOTICE', 'S335_NOTICE', 'S335_CONSENT', 'S335_REVOCATION') and status = 'KONCEPT' and version_no < 100000), 4,
   '§ 21 a § 335 ostavaju koncept');
 select is(public.hr_current_legal_text('S21_ADDRESS_NOTICE'), null, 'koncept § 21 sa nepouzije');
 select ok(exists (select 1 from public.audit_log where entity = 'hr_approval_bootstrap'), 'jednorazove schvalenie je v audite');

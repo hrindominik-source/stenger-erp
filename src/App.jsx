@@ -7711,8 +7711,8 @@ function InventuraDetailModal({ inventura, goodsReceipts, stockIssues, currentUs
     const souhrn = [
       { "Údaj": "Inventura k datu", "Hodnota": inventura.datum },
       { "Údaj": "Stav", "Hodnota": INVENTURA_STAV[inventura.stav] || inventura.stav },
-      { "Údaj": "Spočítal(a)", "Hodnota": inventura.spocital || "" },
-      { "Údaj": "Uzavřel(a)", "Hodnota": inventura.uzavrel || "" },
+      { "Údaj": "Spočítáno (kdo)", "Hodnota": inventura.spocital || "" },
+      { "Údaj": "Uzavřeno (kdo)", "Hodnota": inventura.uzavrel || "" },
       { "Údaj": "Hodnota zásob podle evidence (Kč)", "Hodnota": Math.round(v.hodnotaEvidovana * 100) / 100 },
       { "Údaj": "Hodnota zásob podle inventury (Kč)", "Hodnota": Math.round(v.hodnotaSkutecna * 100) / 100 },
       { "Údaj": "Inventurní rozdíl (Kč)", "Hodnota": Math.round(v.hodnotaRozdilu * 100) / 100 },
@@ -7768,7 +7768,7 @@ function InventuraDetailModal({ inventura, goodsReceipts, stockIssues, currentUs
       </div>
       <div className="text-xs text-slate-500 mb-3">
         Ocenění: vážený průměr cen ze všech oceněných příjmů do data inventury (stejně jako Stav zásob). Evidováno = příjmy minus výdeje do konce dne {inventura.datum}.
-        {uzavrena && ` Uzavřel(a) ${inventura.uzavrel || "-"} – hodnoty jsou zmrazené k uzavření.`}
+        {uzavrena && ` Uzavřeno: ${inventura.uzavrel || "-"} – hodnoty jsou zmrazené k uzavření.`}
       </div>
       <div className="flex flex-wrap justify-end gap-2">
         <button onClick={exportToExcel} className="flex items-center gap-1.5 bg-white border border-slate-200 hover:bg-slate-50 text-slate-700 text-sm font-medium px-3 py-2 rounded-md"><Download size={16} /> Export do Excelu</button>

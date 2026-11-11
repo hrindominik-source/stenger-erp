@@ -19,36 +19,36 @@ Všechny texty níže jsou **koncepty** (v systému označené „KONCEPT – KE
 
 | # | Text | Verze | Kde se použije |
 |---|---|---|---|
-| T1 | Oznámení elektronické adresy (§ 21 zákoníku práce) | v1 | Samostatný dokument „Oznámení elektronické adresy“ (kiosk při nástupu nebo personální oddělení); zaměstnanec podepisuje. |
-| T2 | Poučení o doručování písemností elektronicky (§ 335 zákoníku práce) | v1 | Celé znění je součástí dokumentu souhlasu § 335 (před textem souhlasu); lze vydat i jako samostatné poučení. |
+| T1 | Oznámení elektronické adresy (§ 21 zákoníku práce) | v2 | Samostatný dokument „Oznámení elektronické adresy“ (kiosk při nástupu nebo personální oddělení); zaměstnanec podepisuje. |
+| T2 | Poučení o doručování písemností elektronicky (§ 335 zákoníku práce) | v2 | Celé znění je součástí dokumentu souhlasu § 335 (před textem souhlasu); lze vydat i jako samostatné poučení. |
 | T3 | Souhlas s doručováním písemností elektronicky (§ 335 zákoníku práce) | v1 | Samostatný dokument „Souhlas s elektronickým doručováním“; zaměstnanec podepisuje, verze poučení se ukládá. |
 | T4 | Odvolání souhlasu s doručováním písemností elektronicky (§ 335 zákoníku práce) | v1 | Dokument „Odvolání souhlasu“; po podpisu systém zablokuje další doručování podle § 335. |
-| T5 | Potvrzení o převzetí písemnosti | v1 | Potvrzení o převzetí konkrétní písemnosti (s otiskem SHA-256 předaného vyhotovení); papír nebo tablet. |
-| T6 | Projev vůle – smlouva | v1 | Zobrazí se nad podpisovým polem na tabletu u smluv (pracovní smlouva, dodatek, dohoda). |
+| T5 | Potvrzení o převzetí písemnosti | v2 | Potvrzení o převzetí konkrétní písemnosti (s otiskem SHA-256 předaného vyhotovení); papír nebo tablet. |
+| T6 | Projev vůle – smlouva | v2 | Zobrazí se nad podpisovým polem na tabletu u smluv (pracovní smlouva, dodatek, dohoda). |
 | T7 | Projev vůle – prohlášení zaměstnance | v1 | Nad podpisem u prohlášení zaměstnance (oznámení § 21, souhlas a odvolání § 335, výpověď zaměstnance). |
-| T8 | Projev vůle – za zaměstnavatele | v1 | Nad podpisem osoby s plnou mocí, která podepisuje za zaměstnavatele na tabletu. |
+| T8 | Projev vůle – za zaměstnavatele | v2 | Nad podpisem osoby s plnou mocí, která podepisuje za zaměstnavatele na tabletu. |
 | T9 | Projev vůle – převzetí | v1 | Nad podpisem u dokumentů „k převzetí“ (náplň práce, poučení, potvrzení o převzetí). |
 | T10 | Projev vůle – záznam o školení | v1 | Nad podpisem záznamu o školení (jen s evidencí školení a ověřením znalostí). |
 | T11 | Prohlášení k osobnímu dotazníku | v1 | Nad podpisem osobního dotazníku v kiosku. |
 
-### T1 · Oznámení elektronické adresy (§ 21 zákoníku práce) (v1)
+### T1 · Oznámení elektronické adresy (§ 21 zákoníku práce) (v2)
 
-Klíč `S21_ADDRESS_NOTICE` · otisk SHA-256 `9a06c9c46a16f204…`
+Klíč `S21_ADDRESS_NOTICE` · otisk SHA-256 `9949478cb4f41557…`
 
 > KONCEPT – KE SCHVÁLENÍ PRÁVNIČKOU.
 > Oznamuji zaměstnavateli Stenger Czech s.r.o., IČO 28501381, svou elektronickou adresu uvedenou v tomto oznámení pro účely § 21 zákoníku práce.
 > Prohlašuji, že tato adresa není v dispozici zaměstnavatele (nejde o pracovní e-mailovou schránku přidělenou nebo spravovanou zaměstnavatelem).
 > Na tuto adresu mi zaměstnavatel zašle vyhotovení pracovní smlouvy, dohody o provedení práce, dohody o pracovní činnosti, jejich změn a dalších dohod uvedených v § 21 odst. 1 zákoníku práce, budou-li uzavřeny elektronicky.
-> Beru na vědomí, že od takto uzavřené smlouvy nebo dohody mohu písemně odstoupit nejpozději do 7 dnů ode dne, kdy mi bylo její vyhotovení dodáno na tuto adresu, pokud jsem dosud nezačal(a) plnit práva a povinnosti z ní vyplývající.
+> Beru na vědomí, že od takto uzavřené smlouvy nebo dohody mohu písemně odstoupit nejpozději do 7 dnů ode dne, kdy mi bylo její vyhotovení dodáno na tuto adresu, nejpozději však do zahájení plnění práv a povinností z ní vyplývajících.
 > Zavazuji se každou změnu této adresy zaměstnavateli bez zbytečného odkladu písemně oznámit. Toto oznámení se vztahuje pouze k adrese v něm uvedené.
 
-### T2 · Poučení o doručování písemností elektronicky (§ 335 zákoníku práce) (v1)
+### T2 · Poučení o doručování písemností elektronicky (§ 335 zákoníku práce) (v2)
 
-Klíč `S335_NOTICE` · otisk SHA-256 `3cd2fe987261406f…`
+Klíč `S335_NOTICE` · otisk SHA-256 `bb3ac47d39325a99…`
 
 > KONCEPT – KE SCHVÁLENÍ PRÁVNIČKOU.
 > 1. Písemnosti podle § 334 zákoníku práce (zejména výpověď, okamžité zrušení pracovního poměru, zrušení ve zkušební době, odvolání z vedoucího pracovního místa a mzdový výměr) vám zaměstnavatel doručuje do vlastních rukou. Elektronicky vám je smí doručovat pouze s vaším souhlasem uděleným v samostatném písemném prohlášení, ve kterém uvedete elektronickou adresu, jež není v dispozici zaměstnavatele.
-> 2. Souhlas je dobrovolný. Pokud jej neudělíte, budou vám písemnosti doručovány osobně na pracovišti, v bytě nebo kdekoli budete zastižen(a), případně prostřednictvím provozovatele poštovních služeb. Neudělení souhlasu pro vás nemá žádné nepříznivé následky.
+> 2. Souhlas je dobrovolný. Pokud jej neudělíte, budou vám písemnosti doručovány osobně na pracovišti, v bytě nebo kdekoli vás zastihneme, případně prostřednictvím provozovatele poštovních služeb. Neudělení souhlasu pro vás nemá žádné nepříznivé následky.
 > 3. Elektronicky doručovaná písemnost musí být podepsána uznávaným elektronickým podpisem a musíte ji mít možnost uložit a vytisknout.
 > 4. Písemnost je doručena dnem, kdy převzetí potvrdíte datovou zprávou nebo písemně. Nepotvrdíte-li převzetí do 15 dnů ode dne, kdy vám byla dodána na vaši elektronickou adresu, považuje se 15. dnem za doručenou. Vrátí-li se písemnost jako nedoručitelná, doručení je neúčinné.
 > 5. Souhlas můžete kdykoli písemně odvolat; odvolání je účinné dnem, kdy jej zaměstnavatel obdrží. Změnu elektronické adresy je třeba oznámit; souhlas se vztahuje pouze k adrese v něm uvedené.
@@ -69,19 +69,19 @@ Klíč `S335_REVOCATION` · otisk SHA-256 `2a5b213c4bbd6760…`
 > Odvolávám svůj souhlas s doručováním písemností zaměstnavatele Stenger Czech s.r.o., IČO 28501381, prostřednictvím sítě nebo služby elektronických komunikací na elektronickou adresu uvedenou v tomto odvolání (§ 335 zákoníku práce).
 > Beru na vědomí, že odvolání je účinné dnem, kdy je zaměstnavatel obdrží. Písemnosti odeslané přede dnem účinnosti odvolání se doručují podle dosavadního souhlasu.
 
-### T5 · Potvrzení o převzetí písemnosti (v1)
+### T5 · Potvrzení o převzetí písemnosti (v2)
 
-Klíč `RECEIPT_CONFIRMATION` · otisk SHA-256 `6c26ae8a0f8d9da4…`
+Klíč `RECEIPT_CONFIRMATION` · otisk SHA-256 `fd0c4b1121c02d79…`
 
 > KONCEPT – KE SCHVÁLENÍ PRÁVNIČKOU.
-> Potvrzuji, že jsem dne uvedeného níže převzal(a) od zaměstnavatele Stenger Czech s.r.o., IČO 28501381, písemnost uvedenou v tomto potvrzení (vyhotovení s otiskem SHA-256 uvedeným níže).
+> Potvrzuji převzetí písemnosti uvedené v tomto potvrzení od zaměstnavatele Stenger Czech s.r.o., IČO 28501381, dne uvedeného níže (vyhotovení s otiskem SHA-256 uvedeným níže).
 > Podpisem potvrzuji pouze převzetí písemnosti, nikoli souhlas s jejím obsahem.
 
-### T6 · Projev vůle – smlouva (v1)
+### T6 · Projev vůle – smlouva (v2)
 
-Klíč `INTENT_BILATERAL_CONTRACT` · otisk SHA-256 `e857350efcfde4e3…`
+Klíč `INTENT_BILATERAL_CONTRACT` · otisk SHA-256 `44b40ff1c4462679…`
 
-> KONCEPT – KE SCHVÁLENÍ PRÁVNIČKOU. Seznámil/a jsem se s celým obsahem a uzavírám tuto smlouvu.
+> KONCEPT – KE SCHVÁLENÍ PRÁVNIČKOU. Po seznámení s celým obsahem uzavírám tuto smlouvu.
 
 ### T7 · Projev vůle – prohlášení zaměstnance (v1)
 
@@ -89,11 +89,11 @@ Klíč `INTENT_EMPLOYEE_DECLARATION` · otisk SHA-256 `851dc5af180c209f…`
 
 > KONCEPT – KE SCHVÁLENÍ PRÁVNIČKOU. Činím toto prohlášení.
 
-### T8 · Projev vůle – za zaměstnavatele (v1)
+### T8 · Projev vůle – za zaměstnavatele (v2)
 
-Klíč `INTENT_EMPLOYER_SIGNATURE` · otisk SHA-256 `7372e03d15e675ac…`
+Klíč `INTENT_EMPLOYER_SIGNATURE` · otisk SHA-256 `83ffc7eb6fd0a18c…`
 
-> KONCEPT – KE SCHVÁLENÍ PRÁVNIČKOU. Seznámil/a jsem se s celým obsahem dokumentu a podepisuji jej za zaměstnavatele Stenger Czech s.r.o. na základě plné moci.
+> KONCEPT – KE SCHVÁLENÍ PRÁVNIČKOU. Po seznámení s celým obsahem dokumentu jej podepisuji za zaměstnavatele Stenger Czech s.r.o. na základě plné moci.
 
 ### T9 · Projev vůle – převzetí (v1)
 
