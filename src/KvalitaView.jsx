@@ -913,7 +913,7 @@ function ChecklistFillForm({ template, fullName, initial, onCancel, onSave }) {
   return (
     <div className="mt-3 pt-3 border-t border-slate-100 bg-slate-50 -mx-4 -mb-4 px-4 pb-4 rounded-b-lg">
       <label className="block mb-2">
-        <span className="block text-xs font-medium text-slate-500 mb-1">Vyplnil(a)</span>
+        <span className="block text-xs font-medium text-slate-500 mb-1">Vyplněno (kdo)</span>
         <input value={vyplnil} onChange={(e) => setVyplnil(e.target.value)} className="w-full border border-slate-200 rounded-md px-2.5 py-1.5 text-sm" />
       </label>
       {legendy.length > 0 && (

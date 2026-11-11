@@ -144,7 +144,7 @@ export default function PracovniOdevTab({ employee, pozice, canEdit, predal, onS
                 <div>
                   <span className="font-medium">{czDate(v.datum)}</span>
                   <span className="text-slate-600"> · {v.polozky.map((p) => `${p.label} ${p.velikost} × ${p.pocet}`).join(", ")}</span>
-                  {v.predal && <span className="text-xs text-slate-400"> · předal(a) {v.predal}</span>}
+                  {v.predal && <span className="text-xs text-slate-400"> · předávající: {v.predal}</span>}
                 </div>
                 <div className="flex items-center gap-3">
                   <button onClick={() => download(v)} disabled={!!busy} className="text-xs text-teal-700 hover:text-teal-900 flex items-center gap-1"><Download size={13} /> Protokol</button>
@@ -185,7 +185,7 @@ export default function PracovniOdevTab({ employee, pozice, canEdit, predal, onS
         {rukavice.length === 0 ? <div className="text-sm text-slate-400">Zatím žádný záznam.</div> : (
           <>
             <table className="w-full text-sm">
-              <thead><tr className="text-left text-xs text-slate-500"><th className="py-1">Datum</th><th>Počet</th><th>Poznámka</th><th>Zapsal(a)</th></tr></thead>
+              <thead><tr className="text-left text-xs text-slate-500"><th className="py-1">Datum</th><th>Počet</th><th>Poznámka</th><th>Zapsáno (kdo)</th></tr></thead>
               <tbody className="divide-y divide-slate-100">
                 {rukavice.map((z) => (
                   <tr key={z.id} data-testid="rukavice-row"><td className="py-1.5">{czDate(z.datum)}</td><td>{z.pocet}</td><td className="text-slate-600">{z.poznamka || "—"}</td><td className="text-slate-500 text-xs">{z.zapsal || ""}</td></tr>

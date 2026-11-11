@@ -164,7 +164,7 @@ export default function InventuraPocitanie({ fullName, extraMaterialy = [], onCh
       {otevrena && otevrena.stav === "SPOCITANA" && (
         <div className="bg-indigo-50 border border-indigo-200 rounded-xl p-4 mb-5">
           <div className="text-lg font-semibold mb-1">Inventura k {otevrena.datum} je spočítaná</div>
-          <div className="text-sm text-slate-600 mb-3">Čeká na kontrolu a uzavření v kanceláři. Spočítal(a): {otevrena.spocital}.</div>
+          <div className="text-sm text-slate-600 mb-3">Čeká na kontrolu a uzavření v kanceláři. Spočítáno: {otevrena.spocital}.</div>
           <button onClick={() => ulozit({ ...otevrena, stav: "ROZPRACOVANA" }, "Inventura vrácena k úpravě")} disabled={saving} className={bigBtn + " bg-white text-slate-700 border-slate-200 disabled:opacity-50"}>
             Vrátit k úpravě
           </button>
@@ -223,7 +223,7 @@ export default function InventuraPocitanie({ fullName, extraMaterialy = [], onCh
         <div className="bg-white border border-slate-200 rounded-xl p-4">
           <div className="text-sm font-semibold text-slate-500 mb-2">Uzavřené inventury</div>
           {historie.map((i) => (
-            <div key={i.id} className="text-sm py-1.5 border-t border-slate-100 first:border-t-0">Inventura k {i.datum} – spočítal(a) {i.spocital || "-"}</div>
+            <div key={i.id} className="text-sm py-1.5 border-t border-slate-100 first:border-t-0">Inventura k {i.datum} – spočítáno: {i.spocital || "-"}</div>
           ))}
         </div>
       )}
