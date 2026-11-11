@@ -685,7 +685,11 @@ function TabletIssueForm({ doc, onCancel, onDone }) {
       // Odkaz existuje LEN v QR kode na tejto obrazovke - nezobrazuje sa ako
       // text a neda sa skopirovat ani poslat. Bez kodu z obrazovky HR a
       // aktivnej relacie HR ho tablet neotvori.
-      const url = `${window.location.origin}${window.location.pathname}?podpis=${encodeURIComponent(r.token)}`;
+      // VITE_PODPIS_BASE_URL (len lokalny test): adresa appky v sieti, napr.
+      // http://192.168.x.x:5173/ - HR pracuje na localhoste (crypto.subtle
+      // potrebuje bezpecny kontext), ale telefon/tablet musi QR otvorit cez IP.
+      const base = import.meta.env.VITE_PODPIS_BASE_URL || `${window.location.origin}${window.location.pathname}`;
+      const url = `${base}?podpis=${encodeURIComponent(r.token)}`;
       setQr(await QRCode.toDataURL(url, { errorCorrectionLevel: "M", margin: 1, width: 240 }));
       setIssued(r);
     } catch (e) { setError(e.message); }
