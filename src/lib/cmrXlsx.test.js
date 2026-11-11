@@ -24,3 +24,19 @@ describe("CMR velkost pisma", () => {
     expect(velkostPismaPrePolicko("x".repeat(200), 29.85)).toBe(6);
   });
 });
+
+import { stranaCmr, krajinaCmr } from "./cmrXlsx.js";
+
+describe("CMR odosielatel / prijemca", () => {
+  it("odosielatel zo zakaznika, krajina po nemecky", () => {
+    expect(stranaCmr("Stenger Waffeln GmbH", "Nicolaus-Otto-Straße 12, 56727 Mayen, Nemecko")).toEqual(["STENGER WAFFELN GMBH", "NICOLAUS-OTTO-STRAßE 12", "56727 MAYEN", "DEUTSCHLAND"]);
+  });
+  it("prijemca Edeka: bez GLN a Verteilzentrum, predvolena krajina", () => {
+    expect(stranaCmr("EDEKA SB Handels Stiftung & Co. KG", "Verteilzentrum Landsberg am Lech, GLN: 4314214990108, Franz-Kollmann-Straße 2, 86899 Landsberg am Lech", "DEUTSCHLAND")).toEqual(["EDEKA SB HANDELS STIFTUNG & CO. KG", "FRANZ-KOLLMANN-STRAßE 2", "86899 LANDSBERG AM LECH", "DEUTSCHLAND"]);
+  });
+  it("krajiny", () => {
+    expect(krajinaCmr("Německo")).toBe("DEUTSCHLAND");
+    expect(krajinaCmr("NIEDERLANDE")).toBe("NIEDERLANDE");
+    expect(krajinaCmr("")).toBe("");
+  });
+});

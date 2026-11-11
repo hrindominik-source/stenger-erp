@@ -4408,6 +4408,8 @@ function LsGermanyModal({ order, onClose, onSave }) {
 function CmrModal({ order, carriers, customers, company, products, onClose, onDone }) {
   const last = order.cmrInfo;
   const carrier = carriers.find((c) => c.id === order.dopravcaId);
+  // odosielatel v CMR = zakaznik objednavky (napr. Stenger Waffeln)
+  const cmrCustomer = (customers || []).find((c) => c.id === order.zakaznikId) || null;
   const customer = customers.find((c) => c.id === order.zakaznikId);
   const printId = "print-cmr-" + order.id;
   const [body, setBody] = useState(
@@ -4453,7 +4455,7 @@ function CmrModal({ order, carriers, customers, company, products, onClose, onDo
     setCmrBuildError("");
     (async () => {
       try {
-        const { ws } = await buildCmrWorkbook({ order, company, carrier, products });
+        const { ws } = await buildCmrWorkbook({ order, customer: cmrCustomer, company, carrier, products });
         if (!cancelled) {
           setCmrHtml(renderWorksheetToHtml(ws));
           setCmrHtmlPrint(renderWorksheetToHtml(ws, { scale: 0.63 }));
@@ -4464,7 +4466,7 @@ function CmrModal({ order, carriers, customers, company, products, onClose, onDo
       }
     })();
     return () => { cancelled = true; };
-  }, [order, company, carrier, products]);
+  }, [order, cmrCustomer, company, carrier, products]);
 
   // onDone zavrie modal (odmountuje aj portalovany tlacovy obsah) - preto sa
   // musi zavolat AZ PO window.print(). Predtym sa volal pred setTimeout-om,
@@ -4478,7 +4480,7 @@ function CmrModal({ order, carriers, customers, company, products, onClose, onDo
     }, 50);
   }
   async function handleDownloadXlsx() {
-    await buildCmrXlsx({ order, company, carrier, products });
+    await buildCmrXlsx({ order, customer: cmrCustomer, company, carrier, products });
     onDone({ subject: "CMR", body, to: "stiahnute (Excel)", datum: new Date().toISOString() }, "download");
   }
 
