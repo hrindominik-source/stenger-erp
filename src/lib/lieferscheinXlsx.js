@@ -7,6 +7,7 @@
 // styly bunky (oramovanie, tucne pismo) do .xlsx suboru, exceljs ano.
 
 import { formatPriceNumber } from "./pricelist.js";
+import { adresaPoNemecky } from "./krajinaNemecky.js";
 
 const MAX_ITEMS = 6;
 const ITEMS_START_ROW = 16;
@@ -132,7 +133,7 @@ export async function buildLieferscheinXlsx({ order, company, customer, carrierN
   merge("D3", "F3");
   set("D4", order.adresaDodaniaNazov, { bold: true, size: 10, align: { vertical: "middle", horizontal: "left", shrinkToFit: true } });
   merge("D4", "F4");
-  const dodaciaAdresa = addressLines(order.adresaDodania, 2);
+  const dodaciaAdresa = addressLines(adresaPoNemecky(order.adresaDodania), 2);
   set("D5", dodaciaAdresa[0], { bold: true, size: 10 });
   set("D6", dodaciaAdresa[1], { bold: true, size: 10 });
 
@@ -145,11 +146,11 @@ export async function buildLieferscheinXlsx({ order, company, customer, carrierN
   // Exceli reálne k dispozicii len vysku riadku 8 (32) a orezaval sa, hoci pod
   // nim bolo dalsich 10 bodov v riadku 9, ktore sa ako samostatna bunka nedali
   // vyuzit. Jeden zlucenim cez oba riadky text spravne vyuzije celu vysku.
-  const dodavatelAdresa = addressLines(company.adresa, 2);
+  const dodavatelAdresa = addressLines(adresaPoNemecky(company.adresa), 2);
   const dodavatelAdresaText = dodavatelAdresa.join("\n");
   set("A8", dodavatelAdresaText, { size: fitFontSize(dodavatelAdresaText, 11, 8, 70), align: { vertical: "top", wrapText: true } });
   merge("A8", "C9");
-  const odberatelAdresa = addressLines(customer ? customer.adresa : "", 2);
+  const odberatelAdresa = addressLines(customer ? adresaPoNemecky(customer.adresa) : "", 2);
   const odberatelAdresaText = odberatelAdresa.join("\n");
   set("G8", odberatelAdresaText, { size: fitFontSize(odberatelAdresaText, 9, 7, 70), align: { vertical: "middle", wrapText: true } });
   merge("G8", "I9");
