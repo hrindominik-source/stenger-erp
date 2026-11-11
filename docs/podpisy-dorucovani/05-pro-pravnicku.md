@@ -117,15 +117,24 @@ Klíč `INTENT_QUESTIONNAIRE` · otisk SHA-256 `02fa4e93ea9220b4…`
 
 Odesílá je systém s podepsaným PDF v příloze. ‹…› se doplňuje automaticky.
 
+Všechny tři e-maily začínají oslovením podle pohlaví zaměstnance („Vážená paní ‹příjmení›,“ / „Vážený pane ‹příjmení v 5. pádě›,“ – když tvar nelze spolehlivě určit, bez jména; bez uvedeného pohlaví „Dobrý den,“) a končí podpisem:
+
+> S pozdravem
+>
+> Stenger Czech s.r.o.
+> personální oddělení
+>
+> S dotazy se na nás obraťte odpovědí na tento e-mail.
+
 ### E1 · Zaslání smlouvy uzavřené elektronicky (§ 21)
 
 **Předmět:** ‹název dokumentu› – vyhotovení smlouvy uzavřené elektronicky
 
 > Dobrý den,
 >
-> zasíláme Vám vyhotovení dokumentu „‹název dokumentu›“ uzavřeného elektronicky, na adresu, kterou jste nám k tomuto účelu písemně oznámil(a) (§ 21 zákoníku práce). Dokument je v příloze ve formátu PDF – uložte si jej a případně vytiskněte.
+> zasíláme Vám vyhotovení dokumentu „‹název dokumentu›“ uzavřeného elektronicky, na adresu, kterou jste nám k tomuto účelu písemně oznámil / oznámila (podle pohlaví) (§ 21 zákoníku práce). Dokument je v příloze ve formátu PDF – uložte si jej a případně vytiskněte.
 >
-> Od smlouvy můžete písemně odstoupit do 7 dnů ode dne jejího dodání na tuto adresu, nejpozději však do doby, než začnete plnit.
+> Od smlouvy můžete písemně odstoupit do 7 dnů ode dne jejího dodání na tuto adresu, nejpozději však do doby, než začnete plnit. Odstoupení nám můžete zaslat dopisem na adresu sídla společnosti nebo odpovědí na tento e-mail. *(Návrh – prosím o posouzení, zda odpověď e-mailem postačí a zda uvést přesnou adresu sídla.)*
 >
 > (Text: KONCEPT – KE SCHVÁLENÍ PRÁVNIČKOU.)
 

@@ -7,6 +7,7 @@ import type { SupabaseClient } from "npm:@supabase/supabase-js@2.45.4";
 import { HttpError, download } from "./hrServer.ts";
 import { sha256Hex } from "./pdfTextCheck.js";
 import { DOC_TITLES } from "./signedOriginalServer.ts";
+import { osloveni, rod, PODPIS } from "./hr/emailText.js";
 
 export const MAX_SEND_ATTEMPTS = 3;
 const MAILPIT_SEND_URL = "http://inbucket:8025/api/v1/send"; // alias kontajnera v sieti lokalneho stacku
@@ -24,26 +25,28 @@ export async function mailTransport(service: SupabaseClient) {
 
 const CZ = (iso: string) => String(iso).slice(0, 10).split("-").reverse().join(".");
 
-export function composeEmail(channel: string, doc: Record<string, any>, sentAtIso: string) {
+// employee: { last_name, gender } - oslovenie menom a tvar podla pohlavia
+export function composeEmail(channel: string, doc: Record<string, any>, sentAtIso: string, employee: Record<string, any> = {}) {
   const title = DOC_TITLES[doc.doc_type] || doc.doc_type;
   const common = "Dokument je v příloze ve formátu PDF – uložte si jej a případně vytiskněte.";
-  const draft = "\n\n(Text: KONCEPT – KE SCHVÁLENÍ PRÁVNIČKOU.)";
+  const end = `\n\n${PODPIS}\n\n(Text: KONCEPT – KE SCHVÁLENÍ PRÁVNIČKOU.)`;
+  const hi = osloveni(employee);
   if (channel === "EMAIL_S21") {
     return {
       subject: `${title} – vyhotovení smlouvy uzavřené elektronicky`,
-      text: `Dobrý den,\n\nzasíláme Vám vyhotovení dokumentu „${title}“ uzavřeného elektronicky, na adresu, kterou jste nám k tomuto účelu písemně oznámil(a) (§ 21 zákoníku práce). ${common}\n\nOd smlouvy můžete písemně odstoupit do 7 dnů ode dne jejího dodání na tuto adresu, nejpozději však do doby, než začnete plnit.${draft}`,
+      text: `${hi}\n\nzasíláme Vám vyhotovení dokumentu „${title}“ uzavřeného elektronicky, na adresu, kterou jste nám k tomuto účelu písemně ${rod(employee, "oznámil", "oznámila")} (§ 21 zákoníku práce). ${common}\n\nOd smlouvy můžete písemně odstoupit do 7 dnů ode dne jejího dodání na tuto adresu, nejpozději však do doby, než začnete plnit. Odstoupení nám můžete zaslat dopisem na adresu sídla společnosti nebo odpovědí na tento e-mail.${end}`,
     };
   }
   if (channel === "EMAIL_S335_CONSENT") {
     return {
       subject: `${title} – doručení písemnosti (§ 335 zákoníku práce)`,
-      text: `Dobrý den,\n\nna základě Vašeho souhlasu s elektronickým doručováním Vám doručujeme písemnost „${title}“. ${common}\n\nProsíme, potvrďte převzetí odpovědí na tento e-mail. Nepotvrdíte-li převzetí do 15 dnů od dodání zprávy, považuje se písemnost za doručenou posledním dnem této lhůty.${draft}`,
+      text: `${hi}\n\nna základě Vašeho souhlasu s elektronickým doručováním Vám doručujeme písemnost „${title}“. ${common}\n\nProsíme, potvrďte převzetí odpovědí na tento e-mail. Nepotvrdíte-li převzetí do 15 dnů od dodání zprávy, považuje se písemnost za doručenou posledním dnem této lhůty.${end}`,
     };
   }
   if (channel === "EMAIL_S335_WAGE_OTHER_ADDRESS") {
     return {
       subject: `${title} – prosíme o potvrzení převzetí`,
-      text: `Dobrý den,\n\nzasíláme Vám mzdový výměr (odesláno ${CZ(sentAtIso)}). ${common}\n\nProsíme o písemné potvrzení převzetí (odpovědí na tento e-mail). Bez potvrzení do 15 dnů od odeslání je doručení neúčinné a výměr Vám předáme osobně.${draft}`,
+      text: `${hi}\n\nzasíláme Vám mzdový výměr (odesláno ${CZ(sentAtIso)}). ${common}\n\nProsíme o písemné potvrzení převzetí (odpovědí na tento e-mail). Bez potvrzení do 15 dnů od odeslání je doručení neúčinné a výměr Vám předáme osobně.${end}`,
     };
   }
   throw new HttpError(400, "Neznamy kanal.");
@@ -77,7 +80,8 @@ export async function sendQueuedDelivery(service: SupabaseClient, deliveryId: st
   }
   const pdfSha = await sha256Hex(pdf);
   if (pdfSha !== dl.delivered_document_sha256) return await fail("Podepsaný originál neodpovídá otisku zásilky.");
-  const mail = composeEmail(dl.channel, doc, now);
+  const { data: employee } = await service.from("employees").select("last_name, gender").eq("id", doc.employee_id).maybeSingle();
+  const mail = composeEmail(dl.channel, doc, now, employee || {});
   const attachment = `${asciiName(DOC_TITLES[doc.doc_type] || doc.doc_type)}_v${doc.version_no || 1}.pdf`;
   let messageId = "";
   try {
