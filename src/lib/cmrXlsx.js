@@ -45,6 +45,43 @@ function splitAddress(adresa) {
   return { lines, country };
 }
 
+// Nazov krajiny do CMR (nemecky, velkymi) - adresy v appke byvaju aj po
+// slovensky/cesky ("Nemecko", "Německo").
+const KRAJINY = [
+  [/^(nemecko|německo|germany|deutschland|de|d)$/i, "DEUTSCHLAND"],
+  [/^(česko|cesko|česká republika|ceska republika|czech republic|czechia|tschechien|cz)$/i, "CZ"],
+  [/^(slovensko|slovakia|slowakei|sk)$/i, "SLOWAKEI"],
+  [/^(rakúsko|rakousko|austria|österreich|osterreich|at)$/i, "ÖSTERREICH"],
+  [/^(holandsko|nizozemsko|netherlands|niederlande|nl)$/i, "NIEDERLANDE"],
+  [/^(poľsko|polsko|poland|polen|pl)$/i, "POLEN"],
+];
+export function krajinaCmr(krajina) {
+  const k = String(krajina || "").trim();
+  if (!k) return "";
+  const hit = KRAJINY.find(([re]) => re.test(k));
+  return hit ? hit[1] : k.toUpperCase();
+}
+
+// Strana CMR (odosielatel / prijemca): [nazov, ulica, PSC mesto, krajina].
+// Riadky "GLN: …" sa vynechaju, doplnkove riadky (napr. "Verteilzentrum …")
+// tiez - v CMR ma byt len ulica a PSC + mesto.
+export function stranaCmr(nazov, adresa, predvolenaKrajina = "") {
+  const { lines, country } = splitAddress(adresa);
+  const bezGln = lines.filter((l) => !/^(GLN|ILN|GS1)/i.test(l));
+  const iPsc = bezGln.findIndex((l) => PSC_RIADOK.test(l));
+  let ulica;
+  let mesto;
+  if (iPsc < 0) {
+    [ulica = "", mesto = ""] = addressLines(bezGln, 2);
+  } else {
+    ulica = iPsc > 0 ? bezGln[iPsc - 1] : "";
+    mesto = bezGln.slice(iPsc).join(", ");
+  }
+  // velke pismena, ale "ß" ostava (JS by z neho urobil "SS")
+  const velke = (t) => String(t || "").replace(/[^ß]+/g, (x) => x.toUpperCase());
+  return [velke(nazov), velke(ulica), velke(mesto), krajinaCmr(country) || predvolenaKrajina];
+}
+
 function addressLines(lines, max) {
   if (lines.length <= max) return lines;
   return [...lines.slice(0, max - 1), lines.slice(max - 1).join(", ")];
@@ -120,7 +157,7 @@ function zapisDoPolicka(ws, addr, text) {
 // Nacita sablonu a vyplni ju - zdielane jadro pre stiahnutie .xlsx aj pre
 // nahlad/tlac/PDF (renderovane priamo z tohto isteho vyplneneho workbooku,
 // viz xlsxToHtml.js), aby oba vystupy boli vzdy presne rovnake.
-export async function buildCmrWorkbook({ order, company, carrier, products }) {
+export async function buildCmrWorkbook({ order, customer, company, carrier, products }) {
   const ExcelJSModule = await import("exceljs");
   const ExcelJS = ExcelJSModule.default || ExcelJSModule;
 
@@ -135,13 +172,29 @@ export async function buildCmrWorkbook({ order, company, carrier, products }) {
   // cislo dopravy - pravy horny roh (merged R1:T3)
   zapisDoPolicka(ws, "R1", order.cisloObjednavkyDopravy || "");
 
-  // miesto vykladky (dodania) - z objednavky
+  // 1 odosielatel = zakaznik z objednavky (napr. Stenger Waffeln) s jeho adresou
+  if (customer) {
+    const [n, u, m, k] = stranaCmr(customer.nazov, customer.adresa);
+    zapisDoPolicka(ws, "C3", n);
+    zapisDoPolicka(ws, "C4", u);
+    zapisDoPolicka(ws, "C6", m);
+    zapisDoPolicka(ws, "C8", k);
+  }
+
+  // 2 prijemca = miesto dodania z objednavky (napr. EDEKA …) s adresou skladu
+  const prijemca = stranaCmr(order.adresaDodaniaNazov, order.adresaDodania, "DEUTSCHLAND");
+  zapisDoPolicka(ws, "C15", prijemca[0]);
+  zapisDoPolicka(ws, "C16", prijemca[1]);
+  zapisDoPolicka(ws, "C17", prijemca[2]);
+  zapisDoPolicka(ws, "C18", prijemca[3]);
+
+  // 3 miesto vykladky = len adresa skladu: ulica, PSC + mesto, krajina
   const { lines: dodaciaLines, country: dodaciaCountry } = splitAddress(order.adresaDodania);
-  const dodaciaAdresa = miestoVykladky(dodaciaLines, (t) => velkostPismaPrePolicko(t, sirkaPolicka(ws, "F21")) >= 8);
-  zapisDoPolicka(ws, "F19", order.adresaDodaniaNazov || "");
-  zapisDoPolicka(ws, "F21", dodaciaAdresa[0] || "");
-  zapisDoPolicka(ws, "F23", dodaciaAdresa[1] || "");
-  zapisDoPolicka(ws, "D25", dodaciaCountry || "DEUTSCHLAND");
+  const dodaciaAdresa = miestoVykladky(dodaciaLines, () => false);
+  zapisDoPolicka(ws, "F19", dodaciaAdresa[0] || "");
+  zapisDoPolicka(ws, "F21", dodaciaAdresa[1] || "");
+  zapisDoPolicka(ws, "F23", "");
+  zapisDoPolicka(ws, "D25", krajinaCmr(dodaciaCountry) || "DEUTSCHLAND");
 
   // datum nakladky - vzorce v sablone (I74/J74, J75) si z tejto bunky
   // odvodia druhy vyskyt datumu automaticky, netreba ich pisat rucne
@@ -169,8 +222,8 @@ export async function buildCmrWorkbook({ order, company, carrier, products }) {
   return { wb, ws };
 }
 
-export async function buildCmrXlsx({ order, company, carrier, products }) {
-  const { wb } = await buildCmrWorkbook({ order, company, carrier, products });
+export async function buildCmrXlsx({ order, customer, company, carrier, products }) {
+  const { wb } = await buildCmrWorkbook({ order, customer, company, carrier, products });
 
   const buf2 = await wb.xlsx.writeBuffer();
   const blob = new Blob([buf2], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" });
