@@ -2696,7 +2696,9 @@ function Badge({ text, map }) {
   return <span className={"text-xs font-medium px-2 py-1 rounded-full whitespace-nowrap " + cls}>{text}</span>;
 }
 
-function IconButton({ children, title, onClick, disabled, sent }) {
+// title = co ikona robi (vzdy viditelne), status = volitelny druhy riadok
+// (napr. "Odesláno 11.11.2026 10:15") - po odoslani sa tak nestrati nazov.
+function IconButton({ children, title, status, onClick, disabled, sent }) {
   const btnRef = useRef(null);
   const [hover, setHover] = useState(false);
   const [pos, setPos] = useState(null);
@@ -2719,7 +2721,7 @@ function IconButton({ children, title, onClick, disabled, sent }) {
     <span className="relative inline-flex">
       <button
         ref={btnRef}
-        title={title}
+        aria-label={status ? title + " – " + status : title}
         disabled={disabled}
         onClick={onClick}
         onMouseEnter={showTooltip}
@@ -2738,7 +2740,8 @@ function IconButton({ children, title, onClick, disabled, sent }) {
           className="pointer-events-none fixed bg-slate-900 text-white text-xs font-medium px-2 py-1 rounded-md shadow-lg max-w-[220px] whitespace-normal text-center leading-snug z-[9999]"
           style={{ left: pos.left, top: pos.top, transform: `translate(-50%, ${pos.below ? "0" : "-100%"})` }}
         >
-          {title}
+          <div>{title}</div>
+          {status && <div className={"font-normal " + (sent ? "text-emerald-300" : "text-slate-300")}>{status}</div>}
           <span
             className={"absolute left-1/2 -translate-x-1/2 border-4 border-transparent " + (pos.below ? "bottom-full border-b-slate-900" : "top-full border-t-slate-900")}
           ></span>
@@ -3187,26 +3190,27 @@ function RegisterView({ orders, carriers, customers, expedicniaZaznamy, products
                     <td className="px-3 py-2" onClick={(e) => e.stopPropagation()}>
                       <div className="flex justify-end gap-1 flex-wrap">
                         <IconButton
-                          title={o.sposobDopravy === "vyzdvihnutie" ? "Zákazník si zboží vyzvedává sám - doprava se neobjednává" : carrierMissing ? "Nejprve přidejte dopravce v Nastavení" : o.dopravaOdoslanaInfo ? "Odesláno " + formatDateTime(o.dopravaOdoslanaInfo.datum) : "Objednávka dopravy"}
+                          title="Objednávka dopravy"
+                          status={o.sposobDopravy === "vyzdvihnutie" ? "Zákazník si zboží vyzvedává sám - doprava se neobjednává" : carrierMissing ? "Nejprve přidejte dopravce v Nastavení" : o.dopravaOdoslanaInfo ? "Odesláno " + formatDateTime(o.dopravaOdoslanaInfo.datum) : ""}
                           disabled={o.sposobDopravy === "vyzdvihnutie" || carrierMissing}
                           sent={!!o.dopravaOdoslanaInfo}
                           onClick={() => onOpenTransport(o)}
                         >
                           <Truck size={16} />
                         </IconButton>
-                        <IconButton title={o.paletovyListokInfo ? "Připraveno " + formatDateTime(o.paletovyListokInfo.datum) : "Paletový lístek"} sent={!!o.paletovyListokInfo} onClick={() => onOpenPallet(o)}>
+                        <IconButton title="Paletový lístek" status={o.paletovyListokInfo ? "Připraveno " + formatDateTime(o.paletovyListokInfo.datum) : ""} sent={!!o.paletovyListokInfo} onClick={() => onOpenPallet(o)}>
                           <Layers size={16} />
                         </IconButton>
-                        <IconButton title={o.cmrInfo ? "Připraveno " + formatDateTime(o.cmrInfo.datum) : "CMR"} sent={!!o.cmrInfo} onClick={() => onOpenCmr(o)}>
+                        <IconButton title="CMR" status={o.cmrInfo ? "Připraveno " + formatDateTime(o.cmrInfo.datum) : ""} sent={!!o.cmrInfo} onClick={() => onOpenCmr(o)}>
                           <FileSignature size={16} />
                         </IconButton>
-                        <IconButton title={o.dodaciListOdoslanaInfo ? "Odesláno " + formatDateTime(o.dodaciListOdoslanaInfo.datum) : emailMissing ? "Dodací list (e-mail zákazníka doplňte v okně)" : "Dodací list"} sent={!!o.dodaciListOdoslanaInfo} onClick={() => onOpenDelivery(o)}>
+                        <IconButton title="Dodací list" status={o.dodaciListOdoslanaInfo ? "Odesláno " + formatDateTime(o.dodaciListOdoslanaInfo.datum) : emailMissing ? "E-mail zákazníka doplňte v okně" : ""} sent={!!o.dodaciListOdoslanaInfo} onClick={() => onOpenDelivery(o)}>
                           <FileText size={16} />
                         </IconButton>
-                        <IconButton title={o.nveOdoslanaInfo ? "NVE list odeslán " + formatDateTime(o.nveOdoslanaInfo.datum) : o.nveListPath ? "NVE list nahrán - připravit e-mail" : "NVE list"} sent={!!o.nveOdoslanaInfo} onClick={() => onOpenNve(o)}>
+                        <IconButton title="NVE list" status={o.nveOdoslanaInfo ? "Odesláno " + formatDateTime(o.nveOdoslanaInfo.datum) : o.nveListPath ? "Nahrán - připravit e-mail" : ""} sent={!!o.nveOdoslanaInfo} onClick={() => onOpenNve(o)}>
                           <FileSpreadsheet size={16} />
                         </IconButton>
-                        <IconButton title={o.nemeckyDodakCislo ? "LS Germany: " + o.nemeckyDodakCislo : "LS Germany - zadejte číslo německého dodacího listu"} sent={!!o.nemeckyDodakCislo} onClick={() => onOpenLsGermany(o)}>
+                        <IconButton title="LS Germany" status={o.nemeckyDodakCislo ? o.nemeckyDodakCislo : "Zadejte číslo německého dodacího listu"} sent={!!o.nemeckyDodakCislo} onClick={() => onOpenLsGermany(o)}>
                           <Stamp size={16} />
                         </IconButton>
                         {(orderBatches.length > 0 || orderDoprava) && (
@@ -4635,27 +4639,6 @@ function CmrModal({ order, carriers, customers, company, products, onClose, onDo
       onDone({ subject: "CMR", body, to: "vytlacene", datum: new Date().toISOString() }, "print");
     }, 50);
   }
-  const [pdfBusy, setPdfBusy] = useState(false);
-  async function handleDownloadPdf() {
-    if (!cmrHtmlPrint) return;
-    setPdfBusy(true);
-    const container = document.createElement("div");
-    container.style.position = "fixed";
-    container.style.left = "0";
-    container.style.top = "0";
-    container.style.zIndex = "-1000";
-    container.style.width = "1000px";
-    container.style.background = "#ffffff";
-    container.innerHTML = cmrHtmlPrint;
-    document.body.appendChild(container);
-    try {
-      await renderContainerToPdf(`CMR_${order.cisloObjednavkyDopravy.replace("/", "-")}.pdf`, container, 1000, { marginTop: 5, marginBottom: 5 });
-      onDone({ subject: "CMR", body, to: "stiahnute (PDF)", datum: new Date().toISOString() }, "download");
-    } finally {
-      if (container.parentNode) container.parentNode.removeChild(container);
-      setPdfBusy(false);
-    }
-  }
   async function handleDownloadXlsx() {
     await buildCmrXlsx({ order, company, carrier, products });
     onDone({ subject: "CMR", body, to: "stiahnute (Excel)", datum: new Date().toISOString() }, "download");
@@ -4677,9 +4660,6 @@ function CmrModal({ order, carriers, customers, company, products, onClose, onDo
       <div className="flex justify-end gap-2 mt-2 flex-wrap">
         <button onClick={onClose} className="text-sm text-slate-500 px-3 py-2">Zrušit</button>
         <button onClick={handleDownloadXlsx} className="bg-white border border-slate-200 hover:bg-slate-50 text-slate-700 text-sm font-medium px-4 py-2 rounded-md flex items-center gap-1.5"><Download size={16} /> Stáhnout Excel</button>
-        <button onClick={handleDownloadPdf} disabled={!cmrHtmlPrint || pdfBusy} className="bg-white border border-slate-200 hover:bg-slate-50 disabled:opacity-60 text-slate-700 text-sm font-medium px-4 py-2 rounded-md flex items-center gap-1.5">
-          {pdfBusy ? <Loader2 size={16} className="animate-spin" /> : <Download size={16} />} Stáhnout PDF
-        </button>
         <button onClick={handlePrint} disabled={!cmrHtmlPrint} className="bg-teal-700 hover:bg-teal-800 disabled:opacity-60 text-white text-sm font-medium px-4 py-2 rounded-md flex items-center gap-1.5"><Printer size={16} /> Vytisknout</button>
       </div>
     </ModalShell>
@@ -6432,7 +6412,8 @@ function MaterialOrdersView({ materialOrders, suppliers, carriers, onNew, onEdit
                     <td className="px-3 py-2" onClick={(e) => e.stopPropagation()}>
                       <div className="flex justify-end gap-1 flex-wrap">
                         <IconButton
-                          title={supplierEmailMissing ? "Doplňte e-mail dodavatele" : o.objednavkaOdoslanaInfo ? "Odesláno " + formatDateTime(o.objednavkaOdoslanaInfo.datum) : "Objednávka dodavateli"}
+                          title="Objednávka dodavateli"
+                          status={supplierEmailMissing ? "Doplňte e-mail dodavatele" : o.objednavkaOdoslanaInfo ? "Odesláno " + formatDateTime(o.objednavkaOdoslanaInfo.datum) : ""}
                           disabled={supplierEmailMissing}
                           sent={!!o.objednavkaOdoslanaInfo}
                           onClick={() => onSendSupplier(o)}
@@ -6440,7 +6421,8 @@ function MaterialOrdersView({ materialOrders, suppliers, carriers, onNew, onEdit
                           <Mail size={16} />
                         </IconButton>
                         <IconButton
-                          title={o.sposobDopravy === "dodavatel" ? "Dodavatel doručuje zboží sám - doprava se neobjednává" : o.sposobDopravy === "vyzdvihnutie" ? "Osobní odběr - doprava se neobjednává" : carrierMissing ? "Nejprve přidejte dopravce v Nastavení" : o.dopravaOdoslanaInfo ? "Odesláno " + formatDateTime(o.dopravaOdoslanaInfo.datum) : "Objednávka dopravy"}
+                          title="Objednávka dopravy"
+                          status={o.sposobDopravy === "dodavatel" ? "Dodavatel doručuje zboží sám - doprava se neobjednává" : o.sposobDopravy === "vyzdvihnutie" ? "Osobní odběr - doprava se neobjednává" : carrierMissing ? "Nejprve přidejte dopravce v Nastavení" : o.dopravaOdoslanaInfo ? "Odesláno " + formatDateTime(o.dopravaOdoslanaInfo.datum) : ""}
                           disabled={o.sposobDopravy !== "doprava" || carrierMissing}
                           sent={!!o.dopravaOdoslanaInfo}
                           onClick={() => onSend(o)}
