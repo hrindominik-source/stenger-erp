@@ -79,6 +79,29 @@ function escapeHtml(s) {
   return String(s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 }
 
+// Ramcek rozsahu buniek (r..r+rowSpan-1, c..c+colSpan-1): kazda strana sa
+// vezme z prvej bunky na danom okraji, ktora ju ma nastavenu.
+export function rangeBorder(ws, r, c, rowSpan = 1, colSpan = 1) {
+  const r2 = r + rowSpan - 1;
+  const c2 = c + colSpan - 1;
+  const bord = (rr, cc) => ws.getRow(rr).getCell(cc).border || {};
+  const prva = (cells, side) => {
+    for (const [rr, cc] of cells) {
+      const x = bord(rr, cc)[side];
+      if (x && x.style) return x;
+    }
+    return undefined;
+  };
+  const stlpce = (rr) => Array.from({ length: colSpan }, (_, i) => [rr, c + i]);
+  const riadky = (cc) => Array.from({ length: rowSpan }, (_, i) => [r + i, cc]);
+  return {
+    top: prva(stlpce(r), "top"),
+    bottom: prva(stlpce(r2), "bottom"),
+    left: prva(riadky(c), "left"),
+    right: prva(riadky(c2), "right"),
+  };
+}
+
 // scale (0-1, default 1): HTML tabulkovy box model potrebuje o dost viac
 // miesta na riadok textu, nez kolko excel naozaj pouziva (riadky sablony su
 // navrhnute nahusto, presne na 1 stranu pri 100% v Exceli) - bez zmensenia by
@@ -166,7 +189,11 @@ export function renderWorksheetToHtml(ws, opts = {}) {
       const text = escapeHtml(rawText);
       const fontSize = ((cell.font && cell.font.size) || 11) * scale;
       const bold = cell.font && cell.font.bold ? "bold" : "normal";
-      const b = cell.border || {};
+      // Pri zlucenej bunke Excel kresli kazdu stranu ramceka podla krajnych
+      // buniek rozsahu (pravy okraj = posledny stlpec, spodny = posledny
+      // riadok) - nie iba podla laveho horneho "mastra". Bez toho chybal
+      // napr. cely pravy okraj CMR (ramik je v sablone len na stlpci T).
+      const b = rangeBorder(ws, r, c, effRowSpan, colSpan);
       const borders = `border-top:${borderCss(b.top)};border-bottom:${borderCss(b.bottom)};border-left:${borderCss(b.left)};border-right:${borderCss(b.right)};`;
       const align = cell.alignment || {};
       const textAlign = align.horizontal || "left";
