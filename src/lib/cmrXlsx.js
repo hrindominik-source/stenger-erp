@@ -50,6 +50,73 @@ function addressLines(lines, max) {
   return [...lines.slice(0, max - 1), lines.slice(max - 1).join(", ")];
 }
 
+// Riadok "PSC mesto" (86899 Landsberg, D-77656 Offenburg, 811 01 Bratislava, 3542AL Utrecht).
+const PSC_RIADOK = /^(?:[A-Z]{1,2}\s?-\s?)?\d{2,3}\s?\d{2,3}\s*[A-Z]{0,2}\s+\S/i;
+
+// Miesto vykladky do dvoch riadkov CMR: [ulica, PSC + mesto]. Riadky ako
+// "GLN: …" (cislo pre zakaznika, nie adresa) sa vynechaju; ostatne riadky
+// pred ulicou (napr. "Verteilzentrum …") idu pred ulicu, ak sa zmestia.
+export function miestoVykladky(lines, zmestiSa = () => true) {
+  const bezGln = lines.filter((l) => !/^(GLN|ILN|GS1)\b/i.test(l));
+  const iPsc = bezGln.findIndex((l) => PSC_RIADOK.test(l));
+  if (iPsc < 0) return addressLines(bezGln, 2);
+  const pred = bezGln.slice(0, iPsc);
+  const ulica = pred.length ? pred[pred.length - 1] : "";
+  const ostatne = pred.slice(0, -1);
+  const plny = [...ostatne, ulica].filter(Boolean).join(", ");
+  // ked sa doplnkove riadky (napr. "Verteilzentrum …") s ulicou citatelne
+  // nezmestia, ostane len ulica - mesto je aj tak v riadku s PSC
+  const riadok1 = zmestiSa(plny) ? plny : ulica;
+  return [riadok1, [bezGln[iPsc], ...bezGln.slice(iPsc + 1)].join(", ")];
+}
+
+// Sirka zluceneho policka (v znakoch pisma Calibri 11) - sucet sirok stlpcov.
+function sirkaPolicka(ws, addr) {
+  // ExcelJS: ws._merges[master] = { model: { left, right } } (1-based stlpce)
+  const m = ws._merges && ws._merges[addr];
+  const cell = ws.getCell(addr);
+  const left = m && m.model ? m.model.left : cell.col;
+  let right = m && m.model ? m.model.right : cell.col;
+  // nezlucena bunka: text smie pretiect do prazdnych susednych buniek vpravo
+  // (po prvu vyplnenu alebo zlucenu bunku), Excel ho tam zobrazi
+  if (!m) {
+    while (right < ws.columnCount) {
+      const dalsia = ws.getRow(cell.row).getCell(right + 1);
+      if (dalsia.isMerged || (dalsia.value !== null && dalsia.value !== undefined && dalsia.value !== "")) break;
+      right++;
+    }
+  }
+  let w = 0;
+  for (let c = left; c <= right; c++) w += ws.getColumn(c).width || 8.43;
+  return w;
+}
+
+// Pismo sa zmensi, aby sa text zmestil do policka na jeden riadok (nic nepretecie
+// cez ramik a strana ostane jedna). Pod minimum nejde - vtedy Excel "zmensit, aby sa zmestilo".
+export function velkostPismaPrePolicko(text, sirkaZnakov, povodne = 11, minimum = 6) {
+  // odhad sirky textu v jednotkach sirky stlpca (= sirka "0" pri Calibri 11)
+  const t = String(text || "");
+  if (!t) return povodne;
+  let dlzka = 1;
+  for (const ch of t) dlzka += /[A-ZÀ-ÞŠŽČŘĎŤŇĽĹ]/.test(ch) ? 1.25 : /[0-9]/.test(ch) ? 1 : /[ .,:;'!|il]/.test(ch) ? 0.5 : /[mwMW]/.test(ch) ? 1.4 : 0.95;
+  if (dlzka <= sirkaZnakov) return povodne;
+  return Math.max(minimum, Math.floor(((povodne * sirkaZnakov) / dlzka) * 2) / 2);
+}
+
+function zapisDoPolicka(ws, addr, text) {
+  const cell = ws.getCell(addr);
+  cell.value = text || "";
+  const povodne = (cell.font && cell.font.size) || 11;
+  const velkost = velkostPismaPrePolicko(text, sirkaPolicka(ws, addr), povodne);
+  if (velkost === povodne) return;
+  // NOVY objekt stylu - sablona zdiela styl medzi bunkami, zmena by sa inak
+  // preniesla aj do inych policok
+  const st = JSON.parse(JSON.stringify(cell.style || {}));
+  st.font = { ...(st.font || {}), size: velkost };
+  if (velkost <= 6) st.alignment = { ...(st.alignment || {}), shrinkToFit: true, wrapText: false };
+  cell.style = st;
+}
+
 // Nacita sablonu a vyplni ju - zdielane jadro pre stiahnutie .xlsx aj pre
 // nahlad/tlac/PDF (renderovane priamo z tohto isteho vyplneneho workbooku,
 // viz xlsxToHtml.js), aby oba vystupy boli vzdy presne rovnake.
@@ -66,15 +133,15 @@ export async function buildCmrWorkbook({ order, company, carrier, products }) {
   const ws = wb.worksheets[0];
 
   // cislo dopravy - pravy horny roh (merged R1:T3)
-  ws.getCell("R1").value = order.cisloObjednavkyDopravy || "";
+  zapisDoPolicka(ws, "R1", order.cisloObjednavkyDopravy || "");
 
   // miesto vykladky (dodania) - z objednavky
   const { lines: dodaciaLines, country: dodaciaCountry } = splitAddress(order.adresaDodania);
-  const dodaciaAdresa = addressLines(dodaciaLines, 2);
-  ws.getCell("F19").value = order.adresaDodaniaNazov || "";
-  ws.getCell("F21").value = dodaciaAdresa[0] || "";
-  ws.getCell("F23").value = dodaciaAdresa[1] || "";
-  ws.getCell("D25").value = dodaciaCountry || "DEUTSCHLAND";
+  const dodaciaAdresa = miestoVykladky(dodaciaLines, (t) => velkostPismaPrePolicko(t, sirkaPolicka(ws, "F21")) >= 8);
+  zapisDoPolicka(ws, "F19", order.adresaDodaniaNazov || "");
+  zapisDoPolicka(ws, "F21", dodaciaAdresa[0] || "");
+  zapisDoPolicka(ws, "F23", dodaciaAdresa[1] || "");
+  zapisDoPolicka(ws, "D25", dodaciaCountry || "DEUTSCHLAND");
 
   // datum nakladky - vzorce v sablone (I74/J74, J75) si z tejto bunky
   // odvodia druhy vyskyt datumu automaticky, netreba ich pisat rucne
@@ -86,7 +153,7 @@ export async function buildCmrWorkbook({ order, company, carrier, products }) {
   // pripojene doklady - cislo LS Germany (zadava sa rucne cez ikonu "LS
   // Germany", zostava prazdne kym nie je vyplnene - nema sa nahradzovat
   // ceskym cislom dodacieho listu)
-  ws.getCell("E36").value = order.nemeckyDodakCislo || "";
+  zapisDoPolicka(ws, "E36", order.nemeckyDodakCislo || "");
 
   // celkovy pocet paliet - vzorce v sablone (I56, O41) si druhy vyskyt aj
   // hmotnost odvodia automaticky z tejto bunky
