@@ -2,6 +2,7 @@
 // Usporny vzhlad (navrh 11/2026): ziadne vyplnene plochy, len tenke ciary a
 // cierny text, aby tlac brala co najmenej tonera. Obsah je rovnaky ako v
 // povodnom dodaku - meni sa len forma.
+import { adresaPoNemecky } from "./krajinaNemecky.js";
 
 function esc(value) {
   return String(value ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
@@ -73,7 +74,11 @@ const CSS = `
 // polozky: [{ palet, karton, popis, inhlt, eanUK, eanVE, rspo, stk, artikel, artikelNase, artikelSW }]
 // opts.minVyska: CSS vyska celej strany (pata s podpismi ide na spodok strany)
 export function buildLieferscheinDocHtml(d, opts = {}) {
-  const { company = {}, customer, order = {}, carrierName = "", transportPrice, polozky = [], totalPaliet, rspoKod = "" } = d;
+  const { carrierName = "", transportPrice, polozky = [], totalPaliet, rspoKod = "" } = d;
+  // krajiny v adresach po nemecky (napr. "Nemecko" -> "Deutschland")
+  const company = { ...(d.company || {}), adresa: adresaPoNemecky((d.company || {}).adresa) };
+  const customer = d.customer ? { ...d.customer, adresa: adresaPoNemecky(d.customer.adresa) } : d.customer;
+  const order = { ...(d.order || {}), adresaDodania: adresaPoNemecky((d.order || {}).adresaDodania) };
   const adr = rozdelAdresuDodania(order.adresaDodania);
   const firmaRiadok = [String(company.adresa || "").replace(/\s*\n\s*/g, ", "), company.ico && "IČO " + company.ico, company.dic && "DIČ " + company.dic].filter(Boolean).map(esc).join(" · ");
   const cena = transportPrice && transportPrice.matched ? transportPrice.text || fmtCislo(transportPrice.total) : "";
