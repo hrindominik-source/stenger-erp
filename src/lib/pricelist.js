@@ -91,11 +91,63 @@ function cityKeyMatches(key, city) {
   return key.includes("/") && key.split("/").map((x) => x.trim()).filter(Boolean).some((k) => citiesLooselyMatch(k, city));
 }
 
+// Cennik dopravcu pise mesta bez prehlasok ("NURNBERG", "BAD WUNNENBERG"),
+// adresa ich ma ("Nürnberg") - porovnava sa bez diakritiky.
+function normCity(s) {
+  return String(s || "")
+    .toUpperCase()
+    .replace(/ß/g, "SS")
+    .normalize("NFD").replace(/[̀-ͯ]/g, "")
+    .replace(/\([^)]*\)/g, " ")
+    .replace(/[^A-Z0-9/ -]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+// Damerau-Levenshtein (OSA) - pocet preklepov medzi dvoma nazvami.
+function preklepy(a, b) {
+  const d = Array.from({ length: a.length + 1 }, (_, i) => [i, ...Array(b.length).fill(0)]);
+  for (let j = 1; j <= b.length; j++) d[0][j] = j;
+  for (let i = 1; i <= a.length; i++) {
+    for (let j = 1; j <= b.length; j++) {
+      const c = a[i - 1] === b[j - 1] ? 0 : 1;
+      d[i][j] = Math.min(d[i - 1][j] + 1, d[i][j - 1] + 1, d[i - 1][j - 1] + c);
+      if (i > 1 && j > 1 && a[i - 1] === b[j - 2] && a[i - 2] === b[j - 1]) d[i][j] = Math.min(d[i][j], d[i - 2][j - 2] + 1);
+    }
+  }
+  return d[a.length][b.length];
+}
+
+// Kolko preklepov sa toleruje podla dlzky nazvu (kratke nazvy len presne).
+function maxPreklepov(len) {
+  // kratke nazvy sa lisia malo (KERPEN/KEMPEN) - tam len presna zhoda
+  if (len >= 10) return 3;
+  if (len >= 7) return 1;
+  return 0;
+}
+
+// Preklep v cenniku (napr. "MARKREWIDTZ" pre Marktredwitz, "ALTADSBERG" pre
+// Altlandsberg): najblizsi nazov, len ak je jednoznacny.
+function najblizsieMesto(keys, city) {
+  const limit = maxPreklepov(city.length);
+  if (!limit) return null;
+  const kandidati = keys.map((k) => ({
+    k,
+    dist: Math.min(...[k, ...k.split("/")].map((v) => normCity(v)).filter(Boolean).map((v) => preklepy(v, city))),
+  })).filter((x) => x.dist <= limit).sort((a, b) => a.dist - b.dist);
+  if (!kandidati.length) return null;
+  if (kandidati.length > 1 && kandidati[1].dist === kandidati[0].dist) return null;
+  return kandidati[0].k;
+}
+
 function findCityPrices(cities, city) {
   if (cities[city]) return cities[city];
-  const match = Object.keys(cities)
-    .filter((k) => cityKeyMatches(k, city))
+  const keys = Object.keys(cities);
+  const najdi = (c, norm) => keys
+    .filter((k) => cityKeyMatches(norm ? normCity(k) : k, c))
     .sort((a, b) => b.length - a.length)[0];
+  const n = normCity(city);
+  const match = najdi(city, false) || najdi(n, true) || najblizsieMesto(keys, n);
   return match ? cities[match] : null;
 }
 
