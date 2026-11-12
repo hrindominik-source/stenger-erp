@@ -38,7 +38,7 @@ import { INVOICE_EXTRACT_INSTRUCTIONS } from "../supabase/functions/invoice-inbo
 import { diffProductionPlanFields, isPlanZmenaActive, formatZmenaText } from "./lib/planZmena.js";
 import { getCnbRate } from "./lib/exchangeRate.js";
 import { downloadTextAsPdf, renderContainerToPdf } from "./lib/textPdf.js";
-import { downloadEmlDraft } from "./lib/emlDraft.js";
+import { downloadEmlDraft, emailyPreOutlook } from "./lib/emlDraft.js";
 import { summarizeMonth, computeDayHours, shiftInterval, clampShiftStart } from "./lib/dochadzka.js";
 
 const STATUS_ORDER = {
@@ -2502,8 +2502,9 @@ function PrintDocument({ id, title, subtitle, body, fontSize, lineHeight }) {
   );
 }
 
+// viac adries: Outlook potrebuje bodkociarku (s ciarkou spravu neodosle)
 function buildMailto(to, subject, body) {
-  return `mailto:${encodeURIComponent(to)}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
+  return `mailto:${emailyPreOutlook(to).split(";").map(encodeURIComponent).join(";")}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
 }
 
 // Otvori prazdny tab SYNCHRONNE pred await (aby ho Safari/iné prehliadače

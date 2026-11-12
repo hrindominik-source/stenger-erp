@@ -1,5 +1,17 @@
 import { describe, it, expect } from "vitest";
-import { buildEmlDraft } from "./emlDraft.js";
+import { buildEmlDraft, emailyPreOutlook, rozdelEmaily } from "./emlDraft.js";
+
+describe("adresy", () => {
+  it("pre Outlook oddelene bodkociarkou", () => {
+    expect(emailyPreOutlook("a@x.test, b@y.test")).toBe("a@x.test;b@y.test");
+    expect(emailyPreOutlook(" a@x.test;b@y.test ,c@z.test\n")).toBe("a@x.test;b@y.test;c@z.test");
+    expect(emailyPreOutlook("")).toBe("");
+  });
+  it("koncept .eml ma adresy podla normy (ciarka)", () => {
+    expect(rozdelEmaily("a@x.test; b@y.test")).toEqual(["a@x.test", "b@y.test"]);
+    expect(buildEmlDraft({ to: "a@x.test; b@y.test" }, "H")).toContain("To: a@x.test, b@y.test\r\n");
+  });
+});
 
 const dekoduj = (b64) => new TextDecoder().decode(Uint8Array.from(atob(b64.replace(/\r\n/g, "")), (c) => c.charCodeAt(0)));
 
