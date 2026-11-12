@@ -10,9 +10,24 @@ function esc(value) {
 
 const PSC_RIADOK = /^(?:[A-Z]{1,2}\s?-\s?)?\d{2,3}\s?\d{2,3}\s*[A-Z]{0,2}\s+\S/i;
 
+const porovnaj = (s) => String(s || "").toLowerCase().replace(/\s+/g, " ").trim();
+
+// Adresa bez riadkov, ktore su rovnake ako nazov miesta dodania (nazov sa na
+// dodaku pise zvlast tucne - inak by bol dvakrat) a bez opakovanych riadkov.
+export function adresaBezNazvu(adresa, nazov) {
+  const n = porovnaj(nazov);
+  const videne = new Set();
+  return String(adresa || "").split(/\n|,/).map((l) => l.trim()).filter((l) => {
+    const k = porovnaj(l);
+    if (!k || (n && k === n) || videne.has(k)) return false;
+    videne.add(k);
+    return true;
+  }).join("\n");
+}
+
 // Adresa dodania po riadkoch: GLN/ILN zvlast (mensie), riadok s PSC tucne.
-export function rozdelAdresuDodania(adresa) {
-  const riadky = String(adresa || "").split(/\n|,/).map((l) => l.trim()).filter(Boolean);
+export function rozdelAdresuDodania(adresa, nazov) {
+  const riadky = adresaBezNazvu(adresa, nazov).split("\n").map((l) => l.trim()).filter(Boolean);
   const gln = riadky.filter((l) => /^(GLN|ILN)\b/i.test(l));
   const adresne = riadky.filter((l) => !/^(GLN|ILN)\b/i.test(l));
   return { riadky: adresne.map((text) => ({ text, psc: PSC_RIADOK.test(text) })), gln };
@@ -83,7 +98,7 @@ export function buildLieferscheinDocHtml(d, opts = {}) {
   const company = { ...(d.company || {}), adresa: adresaPoNemecky((d.company || {}).adresa) };
   const customer = d.customer ? { ...d.customer, adresa: adresaPoNemecky(d.customer.adresa) } : d.customer;
   const order = { ...(d.order || {}), adresaDodania: adresaPoNemecky((d.order || {}).adresaDodania) };
-  const adr = rozdelAdresuDodania(order.adresaDodania);
+  const adr = rozdelAdresuDodania(order.adresaDodania, order.adresaDodaniaNazov);
   const firmaRiadok = [String(company.adresa || "").replace(/\s*\n\s*/g, ", "), company.ico && "IČO " + company.ico, company.dic && "DIČ " + company.dic].filter(Boolean).map(esc).join(" · ");
   const cena = transportPrice && transportPrice.matched ? transportPrice.text || fmtCislo(transportPrice.total) : "";
   const sum = (k) => polozky.reduce((s, it) => s + (parseFloat(String(it[k] ?? "").replace(",", ".")) || 0), 0);

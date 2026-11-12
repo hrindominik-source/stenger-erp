@@ -29,6 +29,9 @@ describe("Lieferschein HTML", () => {
     expect(h).toContain("6 780");
   });
   it("adresa dodania: GLN zvlast, PSC oznacene", () => {
+    const k = rozdelAdresuDodania("K+K Klaas & Kock B.V. & Co. KG, GLN: 4305430009996, Zentrallager, Bessemer Straße 5, 48599 Gronau", "K+K Klaas  & Kock B.V. & Co. KG");
+    expect(k.riadky.map((r) => r.text)).toEqual(["Zentrallager", "Bessemer Straße 5", "48599 Gronau"]);
+    expect(k.gln).toEqual(["GLN: 4305430009996"]);
     const a = rozdelAdresuDodania("Globusallee\n55411 Bingen am Rhein");
     expect(a.gln).toEqual([]);
     expect(a.riadky).toEqual([{ text: "Globusallee", psc: false }, { text: "55411 Bingen am Rhein", psc: true }]);
