@@ -34,6 +34,7 @@ const CSS = `
 .lsd .brand-sub{color:#6b7280;font-size:10.5px;margin-top:3px}
 .lsd .title{text-align:right}
 .lsd .title h1{margin:0;font-size:25px;letter-spacing:.14em;font-weight:normal}
+.lsd .title .sub{font-size:11px;color:#6b7280;letter-spacing:.14em;text-transform:uppercase;margin-top:1px}
 .lsd .title .nr{font-size:15px;font-weight:bold;margin-top:2px}
 .lsd .title .nr span{font-weight:normal;color:#6b7280;font-size:11px;margin-right:6px}
 .lsd .meta{display:flex;margin-top:12px;border-bottom:1px solid #c4c8ce}
@@ -56,9 +57,11 @@ const CSS = `
 .lsd td .desc{font-weight:bold;font-size:12.5px}
 .lsd td .det{font-size:10px;color:#6b7280;margin-top:3px;line-height:1.45;white-space:pre-wrap}
 .lsd td .art{font-weight:bold}
+.lsd thead th .cz{display:block;font-weight:normal;color:#6b7280;letter-spacing:.04em;margin-top:1px}
 .lsd tfoot td{border-bottom:0;border-top:1px solid #16181d;font-weight:bold}
 .lsd .pal{display:flex;align-items:center;gap:10px;margin-top:12px;padding:7px 0;border-bottom:1px solid #c4c8ce}
 .lsd .pal .eq{font-size:13px;font-weight:bold}
+.lsd .pal .eq small{font-weight:normal;color:#6b7280;font-size:10px}
 .lsd .pal .eq i{font-style:normal;color:#6b7280;font-weight:normal;margin:0 5px}
 .lsd .spacer{flex:1;min-height:24px}
 .lsd .sig{display:flex;gap:20px;break-inside:avoid;page-break-inside:avoid}
@@ -101,36 +104,36 @@ export function buildLieferscheinDocHtml(d, opts = {}) {
     return `<tr><td class="num">${esc(it.palet)}</td><td class="num">${esc(it.karton)}</td><td><div class="desc">${esc(it.popis)}</div>${det ? `<div class="det">${det}</div>` : ""}</td><td class="num">${esc(fmtCislo(it.stk))}</td><td>${art}</td></tr>`;
   }).join("");
   const suma = polozky.length > 1
-    ? `<tfoot><tr><td class="num">${esc(fmtCislo(totalPaliet))}</td><td class="num">${sumKarton ? esc(fmtCislo(sumKarton)) + (polozky.some((it) => /KRT/i.test(String(it.karton))) ? " KRT" : "") : ""}</td><td>Summe</td><td class="num">${sumStk ? esc(fmtCislo(sumStk)) : ""}</td><td></td></tr></tfoot>`
+    ? `<tfoot><tr><td class="num">${esc(fmtCislo(totalPaliet))}</td><td class="num">${sumKarton ? esc(fmtCislo(sumKarton)) + (polozky.some((it) => /KRT/i.test(String(it.karton))) ? " KRT" : "") : ""}</td><td>Summe / Celkem</td><td class="num">${sumStk ? esc(fmtCislo(sumStk)) : ""}</td><td></td></tr></tfoot>`
     : "";
 
   return `<style>${CSS}</style>
 <div class="lsd" style="min-height:${opts.minVyska || "auto"}">
   <div class="head">
     <div><div class="brand">${esc(company.nazov)}</div><div class="brand-sub">${firmaRiadok}</div></div>
-    <div class="title"><h1>LIEFERSCHEIN</h1><div class="nr"><span>Nr.</span>${esc(order.cisloDodaciehoListu)}</div></div>
+    <div class="title"><h1>LIEFERSCHEIN</h1><div class="sub">Dodací list</div><div class="nr"><span>Nr. / Č.</span>${esc(order.cisloDodaciehoListu)}</div></div>
   </div>
   <div class="meta">
-    <div><div class="lbl">Lieferungstag</div><div class="v">${esc(order.datumDodania)}</div></div>
-    <div><div class="lbl">Bestellung</div><div class="v">${esc(order.cisloObjednavkyZakaznika)}</div></div>
-    <div><div class="lbl">Transport-Nr.</div><div class="v cena"><span>${esc(order.cisloObjednavkyDopravy)}</span>${cena ? `<small>${esc(cena)}</small>` : ""}</div></div>
+    <div><div class="lbl">Lieferdatum / Datum dodání</div><div class="v">${esc(order.datumDodania)}</div></div>
+    <div><div class="lbl">Bestellung / Objednávka</div><div class="v">${esc(order.cisloObjednavkyZakaznika)}</div></div>
+    <div><div class="lbl">Transport-Nr. / Č. přepravy</div><div class="v cena"><span>${esc(order.cisloObjednavkyDopravy)}</span>${cena ? `<small>${esc(cena)}</small>` : ""}</div></div>
   </div>
   <div class="addr">
-    <div class="card"><span class="lbl">Lieferant</span><div class="n">${esc(company.nazov)}</div><div class="row">${esc(company.adresa)}</div><div class="row" style="margin-top:3px">IČO: ${esc(company.ico)}<br>DIČ: ${esc(company.dic)}</div></div>
-    <div class="card"><span class="lbl">Abnehmer / Odběratel</span><div class="n">${esc(customer ? customer.nazov : order.zakaznik)}</div><div class="row">${esc(customer ? customer.adresa : "")}</div>${customer && customer.dic ? `<div class="row" style="margin-top:3px">Ust.-Id Nr. ${esc(customer.dic)}</div>` : ""}</div>
+    <div class="card"><span class="lbl">Lieferant / Dodavatel</span><div class="n">${esc(company.nazov)}</div><div class="row">${esc(company.adresa)}</div><div class="row" style="margin-top:3px">IČO: ${esc(company.ico)}<br>USt-IdNr. / DIČ: ${esc(company.dic)}</div></div>
+    <div class="card"><span class="lbl">Abnehmer / Odběratel</span><div class="n">${esc(customer ? customer.nazov : order.zakaznik)}</div><div class="row">${esc(customer ? customer.adresa : "")}</div>${customer && customer.dic ? `<div class="row" style="margin-top:3px">USt-IdNr. / DIČ: ${esc(customer.dic)}</div>` : ""}</div>
     <div class="card ship"><span class="lbl">Lieferadresse / Adresa dodání</span><div class="n">${esc(order.adresaDodaniaNazov)}</div><div class="row">${adr.riadky.map((r) => (r.psc ? `<b>${esc(r.text)}</b>` : esc(r.text))).join("<br>")}</div>${adr.gln.length ? `<div class="gln">${adr.gln.map(esc).join("<br>")}</div>` : ""}</div>
   </div>
   <table>
-    <thead><tr><th class="num" style="width:10%">Palet</th><th class="num" style="width:12%">Karton</th><th>Bezeichnung</th><th class="num" style="width:10%">Stk</th><th style="width:21%">Artikel Lief.-Nr.</th></tr></thead>
+    <thead><tr><th class="num" style="width:10%">Paletten<span class="cz">Palety</span></th><th class="num" style="width:12%">Kartons<span class="cz">Kartony</span></th><th>Bezeichnung<span class="cz">Označení zboží</span></th><th class="num" style="width:10%">Stk<span class="cz">Ks</span></th><th style="width:21%">Artikel Lief.-Nr.<span class="cz">Číslo artiklu</span></th></tr></thead>
     <tbody>${riadky}</tbody>${suma}
   </table>
-  <div class="pal"><span class="lbl">Paletten</span><span class="eq">${esc(miesta)} Doppelstockpal.<i>=</i>${esc(totalPaliet)} Europaletten<i>=</i>${esc(miesta)} Stellplätze</span></div>
+  <div class="pal"><span class="lbl">Paletten / Palety</span><span class="eq">${esc(miesta)} Doppelstockpal. <small>(dvoupatrové)</small><i>=</i>${esc(totalPaliet)} Europaletten <small>(europalety)</small><i>=</i>${esc(miesta)} Stellplätze <small>(pal. místa)</small></span></div>
   <div class="spacer"></div>
   <div class="sig">
-    <div><span class="lbl">Ausgestellt von / Vystavil</span><div>${esc(company.email)}</div><div class="stamp">Unterschrift</div></div>
-    <div class="mid"><span class="lbl">Transport</span><div><b>${esc(carrierName)}</b></div><div class="fill"><span>Number truck</span><span></span></div><div class="lbl" style="margin-top:10px">Europaletten</div><div class="fill"><span>Accepted</span><span></span></div><div class="fill"><span>Released</span><span></span></div><div class="fill"><span>Debt</span><span></span></div></div>
-    <div><span class="lbl">Abnehmer / Odběratel</span><div>Datum, Unterschrift, Stempel</div><div class="stamp">Unterschrift / Stempel</div></div>
+    <div><span class="lbl">Ausgestellt von / Vystavil</span><div>${esc(company.email)}</div><div class="stamp">Unterschrift / Podpis</div></div>
+    <div class="mid"><span class="lbl">Transport / Dopravce</span><div><b>${esc(carrierName)}</b></div><div class="fill"><span>LKW-Kennzeichen / SPZ</span><span></span></div><div class="lbl" style="margin-top:10px">Europaletten / Europalety</div><div class="fill"><span>Übernommen / Převzato</span><span></span></div><div class="fill"><span>Ausgegeben / Vydáno</span><span></span></div><div class="fill"><span>Saldo</span><span></span></div></div>
+    <div><span class="lbl">Abnehmer / Odběratel</span><div>Datum, Unterschrift, Stempel / Datum, podpis, razítko</div><div class="stamp">Unterschrift, Stempel / Podpis, razítko</div></div>
   </div>
-  <div class="bottom"><span>${esc(company.nazov)}${company.adresa ? " · " + esc(String(company.adresa).replace(/\s*\n\s*/g, ", ")) : ""}</span><span>Lieferschein ${esc(order.cisloDodaciehoListu)}</span></div>
+  <div class="bottom"><span>${esc(company.nazov)}${company.adresa ? " · " + esc(String(company.adresa).replace(/\s*\n\s*/g, ", ")) : ""}</span><span>Lieferschein / Dodací list ${esc(order.cisloDodaciehoListu)}</span></div>
 </div>`;
 }
