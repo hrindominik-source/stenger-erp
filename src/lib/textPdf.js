@@ -152,5 +152,7 @@ export async function renderContainerToPdf(filename, container, windowWidth, opt
     renderedPx += sliceHeightPx;
   }
 
+  // opts.returnBytes: PDF sa neulozi, vrati sa ako ArrayBuffer (napr. priloha e-mailu)
+  if (opts.returnBytes) return doc.output("arraybuffer");
   doc.save(filename);
 }
