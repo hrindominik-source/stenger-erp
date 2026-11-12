@@ -38,6 +38,7 @@ import { INVOICE_EXTRACT_INSTRUCTIONS } from "../supabase/functions/invoice-inbo
 import { diffProductionPlanFields, isPlanZmenaActive, formatZmenaText } from "./lib/planZmena.js";
 import { getCnbRate } from "./lib/exchangeRate.js";
 import { downloadTextAsPdf, renderContainerToPdf } from "./lib/textPdf.js";
+import { downloadEmlDraft } from "./lib/emlDraft.js";
 import { summarizeMonth, computeDayHours, shiftInterval, clampShiftStart } from "./lib/dochadzka.js";
 
 const STATUS_ORDER = {
@@ -4042,10 +4043,10 @@ function DeliveryModal({ order, customers, carriers, company, pricelist, product
   // Rovnaky HTML fragment ako predtym "Stahnout HTML" (buildLieferscheinHtml) -
   // len namiesto ulozenia ako .html sa odfoti do PDF (rovnaky vzor ako export
   // checklistu v Kvalite), aby bol vysledny vystup vizualne totozny.
-  async function handleDownloadPdf() {
-    setPdfBusy(true);
+  const pdfBaseName = `Lieferschein_${String(order.cisloDodaciehoListu || "").replace(/\//g, "-")}${mesto ? `_${mesto.replace(/[^\p{L}\p{N}]+/gu, "_")}` : ""}`;
+  // returnBytes: PDF sa neulozi, vrati sa (priloha konceptu e-mailu)
+  async function renderPdf(returnBytes) {
     const html = buildLieferscheinHtml({ company, customer, order, carrierName: carrier ? carrier.nazov : "", transportPrice, products });
-    const mestoSuffix = mesto ? `_${mesto.replace(/[^\p{L}\p{N}]+/gu, "_")}` : "";
     const container = document.createElement("div");
     container.style.position = "fixed";
     container.style.left = "0";
@@ -4057,9 +4058,24 @@ function DeliveryModal({ order, customers, carriers, company, pricelist, product
     container.innerHTML = html;
     document.body.appendChild(container);
     try {
-      await renderContainerToPdf(`Lieferschein_${order.cisloDodaciehoListu.replace("/", "-")}${mestoSuffix}.pdf`, container, 800);
+      return await renderContainerToPdf(`${pdfBaseName}.pdf`, container, 800, { returnBytes });
     } finally {
       if (container.parentNode) container.parentNode.removeChild(container);
+    }
+  }
+  async function handleDownloadPdf() {
+    setPdfBusy(true);
+    try { await renderPdf(false); } finally { setPdfBusy(false); }
+  }
+  // Koncept e-mailu (.eml) s PDF v prilohe - Outlook ho otvori ako novu spravu.
+  async function handleSendEml() {
+    if (!email) return;
+    setPdfBusy(true);
+    try {
+      const bytes = await renderPdf(true);
+      downloadEmlDraft(`${pdfBaseName}.eml`, { to: email, subject, body, attachments: [{ filename: `${pdfBaseName}.pdf`, contentType: "application/pdf", bytes }] });
+      onSent(email, { subject, body, to: email, datum: new Date().toISOString() });
+    } finally {
       setPdfBusy(false);
     }
   }
@@ -4071,7 +4087,7 @@ function DeliveryModal({ order, customers, carriers, company, pricelist, product
     <ModalShell title={"Dodací list - " + order.cisloDodaciehoListu} onClose={onClose} wide>
       <LieferscheinPrintTable id={printId} company={company} customer={customer} order={order} carrierName={carrier ? carrier.nazov : ""} transportPrice={transportPrice} products={products} />
       {last && <div className="mb-3 bg-emerald-50 text-emerald-800 text-xs px-3 py-2 rounded-md flex items-center gap-2"><CheckCircle2 size={14} /> Naposledy odesláno {formatDateTime(last.datum)} na {last.to}</div>}
-      <p className="text-xs text-slate-400 mb-3">Náhled nahoře odpovídá přesnému formátu vašeho Lieferscheinu - klikněte na "Stáhnout Excel" (přesná kopie vaší šablony) a stažený soubor ručně přiložte v Outlooku k e-mailu, který se otevře tlačítkem "Odeslat" (mailto odkaz nepodporuje automatickou přílohu).</p>
+      <p className="text-xs text-slate-400 mb-3">„Odeslat e-mailem“ stáhne koncept e-mailu (.eml) s dodacím listem v PDF jako přílohou – otevřete ho (v liště stažených souborů) a v Outlooku se zobrazí jako nová zpráva připravená k odeslání. Pokud se otevře jinde, použijte „E-mail bez přílohy“ a PDF přiložte ručně.</p>
       <EmailQuickPicks emaily={generalPlusPurposeEmails(customer)} value={email} onPick={setEmail} />
       <Field label="E-mail (kolegové v Německu)" value={email} onChange={setEmail} type="email" />
       <Field label="Předmět" value={subject} onChange={setSubject} />
@@ -4083,9 +4099,12 @@ function DeliveryModal({ order, customers, carriers, company, pricelist, product
           {pdfBusy ? <Loader2 size={16} className="animate-spin" /> : <Download size={16} />} Stáhnout PDF
         </button>
         <button onClick={handlePrint} className="bg-white border border-slate-200 hover:bg-slate-50 text-slate-700 text-sm font-medium px-4 py-2 rounded-md flex items-center gap-1.5"><Printer size={16} /> Vytisknout</button>
-        <a href={email ? buildMailto(email, subject, body) : "#"} onClick={() => email && onSent(email, { subject, body, to: email, datum: new Date().toISOString() })} className={"bg-teal-700 hover:bg-teal-800 text-white text-sm font-medium px-4 py-2 rounded-md flex items-center gap-1.5 " + (!email ? "opacity-50 pointer-events-none" : "")}>
-          <FileText size={16} /> Odeslat e-mailem
+        <a href={email ? buildMailto(email, subject, body) : "#"} onClick={() => email && onSent(email, { subject, body, to: email, datum: new Date().toISOString() })} className={"bg-white border border-slate-200 hover:bg-slate-50 text-slate-700 text-sm font-medium px-4 py-2 rounded-md flex items-center gap-1.5 " + (!email ? "opacity-50 pointer-events-none" : "")}>
+          <Mail size={16} /> E-mail bez přílohy
         </a>
+        <button onClick={handleSendEml} disabled={!email || pdfBusy} className="bg-teal-700 hover:bg-teal-800 disabled:opacity-50 text-white text-sm font-medium px-4 py-2 rounded-md flex items-center gap-1.5">
+          {pdfBusy ? <Loader2 size={16} className="animate-spin" /> : <FileText size={16} />} Odeslat e-mailem (s PDF)
+        </button>
       </div>
     </ModalShell>
   );
