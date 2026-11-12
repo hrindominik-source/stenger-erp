@@ -1,6 +1,7 @@
-// Riadok pod nazvom produktu na dodacom liste: gramaz, kusy v kartone,
-// kartony na palete (z karty Produktu) + volitelny text "Obsah baleni (inhlt)".
-// Napr. "200 g · 15 Stk/KRT · 16 KRT/PAL".
+// Dodaci list: nazov produktu s gramazou ("... Popcorn süß 200 g") a pod nim
+// riadok s kusmi v kartone a kartonmi na palete (z karty Produktu) + volitelny
+// text "Obsah baleni (inhlt)". Napr. "15 Stk/KRT · 16 KRT/PAL".
+
 // Nazov suboru dodaku: "60879-1611 BOTTROP" (cislo dodaku + mesto velkymi).
 export function nazovSuboruDodaku(cisloDodaku, mesto) {
   const c = String(cisloDodaku || "").replace(/[\\/]/g, "-").replace(/[<>:"|?*]/g, "").trim();
@@ -12,15 +13,26 @@ function cislo(v) {
   return String(v ?? "").trim();
 }
 
+export function gramazText(p) {
+  const g = cislo(p && p.gramaz);
+  if (!g) return "";
+  return /^\d+([.,]\d+)?$/.test(g) ? `${g} g` : g;
+}
+
+// Nazov polozky + gramaz za nim (ak uz v nazve nie je).
+export function nazovSGramazou(popis, p) {
+  const n = cislo(popis);
+  const g = gramazText(p);
+  if (!g) return n;
+  const bezMedzier = (s) => s.toLowerCase().replace(/\s+/g, "");
+  if (bezMedzier(n).includes(bezMedzier(g))) return n;
+  return n ? `${n} ${g}` : g;
+}
+
 export function obsahBalenia(p) {
   if (!p) return "";
-  const g = cislo(p.gramaz);
   const ks = cislo(p.ksVKartone);
   const kpp = cislo(p.kartonovNaPalete);
-  const casti = [
-    g ? (/^\d+([.,]\d+)?$/.test(g) ? `${g} g` : g) : "",
-    ks ? `${ks} Stk/KRT` : "",
-    kpp ? `${kpp} KRT/PAL` : "",
-  ].filter(Boolean);
+  const casti = [ks ? `${ks} Stk/KRT` : "", kpp ? `${kpp} KRT/PAL` : ""].filter(Boolean);
   return [casti.join(" · "), cislo(p.inhlt)].filter(Boolean).join("\n");
 }

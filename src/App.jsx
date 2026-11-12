@@ -40,7 +40,7 @@ import { diffProductionPlanFields, isPlanZmenaActive, formatZmenaText } from "./
 import { getCnbRate } from "./lib/exchangeRate.js";
 import { downloadTextAsPdf, renderContainerToPdf } from "./lib/textPdf.js";
 import { downloadEmlDraft, emailyPreOutlook } from "./lib/emlDraft.js";
-import { obsahBalenia, nazovSuboruDodaku } from "./lib/lieferscheinObsah.js";
+import { obsahBalenia, nazovSuboruDodaku, nazovSGramazou } from "./lib/lieferscheinObsah.js";
 import { summarizeMonth, computeDayHours, shiftInterval, clampShiftStart } from "./lib/dochadzka.js";
 
 const STATUS_ORDER = {
@@ -4013,7 +4013,7 @@ function lieferscheinData({ company, customer, order, carrierName, transportPric
       return {
         palet: it.palet || computePaletFromKarton(it.karton, it.artikel, customer, products) || "",
         karton: it.karton,
-        popis: it.popis,
+        popis: nazovSGramazou(it.popis, p),
         inhlt: obsahBalenia(p),
         eanUK: p && p.eanKarton,
         eanVE: p && p.eanUnit,

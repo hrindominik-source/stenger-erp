@@ -8,7 +8,7 @@
 
 import { formatPriceNumber } from "./pricelist.js";
 import { adresaPoNemecky } from "./krajinaNemecky.js";
-import { obsahBalenia, nazovSuboruDodaku } from "./lieferscheinObsah.js";
+import { obsahBalenia, nazovSuboruDodaku, nazovSGramazou } from "./lieferscheinObsah.js";
 
 const MAX_ITEMS = 6;
 const ITEMS_START_ROW = 16;
@@ -204,7 +204,7 @@ export async function buildLieferscheinXlsx({ order, company, customer, carrierN
     .map((it) => {
       const produkt = findProduktForItem(it, customer, products);
       const paletEffective = it.palet || computePaletFromKarton(it.karton, it.artikel, customer, products) || "";
-      return { ...it, produkt, paletEffective };
+      return { ...it, popis: nazovSGramazou(it.popis, produkt), produkt, paletEffective };
     });
 
   items.forEach((it, i) => {
