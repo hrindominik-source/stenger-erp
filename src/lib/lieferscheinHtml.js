@@ -40,6 +40,7 @@ const CSS = `
 .lsd .meta>div{flex:1;padding:6px 0 9px}
 .lsd .meta .v{font-size:14px;font-weight:bold;margin-top:2px}
 .lsd .meta .v small{font-weight:normal;color:#6b7280;font-size:10.5px;margin-left:6px}
+.lsd .meta .v.cena{display:flex;justify-content:space-between;align-items:baseline}
 .lsd .addr{display:flex;gap:14px;margin-top:14px}
 .lsd .card{flex:1;padding:9px 12px;border:1px solid #c4c8ce;border-radius:5px}
 .lsd .card.ship{flex:1.25;border-color:#16181d}
@@ -112,7 +113,7 @@ export function buildLieferscheinDocHtml(d, opts = {}) {
   <div class="meta">
     <div><div class="lbl">Lieferungstag</div><div class="v">${esc(order.datumDodania)}</div></div>
     <div><div class="lbl">Bestellung</div><div class="v">${esc(order.cisloObjednavkyZakaznika)}</div></div>
-    <div><div class="lbl">Transport-Nr.</div><div class="v">${esc(order.cisloObjednavkyDopravy)}${cena ? `<small>${esc(cena)}</small>` : ""}</div></div>
+    <div><div class="lbl">Transport-Nr.</div><div class="v cena"><span>${esc(order.cisloObjednavkyDopravy)}</span>${cena ? `<small>${esc(cena)}</small>` : ""}</div></div>
   </div>
   <div class="addr">
     <div class="card"><span class="lbl">Lieferant</span><div class="n">${esc(company.nazov)}</div><div class="row">${esc(company.adresa)}</div><div class="row" style="margin-top:3px">IČO: ${esc(company.ico)}<br>DIČ: ${esc(company.dic)}</div></div>

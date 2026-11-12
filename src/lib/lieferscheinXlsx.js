@@ -120,7 +120,7 @@ export async function buildLieferscheinXlsx({ order, company, customer, carrierN
 
   // hlavicka
   set("G1", order.cisloObjednavkyDopravy, { size: 10 });
-  if (transportPrice && transportPrice.matched) set("I1", formatPriceNumber(transportPrice.total));
+  if (transportPrice && transportPrice.matched) set("I1", formatPriceNumber(transportPrice.total), { align: { horizontal: "right" } });
   set("A2", company.nazov, { bold: true, size: 14 });
   set("D2", "LIEFERSCHEIN ", { bold: true, size: 18 });
   merge("D2", "F2");
