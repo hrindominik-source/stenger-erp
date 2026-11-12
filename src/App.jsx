@@ -40,6 +40,7 @@ import { diffProductionPlanFields, isPlanZmenaActive, formatZmenaText } from "./
 import { getCnbRate } from "./lib/exchangeRate.js";
 import { downloadTextAsPdf, renderContainerToPdf } from "./lib/textPdf.js";
 import { downloadEmlDraft, emailyPreOutlook } from "./lib/emlDraft.js";
+import { obsahBalenia, nazovSuboruDodaku } from "./lib/lieferscheinObsah.js";
 import { summarizeMonth, computeDayHours, shiftInterval, clampShiftStart } from "./lib/dochadzka.js";
 
 const STATUS_ORDER = {
@@ -4013,7 +4014,7 @@ function lieferscheinData({ company, customer, order, carrierName, transportPric
         palet: it.palet || computePaletFromKarton(it.karton, it.artikel, customer, products) || "",
         karton: it.karton,
         popis: it.popis,
-        inhlt: p && p.inhlt,
+        inhlt: obsahBalenia(p),
         eanUK: p && p.eanKarton,
         eanVE: p && p.eanUnit,
         rspo: !!(p && p.rspo),
@@ -4078,7 +4079,7 @@ function DeliveryModal({ order, customers, carriers, company, pricelist, product
   // Rovnaky HTML fragment ako predtym "Stahnout HTML" (buildLieferscheinHtml) -
   // len namiesto ulozenia ako .html sa odfoti do PDF (rovnaky vzor ako export
   // checklistu v Kvalite), aby bol vysledny vystup vizualne totozny.
-  const pdfBaseName = `Lieferschein_${String(order.cisloDodaciehoListu || "").replace(/\//g, "-")}${mesto ? `_${mesto.replace(/[^\p{L}\p{N}]+/gu, "_")}` : ""}`;
+  const pdfBaseName = nazovSuboruDodaku(order.cisloDodaciehoListu || order.id, mesto);
   // returnBytes: PDF sa neulozi, vrati sa (priloha konceptu e-mailu)
   async function renderPdf(returnBytes) {
     const html = buildLieferscheinHtml({ company, customer, order, carrierName: carrier ? carrier.nazov : "", transportPrice, products });

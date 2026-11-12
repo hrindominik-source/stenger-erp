@@ -55,6 +55,13 @@ describe("computeTransportPriceForCity", () => {
     expect(result).toMatchObject({ matched: true, basePrice: 80 });
   });
 
+  it("riadok s viac mestami (OLDENBURG/GRONAU) plati pre kazde z nich", () => {
+    const p = { ...pricelist, cities: { ...pricelist.cities, "OLDENBURG/GRONAU": [70, 110] } };
+    expect(computeTransportPriceForCity("Gronau", 2, false, p)).toMatchObject({ matched: true, basePrice: 70 });
+    expect(computeTransportPriceForCity("Oldenburg", 2, false, p)).toMatchObject({ matched: true, basePrice: 70 });
+    expect(computeTransportPriceForCity("Gronausee", 2, false, p).matched).toBe(false);
+  });
+
   it("nezhoduje nesuvisiace mesto so spolocnym prefixom (BINGEN vs BINGENDORF)", () => {
     const pricelistSkrateny = { ...pricelist, cities: { ...pricelist.cities, BINGEN: [80, 120] } };
     const result = computeTransportPriceForCity("Bingendorf", 2, false, pricelistSkrateny);

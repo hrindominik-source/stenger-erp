@@ -8,6 +8,7 @@
 
 import { formatPriceNumber } from "./pricelist.js";
 import { adresaPoNemecky } from "./krajinaNemecky.js";
+import { obsahBalenia, nazovSuboruDodaku } from "./lieferscheinObsah.js";
 
 const MAX_ITEMS = 6;
 const ITEMS_START_ROW = 16;
@@ -225,7 +226,7 @@ export async function buildLieferscheinXlsx({ order, company, customer, carrierN
     merge(`C${r0}`, `F${r0 + 1}`);
     const popisCell = ws.getCell(`C${r0}`);
     const popisSize = fitFontSize(it.popis, 9, 7, 45);
-    const inhltText = it.produkt && it.produkt.inhlt ? it.produkt.inhlt : "";
+    const inhltText = obsahBalenia(it.produkt);
     if (inhltText) {
       const inhltSize = fitFontSize(inhltText, 9, 7, 45);
       popisCell.value = {
@@ -288,8 +289,7 @@ export async function buildLieferscheinXlsx({ order, company, customer, carrierN
   borderRect(col("A"), footerRow, col("C"), footerRow + 5, { top: true, bottom: true, left: true, right: true });
   borderRect(col("G"), footerRow, col("I"), footerRow + 5, { top: true, bottom: true, left: true, right: true });
 
-  const mestoSuffix = mesto ? `_${mesto.replace(/[^\p{L}\p{N}]+/gu, "_")}` : "";
-  const fname = `Lieferschein_${String(order.cisloDodaciehoListu || order.id).replace(/\//g, "-")}${mestoSuffix}.xlsx`;
+  const fname = `${nazovSuboruDodaku(order.cisloDodaciehoListu || order.id, mesto)}.xlsx`;
   const buf = await wb.xlsx.writeBuffer();
   const blob = new Blob([buf], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" });
   const url = URL.createObjectURL(blob);

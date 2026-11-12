@@ -84,10 +84,17 @@ function citiesLooselyMatch(a, b) {
   return nextChar === " " || nextChar === "-" || nextChar === "/";
 }
 
+// Jeden riadok cennika moze platit pre viac miest: "OLDENBURG/GRONAU" -> plati
+// pre OLDENBURG aj GRONAU.
+function cityKeyMatches(key, city) {
+  if (citiesLooselyMatch(key, city)) return true;
+  return key.includes("/") && key.split("/").map((x) => x.trim()).filter(Boolean).some((k) => citiesLooselyMatch(k, city));
+}
+
 function findCityPrices(cities, city) {
   if (cities[city]) return cities[city];
   const match = Object.keys(cities)
-    .filter((k) => citiesLooselyMatch(k, city))
+    .filter((k) => cityKeyMatches(k, city))
     .sort((a, b) => b.length - a.length)[0];
   return match ? cities[match] : null;
 }
