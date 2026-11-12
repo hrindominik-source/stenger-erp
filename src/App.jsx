@@ -40,6 +40,7 @@ import { getCnbRate } from "./lib/exchangeRate.js";
 import { downloadTextAsPdf, renderContainerToPdf } from "./lib/textPdf.js";
 import { downloadEmlDraft, emailyPreOutlook } from "./lib/emlDraft.js";
 import { obsahBalenia, nazovSuboruDodaku, nazovSGramazou } from "./lib/lieferscheinObsah.js";
+import { najdiZakaznika, jeNasaFirma, zakaznikInstrukcie } from "./lib/zakaznikMatch.js";
 import { summarizeMonth, computeDayHours, shiftInterval, clampShiftStart } from "./lib/dochadzka.js";
 
 const STATUS_ORDER = {
@@ -3485,9 +3486,17 @@ function NewOrderPage({ onClose, onSave, defaultAdresaNakladky, customers, produ
           throw new Error("Nepodporovaný typ souboru. Použijte PDF, DOCX nebo obrázek.");
         }
       }
-      const result = await callClaude([...blocks, { type: "text", text: EXTRACT_INSTRUCTIONS }], company.apiKey);
+      const nasaFirma = company.nazov || "Stenger Czech s.r.o.";
+      const result = await callClaude([...blocks, { type: "text", text: EXTRACT_INSTRUCTIONS + zakaznikInstrukcie(nasaFirma, customers) }], company.apiKey);
+      // Poradie istoty: vyber zo zoznamu -> riadok odosielatela -> volny nazov.
+      // Nasa firma (adresat) sa ako zakaznik nikdy nepouzije.
+      const zakaznikKandidati = [result.zakaznikZoZoznamu, result.odosielatel, result.zakaznik];
+      const matchedCustomer = zakaznikKandidati.map((n) => najdiZakaznika(customers, n, nasaFirma)).find(Boolean) || null;
+      if (matchedCustomer) result.zakaznik = matchedCustomer.nazov;
+      else if (jeNasaFirma(result.zakaznik, nasaFirma)) result.zakaznik = result.odosielatel && !jeNasaFirma(result.odosielatel, nasaFirma) ? result.odosielatel : "";
+      delete result.zakaznikZoZoznamu;
+      delete result.odosielatel;
       setSourceBlocks(blocks);
-      const matchedCustomer = customers.find((c) => c.nazov.trim().toLowerCase() === (result.zakaznik || "").trim().toLowerCase());
       // Primarne pouzi polozky priamo z dokumentu (tabulka Pos./Artikelnr./Bezeichnung) -
       // funguje aj bez toho, aby mal zakaznik uz vopred vyplneny katalog. Katalogovy
       // druhy AI krok je len zalozna moznost pre nestrukturovane objednavky (volny text
