@@ -9,6 +9,7 @@
 import { formatPriceNumber } from "./pricelist.js";
 import { adresaPoNemecky } from "./krajinaNemecky.js";
 import { obsahBalenia, nazovSuboruDodaku, nazovSGramazou } from "./lieferscheinObsah.js";
+import { adresaBezNazvu } from "./lieferscheinHtml.js";
 
 const MAX_ITEMS = 6;
 const ITEMS_START_ROW = 16;
@@ -134,7 +135,7 @@ export async function buildLieferscheinXlsx({ order, company, customer, carrierN
   merge("D3", "F3");
   set("D4", order.adresaDodaniaNazov, { bold: true, size: 10, align: { vertical: "middle", horizontal: "left", shrinkToFit: true } });
   merge("D4", "F4");
-  const dodaciaAdresa = addressLines(adresaPoNemecky(order.adresaDodania), 2);
+  const dodaciaAdresa = addressLines(adresaBezNazvu(adresaPoNemecky(order.adresaDodania), order.adresaDodaniaNazov), 2);
   set("D5", dodaciaAdresa[0], { bold: true, size: 10 });
   set("D6", dodaciaAdresa[1], { bold: true, size: 10 });
 
