@@ -2,6 +2,16 @@
 // .eml s hlavickou "X-Unsent: 1" Outlook otvori ako novu neodoslanu spravu
 // (adresat, predmet, text aj priloha) - staci kliknut Odoslat.
 
+// Zoznam adries z textu oddeleneho ciarkou, bodkociarkou, medzerou alebo novym riadkom.
+export function rozdelEmaily(text) {
+  return String(text || "").split(/[,;\s]+/).map((x) => x.trim()).filter(Boolean);
+}
+
+// Adresy pre Outlook: oddelene bodkociarkou (ciarku Outlook ako oddelovac nebere).
+export function emailyPreOutlook(text) {
+  return rozdelEmaily(text).join(";");
+}
+
 function b64FromBytes(bytes) {
   const u8 = bytes instanceof Uint8Array ? bytes : new Uint8Array(bytes);
   let s = "";
@@ -34,7 +44,7 @@ export function buildEmlDraft({ to = "", subject = "", body = "", attachments = 
   const lines = [
     "MIME-Version: 1.0",
     "X-Unsent: 1",
-    `To: ${String(to).replace(/[\r\n]/g, " ")}`,
+    `To: ${rozdelEmaily(to).join(", ")}`,
     `Subject: ${headerWord(subject)}`,
     `Content-Type: multipart/mixed; boundary="${boundary}"`,
     "",
