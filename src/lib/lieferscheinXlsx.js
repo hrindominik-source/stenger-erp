@@ -1,6 +1,6 @@
 // Generuje skutocny .xlsx subor pre Lieferschein/dodaci list, presne podla
 // realnej sablony zakaznika (GERWISCH.xlsx - Stenger Waffeln GmbH) - rovnake
-// bunky, zluceni, orámování aj popisky (vratane preklepu "AKRTIKEL LIEF.NUM.")
+// bunky, zluceni, orámování aj popisky (preklepy z povodnej sablony opravene 11/2026)
 // ako v origináli. Kazda polozka objednavky zabera 4 riadky (nazov, inhlt,
 // EAN, RSPO), max MAX_ITEMS poloziek sa zmesti do sablony.
 // Pouziva exceljs (nie xlsx/SheetJS) - SheetJS free verzia nevie zapisovat
@@ -123,13 +123,13 @@ export async function buildLieferscheinXlsx({ order, company, customer, carrierN
   set("G1", order.cisloObjednavkyDopravy, { size: 10 });
   if (transportPrice && transportPrice.matched) set("I1", formatPriceNumber(transportPrice.total), { align: { horizontal: "right" } });
   set("A2", company.nazov, { bold: true, size: 14 });
-  set("D2", "LIEFERSCHEIN ", { bold: true, size: 18 });
+  set("D2", "LIEFERSCHEIN / DODACÍ LIST", { bold: true, size: 14, align: { shrinkToFit: true, vertical: "middle" } });
   merge("D2", "F2");
-  set("G2", "Nr:", { bold: true });
+  set("G2", "Nr. / Č.:", { bold: true });
   set("H2", order.cisloDodaciehoListu, { bold: true });
   merge("H2", "I2");
 
-  set("D3", "Lieferadresse/adresa dodání", { size: 10 });
+  set("D3", "Lieferadresse / Adresa dodání", { size: 10 });
   ws.getCell("D3").font = { name: "Arial", size: 10, color: { argb: "FF222222" } };
   merge("D3", "F3");
   set("D4", order.adresaDodaniaNazov, { bold: true, size: 10, align: { vertical: "middle", horizontal: "left", shrinkToFit: true } });
@@ -138,8 +138,8 @@ export async function buildLieferscheinXlsx({ order, company, customer, carrierN
   set("D5", dodaciaAdresa[0], { bold: true, size: 10 });
   set("D6", dodaciaAdresa[1], { bold: true, size: 10 });
 
-  set("A6", "LIEFERANT:", { size: 12 });
-  set("G6", "ABNEHMER/ODBĚRATEL");
+  set("A6", "LIEFERANT / DODAVATEL:", { size: 12 });
+  set("G6", "ABNEHMER / ODBĚRATEL");
   set("A7", company.nazov, { bold: true, size: 12, align: { shrinkToFit: true } });
   set("G7", customer ? customer.nazov : (order.zakaznik || ""), { bold: true, align: { shrinkToFit: true } });
   // Zlucene AZ CEZ oba riadky (8 aj 9) do JEDNEJ bunky - predtym boli A8:C8 a
@@ -157,8 +157,8 @@ export async function buildLieferscheinXlsx({ order, company, customer, carrierN
   merge("G8", "I9");
   set("A10", "IČO:" + (company.ico || ""), { size: 12 });
   merge("A10", "B10");
-  set("G10", customer && customer.dic ? "Ust.-Id Nr." + customer.dic : "");
-  set("A11", "DIČ:" + (company.dic || ""), { size: 12 });
+  set("G10", customer && customer.dic ? "USt-IdNr. / DIČ: " + customer.dic : "");
+  set("A11", "USt-IdNr. / DIČ: " + (company.dic || ""), { size: 12 });
   merge("A11", "B11");
 
   // medium ramik okolo celej hlavicky (adresa dodania + LIEFERANT/ABNEHMER blok), presne
@@ -177,22 +177,22 @@ export async function buildLieferscheinXlsx({ order, company, customer, carrierN
     borderRect(col("G"), 2, col("I"), 2, { top: true, bottom: true, left: true, right: true }, MEDIUM);
   }
 
-  set("A13", "Lieferungstag:", { bold: true });
+  set("A13", "Lieferdatum / Datum dodání:", { bold: true });
   merge("A13", "B13");
   set("C13", order.datumDodania, { bold: true });
-  set("F13", "Bestellung:", { bold: true });
+  set("F13", "Bestellung / Objednávka:", { bold: true });
   merge("F13", "G13");
   set("H13", order.cisloObjednavkyZakaznika, { bold: true });
   merge("H13", "I13");
   borderRect(col("A"), 13, col("I"), 14, { top: true, bottom: true });
 
-  set("A15", "Palet", { bold: true });
-  set("B15", "Karton", { bold: true });
-  set("C15", "BEZEICHNUNG", { bold: true });
+  set("A15", "Paletten\nPalety", { bold: true, align: { wrapText: true, vertical: "middle" } });
+  set("B15", "Kartons\nKartony", { bold: true, align: { wrapText: true, vertical: "middle" } });
+  set("C15", "BEZEICHNUNG\nOZNAČENÍ ZBOŽÍ", { bold: true, align: { wrapText: true, vertical: "middle" } });
   merge("C15", "F15");
-  set("G15", "STK", { bold: true });
-  set("H15", "AKRTIKEL LIEF.NUM.", { bold: true });
-  ws.getRow(15).height = 15;
+  set("G15", "STK\nKS", { bold: true, align: { wrapText: true, vertical: "middle" } });
+  set("H15", "ARTIKEL LIEF.-NR.\nČÍSLO ARTIKLU", { bold: true, align: { wrapText: true, vertical: "middle" } });
+  ws.getRow(15).height = 28;
   borderRect(col("A"), 15, col("I"), 15, { top: true, bottom: true });
   [col("A"), col("B"), col("F"), col("G"), col("H")].forEach((c) => {
     ws.getCell(15, c).border = { ...ws.getCell(15, c).border, right: THIN };
@@ -265,27 +265,27 @@ export async function buildLieferscheinXlsx({ order, company, customer, carrierN
   const sumPaliet = items.reduce((s, it) => s + (parseFloat(it.paletEffective) || 0), 0);
   const totalPaliet = sumPaliet > 0 ? sumPaliet : (order.pocetPaliet || 0);
   set(`A${summaryRow}`, order.pocetPaletovychMiest || 0, { bold: true, size: 12 });
-  set(`B${summaryRow}`, "Doppelstockpal. =", { bold: true, size: 12 });
+  set(`B${summaryRow}`, "Doppelstockpal. (dvoupatrové) =", { bold: true, size: 12 });
   set(`D${summaryRow}`, totalPaliet, { bold: true, size: 12 });
-  set(`E${summaryRow}`, "europaletten =", { bold: true, size: 12 });
+  set(`E${summaryRow}`, "Europaletten (europalety) =", { bold: true, size: 12 });
   set(`G${summaryRow}`, order.pocetPaletovychMiest || 0, { bold: true, size: 12 });
-  set(`H${summaryRow}`, "stallplätze", { bold: true, size: 12 });
+  set(`H${summaryRow}`, "Stellplätze (pal. místa)", { bold: true, size: 12 });
 
   const footerRow = summaryRow + 3;
   borderRect(col("A"), summaryRow, col("I"), footerRow - 1, { left: true, right: true, bottom: true });
 
-  set(`A${footerRow}`, "vystavil/ausgestellt von:", { bold: true });
+  set(`A${footerRow}`, "Ausgestellt von / Vystavil:", { bold: true });
   merge(`A${footerRow}`, `C${footerRow}`);
-  set(`D${footerRow}`, "TRANSPORT: " + (carrierName || ""));
-  set(`G${footerRow}`, "odběratel / abnehmer:", { bold: true });
+  set(`D${footerRow}`, "TRANSPORT / DOPRAVCE: " + (carrierName || ""));
+  set(`G${footerRow}`, "Abnehmer / Odběratel:", { bold: true });
   merge(`G${footerRow}`, `I${footerRow}`);
   set(`A${footerRow + 1}`, company.email);
   merge(`A${footerRow + 1}`, `C${footerRow + 1}`);
-  set(`D${footerRow + 1}`, "NUMBER TRUCK:");
-  set(`D${footerRow + 2}`, "EUROPALETTEN");
-  set(`D${footerRow + 3}`, "ACCEPTED:");
-  set(`D${footerRow + 4}`, "RELEASSED:");
-  set(`D${footerRow + 5}`, "DEBT:");
+  set(`D${footerRow + 1}`, "LKW-KENNZEICHEN / SPZ:");
+  set(`D${footerRow + 2}`, "EUROPALETTEN / EUROPALETY");
+  set(`D${footerRow + 3}`, "ÜBERNOMMEN / PŘEVZATO:");
+  set(`D${footerRow + 4}`, "AUSGEGEBEN / VYDÁNO:");
+  set(`D${footerRow + 5}`, "SALDO:");
   borderRect(col("A"), footerRow, col("C"), footerRow + 5, { top: true, bottom: true, left: true, right: true });
   borderRect(col("G"), footerRow, col("I"), footerRow + 5, { top: true, bottom: true, left: true, right: true });
 

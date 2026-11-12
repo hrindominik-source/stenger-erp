@@ -16,7 +16,7 @@ const data = {
 describe("Lieferschein HTML", () => {
   it("obsahuje vsetky udaje a escapuje text", () => {
     const h = buildLieferscheinDocHtml(data);
-    for (const t of ["LIEFERSCHEIN", "60738/1211", "12.11.2026", "2026-1", "525", "Firma s.r.o.", "IČO: 123", "DIČ: CZ123", "Odběratel GmbH", "Ust.-Id Nr. DE1", "EDEKA &lt;Test&gt;", "<b>86899 Landsberg am Lech</b>", "GLN: 4314214990108", "352 KRT", "Popcorn süß", "EAN UK: 4311501019740", "EAN VE: 4311501019733", "RSPO-KOD", "5 280", "EDEKA 6215200", "SW: 11000000422", "11 Doppelstockpal.", "22 Europaletten", "11 Stellplätze", "orders@example.cz", "Dopravce s.r.o.", "Number truck", "Accepted", "Released", "Debt"]) {
+    for (const t of ["LIEFERSCHEIN", "60738/1211", "12.11.2026", "2026-1", "525", "Firma s.r.o.", "IČO: 123", "DIČ: CZ123", "Odběratel GmbH", "USt-IdNr. / DIČ: DE1", "EDEKA &lt;Test&gt;", "<b>86899 Landsberg am Lech</b>", "GLN: 4314214990108", "352 KRT", "Popcorn süß", "EAN UK: 4311501019740", "EAN VE: 4311501019733", "RSPO-KOD", "5 280", "EDEKA 6215200", "SW: 11000000422", "11 Doppelstockpal.", "22 Europaletten", "11 Stellplätze", "orders@example.cz", "Dopravce s.r.o.", "LKW-Kennzeichen / SPZ", "Übernommen / Převzato", "Ausgegeben / Vydáno", "Saldo", "Dodací list", "Paletten<span class=\"cz\">Palety</span>"]) {
       expect(h).toContain(t);
     }
     expect(h).not.toContain("<Test>");
