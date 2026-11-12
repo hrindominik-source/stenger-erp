@@ -62,6 +62,25 @@ describe("computeTransportPriceForCity", () => {
     expect(computeTransportPriceForCity("Gronausee", 2, false, p).matched).toBe(false);
   });
 
+  it("mesto s prehlaskou najde aj ked cennik ju nema (Nürnberg vs NURNBERG)", () => {
+    const p = { ...pricelist, cities: { ...pricelist.cities, NURNBERG: [60, 90], "BAD WUNNENBERG": [61, 91] } };
+    expect(computeTransportPriceForCity("NÜRNBERG", 2, false, p)).toMatchObject({ matched: true, basePrice: 60 });
+    expect(computeTransportPriceForCity("Bad Wünnenberg", 2, false, p)).toMatchObject({ matched: true, basePrice: 61 });
+  });
+
+  it("preklep v cenniku (MARKREWIDTZ pre Marktredwitz)", () => {
+    const p = { ...pricelist, cities: { ...pricelist.cities, MARKREWIDTZ: [77, 99], MARL: [10, 20], ALTADSBERG: [55, 66] } };
+    expect(computeTransportPriceForCity("MARKTREDWITZ", 2, false, p)).toMatchObject({ matched: true, basePrice: 77 });
+    expect(computeTransportPriceForCity("Altlandsberg", 2, false, p)).toMatchObject({ matched: true, basePrice: 55 });
+  });
+
+  it("kratke alebo vzdialene nazvy sa podla preklepov nezhoduju", () => {
+    const p = { ...pricelist, cities: { ...pricelist.cities, MARL: [10, 20], HAMM: [11, 21], KERPEN: [12, 22] } };
+    expect(computeTransportPriceForCity("Kempen", 2, false, p).matched).toBe(false);
+    expect(computeTransportPriceForCity("Mainz", 2, false, p).matched).toBe(false);
+    expect(computeTransportPriceForCity("Hamburg", 2, false, p).matched).toBe(false);
+  });
+
   it("nezhoduje nesuvisiace mesto so spolocnym prefixom (BINGEN vs BINGENDORF)", () => {
     const pricelistSkrateny = { ...pricelist, cities: { ...pricelist.cities, BINGEN: [80, 120] } };
     const result = computeTransportPriceForCity("Bingendorf", 2, false, pricelistSkrateny);
