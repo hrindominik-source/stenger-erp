@@ -39,7 +39,7 @@ import { INVOICE_EXTRACT_INSTRUCTIONS } from "../supabase/functions/invoice-inbo
 import { diffProductionPlanFields, isPlanZmenaActive, formatZmenaText } from "./lib/planZmena.js";
 import { getCnbRate } from "./lib/exchangeRate.js";
 import { downloadTextAsPdf, renderContainerToPdf } from "./lib/textPdf.js";
-import { downloadEmlDraft, emailyPreOutlook } from "./lib/emlDraft.js";
+import { downloadEmlDraft, emailyPreOutlook, rozdelEmaily } from "./lib/emlDraft.js";
 import { obsahBalenia, nazovSuboruDodaku, nazovSGramazou } from "./lib/lieferscheinObsah.js";
 import { najdiZakaznika, jeNasaFirma, zakaznikInstrukcie } from "./lib/zakaznikMatch.js";
 import { summarizeMonth, computeDayHours, shiftInterval, clampShiftStart } from "./lib/dochadzka.js";
@@ -391,7 +391,7 @@ function pickEmailsByKeyword(emaily, keywords) {
   const matched = (emaily || []).filter((e) =>
     keywords.some((k) => (e.label || "").toLowerCase().includes(k) || (e.email || "").toLowerCase().includes(k))
   );
-  return matched.map((e) => e.email).join(", ");
+  return emailyPreOutlook(matched.map((e) => e.email).join(";")).split(";").join("; ");
 }
 // Adresa dodania sa vetsinou eviduje ako jeden riadok "Ulice, PSC Mesto" -
 // pre objednavku dopravy ju rozdeli na "Ulice" a "PSC Mesto" na samostatne
@@ -3875,9 +3875,9 @@ function defaultEmailFor(entity, bezKopie = false) {
   if (!entity) return "";
   const all = [];
   (entity.emaily || []).filter((e) => !bezKopie || !jeKopiaEmail(e)).forEach((e) => {
-    (e.email || "").split(",").map((s) => s.trim()).filter(Boolean).forEach((addr) => all.push(addr));
+    rozdelEmaily(e.email).forEach((addr) => all.push(addr));
   });
-  return [...new Set(all)].join(", ");
+  return [...new Set(all)].join("; ");
 }
 function generalPlusPurposeEmails(entity) {
   const purpose = (entity && entity.emaily) || [];
@@ -3899,18 +3899,18 @@ const bezKopii = (emaily) => (emaily || []).filter((e) => !jeKopiaEmail(e));
 
 function EmailQuickPicks({ emaily, value, onPick }) {
   if (!emaily || emaily.length === 0) return null;
-  const current = (value || "").split(",").map((s) => s.trim()).filter(Boolean);
+  const current = rozdelEmaily(value);
   function toggle(email) {
-    const parts = email.split(",").map((s) => s.trim()).filter(Boolean);
+    const parts = rozdelEmaily(email);
     const allSelected = parts.length > 0 && parts.every((p) => current.includes(p));
     const next = allSelected ? current.filter((c) => !parts.includes(c)) : current.slice();
     if (!allSelected) parts.forEach((p) => { if (!next.includes(p)) next.push(p); });
-    onPick(next.join(", "));
+    onPick(next.join("; "));
   }
   return (
     <div className="mb-2 flex flex-wrap gap-1.5">
       {emaily.map((e, i) => {
-        const parts = (e.email || "").split(",").map((s) => s.trim()).filter(Boolean);
+        const parts = rozdelEmaily(e.email);
         const selected = parts.length > 0 && parts.every((p) => current.includes(p));
         return (
           <button
@@ -4384,9 +4384,9 @@ function NveListModal({ order, company, onClose, onSave, onSent }) {
 
   const jeNemecko = isGermanDelivery(order);
   const nveSkupina = (jeNemecko ? company.nveEmaily : company.nveEmailyExport) || [];
-  const defaultTo = bezKopii(nveSkupina).map((e) => e.email).join(", ");
+  const defaultTo = rozdelEmaily(bezKopii(nveSkupina).map((e) => e.email).join(";")).join("; ");
   const [to, setTo] = useState(last ? last.to : defaultTo);
-  const [cc, setCc] = useState(last ? (last.cc || "") : nveSkupina.filter(jeKopiaEmail).map((e) => e.email).join(", "));
+  const [cc, setCc] = useState(last ? (last.cc || "") : rozdelEmaily(nveSkupina.filter(jeKopiaEmail).map((e) => e.email).join(";")).join("; "));
   const [subject, setSubject] = useState(last ? last.subject : subjectFor(order.nveListFileName));
   const [body, setBody] = useState(
     last ? last.body :
@@ -4455,7 +4455,7 @@ function NveListModal({ order, company, onClose, onSave, onSent }) {
       </div>
       <EmailQuickPicks emaily={bezKopii(company.nveEmaily)} value={to} onPick={setTo} />
       <EmailQuickPicks emaily={bezKopii(company.nveEmailyExport)} value={to} onPick={setTo} />
-      <Field label="E-mail (komu) - oddělte čárkou při více adresách" value={to} onChange={setTo} />
+      <Field label="E-mail (komu) - oddělte středníkem (;) při více adresách" value={to} onChange={setTo} />
       <KopiaEmailFields emaily={[...(company.nveEmaily || []), ...(company.nveEmailyExport || [])]} cc={cc} setCc={setCc} />
       <Field label="Předmět" value={subject} onChange={setSubject} />
       <Field label="Text zprávy" value={body} onChange={setBody} textarea rows={8} />
@@ -4829,7 +4829,7 @@ function EmailListEditor({ emaily, onChange, caption }) {
 
   function add() {
     if (!label.trim() || !email.trim()) return;
-    onChange([...(emaily || []), { label: label.trim(), email: email.trim() }]);
+    onChange([...(emaily || []), { label: label.trim(), email: rozdelEmaily(email).join("; ") }]);
     setLabel("");
     setEmail("");
   }
@@ -4844,13 +4844,13 @@ function EmailListEditor({ emaily, onChange, caption }) {
 
   return (
     <div className="mb-3">
-      <span className="block text-xs font-medium text-slate-500 mb-1">{caption || "Další e-maily podle účelu (např. Objednávky, Faktury) - při více adresách najednou je oddělte čárkou"}</span>
+      <span className="block text-xs font-medium text-slate-500 mb-1">{caption || "Další e-maily podle účelu (např. Objednávky, Faktury) - při více adresách najednou je oddělte středníkem (;)"}</span>
       {(emaily || []).length > 0 && (
         <div className="mb-1.5 space-y-1">
           {emaily.map((e, i) => (
             <div key={i} className="flex items-center gap-1.5 bg-slate-50 rounded-md px-1.5 py-1">
               <input value={e.label} onChange={(ev) => update(i, "label", ev.target.value)} className="w-32 border border-slate-200 rounded px-2 py-1 text-sm" />
-              <input value={e.email} onChange={(ev) => update(i, "email", ev.target.value)} className="flex-1 border border-slate-200 rounded px-2 py-1 text-sm" />
+              <input value={e.email} onChange={(ev) => update(i, "email", ev.target.value)} onBlur={(ev) => update(i, "email", rozdelEmaily(ev.target.value).join("; "))} className="flex-1 border border-slate-200 rounded px-2 py-1 text-sm" />
               <button onClick={() => remove(i)} className="text-slate-400 hover:text-red-600 shrink-0"><Trash2 size={14} /></button>
             </div>
           ))}
@@ -4862,7 +4862,7 @@ function EmailListEditor({ emaily, onChange, caption }) {
           value={email}
           onChange={(e) => setEmail(e.target.value)}
           onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); add(); } }}
-          placeholder="email1@x.cz, email2@x.cz"
+          placeholder="email1@x.cz; email2@x.cz"
           className="flex-1 border border-slate-200 rounded-md px-2.5 py-1.5 text-sm"
         />
         <button onClick={add} className="bg-slate-100 hover:bg-slate-200 text-slate-700 text-sm font-medium px-3 py-1.5 rounded-md flex items-center gap-1"><Plus size={14} /> Přidat</button>
@@ -5020,7 +5020,7 @@ function CustomerModal({ customer, products, onClose, onSave }) {
       <Field label="Fakturační adresa (Abnehmer)" value={f.adresa} onChange={(v) => setF({ ...f, adresa: v })} textarea />
       <Field label="ICO" value={f.ico} onChange={(v) => setF({ ...f, ico: v })} />
       <Field label="DIČ / Ust.-Id Nr." value={f.dic} onChange={(v) => setF({ ...f, dic: v })} />
-      <Field label="E-mail (komu se posílá dodací list - oddělte čárkou, pokud je více adres)" value={f.email} onChange={(v) => setF({ ...f, email: v })} />
+      <Field label="E-mail (komu se posílá dodací list - oddělte středníkem (;), pokud je více adres)" value={f.email} onChange={(v) => setF({ ...f, email: v })} />
       <EmailListEditor emaily={f.emaily} onChange={(list) => setF({ ...f, emaily: list })} />
       <CatalogTable katalog={f.katalog} setKatalog={(k) => setF({ ...f, katalog: k })} products={products} />
       <div className="flex justify-end mt-2"><button onClick={() => onSave(f)} className="bg-teal-700 hover:bg-teal-800 text-white text-sm font-medium px-4 py-2 rounded-md">Uložit</button></div>
@@ -9210,12 +9210,12 @@ function CompanyView({ company, onSave }) {
         <EmailListEditor
           emaily={f.nveEmaily}
           onChange={(list) => setF({ ...f, nveEmaily: list })}
-          caption="NVE list - přednastavené e-maily kolegům do Německa (např. Sklad DE) - při více adresách najednou je oddělte čárkou"
+          caption="NVE list - přednastavené e-maily kolegům do Německa (např. Sklad DE) - při více adresách najednou je oddělte středníkem (;)"
         />
         <EmailListEditor
           emaily={f.nveEmailyExport || []}
           onChange={(list) => setF({ ...f, nveEmailyExport: list })}
-          caption="NVE list - přednastavené e-maily pro export mimo Německo - při více adresách najednou je oddělte čárkou"
+          caption="NVE list - přednastavené e-maily pro export mimo Německo - při více adresách najednou je oddělte středníkem (;)"
         />
         <Field label="Poslední použité číslo objednávky (bez tečky/data - jen pořadové číslo)" value={String(f.posledneCisloObjednavky)} onChange={(v) => setF({ ...f, posledneCisloObjednavky: parseInt(v) || 0 })} />
         <div className="grid grid-cols-2 gap-x-3">
