@@ -7,6 +7,7 @@ import {
   classifyInterval,
   computeDayHours,
   summarizeMonth,
+  zaciatkyZmeny,
   MESACNA_NORMA_HOD,
 } from "./dochadzka.js";
 
@@ -207,5 +208,25 @@ describe("summarizeMonth", () => {
     const prestavky = [{ id: "p1", meno: "Neznamy", datum: "17.08.2026", casZaciatku: "05:00", casKonca: "13:00" }];
     const summary = summarizeMonth(prestavky, [], {}, { zaciatokVyroba: "08:00", zaciatokSklad: "08:00" });
     expect(summary.Neznamy.celkemHod).toBe(8);
+  });
+});
+
+describe("ranna aj nocna zmena (05:55 / 17:55)", () => {
+  const z = zaciatkyZmeny("vyroba", { zaciatokVyroba: "05:55", zaciatokVyrobaNoc: "17:55" });
+  it("skory prichod na rannu zmenu sa zarovna na 05:55", () => {
+    const r = clampShiftStart(shiftInterval("01.10.2026", "05:40", "18:00"), z);
+    expect(r.start.getHours() * 60 + r.start.getMinutes()).toBe(5 * 60 + 55);
+  });
+  it("skory prichod na nocnu zmenu sa zarovna na 17:55", () => {
+    const r = clampShiftStart(shiftInterval("01.10.2026", "17:40", "06:00"), z);
+    expect(r.start.getHours() * 60 + r.start.getMinutes()).toBe(17 * 60 + 55);
+    expect((r.end - r.start) / 60000).toBe(12 * 60 + 5);
+  });
+  it("prichod po zaciatku zmeny sa nemeni", () => {
+    const raw = shiftInterval("01.10.2026", "06:10", "18:00");
+    expect(clampShiftStart(raw, z)).toBe(raw);
+  });
+  it("sklad ma jeden zaciatok", () => {
+    expect(zaciatkyZmeny("sklad", { zaciatokSklad: "08:00" })).toBe("08:00");
   });
 });

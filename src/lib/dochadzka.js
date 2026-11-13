@@ -22,16 +22,29 @@ export function shiftInterval(datum, casZaciatku, casKonca) {
 // Ak niekto tukne prichod skor nez ma nastaveny zaciatok zmeny, hodiny sa pocitaju
 // az od zaciatku zmeny. Orezanie sa neaplikuje, ak je rozdiel vacsi nez maxSkorSkorHod -
 // vtedy ide skor o inu (napr. nocnu) zmenu nez o skory prichod na tu istu zmenu.
+// zaciatokZmenyHHMM moze byt jeden cas alebo zoznam (napr. ranna 05:55 a nocna
+// 17:55) - pouzije sa najblizsi zaciatok po prichode (max. maxSkorSkorHod).
 export function clampShiftStart(interval, zaciatokZmenyHHMM, maxSkorSkorHod = MAX_SKORY_PRICHOD_HOD) {
   if (!interval || !zaciatokZmenyHHMM) return interval;
-  const [zh, zm] = String(zaciatokZmenyHHMM).split(":").map(Number);
-  if ([zh, zm].some((n) => Number.isNaN(n))) return interval;
-  const zaciatok = new Date(interval.start);
-  zaciatok.setHours(zh, zm, 0, 0);
-  if (interval.start.getTime() >= zaciatok.getTime()) return interval;
-  const rozdielHod = (zaciatok.getTime() - interval.start.getTime()) / 3600000;
-  if (rozdielHod > maxSkorSkorHod) return interval;
-  return { start: zaciatok, end: interval.end };
+  const zaciatky = (Array.isArray(zaciatokZmenyHHMM) ? zaciatokZmenyHHMM : [zaciatokZmenyHHMM])
+    .map((z) => String(z || "").split(":").map(Number))
+    .filter((p) => p.length === 2 && !p.some((n) => Number.isNaN(n)))
+    .map(([zh, zm]) => {
+      const zaciatok = new Date(interval.start);
+      zaciatok.setHours(zh, zm, 0, 0);
+      return zaciatok;
+    })
+    .filter((z) => z.getTime() > interval.start.getTime() && (z.getTime() - interval.start.getTime()) / 3600000 <= maxSkorSkorHod)
+    .sort((a, b) => a.getTime() - b.getTime());
+  if (!zaciatky.length) return interval;
+  return { start: zaciatky[0], end: interval.end };
+}
+
+// Zaciatky zmien podla typu pracovnika (vyroba ma rannu aj nocnu zmenu).
+export function zaciatkyZmeny(typ, nastavenia) {
+  if (typ === "sklad") return nastavenia?.zaciatokSklad || null;
+  if (typ === "vyroba") return [nastavenia?.zaciatokVyroba, nastavenia?.zaciatokVyrobaNoc].filter(Boolean);
+  return null;
 }
 
 function overlapMinutes(aStart, aEnd, bStart, bEnd) {
@@ -195,7 +208,7 @@ export function summarizeMonth(prestavkyZaMesiac, vsetkyPauzy, workersByMeno, na
   const result = {};
   for (const [meno, zaznamy] of byMeno.entries()) {
     const typ = workersByMeno?.[meno]?.typ;
-    const zaciatokZmeny = typ === "sklad" ? nastavenia?.zaciatokSklad : typ === "vyroba" ? nastavenia?.zaciatokVyroba : null;
+    const zaciatokZmeny = zaciatkyZmeny(typ, nastavenia);
 
     const totals = zaznamy.reduce(
       (acc, rec) => {
