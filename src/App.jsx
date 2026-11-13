@@ -41,7 +41,7 @@ import { downloadTextAsPdf, renderContainerToPdf } from "./lib/textPdf.js";
 import { downloadEmlDraft, emailyPreOutlook, rozdelEmaily } from "./lib/emlDraft.js";
 import { obsahBalenia, nazovSuboruDodaku, nazovSGramazou, dodakJenCesky, najdiProduktPolozky } from "./lib/lieferscheinObsah.js";
 import { najdiZakaznika, jeNasaFirma, zakaznikInstrukcie } from "./lib/zakaznikMatch.js";
-import { summarizeMonth, computeDayHours, shiftInterval, clampShiftStart, zaciatkyZmeny } from "./lib/dochadzka.js";
+import { summarizeMonth, computeDayHours, shiftInterval, clampShiftStart, zaciatkyZmeny, pauzyNaOdpocet } from "./lib/dochadzka.js";
 
 const STATUS_ORDER = {
   "Prijata": "bg-slate-100 text-slate-700",
@@ -8521,7 +8521,7 @@ function ProductionPlanView({ productionPlan, products, goodsReceipts, stockIssu
                                 const typ = workersByMeno[s.meno]?.typ;
                                 const zaciatokZmeny = zaciatkyZmeny(typ, dochadzkaNastavenia);
                                 return s.zaznamy.map((p) => {
-                                  const vypocet = computeDayHours(p, pauzy, zaciatokZmeny);
+                                  const vypocet = computeDayHours(p, pauzyNaOdpocet(pauzy, dochadzkaNastavenia), zaciatokZmeny);
                                   const raw = shiftInterval(p.datum, p.casZaciatku, p.casKonca);
                                   const clamped = raw && clampShiftStart(raw, zaciatokZmeny);
                                   const orezano = raw && clamped && clamped.start.getTime() !== raw.start.getTime();
@@ -8533,7 +8533,7 @@ function ProductionPlanView({ productionPlan, products, goodsReceipts, stockIssu
                                           <span className="text-slate-400">
                                             {" "}
                                             - k výplatě {formatMinutes(vypocet.totalMin)}
-                                            {orezano && ` (počítáno od ${zaciatokZmeny})`}
+                                            {orezano && ` (počítáno od ${String(clamped.start.getHours()).padStart(2, "0")}:${String(clamped.start.getMinutes()).padStart(2, "0")})`}
                                           </span>
                                         )}
                                       </div>

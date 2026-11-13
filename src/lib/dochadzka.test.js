@@ -8,6 +8,7 @@ import {
   computeDayHours,
   summarizeMonth,
   zaciatkyZmeny,
+  pauzyNaOdpocet,
   MESACNA_NORMA_HOD,
 } from "./dochadzka.js";
 
@@ -228,5 +229,20 @@ describe("ranna aj nocna zmena (05:55 / 17:55)", () => {
   });
   it("sklad ma jeden zaciatok", () => {
     expect(zaciatkyZmeny("sklad", { zaciatokSklad: "08:00" })).toBe("08:00");
+  });
+});
+describe("platene prestavky", () => {
+  const prestavky = [{ id: "s1", meno: "A", datum: "01.10.2026", casZaciatku: "06:00", casKonca: "18:00" }];
+  const pauzy = [{ id: "b1", meno: "A", datum: "01.10.2026", casZaciatku: "12:00", casKonca: "12:30" }];
+  it("standardne sa prestavka neodpocita", () => {
+    expect(summarizeMonth(prestavky, pauzy, {}, {}).A.celkemHod).toBe(12);
+    expect(pauzyNaOdpocet(pauzy, null)).toEqual([]);
+  });
+  it("otvorena prestavka den neblokuje", () => {
+    const otvorena = [{ id: "b2", meno: "A", datum: "01.10.2026", casZaciatku: "12:00" }];
+    expect(summarizeMonth(prestavky, otvorena, {}, {}).A.celkemHod).toBe(12);
+  });
+  it("odpocet len pri nastaveni prestavkyNeplatene", () => {
+    expect(summarizeMonth(prestavky, pauzy, {}, { prestavkyNeplatene: true }).A.celkemHod).toBe(11.5);
   });
 });
