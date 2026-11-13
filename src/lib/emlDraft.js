@@ -40,11 +40,13 @@ function safeName(name) {
 }
 
 // attachments: [{ filename, contentType, bytes (ArrayBuffer | Uint8Array) }]
-export function buildEmlDraft({ to = "", subject = "", body = "", attachments = [] }, boundary = "=_stenger_" + Date.now().toString(36)) {
+export function buildEmlDraft({ to = "", cc = "", subject = "", body = "", attachments = [] }, boundary = "=_stenger_" + Date.now().toString(36)) {
+  const kopia = rozdelEmaily(cc);
   const lines = [
     "MIME-Version: 1.0",
     "X-Unsent: 1",
     `To: ${rozdelEmaily(to).join(", ")}`,
+    ...(kopia.length ? [`Cc: ${kopia.join(", ")}`] : []),
     `Subject: ${headerWord(subject)}`,
     `Content-Type: multipart/mixed; boundary="${boundary}"`,
     "",
