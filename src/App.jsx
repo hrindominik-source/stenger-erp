@@ -773,7 +773,7 @@ function OfficeApp({ userFullName, userEmail, onSignOut }) {
   const [productionOutputs, setProductionOutputs] = useState([]);
   const [prestavky, setPrestavky] = useState([]);
   const [pauzy, setPauzy] = useState([]);
-  const [dochadzkaNastavenia, setDochadzkaNastavenia] = useState({ zaciatokVyroba: "06:00", zaciatokVyrobaNoc: "", zaciatokSklad: "06:00" });
+  const [dochadzkaNastavenia, setDochadzkaNastavenia] = useState({ zaciatokVyroba: "06:00", zaciatokVyrobaNoc: "", zaciatokSklad: "" });
   const [ccpKontroly, setCcpKontroly] = useState([]);
   const [workers, setWorkers] = useState([]);
   const [ulohy, setUlohy] = useState([]);
@@ -8849,10 +8849,10 @@ function PrestavkaEditModal({ prestavka, title, onClose, onSave }) {
 }
 
 function DochadzkaNastaveniaModal({ nastavenia, onClose, onSave }) {
-  const [f, setF] = useState({ zaciatokVyroba: nastavenia?.zaciatokVyroba || "06:00", zaciatokVyrobaNoc: nastavenia?.zaciatokVyrobaNoc || "", zaciatokSklad: nastavenia?.zaciatokSklad || "06:00" });
+  const [f, setF] = useState({ zaciatokVyroba: nastavenia?.zaciatokVyroba || "06:00", zaciatokVyrobaNoc: nastavenia?.zaciatokVyrobaNoc || "", zaciatokSklad: nastavenia?.zaciatokSklad ?? "" });
 
   function save() {
-    const zmeneno = f.zaciatokVyroba !== (nastavenia?.zaciatokVyroba || "06:00") || f.zaciatokVyrobaNoc !== (nastavenia?.zaciatokVyrobaNoc || "") || f.zaciatokSklad !== (nastavenia?.zaciatokSklad || "06:00");
+    const zmeneno = f.zaciatokVyroba !== (nastavenia?.zaciatokVyroba || "06:00") || f.zaciatokVyrobaNoc !== (nastavenia?.zaciatokVyrobaNoc || "") || f.zaciatokSklad !== (nastavenia?.zaciatokSklad ?? "");
     if (zmeneno && !window.confirm("Změna začátku směny přepočítá i už uzavřené měsíce zpětně (mzdové hodiny se počítají vždy naživo z aktuálního nastavení). Pokud jste už nějaký měsíc odeslali do mezd, jeho čísla se tímto změní. Opravdu pokračovat?")) {
       return;
     }
@@ -8874,7 +8874,7 @@ function DochadzkaNastaveniaModal({ nastavenia, onClose, onSave }) {
           <input type="time" value={f.zaciatokVyrobaNoc} onChange={(e) => setF({ ...f, zaciatokVyrobaNoc: e.target.value })} className="w-full border border-slate-200 rounded-md px-3 py-2 text-sm" />
         </div>
         <div className="mb-3">
-          <label className="block text-xs font-medium text-slate-500 mb-1">Začátek směny - Sklad</label>
+          <label className="block text-xs font-medium text-slate-500 mb-1">Začátek směny - Sklad (prázdné = přesně podle ťuknutí)</label>
           <input type="time" value={f.zaciatokSklad} onChange={(e) => setF({ ...f, zaciatokSklad: e.target.value })} className="w-full border border-slate-200 rounded-md px-3 py-2 text-sm" />
         </div>
       </div>

@@ -246,3 +246,10 @@ describe("platene prestavky", () => {
     expect(summarizeMonth(prestavky, pauzy, {}, { prestavkyNeplatene: true }).A.celkemHod).toBe(11.5);
   });
 });
+describe("sklad bez zaciatku zmeny", () => {
+  it("prazdny zaciatok skladu = presne podla tuknutia", () => {
+    expect(zaciatkyZmeny("sklad", { zaciatokSklad: "" })).toBe(null);
+    const s = summarizeMonth([{ id: "s1", meno: "S", datum: "01.10.2026", casZaciatku: "07:40", casKonca: "17:05" }], [], { S: { typ: "sklad" } }, { zaciatokSklad: "" });
+    expect(s.S.celkemHod * 60).toBe(9 * 60 + 25);
+  });
+});
