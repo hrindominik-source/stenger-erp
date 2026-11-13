@@ -47,6 +47,12 @@ export function zaciatkyZmeny(typ, nastavenia) {
   return null;
 }
 
+// Prestavky su platene - od hodin k vyplate sa neodpocitavaju (zostavaju len
+// v evidencii a exporte). Odpocet sa zapne iba nastavenim prestavkyNeplatene.
+export function pauzyNaOdpocet(pauzy, nastavenia) {
+  return nastavenia?.prestavkyNeplatene ? pauzy || [] : [];
+}
+
 function overlapMinutes(aStart, aEnd, bStart, bEnd) {
   const s = aStart.getTime() > bStart.getTime() ? aStart : bStart;
   const e = aEnd.getTime() < bEnd.getTime() ? aEnd : bEnd;
@@ -205,6 +211,7 @@ export function summarizeMonth(prestavkyZaMesiac, vsetkyPauzy, workersByMeno, na
     byMeno.get(rec.meno).push(rec);
   }
 
+  const pauzyOdpocet = pauzyNaOdpocet(vsetkyPauzy, nastavenia);
   const result = {};
   for (const [meno, zaznamy] of byMeno.entries()) {
     const typ = workersByMeno?.[meno]?.typ;
@@ -212,7 +219,7 @@ export function summarizeMonth(prestavkyZaMesiac, vsetkyPauzy, workersByMeno, na
 
     const totals = zaznamy.reduce(
       (acc, rec) => {
-        const h = computeDayHours(rec, vsetkyPauzy, zaciatokZmeny);
+        const h = computeDayHours(rec, pauzyOdpocet, zaciatokZmeny);
         if (!h) return acc;
         return {
           totalMin: acc.totalMin + h.totalMin,
