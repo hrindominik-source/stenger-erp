@@ -39,7 +39,7 @@ import { diffProductionPlanFields, isPlanZmenaActive, formatZmenaText } from "./
 import { getCnbRate } from "./lib/exchangeRate.js";
 import { downloadTextAsPdf, renderContainerToPdf } from "./lib/textPdf.js";
 import { downloadEmlDraft, emailyPreOutlook, rozdelEmaily } from "./lib/emlDraft.js";
-import { obsahBalenia, nazovSuboruDodaku, nazovSGramazou, dodakJenCesky } from "./lib/lieferscheinObsah.js";
+import { obsahBalenia, nazovSuboruDodaku, nazovSGramazou, dodakJenCesky, najdiProduktPolozky } from "./lib/lieferscheinObsah.js";
 import { najdiZakaznika, jeNasaFirma, zakaznikInstrukcie } from "./lib/zakaznikMatch.js";
 import { summarizeMonth, computeDayHours, shiftInterval, clampShiftStart } from "./lib/dochadzka.js";
 
@@ -3979,13 +3979,7 @@ function TransportModal({ order, carriers, company, onClose, onSent, onUpdateCar
 // cislo) - takze funguje aj ked polozka pride s nemeckym artiklom priamo
 // zapisanym z objednavky, bez potreby mat ho zvlast v katalogu zakaznika.
 function findProduktForItem(it, customer, products) {
-  if (!it.artikel) return null;
-  const katalogItem = customer && customer.katalog ? customer.katalog.find((k) => k.artikel && k.artikel === it.artikel) : null;
-  if (katalogItem && katalogItem.produktId) {
-    const p = (products || []).find((p) => p.id === katalogItem.produktId);
-    if (p) return p;
-  }
-  return (products || []).find((p) => p.cisloArtiklu === it.artikel || p.cisloArtikluSW === it.artikel || p.cisloArtikluZakaznika === it.artikel) || null;
+  return najdiProduktPolozky(it, customer, products);
 }
 
 // Automaticky navrhne pocet paliet z poctu kartonov + "Kartonů na paletě" u

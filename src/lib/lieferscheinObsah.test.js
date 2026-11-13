@@ -1,5 +1,22 @@
 import { describe, it, expect } from "vitest";
-import { obsahBalenia, nazovSuboruDodaku, nazovSGramazou } from "./lieferscheinObsah.js";
+import { obsahBalenia, nazovSuboruDodaku, nazovSGramazou, najdiProduktPolozky } from "./lieferscheinObsah.js";
+
+describe("najdiProduktPolozky", () => {
+  const products = [
+    { id: "a", cisloArtiklu: "6215200", cisloArtikluSW: "11000000329" },
+    { id: "b", cisloArtikluZakaznika: "403 00058" },
+  ];
+  it("podla artikloveho cisla zakaznika, aj s inymi medzerami", () => {
+    expect(najdiProduktPolozky({ artikel: "403 00058" }, null, products).id).toBe("b");
+    expect(najdiProduktPolozky({ artikel: "40300058" }, null, products).id).toBe("b");
+    expect(najdiProduktPolozky({ artikel: "11000000329" }, null, products).id).toBe("a");
+  });
+  it("katalog zakaznika ma prednost, nezname cislo nic", () => {
+    expect(najdiProduktPolozky({ artikel: "X1" }, { katalog: [{ artikel: "x 1", produktId: "a" }] }, products).id).toBe("a");
+    expect(najdiProduktPolozky({ artikel: "999" }, null, products)).toBe(null);
+    expect(najdiProduktPolozky({ artikel: "" }, null, products)).toBe(null);
+  });
+});
 
 describe("nazovSGramazou", () => {
   it("gramaz za nazvom produktu", () => {
