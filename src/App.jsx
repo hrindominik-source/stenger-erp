@@ -40,7 +40,7 @@ import { diffProductionPlanFields, isPlanZmenaActive, formatZmenaText } from "./
 import { getCnbRate } from "./lib/exchangeRate.js";
 import { downloadTextAsPdf, renderContainerToPdf } from "./lib/textPdf.js";
 import { downloadEmlDraft, emailyPreOutlook, rozdelEmaily } from "./lib/emlDraft.js";
-import { obsahBalenia, nazovSuboruDodaku, nazovSGramazou, dodakJenCesky } from "./lib/lieferscheinObsah.js";
+import { obsahBalenia, nazovSuboruDodaku, nazovSGramazou, dodakJenCesky, najdiProduktPolozky } from "./lib/lieferscheinObsah.js";
 import { najdiZakaznika, jeNasaFirma, zakaznikInstrukcie } from "./lib/zakaznikMatch.js";
 import { summarizeMonth, computeDayHours, shiftInterval, clampShiftStart } from "./lib/dochadzka.js";
 
@@ -476,20 +476,20 @@ Odpovedz VYLUCNE JSON objektom v tomto presnom tvare (bez ciarok naviac, bez mar
   "mercareonRef": "booking/referencne cislo pre Mercareon alebo Transporeon - hlada sa v riadku typu '<NAZOV RETAZCA> - ORDER-N°: XXXXXXX' (napr. 'NETTO MARKEN - ORDER-N°: 2607026077759', pri inom zakaznikovi moze byt namiesto NETTO MARKEN napr. EDEKA a podobne) - je to cislo objednavky KONCOVEHO odberatela/retazca, nie Belegnummer",
   "pocetPaliet": "celkovy pocet europaliet - hlada sa v riadku typu 'X Doppelstockpal. = Y Europaletten = Z Stellplatze' - pouzi hodnotu Y (Europaletten), ak taky riadok nie je, hladaj inde uvedeny pocet paliet",
   "pocetPaletovychMiest": "pocet paletovych/nakladacich pozicii - z toho isteho riadku 'X Doppelstockpal. = Y Europaletten = Z Stellplatze' pouzi hodnotu Z (Stellplatze). Ak taky riadok chyba, nechaj prazdne - NEODHADUJ ho z poctu paliet.",
-  "pocetKartonov": "celkovy pocet kartonov - v tabulke polozok najdi stlpec 'Menge'/'ME' kde jednotka je 'KRT' (karton) a sprocitaj vsetky mnozstva s touto jednotkou naprie vsetkymi polozkami",
+  "pocetKartonov": "celkovy pocet kartonov - v tabulke polozok najdi stlpec 'Menge'/'ME' kde jednotka je 'KRT' (karton) a sprocitaj vsetky mnozstva s touto jednotkou naprie vsetkymi polozkami. Pri ceskej objednavke so stlpcami 'Množství' a 'MJ' plati to iste: ak je MJ karton (napr. 'kar', 'kar 12', 'krt', 'ktn'), pocet kartonov je hodnota zo stlpca Množství",
   "hmotnost": "celkova hmotnost v kg ako text, ak je priamo uvedena v dokumente, inak prazdny retazec (nepocitaj ju z max. vahy palety)",
   "popisTovaru": "strucny popis objednaneho tovaru - zluc nazvy vsetkych poloziek z tabulky (stlpec Bezeichnung/Artikelnr)",
   "mnozstvo": "mnozstvo/pocet kusov ako text - ak je viac poloziek, strucne zhrni (napr. '192 KRT American Style popcorn sweet')",
   "poznamka": "akakolvek dalsia dolezita poznamka z objednavky (napr. specialne baliace/dodacie podmienky), inak prazdny retazec",
   "polozky": [
-    { "popis": "presny nazov polozky ako v dokumente (stlpec Bezeichnung)", "artikel": "hlavne cislo artiklu polozky presne ako v dokumente (stlpec Artikelnr./Art.-Nr./Artikel) - pouzi VZDY len HLAVNE (prve, najhornejsie) cislo v tomto stlpci. POZOR na dva odlisne pripady: (1) ak je TO ISTE cislo kvoli sirke stlpca rozdelene na viac riadkov (napr. posledna cislica osamote na dalsom riadku hned pod predoslymi cislicami), SPOJ ich do jedneho cisla, nikdy neodrezavaj poslednu cislicu. (2) ak je pod hlavnym cislom v tej istej bunke este SAMOSTATNY doplnkovy text/kod (napr. nazov zakaznika a ich vlastne interne oznacenie ako 'EDEKA 6215200' alebo 'NM 6215200' pod cislom '11000000422'), NESPAJAJ ho s hlavnym cislom - pouzi len to hlavne cislo, doplnkovy text ignoruj", "palet": "pocet paliet tejto konkretnej polozky ako text, len ak je to v dokumente uvedene osobitne pre kazdu polozku ako samostatny stlpec/udaj (zriedkave), inak prazdny retazec. DOLEZITE: NIKDY nepouzi cislo pri texte 'Doppelstockpal.'/'DOPA'/'Europaletten'/'Stellplatze' ako pocet paliet polozky, ani ked sa tento text nachadza priamo vedla alebo pod polozkou v dokumente - je to VZDY celkovy sucet za celu objednavku (patri do samostatnych polí pocetPaliet/pocetPaletovychMiest), nikdy nie hodnota jednej polozky", "karton": "mnozstvo tejto polozky ako text - hodnota zo stlpca Menge/ME s jednotkou KRT/karton" }
+    { "popis": "presny nazov polozky ako v dokumente (stlpec Bezeichnung)", "artikel": "hlavne cislo artiklu polozky presne ako v dokumente (stlpec Artikelnr./Art.-Nr./Artikel) - pouzi VZDY len HLAVNE (prve, najhornejsie) cislo v tomto stlpci. POZOR na dva odlisne pripady: (1) ak je TO ISTE cislo kvoli sirke stlpca rozdelene na viac riadkov (napr. posledna cislica osamote na dalsom riadku hned pod predoslymi cislicami), SPOJ ich do jedneho cisla, nikdy neodrezavaj poslednu cislicu. (2) ak je pod hlavnym cislom v tej istej bunke este SAMOSTATNY doplnkovy text/kod (napr. nazov zakaznika a ich vlastne interne oznacenie ako 'EDEKA 6215200' alebo 'NM 6215200' pod cislom '11000000422'), NESPAJAJ ho s hlavnym cislom - pouzi len to hlavne cislo, doplnkovy text ignoruj", "palet": "pocet paliet tejto konkretnej polozky ako text, len ak je to v dokumente uvedene osobitne pre kazdu polozku ako samostatny stlpec/udaj (zriedkave), inak prazdny retazec. DOLEZITE: NIKDY nepouzi cislo pri texte 'Doppelstockpal.'/'DOPA'/'Europaletten'/'Stellplatze' ako pocet paliet polozky, ani ked sa tento text nachadza priamo vedla alebo pod polozkou v dokumente - je to VZDY celkovy sucet za celu objednavku (patri do samostatnych polí pocetPaliet/pocetPaletovychMiest), nikdy nie hodnota jednej polozky", "karton": "mnozstvo tejto polozky ako text - hodnota zo stlpca Menge/ME (alebo cesky Množství) s jednotkou KRT/karton. POZOR: cislo PRI jednotke (napr. MJ 'kar 12' = karton po 12 kusoch) je pocet kusov v kartone, NIE pocet kartonov - pocet kartonov je vzdy cislo v stlpci Množství/Menge (napr. Množství 540,00 + MJ 'kar 12' = 540 kartonov)" }
   ]
 }
 Ak nejaky udaj v texte chyba, nechaj ho ako prazdny retazec "". Neodhaduj veci, ktore tam nie su.
 Dolezite rozlisenie cisiel:
 - "cisloObjednavkyZakaznika" (Belegnummer) a "mercareonRef" (ORDER-N° retazca) su DVE ROZDIELNE cisla z roznych casti dokumentu - nezamienaj ich.
 - "pocetPaliet" (Europaletten) a "pocetPaletovychMiest" (Stellplatze) su tiez dve rozdielne cisla z riadku 'Doppelstockpal. = Europaletten = Stellplatze' - pri dvojitom stohovani je pocet paliet dvojnasobny oproti poctu miest.
-- "pocetKartonov" je uplne iny, samostatny udaj - sucet vsetkych KRT mnozstiev z tabulky poloziek.
+- "pocetKartonov" je uplne iny, samostatny udaj - sucet vsetkych KRT mnozstiev z tabulky poloziek. Jednotka typu 'kar 12' znamena karton po 12 kusoch - cislo 12 nie je mnozstvo.
 Dolezite k "polozky": ak dokument obsahuje jasnu tabulku jednotlivych poloziek (stlpce typu Pos./Artikelnr./Bezeichnung/Menge), vytiahni KAZDU polozku ako samostatny zaznam v poli "polozky" - toto pole ma prednost pred "popisTovaru" pri zobrazovani na dodacom liste. Ak dokument nema ziadnu jasnu tabulku poloziek (len volny text bez struktury), nechaj "polozky" ako prazdne pole [].`;
 
 function buildItemsInstructions(katalog) {
@@ -4013,13 +4013,7 @@ function TransportModal({ order, carriers, company, onClose, onSent, onUpdateCar
 // cislo) - takze funguje aj ked polozka pride s nemeckym artiklom priamo
 // zapisanym z objednavky, bez potreby mat ho zvlast v katalogu zakaznika.
 function findProduktForItem(it, customer, products) {
-  if (!it.artikel) return null;
-  const katalogItem = customer && customer.katalog ? customer.katalog.find((k) => k.artikel && k.artikel === it.artikel) : null;
-  if (katalogItem && katalogItem.produktId) {
-    const p = (products || []).find((p) => p.id === katalogItem.produktId);
-    if (p) return p;
-  }
-  return (products || []).find((p) => p.cisloArtiklu === it.artikel || p.cisloArtikluSW === it.artikel || p.cisloArtikluZakaznika === it.artikel) || null;
+  return najdiProduktPolozky(it, customer, products);
 }
 
 // Automaticky navrhne pocet paliet z poctu kartonov + "Kartonů na paletě" u

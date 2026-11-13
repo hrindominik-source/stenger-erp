@@ -8,7 +8,7 @@
 
 import { formatPriceNumber } from "./pricelist.js";
 import { adresaPoNemecky } from "./krajinaNemecky.js";
-import { obsahBalenia, nazovSuboruDodaku, nazovSGramazou, dodakJenCesky, popisDodaku } from "./lieferscheinObsah.js";
+import { obsahBalenia, nazovSuboruDodaku, nazovSGramazou, dodakJenCesky, popisDodaku, najdiProduktPolozky } from "./lieferscheinObsah.js";
 import { adresaBezNazvu } from "./lieferscheinHtml.js";
 
 const MAX_ITEMS = 6;
@@ -40,13 +40,7 @@ function addressLines(text, max) {
 // zakaznika, a ak sa nenajde, priamo porovna polozka.artikel s cislom
 // artiklu na Produkte (nase SNC aj nemecke/Sage SW cislo).
 function findProduktForItem(it, customer, products) {
-  if (!it.artikel) return null;
-  const katalogItem = customer && customer.katalog ? customer.katalog.find((k) => k.artikel && k.artikel === it.artikel) : null;
-  if (katalogItem && katalogItem.produktId) {
-    const p = (products || []).find((p) => p.id === katalogItem.produktId);
-    if (p) return p;
-  }
-  return (products || []).find((p) => p.cisloArtiklu === it.artikel || p.cisloArtikluSW === it.artikel) || null;
+  return najdiProduktPolozky(it, customer, products);
 }
 
 // Automaticky navrhne pocet paliet z poctu kartonov + "Kartonů na paletě" u

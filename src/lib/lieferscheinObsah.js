@@ -29,6 +29,24 @@ export function nazovSGramazou(popis, p) {
   return n ? `${n} ${g}` : g;
 }
 
+// Artiklove cislo bez medzier a velkosti pismen ("403 00058" = "40300058").
+function normArtikel(s) {
+  return String(s ?? "").replace(/\s+/g, "").toUpperCase();
+}
+
+// Produkt k polozke objednavky: najprv katalog zakaznika, potom nase SNC,
+// nemecke SW alebo artiklove cislo zakaznika na karte Produktu.
+export function najdiProduktPolozky(it, customer, products) {
+  const a = normArtikel(it && it.artikel);
+  if (!a) return null;
+  const katalogItem = customer && customer.katalog ? customer.katalog.find((k) => k.artikel && normArtikel(k.artikel) === a) : null;
+  if (katalogItem && katalogItem.produktId) {
+    const p = (products || []).find((x) => x.id === katalogItem.produktId);
+    if (p) return p;
+  }
+  return (products || []).find((p) => [p.cisloArtiklu, p.cisloArtikluSW, p.cisloArtikluZakaznika].some((c) => c && normArtikel(c) === a)) || null;
+}
+
 // Jazyk dodaku podla karty zakaznika: "cs" = len cesky, inak nemecky + cesky.
 export function dodakJenCesky(customer) {
   return !!customer && customer.jazykDodaku === "cs";
