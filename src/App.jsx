@@ -23,6 +23,7 @@ const PdaApp = lazy(() => import("./pda/PdaApp.jsx"));
 const PdaTestMode = lazy(() => import("./pda/PdaTestMode.jsx"));
 const PdaOfficeView = lazy(() => import("./pda/PdaOfficeView.jsx"));
 const SkladPrehledView = lazy(() => import("./SkladPrehledView.jsx"));
+const MzdyPanel = lazy(() => import("./MzdyPanel.jsx"));
 import { extractCityFromAddress, mestoDoNazvuSuboru, todayStr, uid, parseSkDate, isoFromSkDateStr, skDateStrFromIso, durationMinutes, formatMinutes } from "./lib/utils.js";
 import { parsePricelistFile, computeTransportPrice, computeTransportPriceForCity, formatEur, formatPriceNumber } from "./lib/pricelist.js";
 import { buildLieferscheinXlsx } from "./lib/lieferscheinXlsx.js";
@@ -8017,6 +8018,13 @@ function ProductionPlanView({ productionPlan, products, goodsReceipts, stockIssu
   const [showOlderOutputs, setShowOlderOutputs] = useState(false);
   const [dochazkaMode, setDochazkaMode] = useState("prichod");
   const [dochazkaView, setDochazkaView] = useState("mesic");
+  // Zalozka Mzdy len pre pouzivatelov v mzdy_pristup (strazi to aj RLS na tabulkach).
+  const [mzdyPristup, setMzdyPristup] = useState(false);
+  useEffect(() => {
+    let zrusene = false;
+    supabase.rpc("ma_pristup_mzdy").then(({ data, error }) => { if (!zrusene) setMzdyPristup(!error && data === true); });
+    return () => { zrusene = true; };
+  }, []);
   const [dochazkaMesic, setDochazkaMesic] = useState(() => {
     const d = new Date();
     return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
@@ -8463,6 +8471,7 @@ function ProductionPlanView({ productionPlan, products, goodsReceipts, stockIssu
           <div className="flex gap-1.5">
             <button onClick={() => setDochazkaMode("prichod")} className={"text-xs px-2.5 py-1.5 rounded-md border " + (dochazkaMode === "prichod" ? "bg-amber-500 text-white border-amber-500" : "bg-white text-slate-700 border-slate-200")}>Příchod / odchod</button>
             <button onClick={() => setDochazkaMode("pauza")} className={"text-xs px-2.5 py-1.5 rounded-md border " + (dochazkaMode === "pauza" ? "bg-orange-500 text-white border-orange-500" : "bg-white text-slate-700 border-slate-200")}>Přestávky</button>
+            {mzdyPristup && <button onClick={() => setDochazkaMode("mzdy")} className={"text-xs px-2.5 py-1.5 rounded-md border " + (dochazkaMode === "mzdy" ? "bg-slate-800 text-white border-slate-800" : "bg-white text-slate-700 border-slate-200")}>Mzdy</button>}
           </div>
           <div className="flex gap-1.5">
             <button onClick={() => setDochazkaView("mesic")} className={"text-xs px-2.5 py-1.5 rounded-md border " + (dochazkaView === "mesic" ? "bg-teal-700 text-white border-teal-700" : "bg-white text-slate-700 border-slate-200")}>Měsíční přehled</button>
@@ -8473,6 +8482,12 @@ function ProductionPlanView({ productionPlan, products, goodsReceipts, stockIssu
           <IconButton title="Nastavení začátku směny" onClick={() => setShowDochadzkaNastavenia(true)}><Settings size={16} /></IconButton>
         </div>
       </div>
+
+      {dochazkaMode === "mzdy" && mzdyPristup && (
+        <Suspense fallback={<div className="text-xs text-slate-400 py-6 text-center">Načítám…</div>}>
+          <MzdyPanel mesiac={dochazkaMesic} prestavky={mesicPrestavky} pauzy={pauzy} workers={workers} nastavenia={dochadzkaNastavenia} />
+        </Suspense>
+      )}
 
       {dochazkaMode === "prichod" && (
       <>
