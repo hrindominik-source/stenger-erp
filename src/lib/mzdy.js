@@ -3,7 +3,8 @@
 // pocita uctovnicka, tu sa pocita len suma, ktora sa jej nadiktuje ako premie
 // (nadcas + priplatky + upratovanie + premia). Sadzby su v Legende (meni sa
 // v appke, platnost od mesiaca), nic tu nie je natvrdo okrem struktury.
-import { isPublicHoliday } from "./dochadzka.js";
+import { isPublicHoliday, computeDayHours, zaciatkyZmeny, pauzyNaOdpocet } from "./dochadzka.js";
+import { parseSkDate } from "./utils.js";
 
 // Skupiny pracovnikov - kazda ma vlastne sadzby v Legende.
 export const MZDY_SKUPINY = [
@@ -92,7 +93,7 @@ const zaok2 = (n) => Math.round(n * 100) / 100;
 // dochadzka (z appky, v minutach): { denneMin, nocneMin, vikendMin, zmeny }
 // vstup (rucne, kazde pole moze prepisat navrh appky):
 //   { dovolenkaDni, uklidy, fond, korekciaHod, hodinyCelkem, hodinyDenne, hodinyNocne, hodinyVikend,
-//     zmeny, premia, mesacnyPriplatok, pohyblivaPremia, mimoriadnaPremia }
+//     zmeny, premia, mesacnyPriplatok, pohyblivaPremia, mimoriadnaPremia, sadzbaUklid, premiaZaklad }
 export function vypocitajMzdu({ skupina, mesiac, legenda, dochadzka = {}, vstup = {} }) {
   const sp = legenda.spolocne;
   const s = legenda.skupiny[skupina] || legenda.skupiny.ostatne;
@@ -120,8 +121,12 @@ export function vypocitajMzdu({ skupina, mesiac, legenda, dochadzka = {}, vstup 
   const priplatokHodKc = zaok2((hodinyDenne + hodinyNocne) * s.priplatokHod);
   const priplatokVikendKc = zaok2(hodinyVikend * s.priplatokVikend);
   const smenyKc = zaok2(zmeny * s.zaSmenu);
-  const uklidKc = zaok2(uklidy * s.uklid);
-  const navrhPremia = Math.round(s.premia * podiel);
+  // Zastup (napr. pozicia 3 obcas na hrnci): ina sadzba uklidu / zaklad premie
+  // len na dany mesiac, ostatne sadzby zostavaju podla skupiny.
+  const sadzbaUklid = cislo(vstup.sadzbaUklid) ?? s.uklid;
+  const premiaZaklad = cislo(vstup.premiaZaklad) ?? s.premia;
+  const uklidKc = zaok2(uklidy * sadzbaUklid);
+  const navrhPremia = Math.round(premiaZaklad * podiel);
   const premia = cislo(vstup.premia) ?? navrhPremia;
   const navrhMesacny = Math.round(s.mesacnyPriplatok * podiel);
   const mesacnyPriplatok = cislo(vstup.mesacnyPriplatok) ?? navrhMesacny;
@@ -130,7 +135,7 @@ export function vypocitajMzdu({ skupina, mesiac, legenda, dochadzka = {}, vstup 
 
   const celkem = zaok2(nadcasKc + priplatokHodKc + priplatokVikendKc + smenyKc + uklidKc + premia + mesacnyPriplatok + pohyblivaPremia + mimoriadnaPremia);
   return {
-    skupina, hodinovka: s.hodinovka, pracovneDni: pd, plnyFond, dovolenkaDni,
+    skupina, hodinovka: s.hodinovka, sadzbaUklid, premiaZaklad, pracovneDni: pd, plnyFond, dovolenkaDni,
     hodinyCelkem, hodinyDenne, hodinyNocne, hodinyVikend, korekciaHod, zmeny, uklidy,
     navrhFond, fond, nadcasHod, nadcasKc, priplatokHodKc, priplatokVikendKc, smenyKc, uklidKc,
     navrhPremia, premia, navrhMesacny, mesacnyPriplatok, pohyblivaPremia, mimoriadnaPremia, celkem,
@@ -153,4 +158,31 @@ export function dochadzkaPreMzdy(zaznamy) {
       zmeny: acc.zmeny + 1,
     };
   }, { denneMin: 0, nocneMin: 0, vikendMin: 0, zmeny: 0 });
+}
+
+// Dochadzka mesiaca -> suhrn pre mzdy po pracovnikoch. Minuty zmeny su ako
+// v mesacnom prehlade dochadzky (zarovnanie na zaciatok zmeny, platene
+// prestavky), denna/nocna podla skutocneho prichodu. Zaznamy bez odchodu
+// sa nepocitaju (pocet je v nedokoncene).
+// prestavky: zaznamy prichod/odchod za mesiac, workersByMeno: { meno: { typ } }
+export function dochadzkaMesiacaPreMzdy(prestavky, pauzy, workersByMeno, nastavenia) {
+  const pauzyOdpocet = pauzyNaOdpocet(pauzy, nastavenia);
+  const poMenach = {};
+  for (const p of prestavky || []) {
+    if (!poMenach[p.meno]) poMenach[p.meno] = { zaznamy: [], nedokoncene: 0 };
+    if (!p.casKonca) { poMenach[p.meno].nedokoncene++; continue; }
+    const typ = workersByMeno && workersByMeno[p.meno] ? workersByMeno[p.meno].typ : null;
+    const h = computeDayHours(p, pauzyOdpocet, zaciatkyZmeny(typ, nastavenia));
+    if (!h) { poMenach[p.meno].nedokoncene++; continue; }
+    poMenach[p.meno].zaznamy.push({ datum: parseSkDate(p.datum), casZaciatku: p.casZaciatku, minuty: h.totalMin });
+  }
+  return Object.fromEntries(Object.entries(poMenach).map(([meno, v]) => [meno, { ...dochadzkaPreMzdy(v.zaznamy), nedokoncene: v.nedokoncene }]));
+}
+
+// Predvolena skupina: ulozena pri pracovnikovi, inak podla typu (sklad -> skladnik).
+export function skupinaPracovnika(meno, mzdyPracovnici, workersByMeno, mesacne) {
+  if (mesacne && mesacne.skupina) return mesacne.skupina;
+  const ulozena = mzdyPracovnici && mzdyPracovnici[meno] && mzdyPracovnici[meno].skupina;
+  if (ulozena) return ulozena;
+  return workersByMeno && workersByMeno[meno] && workersByMeno[meno].typ === "sklad" ? "skladnik" : "ostatne";
 }

@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest";
-import { vypocitajMzdu, zaokruhliHodiny, pracovneDni, jeNocnaZmena, dochadzkaPreMzdy, legendaPreMesiac, MZDY_LEGENDA_VYCHODZIA } from "./mzdy.js";
+import { vypocitajMzdu, zaokruhliHodiny, pracovneDni, jeNocnaZmena, dochadzkaPreMzdy, legendaPreMesiac, MZDY_LEGENDA_VYCHODZIA, dochadzkaMesiacaPreMzdy, skupinaPracovnika } from "./mzdy.js";
+import { mzdyRiadkyExportu, mzdyRiadkyLegendy } from "./mzdyExport.js";
 
 const m = (s) => { const [h, mm] = s.split(":").map(Number); return h * 60 + mm; };
 const L = MZDY_LEGENDA_VYCHODZIA;
@@ -73,5 +74,47 @@ describe("mzdy 10/2026 ako tabulka kolegu", () => {
   it("rucne prepisane hodnoty maju prednost pred navrhom", () => {
     const r = vypocet("hrncova", "60:05", "145:00", { dovolenkaDni: 3, premia: 6000, hodinyCelkem: 200 }, 17);
     expect(r).toMatchObject({ navrhPremia: 5143, premia: 6000, hodinyCelkem: 200, nadcasHod: 56 });
+  });
+});
+
+describe("zastup na hrnci (pozicia 3)", () => {
+  it("ina sadzba uklidu a zaklad premie, bez priplatku za hodinu a za smenu", () => {
+    const r = vypocet("pozicia3", "119:50", "72:30", { uklidy: 3, dovolenkaDni: 2, fond: 152, sadzbaUklid: 500, premiaZaklad: 6000 }, 16);
+    expect(r).toMatchObject({ uklidKc: 1500, priplatokHodKc: 0, smenyKc: 0, navrhPremia: 5429, mesacnyPriplatok: 452 });
+  });
+});
+
+describe("dochadzka mesiaca pre mzdy", () => {
+  const workers = { V: { typ: "vyroba" }, S: { typ: "sklad" } };
+  const nastavenia = { zaciatokVyroba: "05:55", zaciatokVyrobaNoc: "17:55", zaciatokSklad: "" };
+  const prestavky = [
+    { id: "1", meno: "V", datum: "01.10.2026", casZaciatku: "05:40", casKonca: "18:00" },
+    { id: "2", meno: "V", datum: "02.10.2026", casZaciatku: "17:45", casKonca: "06:00" },
+    { id: "3", meno: "V", datum: "05.10.2026", casZaciatku: "05:50" },
+    { id: "4", meno: "S", datum: "01.10.2026", casZaciatku: "07:40", casKonca: "17:05" },
+  ];
+  const pauzy = [{ id: "b", meno: "V", datum: "01.10.2026", casZaciatku: "12:00", casKonca: "12:30" }];
+  it("zarovnanie na 05:55/17:55, platene prestavky, nedokoncene zvlast, sklad presne", () => {
+    const d = dochadzkaMesiacaPreMzdy(prestavky, pauzy, workers, nastavenia);
+    expect(d.V).toEqual({ denneMin: 725, nocneMin: 725, vikendMin: 0, zmeny: 2, nedokoncene: 1 });
+    expect(d.S).toMatchObject({ denneMin: 565, zmeny: 1 });
+  });
+  it("skupina: mesacna > ulozena > podla typu", () => {
+    expect(skupinaPracovnika("S", {}, workers, null)).toBe("skladnik");
+    expect(skupinaPracovnika("V", {}, workers, null)).toBe("ostatne");
+    expect(skupinaPracovnika("V", { V: { skupina: "pozicia3" } }, workers, null)).toBe("pozicia3");
+    expect(skupinaPracovnika("V", { V: { skupina: "pozicia3" } }, workers, { skupina: "hrncova" })).toBe("hrncova");
+  });
+});
+
+describe("export pre uctovnicku", () => {
+  it("riadok na pracovnika + sucet, legenda", () => {
+    const r1 = vypocet("pozicia3", "108:25", "96:40", { uklidy: 4 }, 17);
+    const r2 = vypocet("ostatne", "120:30", "72:30", { uklidy: 3 }, 16);
+    const riadky = mzdyRiadkyExportu([{ meno: "P1", r: r1 }, { meno: "P2", r: r2, poznamka: "x" }]);
+    expect(riadky).toHaveLength(3);
+    expect(riadky[0]).toMatchObject({ "Jméno": "P1", "Skupina": "Pozice 3", "CELKEM Kč": 14031.25 });
+    expect(riadky[2]).toMatchObject({ "Jméno": "CELKEM", "CELKEM Kč": 24737.5 });
+    expect(mzdyRiadkyLegendy(L)[0]).toMatchObject({ "Hrncová": 165, "Skladník": 220 });
   });
 });
