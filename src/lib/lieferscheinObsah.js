@@ -29,10 +29,22 @@ export function nazovSGramazou(popis, p) {
   return n ? `${n} ${g}` : g;
 }
 
-export function obsahBalenia(p) {
+// Jazyk dodaku podla karty zakaznika: "cs" = len cesky, inak nemecky + cesky.
+export function dodakJenCesky(customer) {
+  return !!customer && customer.jazykDodaku === "cs";
+}
+
+// Popisok dodaku: "Nemecky / Cesky", alebo len cesky.
+export function popisDodaku(cs) {
+  return (de, cz) => (cs ? cz : `${de} / ${cz}`);
+}
+
+export function obsahBalenia(p, cs = false) {
   if (!p) return "";
   const ks = cislo(p.ksVKartone);
   const kpp = cislo(p.kartonovNaPalete);
-  const casti = [ks ? `${ks} Stk/KRT` : "", kpp ? `${kpp} KRT/PAL` : ""].filter(Boolean);
+  const casti = cs
+    ? [ks ? `${ks} ks/kart.` : "", kpp ? `${kpp} kart./pal.` : ""].filter(Boolean)
+    : [ks ? `${ks} Stk/KRT` : "", kpp ? `${kpp} KRT/PAL` : ""].filter(Boolean);
   return [casti.join(" · "), cislo(p.inhlt)].filter(Boolean).join("\n");
 }
