@@ -3868,6 +3868,10 @@ function EditOrderPage({ order, customers, products, onClose, onSave }) {
 function jeKopiaEmail(e) {
   return /kopi|k[oó]pi|\bcc\b/i.test((e && e.label) || "");
 }
+// E-mail(y) firmy, ktore idu vzdy do kopie (Nastaveni firmy) - pripoja sa k ostatnym.
+function sKopiouFirmy(cc, company) {
+  return [...new Set([...rozdelEmaily(cc), ...rozdelEmaily(company && company.kopiaVzdy)])].join("; ");
+}
 function kopieEmailFor(entity) {
   return defaultEmailFor(entity ? { emaily: (entity.emaily || []).filter(jeKopiaEmail) } : null);
 }
@@ -3933,14 +3937,14 @@ function TransportModal({ order, carriers, company, onClose, onSent, onUpdateCar
   const [carrierId, setCarrierId] = useState(order.dopravcaId || defaultCarrierId(carriers));
   const carrier = carriers.find((c) => c.id === carrierId);
   const [to, setTo] = useState(last ? last.to : defaultEmailFor(carrier, true));
-  const [cc, setCc] = useState(last ? (last.cc || "") : kopieEmailFor(carrier));
+  const [cc, setCc] = useState(sKopiouFirmy(last ? last.cc : kopieEmailFor(carrier), company));
   const [manageEmails, setManageEmails] = useState(false);
   function pickCarrier(id) {
     const c = carriers.find((x) => x.id === id);
     setCarrierId(id);
     if (!last) {
       setTo(defaultEmailFor(c, true));
-      setCc(kopieEmailFor(c));
+      setCc(sKopiouFirmy(kopieEmailFor(c), company));
       const oldName = carrier ? carrier.nazov : "[dopravce]";
       const newName = c ? c.nazov : "[dopravce]";
       setBody((prev) => prev.replace(`PRO: ${oldName}`, `PRO: ${newName}`));
@@ -4091,7 +4095,7 @@ function DeliveryModal({ order, customers, carriers, company, pricelist, product
   const keywordMatched = pickEmailsByKeyword(bezKopii(customer && customer.emaily), jeNemecko ? ["leh", "cc"] : ["export"]);
   const defaultEmail = keywordMatched || order.zakaznikEmail || "";
   const [email, setEmail] = useState(last ? last.to : defaultEmail);
-  const [cc, setCc] = useState(last ? (last.cc || "") : kopieEmailFor(customer));
+  const [cc, setCc] = useState(sKopiouFirmy(last ? last.cc : kopieEmailFor(customer), company));
   const mesto = extractCityFromAddress(order.adresaDodania) || order.adresaDodaniaNazov || "";
   const [subject, setSubject] = useState(last ? last.subject : `Lieferschein / Dodací list č. ${order.cisloDodaciehoListu}${mesto ? " - " + mesto : ""}`);
   const transportPrice = computeTransportPrice(order, pricelist, extractCityFromAddress);
@@ -4386,7 +4390,7 @@ function NveListModal({ order, company, onClose, onSave, onSent }) {
   const nveSkupina = (jeNemecko ? company.nveEmaily : company.nveEmailyExport) || [];
   const defaultTo = rozdelEmaily(bezKopii(nveSkupina).map((e) => e.email).join(";")).join("; ");
   const [to, setTo] = useState(last ? last.to : defaultTo);
-  const [cc, setCc] = useState(last ? (last.cc || "") : rozdelEmaily(nveSkupina.filter(jeKopiaEmail).map((e) => e.email).join(";")).join("; "));
+  const [cc, setCc] = useState(sKopiouFirmy(last ? last.cc : nveSkupina.filter(jeKopiaEmail).map((e) => e.email).join(";"), company));
   const [subject, setSubject] = useState(last ? last.subject : subjectFor(order.nveListFileName));
   const [body, setBody] = useState(
     last ? last.body :
@@ -6567,14 +6571,14 @@ function MaterialTransportModal({ order, carriers, suppliers, company, currentUs
   const supplier = (suppliers || []).find((s) => s.id === order.dodavatelId);
   const materialTypStr = materialTypText(supplier ? supplier.typ : null, MATERIAL_ORDER_EMAIL_I18N.sk);
   const [to, setTo] = useState(last ? last.to : defaultEmailFor(carrier, true));
-  const [cc, setCc] = useState(last ? (last.cc || "") : kopieEmailFor(carrier));
+  const [cc, setCc] = useState(sKopiouFirmy(last ? last.cc : kopieEmailFor(carrier), company));
   const [manageEmails, setManageEmails] = useState(false);
   function pickCarrier(id) {
     const c = carriers.find((x) => x.id === id);
     setCarrierId(id);
     if (!last) {
       setTo(defaultEmailFor(c, true));
-      setCc(kopieEmailFor(c));
+      setCc(sKopiouFirmy(kopieEmailFor(c), company));
       const oldGreeting = `Dobrý den${carrier ? " " + carrier.nazov : ""},`;
       const newGreeting = `Dobrý den${c ? " " + c.nazov : ""},`;
       setBody((prev) => prev.replace(oldGreeting, newGreeting));
@@ -6634,7 +6638,7 @@ function MaterialSupplierOrderModal({ order, suppliers, company, currentUserName
   const lang = MATERIAL_ORDER_EMAIL_I18N[(supplier && supplier.jazyk) || "sk"] || MATERIAL_ORDER_EMAIL_I18N.sk;
   const materialTypStr = materialTypText(supplier ? supplier.typ : null, lang);
   const [to, setTo] = useState(last ? last.to : defaultEmailFor(supplier, true));
-  const [cc, setCc] = useState(last ? (last.cc || "") : kopieEmailFor(supplier));
+  const [cc, setCc] = useState(sKopiouFirmy(last ? last.cc : kopieEmailFor(supplier), company));
   const [subject, setSubject] = useState(last ? last.subject : lang.subject(materialTypStr, order.cisloObjednavkyDopravy));
   const vsetkyEmaily = generalPlusPurposeEmails(supplier);
   const terminText = order.terminDodaniaNeurcity ? lang.terminUpresneny : (order.terminDodania || lang.doplnte);
@@ -9162,6 +9166,7 @@ function CompanyView({ company, onSave }) {
             <CompanyInfoRow label="Telefon" value={company.tel} />
             <CompanyInfoRow label="Kontaktní osoba" value={company.kontaktnaOsoba} />
             <CompanyInfoRow label="E-mail" value={company.email} />
+            <CompanyInfoRow label="E-mail vždy do kopie (dodací listy, doprava, objednávky)" value={company.kopiaVzdy} />
             <CompanyInfoRow label="Anthropic API klíč" value={company.apiKey ? "•••• (nastaven)" : ""} />
             <CompanyInfoRow label="Poslední použité číslo objednávky" value={company.posledneCisloObjednavky} />
             <CompanyInfoRow label="Poslední použité číslo objednávky dopravy" value={company.posledneCisloDopravy} />
@@ -9206,6 +9211,7 @@ function CompanyView({ company, onSave }) {
         <Field label="Telefon" value={f.tel} onChange={(v) => setF({ ...f, tel: v })} />
         <Field label="Kontaktní osoba" value={f.kontaktnaOsoba} onChange={(v) => setF({ ...f, kontaktnaOsoba: v })} />
         <Field label="E-mail" value={f.email} onChange={(v) => setF({ ...f, email: v })} />
+        <Field label="E-mail vždy do kopie - dodací listy, objednávky dopravy, surovin a obalů, NVE (více adres oddělte středníkem)" value={f.kopiaVzdy || ""} onChange={(v) => setF({ ...f, kopiaVzdy: v })} />
         <Field label="Anthropic API klíč (pro AI extrakci z PDF, nepovinné)" value={f.apiKey || ""} onChange={(v) => setF({ ...f, apiKey: v })} type="password" />
         <EmailListEditor
           emaily={f.nveEmaily}
