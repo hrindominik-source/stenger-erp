@@ -41,7 +41,7 @@ import { downloadTextAsPdf, renderContainerToPdf } from "./lib/textPdf.js";
 import { downloadEmlDraft, emailyPreOutlook, rozdelEmaily } from "./lib/emlDraft.js";
 import { obsahBalenia, nazovSuboruDodaku, nazovSGramazou, dodakJenCesky, najdiProduktPolozky } from "./lib/lieferscheinObsah.js";
 import { najdiZakaznika, jeNasaFirma, zakaznikInstrukcie } from "./lib/zakaznikMatch.js";
-import { summarizeMonth, computeDayHours, shiftInterval, clampShiftStart } from "./lib/dochadzka.js";
+import { summarizeMonth, computeDayHours, shiftInterval, clampShiftStart, zaciatkyZmeny, pauzyNaOdpocet } from "./lib/dochadzka.js";
 
 const STATUS_ORDER = {
   "Prijata": "bg-slate-100 text-slate-700",
@@ -773,7 +773,7 @@ function OfficeApp({ userFullName, userEmail, onSignOut }) {
   const [productionOutputs, setProductionOutputs] = useState([]);
   const [prestavky, setPrestavky] = useState([]);
   const [pauzy, setPauzy] = useState([]);
-  const [dochadzkaNastavenia, setDochadzkaNastavenia] = useState({ zaciatokVyroba: "06:00", zaciatokSklad: "06:00" });
+  const [dochadzkaNastavenia, setDochadzkaNastavenia] = useState({ zaciatokVyroba: "06:00", zaciatokVyrobaNoc: "", zaciatokSklad: "" });
   const [ccpKontroly, setCcpKontroly] = useState([]);
   const [workers, setWorkers] = useState([]);
   const [ulohy, setUlohy] = useState([]);
@@ -8519,9 +8519,9 @@ function ProductionPlanView({ productionPlan, products, goodsReceipts, stockIssu
                             <div className="space-y-1">
                               {(() => {
                                 const typ = workersByMeno[s.meno]?.typ;
-                                const zaciatokZmeny = typ === "sklad" ? dochadzkaNastavenia?.zaciatokSklad : typ === "vyroba" ? dochadzkaNastavenia?.zaciatokVyroba : null;
+                                const zaciatokZmeny = zaciatkyZmeny(typ, dochadzkaNastavenia);
                                 return s.zaznamy.map((p) => {
-                                  const vypocet = computeDayHours(p, pauzy, zaciatokZmeny);
+                                  const vypocet = computeDayHours(p, pauzyNaOdpocet(pauzy, dochadzkaNastavenia), zaciatokZmeny);
                                   const raw = shiftInterval(p.datum, p.casZaciatku, p.casKonca);
                                   const clamped = raw && clampShiftStart(raw, zaciatokZmeny);
                                   const orezano = raw && clamped && clamped.start.getTime() !== raw.start.getTime();
@@ -8533,7 +8533,7 @@ function ProductionPlanView({ productionPlan, products, goodsReceipts, stockIssu
                                           <span className="text-slate-400">
                                             {" "}
                                             - k výplatě {formatMinutes(vypocet.totalMin)}
-                                            {orezano && ` (počítáno od ${zaciatokZmeny})`}
+                                            {orezano && ` (počítáno od ${String(clamped.start.getHours()).padStart(2, "0")}:${String(clamped.start.getMinutes()).padStart(2, "0")})`}
                                           </span>
                                         )}
                                       </div>
@@ -8849,10 +8849,10 @@ function PrestavkaEditModal({ prestavka, title, onClose, onSave }) {
 }
 
 function DochadzkaNastaveniaModal({ nastavenia, onClose, onSave }) {
-  const [f, setF] = useState({ zaciatokVyroba: nastavenia?.zaciatokVyroba || "06:00", zaciatokSklad: nastavenia?.zaciatokSklad || "06:00" });
+  const [f, setF] = useState({ zaciatokVyroba: nastavenia?.zaciatokVyroba || "06:00", zaciatokVyrobaNoc: nastavenia?.zaciatokVyrobaNoc || "", zaciatokSklad: nastavenia?.zaciatokSklad ?? "" });
 
   function save() {
-    const zmeneno = f.zaciatokVyroba !== (nastavenia?.zaciatokVyroba || "06:00") || f.zaciatokSklad !== (nastavenia?.zaciatokSklad || "06:00");
+    const zmeneno = f.zaciatokVyroba !== (nastavenia?.zaciatokVyroba || "06:00") || f.zaciatokVyrobaNoc !== (nastavenia?.zaciatokVyrobaNoc || "") || f.zaciatokSklad !== (nastavenia?.zaciatokSklad ?? "");
     if (zmeneno && !window.confirm("Změna začátku směny přepočítá i už uzavřené měsíce zpětně (mzdové hodiny se počítají vždy naživo z aktuálního nastavení). Pokud jste už nějaký měsíc odeslali do mezd, jeho čísla se tímto změní. Opravdu pokračovat?")) {
       return;
     }
@@ -8866,11 +8866,15 @@ function DochadzkaNastaveniaModal({ nastavenia, onClose, onSave }) {
       </p>
       <div className="grid grid-cols-2 gap-x-3">
         <div className="mb-3">
-          <label className="block text-xs font-medium text-slate-500 mb-1">Začátek směny - Výroba</label>
+          <label className="block text-xs font-medium text-slate-500 mb-1">Začátek směny - Výroba (denní)</label>
           <input type="time" value={f.zaciatokVyroba} onChange={(e) => setF({ ...f, zaciatokVyroba: e.target.value })} className="w-full border border-slate-200 rounded-md px-3 py-2 text-sm" />
         </div>
         <div className="mb-3">
-          <label className="block text-xs font-medium text-slate-500 mb-1">Začátek směny - Sklad</label>
+          <label className="block text-xs font-medium text-slate-500 mb-1">Začátek směny - Výroba (noční)</label>
+          <input type="time" value={f.zaciatokVyrobaNoc} onChange={(e) => setF({ ...f, zaciatokVyrobaNoc: e.target.value })} className="w-full border border-slate-200 rounded-md px-3 py-2 text-sm" />
+        </div>
+        <div className="mb-3">
+          <label className="block text-xs font-medium text-slate-500 mb-1">Začátek směny - Sklad (prázdné = přesně podle ťuknutí)</label>
           <input type="time" value={f.zaciatokSklad} onChange={(e) => setF({ ...f, zaciatokSklad: e.target.value })} className="w-full border border-slate-200 rounded-md px-3 py-2 text-sm" />
         </div>
       </div>
