@@ -28,6 +28,15 @@ describe("Lieferschein HTML", () => {
     expect(h).toContain("452 KRT");
     expect(h).toContain("6 780");
   });
+  it("cisto cesky dodak (karta zakaznika: Jen česky) - bez nemciny", () => {
+    const h = buildLieferscheinDocHtml({ ...data, cs: true, polozky: [data.polozky[0], data.polozky[0]] });
+    for (const t of ["DODACÍ LIST", "Datum dodání", "Objednávka", "Č. přepravy", "Dodavatel", "Odběratel", "Adresa dodání", "DIČ: DE1", "Palety", "Označení zboží", "Celkem", "11 dvoupatrové", "22 europalety", "11 pal. místa", "Vystavil", "SPZ", "Převzato", "Vydáno", "Datum, podpis, razítko"]) {
+      expect(h).toContain(t);
+    }
+    for (const t of ["LIEFERSCHEIN", "Lieferschein", "Lieferdatum", "Bestellung", "Lieferant", "Abnehmer", "USt-IdNr", "Paletten", "Kartons", "Summe", "Doppelstock", "Europaletten", "Stellplätze", "Kennzeichen", "Unterschrift", "Übernommen", "Ausgegeben", " / "]) {
+      expect(h).not.toContain(t);
+    }
+  });
   it("adresa dodania: GLN zvlast, PSC oznacene", () => {
     const k = rozdelAdresuDodania("K+K Klaas & Kock B.V. & Co. KG, GLN: 4305430009996, Zentrallager, Bessemer Straße 5, 48599 Gronau", "K+K Klaas  & Kock B.V. & Co. KG");
     expect(k.riadky.map((r) => r.text)).toEqual(["Zentrallager", "Bessemer Straße 5", "48599 Gronau"]);

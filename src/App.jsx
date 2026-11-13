@@ -40,7 +40,7 @@ import { diffProductionPlanFields, isPlanZmenaActive, formatZmenaText } from "./
 import { getCnbRate } from "./lib/exchangeRate.js";
 import { downloadTextAsPdf, renderContainerToPdf } from "./lib/textPdf.js";
 import { downloadEmlDraft, emailyPreOutlook, rozdelEmaily } from "./lib/emlDraft.js";
-import { obsahBalenia, nazovSuboruDodaku, nazovSGramazou } from "./lib/lieferscheinObsah.js";
+import { obsahBalenia, nazovSuboruDodaku, nazovSGramazou, dodakJenCesky } from "./lib/lieferscheinObsah.js";
 import { najdiZakaznika, jeNasaFirma, zakaznikInstrukcie } from "./lib/zakaznikMatch.js";
 import { summarizeMonth, computeDayHours, shiftInterval, clampShiftStart } from "./lib/dochadzka.js";
 
@@ -4047,6 +4047,7 @@ function computeKusyFromKarton(karton, produkt) {
 // Data pre dodaci list (spolocne pre tlac, PDF aj nahlad) - polozky s
 // napojenym Produktom, dopocitane palety a kusy.
 function lieferscheinData({ company, customer, order, carrierName, transportPrice, products }) {
+  const cs = dodakJenCesky(customer);
   const items = ((order.polozky && order.polozky.length > 0) ? order.polozky : [{ popis: order.popisTovaru || "", artikel: "", palet: order.pocetPaliet || "", karton: order.pocetKartonov || "" }])
     .map((it) => {
       const p = findProduktForItem(it, customer, products);
@@ -4054,7 +4055,7 @@ function lieferscheinData({ company, customer, order, carrierName, transportPric
         palet: it.palet || computePaletFromKarton(it.karton, it.artikel, customer, products) || "",
         karton: it.karton,
         popis: nazovSGramazou(it.popis, p),
-        inhlt: obsahBalenia(p),
+        inhlt: obsahBalenia(p, cs),
         eanUK: p && p.eanKarton,
         eanVE: p && p.eanUnit,
         rspo: !!(p && p.rspo),
@@ -4068,7 +4069,7 @@ function lieferscheinData({ company, customer, order, carrierName, transportPric
   const totalPaliet = sumPaliet > 0 ? sumPaliet : (order.pocetPaliet || 0);
   // cena dopravy v rovnakom formate ako doteraz (formatPriceNumber)
   const cena = transportPrice && transportPrice.matched ? { matched: true, total: transportPrice.total, text: formatPriceNumber(transportPrice.total) } : null;
-  return { company, customer, order, carrierName, transportPrice: cena, polozky: items, totalPaliet, rspoKod: RSPO_CERT_CODE };
+  return { company, customer, order, carrierName, transportPrice: cena, polozky: items, totalPaliet, rspoKod: RSPO_CERT_CODE, cs };
 }
 
 // Tlac: A4 s okrajmi 8 mm (PrintStyles) - pata s podpismi na spodku strany.
@@ -4101,11 +4102,13 @@ function DeliveryModal({ order, customers, carriers, company, pricelist, product
   const [email, setEmail] = useState(last ? bodkociarky(last.to) : bodkociarky(defaultEmail));
   const [cc, setCc] = useState(sKopiouFirmy(last ? last.cc : kopieEmailFor(customer), company));
   const mesto = extractCityFromAddress(order.adresaDodania) || order.adresaDodaniaNazov || "";
-  const [subject, setSubject] = useState(last ? last.subject : `Lieferschein / Dodací list č. ${order.cisloDodaciehoListu}${mesto ? " - " + mesto : ""}`);
+  const jenCesky = dodakJenCesky(customer);
+  const [subject, setSubject] = useState(last ? last.subject : ` č. ${order.cisloDodaciehoListu}${mesto ? " - " + mesto : ""}`);
   const transportPrice = computeTransportPrice(order, pricelist, extractCityFromAddress);
 
   const [body, setBody] = useState(
     last ? last.body :
+    jenCesky ? `Dobrý den,\n\nv příloze zasíláme dodací list k této objednávce.\n\nS pozdravem,\n${currentUserName || company.kontaktnaOsoba || ""}` :
     `Hello,\n\n` +
     `please find attached the delivery note for this order.\n\n` +
     `Have a nice day.\n\n` +
@@ -5029,6 +5032,7 @@ function CustomerModal({ customer, products, onClose, onSave }) {
       <Field label="ICO" value={f.ico} onChange={(v) => setF({ ...f, ico: v })} />
       <Field label="DIČ / Ust.-Id Nr." value={f.dic} onChange={(v) => setF({ ...f, dic: v })} />
       <Field label="E-mail (komu se posílá dodací list - oddělte středníkem (;), pokud je více adres)" value={f.email} onChange={(v) => setF({ ...f, email: v })} />
+      <SegmentedField label="Jazyk dodacího listu" value={f.jazykDodaku === "cs" ? "cs" : "de-cs"} onChange={(v) => setF({ ...f, jazykDodaku: v })} options={[{ value: "de-cs", label: "Německy + česky" }, { value: "cs", label: "Jen česky" }]} />
       <EmailListEditor emaily={f.emaily} onChange={(list) => setF({ ...f, emaily: list })} />
       <CatalogTable katalog={f.katalog} setKatalog={(k) => setF({ ...f, katalog: k })} products={products} />
       <div className="flex justify-end mt-2"><button onClick={() => onSave(f)} className="bg-teal-700 hover:bg-teal-800 text-white text-sm font-medium px-4 py-2 rounded-md">Uložit</button></div>
