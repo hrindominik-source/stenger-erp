@@ -7,6 +7,10 @@ describe("adresy", () => {
     expect(emailyPreOutlook(" a@x.test;b@y.test ,c@z.test\n")).toBe("a@x.test;b@y.test;c@z.test");
     expect(emailyPreOutlook("")).toBe("");
   });
+  it("kopia (Cc) v koncepte .eml", () => {
+    expect(buildEmlDraft({ to: "a@x.test", cc: "b@y.test; c@z.test" }, "H")).toContain("To: a@x.test\r\nCc: b@y.test, c@z.test\r\n");
+    expect(buildEmlDraft({ to: "a@x.test" }, "H")).not.toContain("Cc:");
+  });
   it("koncept .eml ma adresy podla normy (ciarka)", () => {
     expect(rozdelEmaily("a@x.test; b@y.test")).toEqual(["a@x.test", "b@y.test"]);
     expect(buildEmlDraft({ to: "a@x.test; b@y.test" }, "H")).toContain("To: a@x.test, b@y.test\r\n");

@@ -2505,8 +2505,9 @@ function PrintDocument({ id, title, subtitle, body, fontSize, lineHeight }) {
 }
 
 // viac adries: Outlook potrebuje bodkociarku (s ciarkou spravu neodosle)
-function buildMailto(to, subject, body) {
-  return `mailto:${emailyPreOutlook(to).split(";").map(encodeURIComponent).join(";")}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
+function buildMailto(to, subject, body, cc = "") {
+  const adresy = (s) => emailyPreOutlook(s).split(";").map(encodeURIComponent).join(";");
+  return `mailto:${adresy(to)}?${cc && emailyPreOutlook(cc) ? `cc=${adresy(cc)}&` : ""}subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
 }
 
 // Otvori prazdny tab SYNCHRONNE pred await (aby ho Safari/iné prehliadače
@@ -3829,10 +3830,17 @@ function EditOrderPage({ order, customers, products, onClose, onSave }) {
 // (emaily[]), bez duplicit. Obecny email sa NIKDY nepredvypna automaticky -
 // je dostupny len ako samostatne tlacidlo "Obecny" v EmailQuickPicks, ktore
 // si user musi vybrat rucne, ked ho naozaj potrebuje.
-function defaultEmailFor(entity) {
+// E-mail podla ucelu s oznacenim "Kopie"/"CC" ide do kopie, nie do pola Komu.
+function jeKopiaEmail(e) {
+  return /kopi|k[oó]pi|\bcc\b/i.test((e && e.label) || "");
+}
+function kopieEmailFor(entity) {
+  return defaultEmailFor(entity ? { emaily: (entity.emaily || []).filter(jeKopiaEmail) } : null);
+}
+function defaultEmailFor(entity, bezKopie = false) {
   if (!entity) return "";
   const all = [];
-  (entity.emaily || []).forEach((e) => {
+  (entity.emaily || []).filter((e) => !bezKopie || !jeKopiaEmail(e)).forEach((e) => {
     (e.email || "").split(",").map((s) => s.trim()).filter(Boolean).forEach((addr) => all.push(addr));
   });
   return [...new Set(all)].join(", ");
@@ -3842,6 +3850,18 @@ function generalPlusPurposeEmails(entity) {
   if (!entity || !entity.email) return purpose;
   return [{ label: "Obecný", email: entity.email }, ...purpose];
 }
+
+// Pole "Kopie (CC)" + rychly vyber e-mailov oznacenych "Kopie"/"CC".
+function KopiaEmailFields({ emaily, cc, setCc }) {
+  const kopie = (emaily || []).filter(jeKopiaEmail);
+  return (
+    <>
+      {kopie.length > 0 && <EmailQuickPicks emaily={kopie} value={cc} onPick={setCc} />}
+      <Field label="Kopie (CC)" value={cc} onChange={setCc} type="email" />
+    </>
+  );
+}
+const bezKopii = (emaily) => (emaily || []).filter((e) => !jeKopiaEmail(e));
 
 function EmailQuickPicks({ emaily, value, onPick }) {
   if (!emaily || emaily.length === 0) return null;
@@ -3878,13 +3898,15 @@ function TransportModal({ order, carriers, company, onClose, onSent, onUpdateCar
   const last = order.dopravaOdoslanaInfo;
   const [carrierId, setCarrierId] = useState(order.dopravcaId || defaultCarrierId(carriers));
   const carrier = carriers.find((c) => c.id === carrierId);
-  const [to, setTo] = useState(last ? last.to : defaultEmailFor(carrier));
+  const [to, setTo] = useState(last ? last.to : defaultEmailFor(carrier, true));
+  const [cc, setCc] = useState(last ? (last.cc || "") : kopieEmailFor(carrier));
   const [manageEmails, setManageEmails] = useState(false);
   function pickCarrier(id) {
     const c = carriers.find((x) => x.id === id);
     setCarrierId(id);
     if (!last) {
-      setTo(defaultEmailFor(c));
+      setTo(defaultEmailFor(c, true));
+      setCc(kopieEmailFor(c));
       const oldName = carrier ? carrier.nazov : "[dopravce]";
       const newName = c ? c.nazov : "[dopravce]";
       setBody((prev) => prev.replace(`PRO: ${oldName}`, `PRO: ${newName}`));
@@ -3909,10 +3931,10 @@ function TransportModal({ order, carriers, company, onClose, onSent, onUpdateCar
 
   return (
     <ModalShell title={"Objednávka dopravy - " + order.cisloObjednavkyDopravy} onClose={onClose} extraWide>
-      {last && <div className="mb-3 bg-emerald-50 text-emerald-800 text-xs px-3 py-2 rounded-md flex items-center gap-2"><CheckCircle2 size={14} /> Naposledy odesláno {formatDateTime(last.datum)} na {last.to}</div>}
+      {last && <div className="mb-3 bg-emerald-50 text-emerald-800 text-xs px-3 py-2 rounded-md flex items-center gap-2"><CheckCircle2 size={14} /> Naposledy odesláno {formatDateTime(last.datum)} na {last.to}{last.cc ? ` (kopie: ${last.cc})` : ""}</div>}
       <SelectField label="Dopravce" value={carrierId} onChange={pickCarrier} options={carriers.map((c) => ({ value: c.id, label: `${c.nazov} (${c.email})` }))} />
       <div className="mb-2">
-        <EmailQuickPicks emaily={generalPlusPurposeEmails(carrier)} value={to} onPick={setTo} />
+        <EmailQuickPicks emaily={bezKopii(generalPlusPurposeEmails(carrier))} value={to} onPick={setTo} />
         {carrier && (
           <button type="button" onClick={() => setManageEmails((v) => !v)} className="text-xs text-teal-700 hover:underline">
             {manageEmails ? "Skrýt správu e-mailů dopravce" : "Spravovat e-maily dopravce"}
@@ -3925,6 +3947,7 @@ function TransportModal({ order, carriers, company, onClose, onSent, onUpdateCar
         )}
       </div>
       <Field label="E-mail (komu)" value={to} onChange={setTo} type="email" />
+      <KopiaEmailFields emaily={generalPlusPurposeEmails(carrier)} cc={cc} setCc={setCc} />
       <Field label="Předmět" value={subject} onChange={setSubject} />
       <Field label="Text zprávy" value={body} onChange={setBody} textarea rows={18} />
       <div className="flex justify-end gap-2 mt-2">
@@ -3932,7 +3955,7 @@ function TransportModal({ order, carriers, company, onClose, onSent, onUpdateCar
         <button onClick={() => downloadTextAsPdf(`Objednavka_dopravy_${order.cisloObjednavkyDopravy.replace("/", "-")}.pdf`, subject, body)} className="bg-white border border-slate-200 hover:bg-slate-50 text-slate-700 text-sm font-medium px-4 py-2 rounded-md flex items-center gap-1.5">
           <Download size={16} /> Stáhnout PDF
         </button>
-        <a href={to ? buildMailto(to, subject, body) : "#"} onClick={() => to && onSent(carrierId, { subject, body, to, datum: new Date().toISOString() })} className={"bg-teal-700 hover:bg-teal-800 text-white text-sm font-medium px-4 py-2 rounded-md flex items-center gap-1.5 " + (!to ? "opacity-50 pointer-events-none" : "")}>
+        <a href={to ? buildMailto(to, subject, body, cc) : "#"} onClick={() => to && onSent(carrierId, { subject, body, to, cc, datum: new Date().toISOString() })} className={"bg-teal-700 hover:bg-teal-800 text-white text-sm font-medium px-4 py-2 rounded-md flex items-center gap-1.5 " + (!to ? "opacity-50 pointer-events-none" : "")}>
           <Truck size={16} /> Odeslat dopravci
         </a>
       </div>
@@ -4031,9 +4054,10 @@ function DeliveryModal({ order, customers, carriers, company, pricelist, product
   // len ako samostatne tlacidlo "Obecny" v EmailQuickPicks, ktore si user musi
   // vybrat rucne. Automaticky sa predvyplni len presne ucelovy email (podla
   // jeNemecko) alebo email, ktory uz bol pri objednavke zachyteny/pouzity skor.
-  const keywordMatched = pickEmailsByKeyword(customer && customer.emaily, jeNemecko ? ["leh", "cc"] : ["export"]);
+  const keywordMatched = pickEmailsByKeyword(bezKopii(customer && customer.emaily), jeNemecko ? ["leh", "cc"] : ["export"]);
   const defaultEmail = keywordMatched || order.zakaznikEmail || "";
   const [email, setEmail] = useState(last ? last.to : defaultEmail);
+  const [cc, setCc] = useState(last ? (last.cc || "") : kopieEmailFor(customer));
   const mesto = extractCityFromAddress(order.adresaDodania) || order.adresaDodaniaNazov || "";
   const [subject, setSubject] = useState(last ? last.subject : `Lieferschein / Dodací list č. ${order.cisloDodaciehoListu}${mesto ? " - " + mesto : ""}`);
   const transportPrice = computeTransportPrice(order, pricelist, extractCityFromAddress);
@@ -4084,8 +4108,8 @@ function DeliveryModal({ order, customers, carriers, company, pricelist, product
     setPdfBusy(true);
     try {
       const bytes = await renderPdf(true);
-      downloadEmlDraft(`${pdfBaseName}.eml`, { to: email, subject, body, attachments: [{ filename: `${pdfBaseName}.pdf`, contentType: "application/pdf", bytes }] });
-      onSent(email, { subject, body, to: email, datum: new Date().toISOString() });
+      downloadEmlDraft(`${pdfBaseName}.eml`, { to: email, cc, subject, body, attachments: [{ filename: `${pdfBaseName}.pdf`, contentType: "application/pdf", bytes }] });
+      onSent(email, { subject, body, to: email, cc, datum: new Date().toISOString() });
     } finally {
       setPdfBusy(false);
     }
@@ -4097,10 +4121,11 @@ function DeliveryModal({ order, customers, carriers, company, pricelist, product
   return (
     <ModalShell title={"Dodací list - " + order.cisloDodaciehoListu} onClose={onClose} wide>
       <LieferscheinPrintTable id={printId} company={company} customer={customer} order={order} carrierName={carrier ? carrier.nazov : ""} transportPrice={transportPrice} products={products} />
-      {last && <div className="mb-3 bg-emerald-50 text-emerald-800 text-xs px-3 py-2 rounded-md flex items-center gap-2"><CheckCircle2 size={14} /> Naposledy odesláno {formatDateTime(last.datum)} na {last.to}</div>}
+      {last && <div className="mb-3 bg-emerald-50 text-emerald-800 text-xs px-3 py-2 rounded-md flex items-center gap-2"><CheckCircle2 size={14} /> Naposledy odesláno {formatDateTime(last.datum)} na {last.to}{last.cc ? ` (kopie: ${last.cc})` : ""}</div>}
       <p className="text-xs text-slate-400 mb-3">„Odeslat e-mailem“ stáhne koncept e-mailu (.eml) s dodacím listem v PDF jako přílohou – otevřete ho (v liště stažených souborů) a v Outlooku se zobrazí jako nová zpráva připravená k odeslání. Pokud se otevře jinde, použijte „E-mail bez přílohy“ a PDF přiložte ručně.</p>
-      <EmailQuickPicks emaily={generalPlusPurposeEmails(customer)} value={email} onPick={setEmail} />
+      <EmailQuickPicks emaily={bezKopii(generalPlusPurposeEmails(customer))} value={email} onPick={setEmail} />
       <Field label="E-mail (kolegové v Německu)" value={email} onChange={setEmail} type="email" />
+      <KopiaEmailFields emaily={generalPlusPurposeEmails(customer)} cc={cc} setCc={setCc} />
       <Field label="Předmět" value={subject} onChange={setSubject} />
       <Field label="Text zprávy (e-mail)" value={body} onChange={setBody} textarea />
       <div className="flex justify-end gap-2 mt-2 flex-wrap">
@@ -4110,7 +4135,7 @@ function DeliveryModal({ order, customers, carriers, company, pricelist, product
           {pdfBusy ? <Loader2 size={16} className="animate-spin" /> : <Download size={16} />} Stáhnout PDF
         </button>
         <button onClick={handlePrint} className="bg-white border border-slate-200 hover:bg-slate-50 text-slate-700 text-sm font-medium px-4 py-2 rounded-md flex items-center gap-1.5"><Printer size={16} /> Vytisknout</button>
-        <a href={email ? buildMailto(email, subject, body) : "#"} onClick={() => email && onSent(email, { subject, body, to: email, datum: new Date().toISOString() })} className={"bg-white border border-slate-200 hover:bg-slate-50 text-slate-700 text-sm font-medium px-4 py-2 rounded-md flex items-center gap-1.5 " + (!email ? "opacity-50 pointer-events-none" : "")}>
+        <a href={email ? buildMailto(email, subject, body, cc) : "#"} onClick={() => email && onSent(email, { subject, body, to: email, cc, datum: new Date().toISOString() })} className={"bg-white border border-slate-200 hover:bg-slate-50 text-slate-700 text-sm font-medium px-4 py-2 rounded-md flex items-center gap-1.5 " + (!email ? "opacity-50 pointer-events-none" : "")}>
           <Mail size={16} /> E-mail bez přílohy
         </a>
         <button onClick={handleSendEml} disabled={!email || pdfBusy} className="bg-teal-700 hover:bg-teal-800 disabled:opacity-50 text-white text-sm font-medium px-4 py-2 rounded-md flex items-center gap-1.5">
@@ -4324,8 +4349,10 @@ function NveListModal({ order, company, onClose, onSave, onSent }) {
   }
 
   const jeNemecko = isGermanDelivery(order);
-  const defaultTo = ((jeNemecko ? company.nveEmaily : company.nveEmailyExport) || []).map((e) => e.email).join(", ");
+  const nveSkupina = (jeNemecko ? company.nveEmaily : company.nveEmailyExport) || [];
+  const defaultTo = bezKopii(nveSkupina).map((e) => e.email).join(", ");
   const [to, setTo] = useState(last ? last.to : defaultTo);
+  const [cc, setCc] = useState(last ? (last.cc || "") : nveSkupina.filter(jeKopiaEmail).map((e) => e.email).join(", "));
   const [subject, setSubject] = useState(last ? last.subject : subjectFor(order.nveListFileName));
   const [body, setBody] = useState(
     last ? last.body :
@@ -4387,14 +4414,15 @@ function NveListModal({ order, company, onClose, onSave, onSent }) {
       {!order.nveListPath && (
         <div className="mb-3 bg-amber-50 text-amber-800 text-xs px-3 py-2 rounded-md flex items-center gap-2"><AlertCircle size={14} /> Nejprve nahrajte NVE list, poté připravte e-mail.</div>
       )}
-      {last && <div className="mb-3 bg-emerald-50 text-emerald-800 text-xs px-3 py-2 rounded-md flex items-center gap-2"><CheckCircle2 size={14} /> Naposledy odesláno {formatDateTime(last.datum)} na {last.to}</div>}
+      {last && <div className="mb-3 bg-emerald-50 text-emerald-800 text-xs px-3 py-2 rounded-md flex items-center gap-2"><CheckCircle2 size={14} /> Naposledy odesláno {formatDateTime(last.datum)} na {last.to}{last.cc ? ` (kopie: ${last.cc})` : ""}</div>}
 
       <div className="mb-2 text-xs text-slate-500">
         Podle místa dodání rozpoznáno jako: <b>{jeNemecko ? "Německo" : "Export (mimo Německo)"}</b> - pokud to neodpovídá, přidejte e-maily ručně z druhé skupiny níže.
       </div>
-      <EmailQuickPicks emaily={company.nveEmaily} value={to} onPick={setTo} />
-      <EmailQuickPicks emaily={company.nveEmailyExport} value={to} onPick={setTo} />
+      <EmailQuickPicks emaily={bezKopii(company.nveEmaily)} value={to} onPick={setTo} />
+      <EmailQuickPicks emaily={bezKopii(company.nveEmailyExport)} value={to} onPick={setTo} />
       <Field label="E-mail (komu) - oddělte čárkou při více adresách" value={to} onChange={setTo} />
+      <KopiaEmailFields emaily={[...(company.nveEmaily || []), ...(company.nveEmailyExport || [])]} cc={cc} setCc={setCc} />
       <Field label="Předmět" value={subject} onChange={setSubject} />
       <Field label="Text zprávy" value={body} onChange={setBody} textarea rows={8} />
       <p className="text-xs text-slate-400 mb-2">Příloha se přes mailto odkaz nepřipojuje automaticky - po kliknutí na "Otevřít e-mail" přetáhněte stažený soubor do otevřeného draftu.</p>
@@ -4405,8 +4433,8 @@ function NveListModal({ order, company, onClose, onSave, onSent }) {
           <button onClick={() => openNveListFile(order.nveListPath)} className="bg-white border border-slate-200 hover:bg-slate-50 text-slate-700 text-sm font-medium px-4 py-2 rounded-md flex items-center gap-1.5"><Download size={16} /> Stáhnout přílohu</button>
         )}
         <a
-          href={to && order.nveListPath ? buildMailto(to, subject, body) : "#"}
-          onClick={() => to && order.nveListPath && onSent({ subject, body, to, datum: new Date().toISOString() })}
+          href={to && order.nveListPath ? buildMailto(to, subject, body, cc) : "#"}
+          onClick={() => to && order.nveListPath && onSent({ subject, body, to, cc, datum: new Date().toISOString() })}
           className={"bg-teal-700 hover:bg-teal-800 text-white text-sm font-medium px-4 py-2 rounded-md flex items-center gap-1.5 " + (!to || !order.nveListPath ? "opacity-50 pointer-events-none" : "")}
         >
           <Mail size={16} /> Otevřít e-mail
@@ -6500,13 +6528,15 @@ function MaterialTransportModal({ order, carriers, suppliers, company, currentUs
   const carrier = carriers.find((c) => c.id === carrierId);
   const supplier = (suppliers || []).find((s) => s.id === order.dodavatelId);
   const materialTypStr = materialTypText(supplier ? supplier.typ : null, MATERIAL_ORDER_EMAIL_I18N.sk);
-  const [to, setTo] = useState(last ? last.to : defaultEmailFor(carrier));
+  const [to, setTo] = useState(last ? last.to : defaultEmailFor(carrier, true));
+  const [cc, setCc] = useState(last ? (last.cc || "") : kopieEmailFor(carrier));
   const [manageEmails, setManageEmails] = useState(false);
   function pickCarrier(id) {
     const c = carriers.find((x) => x.id === id);
     setCarrierId(id);
     if (!last) {
-      setTo(defaultEmailFor(c));
+      setTo(defaultEmailFor(c, true));
+      setCc(kopieEmailFor(c));
       const oldGreeting = `Dobrý den${carrier ? " " + carrier.nazov : ""},`;
       const newGreeting = `Dobrý den${c ? " " + c.nazov : ""},`;
       setBody((prev) => prev.replace(oldGreeting, newGreeting));
@@ -6530,10 +6560,10 @@ function MaterialTransportModal({ order, carriers, suppliers, company, currentUs
 
   return (
     <ModalShell title={"Objednávka dopravy - " + order.cisloObjednavkyDopravy} onClose={onClose} extraWide>
-      {last && <div className="mb-3 bg-emerald-50 text-emerald-800 text-xs px-3 py-2 rounded-md flex items-center gap-2"><CheckCircle2 size={14} /> Naposledy odesláno {formatDateTime(last.datum)} na {last.to}</div>}
+      {last && <div className="mb-3 bg-emerald-50 text-emerald-800 text-xs px-3 py-2 rounded-md flex items-center gap-2"><CheckCircle2 size={14} /> Naposledy odesláno {formatDateTime(last.datum)} na {last.to}{last.cc ? ` (kopie: ${last.cc})` : ""}</div>}
       <SelectField label="Dopravce" value={carrierId} onChange={pickCarrier} options={carriers.map((c) => ({ value: c.id, label: `${c.nazov} (${c.email})` }))} />
       <div className="mb-2">
-        <EmailQuickPicks emaily={generalPlusPurposeEmails(carrier)} value={to} onPick={setTo} />
+        <EmailQuickPicks emaily={bezKopii(generalPlusPurposeEmails(carrier))} value={to} onPick={setTo} />
         {carrier && (
           <button type="button" onClick={() => setManageEmails((v) => !v)} className="text-xs text-teal-700 hover:underline">
             {manageEmails ? "Skrýt správu e-mailů dopravce" : "Spravovat e-maily dopravce"}
@@ -6546,11 +6576,12 @@ function MaterialTransportModal({ order, carriers, suppliers, company, currentUs
         )}
       </div>
       <Field label="E-mail (komu)" value={to} onChange={setTo} type="email" />
+      <KopiaEmailFields emaily={generalPlusPurposeEmails(carrier)} cc={cc} setCc={setCc} />
       <Field label="Předmět" value={subject} onChange={setSubject} />
       <Field label="Text zprávy" value={body} onChange={setBody} textarea rows={18} />
       <div className="flex justify-end gap-2 mt-2">
         <button onClick={onClose} className="text-sm text-slate-500 px-3 py-2">Zrušit</button>
-        <a href={to ? buildMailto(to, subject, body) : "#"} onClick={() => to && onSent(carrierId, { subject, body, to, datum: new Date().toISOString() })} className={"bg-teal-700 hover:bg-teal-800 text-white text-sm font-medium px-4 py-2 rounded-md flex items-center gap-1.5 " + (!to ? "opacity-50 pointer-events-none" : "")}>
+        <a href={to ? buildMailto(to, subject, body, cc) : "#"} onClick={() => to && onSent(carrierId, { subject, body, to, cc, datum: new Date().toISOString() })} className={"bg-teal-700 hover:bg-teal-800 text-white text-sm font-medium px-4 py-2 rounded-md flex items-center gap-1.5 " + (!to ? "opacity-50 pointer-events-none" : "")}>
           <Truck size={16} /> Odeslat dopravci
         </a>
       </div>
@@ -6564,8 +6595,10 @@ function MaterialSupplierOrderModal({ order, suppliers, company, currentUserName
   const dodavatelNazov = order.dodavatel || (supplier ? supplier.nazov : "");
   const lang = MATERIAL_ORDER_EMAIL_I18N[(supplier && supplier.jazyk) || "sk"] || MATERIAL_ORDER_EMAIL_I18N.sk;
   const materialTypStr = materialTypText(supplier ? supplier.typ : null, lang);
-  const [to, setTo] = useState(last ? last.to : defaultEmailFor(supplier));
+  const [to, setTo] = useState(last ? last.to : defaultEmailFor(supplier, true));
+  const [cc, setCc] = useState(last ? (last.cc || "") : kopieEmailFor(supplier));
   const [subject, setSubject] = useState(last ? last.subject : lang.subject(materialTypStr, order.cisloObjednavkyDopravy));
+  const vsetkyEmaily = generalPlusPurposeEmails(supplier);
   const terminText = order.terminDodaniaNeurcity ? lang.terminUpresneny : (order.terminDodania || lang.doplnte);
   const [body, setBody] = useState(
     last ? last.body :
@@ -6585,19 +6618,20 @@ function MaterialSupplierOrderModal({ order, suppliers, company, currentUserName
 
   return (
     <ModalShell title={"Objednavka dodavatelovi - " + order.cisloObjednavkyDopravy} onClose={onClose} extraWide>
-      {last && <div className="mb-3 bg-emerald-50 text-emerald-800 text-xs px-3 py-2 rounded-md flex items-center gap-2"><CheckCircle2 size={14} /> Naposledy odesláno {formatDateTime(last.datum)} na {last.to}</div>}
+      {last && <div className="mb-3 bg-emerald-50 text-emerald-800 text-xs px-3 py-2 rounded-md flex items-center gap-2"><CheckCircle2 size={14} /> Naposledy odesláno {formatDateTime(last.datum)} na {last.to}{last.cc ? ` (kopie: ${last.cc})` : ""}</div>}
       {supplier && supplier.jazyk && supplier.jazyk !== "sk" && (
         <div className="mb-3 bg-amber-50 text-amber-800 text-xs px-3 py-2 rounded-md flex items-center gap-2">
           <AlertCircle size={14} /> Dodavatel ma nastaveny jazyk komunikacie: {(MATERIAL_JAZYK_OPTIONS.find((o) => o.value === supplier.jazyk) || {}).label}. Text nizsie je predvyplneny v tomto jazyku.
         </div>
       )}
-      <EmailQuickPicks emaily={generalPlusPurposeEmails(supplier)} value={to} onPick={setTo} />
+      <EmailQuickPicks emaily={bezKopii(vsetkyEmaily)} value={to} onPick={setTo} />
       <Field label="E-mail (komu)" value={to} onChange={setTo} type="email" />
+      <KopiaEmailFields emaily={vsetkyEmaily} cc={cc} setCc={setCc} />
       <Field label="Předmět" value={subject} onChange={setSubject} />
       <Field label="Text zprávy" value={body} onChange={setBody} textarea rows={18} />
       <div className="flex justify-end gap-2 mt-2">
         <button onClick={onClose} className="text-sm text-slate-500 px-3 py-2">Zrušit</button>
-        <a href={to ? buildMailto(to, subject, body) : "#"} onClick={() => to && onSent({ subject, body, to, datum: new Date().toISOString() })} className={"bg-teal-700 hover:bg-teal-800 text-white text-sm font-medium px-4 py-2 rounded-md flex items-center gap-1.5 " + (!to ? "opacity-50 pointer-events-none" : "")}>
+        <a href={to ? buildMailto(to, subject, body, cc) : "#"} onClick={() => to && onSent({ subject, body, to, cc, datum: new Date().toISOString() })} className={"bg-teal-700 hover:bg-teal-800 text-white text-sm font-medium px-4 py-2 rounded-md flex items-center gap-1.5 " + (!to ? "opacity-50 pointer-events-none" : "")}>
           <Mail size={16} /> Odeslat dodavateli
         </a>
       </div>
