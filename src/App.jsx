@@ -2806,14 +2806,14 @@ function ModalShell({ title, onClose, children, wide, extraWide }) {
   );
 }
 
-function Field({ label, value, onChange, textarea, rows, type }) {
+function Field({ label, value, onChange, textarea, rows, type, onBlur }) {
   return (
     <label className="block mb-3">
       <span className="block text-xs font-medium text-slate-500 mb-1">{label}</span>
       {textarea ? (
         <textarea value={value} onChange={(e) => onChange(e.target.value)} rows={rows || 3} className="w-full border border-slate-200 rounded-md px-2.5 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-teal-600" />
       ) : (
-        <input type={type || "text"} value={value} onChange={(e) => onChange(e.target.value)} className="w-full border border-slate-200 rounded-md px-2.5 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-teal-600" />
+        <input type={type || "text"} value={value} onChange={(e) => onChange(e.target.value)} onBlur={onBlur ? (e) => onBlur(e.target.value) : undefined} className="w-full border border-slate-200 rounded-md px-2.5 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-teal-600" />
       )}
     </label>
   );
@@ -3869,6 +3869,10 @@ function jeKopiaEmail(e) {
   return /kopi|k[oó]pi|\bcc\b/i.test((e && e.label) || "");
 }
 // E-mail(y) firmy, ktore idu vzdy do kopie (Nastaveni firmy) - pripoja sa k ostatnym.
+// Viac adries v poli Komu/Kopie - vzdy oddelene bodkociarkou (Outlook).
+function bodkociarky(s) {
+  return rozdelEmaily(s).join("; ");
+}
 function sKopiouFirmy(cc, company) {
   return [...new Set([...rozdelEmaily(cc), ...rozdelEmaily(company && company.kopiaVzdy)])].join("; ");
 }
@@ -3895,7 +3899,7 @@ function KopiaEmailFields({ emaily, cc, setCc }) {
   return (
     <>
       {kopie.length > 0 && <EmailQuickPicks emaily={kopie} value={cc} onPick={setCc} />}
-      <Field label="Kopie (CC)" value={cc} onChange={setCc} type="email" />
+      <Field label="Kopie (CC)" value={cc} onChange={setCc} onBlur={(v) => setCc(bodkociarky(v))} type="email" />
     </>
   );
 }
@@ -3936,7 +3940,7 @@ function TransportModal({ order, carriers, company, onClose, onSent, onUpdateCar
   const last = order.dopravaOdoslanaInfo;
   const [carrierId, setCarrierId] = useState(order.dopravcaId || defaultCarrierId(carriers));
   const carrier = carriers.find((c) => c.id === carrierId);
-  const [to, setTo] = useState(last ? last.to : defaultEmailFor(carrier, true));
+  const [to, setTo] = useState(last ? bodkociarky(last.to) : defaultEmailFor(carrier, true));
   const [cc, setCc] = useState(sKopiouFirmy(last ? last.cc : kopieEmailFor(carrier), company));
   const [manageEmails, setManageEmails] = useState(false);
   function pickCarrier(id) {
@@ -3984,7 +3988,7 @@ function TransportModal({ order, carriers, company, onClose, onSent, onUpdateCar
           </div>
         )}
       </div>
-      <Field label="E-mail (komu)" value={to} onChange={setTo} type="email" />
+      <Field label="E-mail (komu)" value={to} onChange={setTo} onBlur={(v) => setTo(bodkociarky(v))} type="email" />
       <KopiaEmailFields emaily={generalPlusPurposeEmails(carrier)} cc={cc} setCc={setCc} />
       <Field label="Předmět" value={subject} onChange={setSubject} />
       <Field label="Text zprávy" value={body} onChange={setBody} textarea rows={18} />
@@ -4094,7 +4098,7 @@ function DeliveryModal({ order, customers, carriers, company, pricelist, product
   // jeNemecko) alebo email, ktory uz bol pri objednavke zachyteny/pouzity skor.
   const keywordMatched = pickEmailsByKeyword(bezKopii(customer && customer.emaily), jeNemecko ? ["leh", "cc"] : ["export"]);
   const defaultEmail = keywordMatched || order.zakaznikEmail || "";
-  const [email, setEmail] = useState(last ? last.to : defaultEmail);
+  const [email, setEmail] = useState(last ? bodkociarky(last.to) : bodkociarky(defaultEmail));
   const [cc, setCc] = useState(sKopiouFirmy(last ? last.cc : kopieEmailFor(customer), company));
   const mesto = extractCityFromAddress(order.adresaDodania) || order.adresaDodaniaNazov || "";
   const [subject, setSubject] = useState(last ? last.subject : `Lieferschein / Dodací list č. ${order.cisloDodaciehoListu}${mesto ? " - " + mesto : ""}`);
@@ -4162,7 +4166,7 @@ function DeliveryModal({ order, customers, carriers, company, pricelist, product
       {last && <div className="mb-3 bg-emerald-50 text-emerald-800 text-xs px-3 py-2 rounded-md flex items-center gap-2"><CheckCircle2 size={14} /> Naposledy odesláno {formatDateTime(last.datum)} na {last.to}{last.cc ? ` (kopie: ${last.cc})` : ""}</div>}
       <p className="text-xs text-slate-400 mb-3">„Odeslat e-mailem“ stáhne koncept e-mailu (.eml) s dodacím listem v PDF jako přílohou – otevřete ho (v liště stažených souborů) a v Outlooku se zobrazí jako nová zpráva připravená k odeslání. Pokud se otevře jinde, použijte „E-mail bez přílohy“ a PDF přiložte ručně.</p>
       <EmailQuickPicks emaily={bezKopii(generalPlusPurposeEmails(customer))} value={email} onPick={setEmail} />
-      <Field label="E-mail (kolegové v Německu)" value={email} onChange={setEmail} type="email" />
+      <Field label="E-mail (kolegové v Německu)" value={email} onChange={setEmail} onBlur={(v) => setEmail(bodkociarky(v))} type="email" />
       <KopiaEmailFields emaily={generalPlusPurposeEmails(customer)} cc={cc} setCc={setCc} />
       <Field label="Předmět" value={subject} onChange={setSubject} />
       <Field label="Text zprávy (e-mail)" value={body} onChange={setBody} textarea />
@@ -4389,7 +4393,7 @@ function NveListModal({ order, company, onClose, onSave, onSent }) {
   const jeNemecko = isGermanDelivery(order);
   const nveSkupina = (jeNemecko ? company.nveEmaily : company.nveEmailyExport) || [];
   const defaultTo = rozdelEmaily(bezKopii(nveSkupina).map((e) => e.email).join(";")).join("; ");
-  const [to, setTo] = useState(last ? last.to : defaultTo);
+  const [to, setTo] = useState(last ? bodkociarky(last.to) : defaultTo);
   const [cc, setCc] = useState(sKopiouFirmy(last ? last.cc : nveSkupina.filter(jeKopiaEmail).map((e) => e.email).join(";"), company));
   const [subject, setSubject] = useState(last ? last.subject : subjectFor(order.nveListFileName));
   const [body, setBody] = useState(
@@ -4459,7 +4463,7 @@ function NveListModal({ order, company, onClose, onSave, onSent }) {
       </div>
       <EmailQuickPicks emaily={bezKopii(company.nveEmaily)} value={to} onPick={setTo} />
       <EmailQuickPicks emaily={bezKopii(company.nveEmailyExport)} value={to} onPick={setTo} />
-      <Field label="E-mail (komu) - oddělte středníkem (;) při více adresách" value={to} onChange={setTo} />
+      <Field label="E-mail (komu) - oddělte středníkem (;) při více adresách" value={to} onChange={setTo} onBlur={(v) => setTo(bodkociarky(v))} />
       <KopiaEmailFields emaily={[...(company.nveEmaily || []), ...(company.nveEmailyExport || [])]} cc={cc} setCc={setCc} />
       <Field label="Předmět" value={subject} onChange={setSubject} />
       <Field label="Text zprávy" value={body} onChange={setBody} textarea rows={8} />
@@ -6570,7 +6574,7 @@ function MaterialTransportModal({ order, carriers, suppliers, company, currentUs
   const carrier = carriers.find((c) => c.id === carrierId);
   const supplier = (suppliers || []).find((s) => s.id === order.dodavatelId);
   const materialTypStr = materialTypText(supplier ? supplier.typ : null, MATERIAL_ORDER_EMAIL_I18N.sk);
-  const [to, setTo] = useState(last ? last.to : defaultEmailFor(carrier, true));
+  const [to, setTo] = useState(last ? bodkociarky(last.to) : defaultEmailFor(carrier, true));
   const [cc, setCc] = useState(sKopiouFirmy(last ? last.cc : kopieEmailFor(carrier), company));
   const [manageEmails, setManageEmails] = useState(false);
   function pickCarrier(id) {
@@ -6617,7 +6621,7 @@ function MaterialTransportModal({ order, carriers, suppliers, company, currentUs
           </div>
         )}
       </div>
-      <Field label="E-mail (komu)" value={to} onChange={setTo} type="email" />
+      <Field label="E-mail (komu)" value={to} onChange={setTo} onBlur={(v) => setTo(bodkociarky(v))} type="email" />
       <KopiaEmailFields emaily={generalPlusPurposeEmails(carrier)} cc={cc} setCc={setCc} />
       <Field label="Předmět" value={subject} onChange={setSubject} />
       <Field label="Text zprávy" value={body} onChange={setBody} textarea rows={18} />
@@ -6637,7 +6641,7 @@ function MaterialSupplierOrderModal({ order, suppliers, company, currentUserName
   const dodavatelNazov = order.dodavatel || (supplier ? supplier.nazov : "");
   const lang = MATERIAL_ORDER_EMAIL_I18N[(supplier && supplier.jazyk) || "sk"] || MATERIAL_ORDER_EMAIL_I18N.sk;
   const materialTypStr = materialTypText(supplier ? supplier.typ : null, lang);
-  const [to, setTo] = useState(last ? last.to : defaultEmailFor(supplier, true));
+  const [to, setTo] = useState(last ? bodkociarky(last.to) : defaultEmailFor(supplier, true));
   const [cc, setCc] = useState(sKopiouFirmy(last ? last.cc : kopieEmailFor(supplier), company));
   const [subject, setSubject] = useState(last ? last.subject : lang.subject(materialTypStr, order.cisloObjednavkyDopravy));
   const vsetkyEmaily = generalPlusPurposeEmails(supplier);
@@ -6667,7 +6671,7 @@ function MaterialSupplierOrderModal({ order, suppliers, company, currentUserName
         </div>
       )}
       <EmailQuickPicks emaily={bezKopii(vsetkyEmaily)} value={to} onPick={setTo} />
-      <Field label="E-mail (komu)" value={to} onChange={setTo} type="email" />
+      <Field label="E-mail (komu)" value={to} onChange={setTo} onBlur={(v) => setTo(bodkociarky(v))} type="email" />
       <KopiaEmailFields emaily={vsetkyEmaily} cc={cc} setCc={setCc} />
       <Field label="Předmět" value={subject} onChange={setSubject} />
       <Field label="Text zprávy" value={body} onChange={setBody} textarea rows={18} />
